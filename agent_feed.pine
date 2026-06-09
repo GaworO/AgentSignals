@@ -1,0 +1,9 @@
+//@version=6
+indicator("Agent feed MNQ 1m", overlay = true)
+// Wysyla OHLC kazdego DOMKNIETEGO bara 1m jako JSON na /bars agenta.
+// Alert: condition = "Any alert() function call", "Once Per Bar Close", Webhook URL = https://<adres-agenta>/bars
+t = str.format_time(time, "yyyy-MM-dd HH:mm:ss", "UTC")
+msg = '{"ts_event":"' + t + '","open":' + str.tostring(open) +
+      ',"high":' + str.tostring(high) + ',"low":' + str.tostring(low) +
+      ',"close":' + str.tostring(close) + ',"volume":' + str.tostring(volume) + '}'
+alert(msg, alert.freq_once_per_bar_close)
