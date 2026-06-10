@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reżim Monitor · ICT NQ</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+:root{
+  --bg:#0a0a0a; --surface:#141414; --surface2:#1c1c1c; --border:#262626; --border2:#333;
+  --green:#4ade80; --green-dim:#0f2a1a; --green-mid:#1a3d2a;
+  --red:#f87171; --red-dim:#2a0f0f; --red-mid:#3d1a1a;
+  --amber:#fbbf24; --amber-dim:#2a1f08; --amber-mid:#3d2f0a;
+  --aqua:#22d3ee; --aqua-dim:#0a2a30;
+  --text:#ebebeb; --text-dim:#555; --text-mid:#888;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-weight:300;
+  min-height:100vh;padding:20px;max-width:880px;margin:0 auto}
+.mono{font-family:'DM Mono',monospace}
+.eyebrow{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.25em;text-transform:uppercase;color:var(--text-dim)}
+.topbar{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);
+  padding-bottom:14px;margin-bottom:22px}
+.topbar .title{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--green)}
+.topbar .ts{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;color:var(--text-dim)}
+
+/* HERO VERDICT — sygnatura */
+.verdict{border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:22px;position:relative}
+.verdict .bar{height:3px}
+.verdict .body{padding:26px 24px;display:flex;flex-direction:column;gap:14px}
+.verdict .state{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.verdict .dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;align-self:center}
+.verdict .word{font-size:38px;font-weight:600;letter-spacing:-.01em;line-height:1}
+.verdict .sub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-mid)}
+.verdict .directive{font-size:15px;font-weight:300;color:var(--text);max-width:62ch;line-height:1.5}
+.verdict.red{background:linear-gradient(180deg,var(--red-dim),transparent)}
+.verdict.red .bar{background:var(--red)} .verdict.red .dot{background:var(--red);box-shadow:0 0 14px var(--red)} .verdict.red .word{color:var(--red)}
+.verdict.amber{background:linear-gradient(180deg,var(--amber-dim),transparent)}
+.verdict.amber .bar{background:var(--amber)} .verdict.amber .dot{background:var(--amber);box-shadow:0 0 14px var(--amber)} .verdict.amber .word{color:var(--amber)}
+.verdict.green{background:linear-gradient(180deg,var(--green-dim),transparent)}
+.verdict.green .bar{background:var(--green)} .verdict.green .dot{background:var(--green);box-shadow:0 0 14px var(--green)} .verdict.green .word{color:var(--green)}
+
+/* GAUGES */
+.gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px}
+@media(max-width:620px){.gauges{grid-template-columns:1fr}}
+.gauge{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:16px}
+.gauge .lab{font-family:'DM Mono',monospace;font-size:8.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px}
+.gauge .val{font-family:'DM Mono',monospace;font-size:26px;font-weight:500;line-height:1}
+.gauge .note{font-size:11px;color:var(--text-mid);margin-top:8px;line-height:1.4}
+.gauge .track{height:4px;background:var(--surface2);border-radius:2px;margin-top:12px;position:relative;overflow:hidden}
+.gauge .fill{height:100%;border-radius:2px}
+.g-red .val{color:var(--red)} .g-red .fill{background:var(--red)}
+.g-amber .val{color:var(--amber)} .g-amber .fill{background:var(--amber)}
+.g-green .val{color:var(--green)} .g-green .fill{background:var(--green)}
+
+/* CHART */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:18px 18px 14px;margin-bottom:22px}
+.panel h3{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-mid);
+  font-weight:400;margin-bottom:4px}
+.panel .cap{font-size:11px;color:var(--text-dim);margin-bottom:14px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+
+/* DIRECTIVE + RULES */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+@media(max-width:620px){.cols{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:18px}
+.card .hd{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-dim);margin-bottom:12px}
+.todo li{list-style:none;font-size:13.5px;line-height:1.5;padding:7px 0 7px 18px;position:relative;border-bottom:1px solid var(--border)}
+.todo li:last-child{border-bottom:none}
+.todo li:before{content:"→";position:absolute;left:0;color:var(--red)}
+.rule{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;line-height:1.45;padding:7px 0;border-bottom:1px solid var(--border)}
+.rule:last-child{border-bottom:none}
+.rule .pill{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;text-transform:uppercase;padding:3px 7px;border-radius:3px;flex-shrink:0;margin-top:1px}
+.pill.r{background:var(--red-mid);color:var(--red)} .pill.a{background:var(--amber-mid);color:var(--amber)} .pill.g{background:var(--green-mid);color:var(--green)}
+
+.foot{font-size:11px;color:var(--text-dim);line-height:1.6;border-top:1px solid var(--border);padding-top:14px}
+.foot code{font-family:'DM Mono',monospace;color:var(--text-mid)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title">◇ Reżim Monitor — ICT NQ</div>
+  <div class="ts" id="stamp">—</div>
+</div>
+
+<!-- HERO -->
+<div class="verdict" id="verdict">
+  <div class="bar"></div>
+  <div class="body">
+    <div class="state">
+      <span class="dot"></span>
+      <span class="word" id="vWord">—</span>
+      <span class="sub" id="vSub"></span>
+    </div>
+    <div class="directive" id="vDirective"></div>
+  </div>
+</div>
+
+<!-- GAUGES -->
+<div class="gauges" id="gauges"></div>
+
+<!-- CHART -->
+<div class="panel">
+  <h3>Krzywa edge — P&L miesięczny + skumulowany</h3>
+  <div class="cap">Scale-out 1:3 · BE po 1R · SL 10–30 pkt · 0,5%/100k · po kosztach. Szara strefa = reżim wygasły.</div>
+  <div id="chart"></div>
+</div>
+
+<!-- DIRECTIVE + RULES -->
+<div class="cols">
+  <div class="card">
+    <div class="hd">Co robić teraz</div>
+    <ul class="todo" id="actions"></ul>
+  </div>
+  <div class="card">
+    <div class="hd">Reguły przełączania</div>
+    <div class="rule"><span class="pill g">Graj</span><span>Rolling PF (20 tradów) ≥ 1,6 <b>i</b> EV &gt; 0 — przewaga żywa, pełny rozmiar.</span></div>
+    <div class="rule"><span class="pill a">Ostrożnie</span><span>PF 1,2–1,6 — połowiczny rozmiar, tylko A-setupy. Strefa decyzji.</span></div>
+    <div class="rule"><span class="pill r">Stop</span><span>PF &lt; 1,2 <b>lub</b> 2 mies. z rzędu ≤ 0 (≥8 tradów) — paper / minimalny rozmiar.</span></div>
+    <div class="rule"><span class="pill a">Wczesny</span><span>Mediana SL setupów rośnie / spada liczba kwalifikujących — reżim psuje się <b>zanim</b> P&L to pokaże.</span></div>
+  </div>
+</div>
+
+<div class="foot">
+  Dane poglądowe = nasz backtest Databento (cze 2025 – maj 2026). Wersja live liczy te same metryki z dziennika agenta:
+  <code>…/journal</code> → rolling PF/EV na ostatnich ~20 tradach + szerokość SL z <code>…/candidates</code>.
+  Werdykt to nie zgadywanie — czyste reguły powyżej. Cel: nie siedzieć i nie zgadywać „zepsute czy tylko cicho".
+</div>
+
+<script>
+// ——— DANE (realne, z backtestu: BE+koszty, SL 10–30) ———
+const M = ['06.25','07.25','08.25','09.25','10.25','11.25','12.25','01.26','02.26','03.26','04.26','05.26'];
+const PNL = [155,7469,4560,1859,837,1483,4745,1819,288,-164,-151,127];
+const TR  = [8,14,8,7,17,4,10,7,5,4,8,1];
+const DEAD_FROM = 8; // indeks 02.26 = początek strefy wygasłej
+
+// ——— LOGIKA WERDYKTU (na oknie ostatnich 3 mies. jako proxy rolling-20) ———
+function pf(arr){const p=arr.filter(x=>x>0).reduce((a,b)=>a+b,0);const n=Math.abs(arr.filter(x=>x<=0).reduce((a,b)=>a+b,0));return n===0?99:p/n;}
+const W = PNL.slice(-3);                       // ostatnie 3 miesiące
+const rollPF = pf(W);
+const rollSum = W.reduce((a,b)=>a+b,0);
+const rollTr = TR.slice(-3).reduce((a,b)=>a+b,0);
+const rollEV = rollSum/rollTr;
+
+let state;
+if (rollPF>=1.6 && rollSum>0) state='green';
+else if (rollPF>=1.2) state='amber';
+else state='red';
+
+const V = {
+  red:   {word:'STOP', sub:'Reżim wygasły', dir:'Edge uśpiony od lutego — 4 miesiące płasko/na minus mimo dobrej reguły TP. Zejdź na paper albo minimalny rozmiar i czekaj na powrót. Forsowanie tradów tutaj to pułapka (w Twojej historii forced trade = 0% WR).'},
+  amber: {word:'OSTROŻNIE', sub:'Strefa decyzji', dir:'Przewaga niejednoznaczna. Połowiczny rozmiar, tylko najczystsze setupy, reszta pomijana. Obserwuj, czy rolling PF wraca nad 1,6, czy spada pod 1,2.'},
+  green: {word:'GRAJ', sub:'Przewaga żywa', dir:'Rolling PF i EV w zdrowym zakresie — pełny rozmiar wg planu (1/3 na 1:1, BE, runner na 1:3, SL 10–30).'}
+};
+
+// render verdict
+const vd=document.getElementById('verdict'); vd.classList.add(state);
+document.getElementById('vWord').textContent=V[state].word;
+document.getElementById('vSub').textContent='· '+V[state].sub;
+document.getElementById('vDirective').textContent=V[state].dir;
+document.getElementById('stamp').textContent='okno: '+M.slice(-3).join(' · ')+'  ·  '+rollTr+' tradów';
+
+// gauges
+function cls(ok,warn){return ok?'g-green':(warn?'g-amber':'g-red');}
+const pfCls = rollPF>=1.6?'g-green':(rollPF>=1.2?'g-amber':'g-red');
+const evCls = rollEV>50?'g-green':(rollEV>0?'g-amber':'g-red');
+const supplyCls='g-red'; // maj = 1 setup ≤30 -> podaż wyschła
+const gauges=[
+  {lab:'Rolling PF · 20 tradów', val:rollPF.toFixed(2), note:'próg: ≥1,6 graj · <1,2 stop', cls:pfCls, fill:Math.min(rollPF/2,1)},
+  {lab:'Rolling EV · na trade', val:(rollEV>=0?'+':'')+'$'+Math.round(rollEV), note:'oczekiwana wartość ostatnich tradów', cls:evCls, fill:Math.max(0,Math.min((rollEV+200)/400,1))},
+  {lab:'Podaż setupów ≤30 / mies.', val:TR[TR.length-1], note:'spada = rynek bez czystych wybić (wczesny sygnał)', cls:supplyCls, fill:0.15}
+];
+document.getElementById('gauges').innerHTML=gauges.map(g=>`
+  <div class="gauge ${g.cls}">
+    <div class="lab">${g.lab}</div>
+    <div class="val">${g.val}</div>
+    <div class="track"><div class="fill" style="width:${(g.fill*100).toFixed(0)}%"></div></div>
+    <div class="note">${g.note}</div>
+  </div>`).join('');
+
+// actions
+const acts = {
+  red:['Zejdź na paper lub minimalny rozmiar — nie handluj uśpionego edge realną kasą.','Nie forsuj tradów, gdy agent milczy — cisza to sygnał, nie usterka.','Monitoruj rolling PF — pełny rozmiar dopiero po powrocie nad 1,6.','Diagnoza: walk-forward, co odróżnia setupy lutego–maja (szersze SL? mniej?).'],
+  amber:['Połowiczny rozmiar.','Tylko A-setupy z pełną konfluencją — resztę pomijaj.','Pilnuj progu: PF<1,2 → stop, PF≥1,6 → pełny rozmiar.'],
+  green:['Pełny rozmiar wg planu.','Trzymaj się reguły wyjścia 1/3 @1R · BE · runner 1:3.','Sprawdzaj monitor raz dziennie — pierwszy czerwony = redukuj.']
+};
+document.getElementById('actions').innerHTML=acts[state].map(a=>`<li>${a}</li>`).join('');
+
+// ——— CHART (SVG, ręczny) ———
+(function(){
+  const W=820,H=240,padL=44,padR=16,padT=14,padB=26;
+  const iw=W-padL-padR, ih=H-padT-padB;
+  const maxBar=Math.max(...PNL), minBar=Math.min(...PNL,0);
+  const cum=[]; PNL.reduce((a,b,i)=>cum[i]=a+b,0);
+  const cumMax=Math.max(...cum);
+  const bw=iw/M.length;
+  const y0 = padT+ih*(maxBar/(maxBar-minBar)); // poziom zera dla słupków
+  function by(v){return padT + ih*((maxBar-v)/(maxBar-minBar));}
+  function cy(v){return padT + ih*(1-(v/cumMax));}
+  let s=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" font-family="DM Mono,monospace">`;
+  // dead zone
+  s+=`<rect x="${padL+bw*DEAD_FROM}" y="${padT}" width="${bw*(M.length-DEAD_FROM)}" height="${ih}" fill="#f87171" opacity="0.06"/>`;
+  s+=`<text x="${padL+bw*DEAD_FROM+6}" y="${padT+14}" fill="#f87171" font-size="8" letter-spacing="1.5" opacity="0.8">REŻIM WYGASŁY</text>`;
+  // zero line
+  s+=`<line x1="${padL}" y1="${y0}" x2="${W-padR}" y2="${y0}" stroke="#333" stroke-width="1"/>`;
+  // bars
+  PNL.forEach((v,i)=>{
+    const x=padL+bw*i+bw*0.18, w=bw*0.64;
+    const top=v>=0?by(v):y0, h=Math.abs(by(v)-y0);
+    const col=v>=0?'#4ade80':'#f87171', op=i>=DEAD_FROM?0.55:1;
+    s+=`<rect x="${x}" y="${top}" width="${w}" height="${Math.max(h,1)}" fill="${col}" opacity="${op}" rx="1"/>`;
+    s+=`<text x="${padL+bw*i+bw/2}" y="${H-10}" fill="#555" font-size="7.5" text-anchor="middle">${M[i].slice(0,2)}</text>`;
+  });
+  // cumulative line
+  let path=cum.map((v,i)=>`${i?'L':'M'}${padL+bw*i+bw/2},${cy(v)}`).join(' ');
+  s+=`<path d="${path}" fill="none" stroke="#22d3ee" stroke-width="1.6" opacity="0.9"/>`;
+  cum.forEach((v,i)=>{ s+=`<circle cx="${padL+bw*i+bw/2}" cy="${cy(v)}" r="2" fill="#22d3ee"/>`; });
+  // y label
+  s+=`<text x="0" y="${cy(cumMax)+3}" fill="#555" font-size="7.5">skumul. $${(cumMax/1000).toFixed(0)}k</text>`;
+  s+=`</svg>`;
+  document.getElementById('chart').innerHTML=s;
+})();
+</script>
+</body>
+</html>

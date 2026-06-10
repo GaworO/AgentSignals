@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apex Challenge — Plan 60 dni</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+:root{
+  --bg:#0a0a0a; --surface:#141414; --surface2:#1c1c1c; --border:#262626; --border2:#333;
+  --green:#4ade80; --green-dim:#0f2a1a; --green-mid:#1a3d2a;
+  --red:#f87171; --red-dim:#2a0f0f; --red-mid:#3d1a1a;
+  --amber:#fbbf24; --amber-dim:#2a1f08; --amber-mid:#3d2f0a;
+  --aqua:#22d3ee; --aqua-dim:#0a2a30;
+  --text:#ebebeb; --text-dim:#555; --text-mid:#888;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-weight:300;
+  min-height:100vh;padding:20px;max-width:920px;margin:0 auto}
+.mono{font-family:'DM Mono',monospace}
+.topbar{display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:8px;flex-wrap:wrap;gap:8px}
+.topbar .title{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--green)}
+.topbar .meta{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;color:var(--text-dim)}
+.sub{font-size:12px;color:var(--text-mid);margin-bottom:22px}
+
+/* PARAMS strip */
+.params{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}
+@media(max-width:620px){.params{grid-template-columns:repeat(2,1fr)}}
+.param{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:12px 14px}
+.param .l{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px}
+.param .v{font-family:'DM Mono',monospace;font-size:19px;font-weight:500}
+.param .v.g{color:var(--green)} .param .v.r{color:var(--red)}
+
+/* GATE — sygnatura */
+.gate{border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:24px;background:linear-gradient(180deg,var(--surface),transparent)}
+.gate .hd{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-mid);padding:14px 18px 0}
+.gate .steps{display:flex;flex-wrap:wrap;gap:0;padding:14px}
+.gstep{flex:1;min-width:150px;padding:12px 14px;border-left:2px solid var(--border2);margin:4px}
+.gstep .n{font-family:'DM Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:.1em}
+.gstep .q{font-size:14px;font-weight:500;margin:4px 0 5px}
+.gstep .d{font-size:11.5px;color:var(--text-mid);line-height:1.45}
+.gstep.stop{border-left-color:var(--red)}
+.gstep.cond{border-left-color:var(--amber)}
+.gstep.ok{border-left-color:var(--green)}
+.gate .verdict{border-top:1px solid var(--border);padding:14px 18px;display:flex;align-items:center;gap:12px;background:var(--red-dim)}
+.gate .verdict .dot{width:11px;height:11px;border-radius:50%;background:var(--red);box-shadow:0 0 12px var(--red)}
+.gate .verdict .t{font-size:13.5px}.gate .verdict .t b{color:var(--red)}
+
+/* SECTION */
+h2{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-mid);
+  font-weight:400;margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+
+/* CALENDAR */
+.cal-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text-mid);margin-bottom:14px}
+.cal-legend span{display:flex;align-items:center;gap:6px}
+.sw{width:10px;height:10px;border-radius:2px}
+.sw.r{background:var(--red)} .sw.a{background:var(--amber)} .sw.g{background:var(--green-mid)} .sw.h{background:var(--aqua)}
+.months{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:760px){.months{grid-template-columns:1fr}}
+.month{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:14px}
+.month .mh{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--text);margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.dow{font-family:'DM Mono',monospace;font-size:7.5px;color:var(--text-dim);text-align:center;padding-bottom:2px}
+.cell{aspect-ratio:1;border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-family:'DM Mono',monospace;font-size:10px;background:var(--surface2);color:var(--text-mid);position:relative;border:1px solid transparent}
+.cell.empty{background:transparent}
+.cell.past{opacity:.32}
+.cell.weekend{color:var(--text-dim);background:#101010}
+.cell.today{border-color:var(--aqua);color:var(--aqua)}
+.cell.r{background:var(--red-mid);color:var(--red);font-weight:500}
+.cell.a{background:var(--amber-mid);color:var(--amber)}
+.cell.h{background:var(--aqua-dim);color:var(--aqua)}
+.cell .tag{font-size:6px;letter-spacing:.04em;margin-top:1px;line-height:1}
+
+/* EVENT LISTS */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}
+@media(max-width:620px){.cols{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:16px}
+.card .ch{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:10px}
+.card.red .ch{color:var(--red)} .card.amber .ch{color:var(--amber)}
+.ev{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);font-size:12.5px;line-height:1.4}
+.ev:last-child{border-bottom:none}
+.ev .dt{font-family:'DM Mono',monospace;font-size:11px;color:var(--text);flex-shrink:0;width:54px}
+.ev .x{color:var(--text-mid)} .ev .x b{color:var(--text)}
+
+ul.disc{list-style:none}
+ul.disc li{font-size:13.5px;line-height:1.5;padding:8px 0 8px 20px;position:relative;border-bottom:1px solid var(--border)}
+ul.disc li:last-child{border-bottom:none}
+ul.disc li:before{content:"→";position:absolute;left:0;color:var(--green)}
+ul.disc li.no:before{content:"✕";color:var(--red)}
+
+.foot{font-size:11px;color:var(--text-dim);line-height:1.6;border-top:1px solid var(--border);padding-top:14px;margin-top:24px}
+.foot code{font-family:'DM Mono',monospace;color:var(--text-mid)}
+b.g{color:var(--green)} b.r{color:var(--red)} b.a{color:var(--amber)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title">◇ Apex 100k — Plan 60 dni</div>
+  <div class="meta" id="range">10.06.2026 – 10.08.2026</div>
+</div>
+<div class="sub">Plan oparty na nadchodzących newsach. Cel: zdać <b>nie tracąc w złe dni</b> — nie przez bohaterstwo w newsach.</div>
+
+<div class="params">
+  <div class="param"><div class="l">Cel zysku</div><div class="v g">$6 000</div></div>
+  <div class="param"><div class="l">Trailing drawdown</div><div class="v r">$3 000</div></div>
+  <div class="param"><div class="l">Ryzyko / trade</div><div class="v">$500 · 0,5%</div></div>
+  <div class="param"><div class="l">Okno</div><div class="v">NY PM 13:30–16:00</div></div>
+</div>
+
+<!-- GATE -->
+<div class="gate">
+  <div class="hd">Bramka przed KAŻDĄ sesją — wszystkie 4 na TAK, inaczej NIE grasz</div>
+  <div class="steps">
+    <div class="gstep stop"><div class="n">01 · REŻIM</div><div class="q">Monitor ≠ STOP?</div><div class="d">Sprawdź <code>/monitor</code>. Czerwony = nie handlujesz, kropka. Dziś: STOP.</div></div>
+    <div class="gstep stop"><div class="n">02 · NEWS</div><div class="q">Dzień ≠ czerwony?</div><div class="d">FOMC w oknie = absolutny brak tradu. Sprawdź kalendarz niżej.</div></div>
+    <div class="gstep cond"><div class="n">03 · OKNO</div><div class="q">Jesteś w NY PM?</div><div class="d">Tylko 13:30–16:00 ET. Twoja jedyna zyskowna sesja.</div></div>
+    <div class="gstep ok"><div class="n">04 · SETUP</div><div class="q">Potwierdzony?</div><div class="d">Alert agenta z BOS, SL 10–30 pkt, RR≥1. Brak = brak tradu.</div></div>
+  </div>
+  <div class="verdict">
+    <span class="dot"></span>
+    <span class="t">Status na dziś (10.06): <b>NIE GRAJ</b> — reżim STOP + dzień CPI (hot 0,5%). Bramka zatrzymuje już na kroku 01.</span>
+  </div>
+</div>
+
+<h2>Kalendarz 60 dni — kiedy NIE grać</h2>
+<div class="cal-legend">
+  <span><span class="sw r"></span> Czerwony — FOMC w oknie, HARD STOP</span>
+  <span><span class="sw a"></span> Żółty — dane 8:30 (CPI/NFP/PCE), oceń, domyślnie pomiń</span>
+  <span><span class="sw h"></span> Święto / krótka sesja</span>
+  <span><span class="sw g"></span> Czysty dzień — graj wg bramki</span>
+</div>
+<div class="months" id="months"></div>
+
+<h2>Czerwone dni — absolutny brak tradu</h2>
+<div class="cols">
+  <div class="card red">
+    <div class="ch">FOMC — event w Twoim oknie (14:00 ET)</div>
+    <div class="ev"><span class="dt">17.06</span><span class="x"><b>Decyzja FOMC + Powell 14:30</b> · posiedzenie z projekcjami (dot plot). Maks. zmienność dokładnie w NY PM.</span></div>
+    <div class="ev"><span class="dt">08.07</span><span class="x"><b>FOMC minutes 14:00</b> · publikacja protokołu w oknie — skoki na nagłówkach.</span></div>
+    <div class="ev"><span class="dt">29.07</span><span class="x"><b>Decyzja FOMC + Powell 14:30</b> · drugie posiedzenie w planie. HARD STOP.</span></div>
+  </div>
+  <div class="card amber">
+    <div class="ch">Żółte dni — dane 8:30 ET (przed oknem)</div>
+    <div class="ev"><span class="dt">10.06</span><span class="x">CPI maj — <b>hot 0,5% m/m</b>, dziś. Stąd −1,25% dzień.</span></div>
+    <div class="ev"><span class="dt">26.06</span><span class="x">PCE (maj) — ulubiona inflacja Fed.</span></div>
+    <div class="ev"><span class="dt">02.07</span><span class="x">NFP (czerwiec) — czwartek (03.07 święto).</span></div>
+    <div class="ev"><span class="dt">03.07</span><span class="x">Krótka sesja — Independence Day. Pomiń.</span></div>
+    <div class="ev"><span class="dt">14.07</span><span class="x">CPI (czerwiec).</span></div>
+    <div class="ev"><span class="dt">31.07</span><span class="x">PCE (czerwiec).</span></div>
+    <div class="ev"><span class="dt">07.08</span><span class="x">NFP (lipiec).</span></div>
+  </div>
+</div>
+<div class="sub" style="margin-top:12px">Żółte = event o 8:30 ET, <b>przed</b> Twoim oknem. Spike dzieje się rano; PM często zostaje szarpany. Reguła: wchodzisz tylko jeśli do 13:30 rynek ułożył czystą strukturę — inaczej pomijasz. Dla challenge'u: w razie wątpliwości <b class="r">pomiń</b> — jeden blown trade na newsie kosztuje trailing DD.</div>
+
+<h2>Dyscyplina — jak to zdać</h2>
+<div class="cols">
+  <div class="card">
+    <div class="ch" style="color:var(--green)">Rób</div>
+    <ul class="disc">
+      <li>Graj tylko gdy bramka = 4× TAK.</li>
+      <li>SL 10–30 pkt, wyjście 1/3 @1R · BE · runner 1:3.</li>
+      <li>Maks. ryzyko $500 (0,5%) — chroni trailing DD $3 000 (=6 stratnych z rzędu zanim problem).</li>
+      <li>Brak setupu / reżim STOP = <b class="g">dzień wolny to wygrana</b>.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="ch" style="color:var(--red)">Nie rób</div>
+    <ul class="disc">
+      <li class="no">Nie handluj czerwonych dni (FOMC) — nigdy.</li>
+      <li class="no">Nie forsuj tradu w reżimie STOP — w Twojej historii forced trade = 0% WR.</li>
+      <li class="no">Nie goń challenge'u w martwym reżimie — zegar tyka wolniej niż blown account.</li>
+      <li class="no">Nie powiększaj rozmiaru po stracie.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="foot">
+  Daty: FOMC 17.06 / 08.07(minutes) / 29.07 (federalreserve.gov), CPI 10.06 / 14.07, NFP 02.07 / 07.08, PCE 26.06 / 31.07 (BLS/BEA), wszystkie godziny ET.
+  Bramka i kalendarz to filtr „czy w ogóle dziś grać" — <b>przed</b> patrzeniem na setupy. Reżim na żywo: <code>/monitor</code>.
+  Twardy fakt na teraz (pewne): reżim STOP + okno pełne FOMC = pierwsze tygodnie planu to <b>cierpliwość, nie wciskanie</b>.
+</div>
+
+<script>
+const EV = {
+  '2026-06-10':['a','CPI'], '2026-06-16':['a','FOMC d1'], '2026-06-17':['r','FOMC'],
+  '2026-06-26':['a','PCE'],
+  '2026-07-02':['a','NFP'], '2026-07-03':['h','½ sesji'], '2026-07-08':['r','MINUTES'],
+  '2026-07-14':['a','CPI'], '2026-07-28':['a','FOMC d1'], '2026-07-29':['r','FOMC'], '2026-07-31':['a','PCE'],
+  '2026-08-07':['a','NFP']
+};
+const TODAY = new Date('2026-06-10');
+const DOW = ['Pn','Wt','Śr','Cz','Pt','So','Nd'];
+function pad(n){return String(n).padStart(2,'0');}
+function monthGrid(year, month, name){ // month 0-based
+  let html = `<div class="month"><div class="mh">${name} ${year}</div><div class="grid">`;
+  html += DOW.map(d=>`<div class="dow">${d}</div>`).join('');
+  let first = new Date(year,month,1).getDay(); // 0=Sun
+  let lead = (first===0?6:first-1); // Mon-start
+  for(let i=0;i<lead;i++) html+=`<div class="cell empty"></div>`;
+  const days = new Date(year,month+1,0).getDate();
+  for(let d=1; d<=days; d++){
+    const dt = new Date(year,month,d);
+    const key = `${year}-${pad(month+1)}-${pad(d)}`;
+    let cls='cell', tag='';
+    const wd = dt.getDay();
+    if(wd===0||wd===6) cls+=' weekend';
+    if(EV[key]){ cls+=' '+EV[key][0]; tag=`<span class="tag">${EV[key][1]}</span>`; }
+    if(dt < TODAY) cls+=' past';
+    if(+dt === +TODAY) cls+=' today';
+    html+=`<div class="${cls}">${d}${tag}</div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+document.getElementById('months').innerHTML =
+  monthGrid(2026,5,'Czerwiec') + monthGrid(2026,6,'Lipiec') + monthGrid(2026,7,'Sierpień');
+</script>
+</body>
+</html>
