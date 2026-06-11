@@ -210,10 +210,71 @@ def bars():
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
     return jsonify(ok=True, **res)
 
+def _wants_html():
+    return 'text/html' in request.headers.get('Accept', '')
+
+_VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans-serif;margin:0;padding:16px}"
+ "h1{font-size:18px;margin:0 0 2px}.sub{color:#555;font:11px monospace;margin-bottom:10px}"
+ ".nav{margin-bottom:12px;font:11px monospace}.nav a{color:#22d3ee;text-decoration:none;margin-right:14px}"
+ ".sum{color:#8a8a8a;font:12px monospace;margin-bottom:8px}"
+ ".wrap{overflow-x:auto;border:1px solid #262626;border-radius:6px}"
+ "table{border-collapse:collapse;width:100%;font:12px monospace}"
+ "th{position:sticky;top:0;background:#1c1c1c;color:#666;text-align:left;padding:7px 9px;"
+ "font:9px monospace;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #2a2a2a;white-space:nowrap}"
+ "td{padding:6px 9px;border-bottom:1px solid #1a1a1a;white-space:nowrap}"
+ "tr:hover td{background:#161616}tr.new td{background:#102a1a}tr.new td:first-child{border-left:2px solid #4ade80}"
+ ".bdg{background:#4ade80;color:#04210f;font:8px monospace;padding:1px 5px;border-radius:3px;margin-right:6px;text-transform:uppercase}"
+ ".empty{padding:20px;color:#555;font:12px monospace}</style>")
+_VIEW_NAV = ("<div class='nav'><a href='/journal'>journal</a><a href='/candidates'>candidates</a>"
+ "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a></div>")
+_TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
+_PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','result','pnl','rr']
+
+def _page(title, body):
+    return ("<!DOCTYPE html><html lang='pl'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>" + _VIEW_CSS +
+            "</head><body><h1>" + title + "</h1><div class='sub'>odśwież stronę, by zaktualizować</div>"
+            + _VIEW_NAV + body + "</body></html>")
+
+def _table(rows):
+    import html as _h
+    if not rows: return "<div class='empty'>brak rekordów</div>"
+    def tv(r):
+        for k in _TIMEKEYS:
+            if r.get(k) is not None:
+                try: return float(r[k])
+                except Exception: return 0.0
+        return 0.0
+    rows = sorted(rows, key=tv, reverse=True)
+    allk = []
+    for r in rows:
+        for k in r:
+            if k not in allk: allk.append(k)
+    keys = [k for k in _PREF if k in allk] + [k for k in allk if k not in _PREF]
+    th = ''.join("<th>%s</th>" % _h.escape(str(k)) for k in keys)
+    trs = ''
+    for i, r in enumerate(rows):
+        tds = ''
+        for j, k in enumerate(keys):
+            v = _h.escape(str(r.get(k, '')))
+            if i == 0 and j == 0: v = "<span class='bdg'>najnowszy</span>" + v
+            tds += "<td>%s</td>" % v
+        trs += "<tr class='%s'>%s</tr>" % ('new' if i == 0 else '', tds)
+    return "<div class='wrap'><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>" % (th, trs)
+
+def _kv_page(title, d):
+    import html as _h
+    body = "<div class='wrap'><table><tbody>"
+    for k, v in d.items():
+        val = json.dumps(v) if isinstance(v, (dict, list)) else v
+        body += "<tr><th style='width:170px'>%s</th><td>%s</td></tr>" % (_h.escape(str(k)), _h.escape(str(val)))
+    return _page(title, body + "</tbody></table></div>")
+
 @app.route('/status')
 def status():
     nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
     _last['bars_in_buffer']=nb
+    if _wants_html(): return _kv_page('Status', dict(primed=_primed, **_last))
     return jsonify(primed=_primed, **_last)
 
 @app.route('/health')
@@ -276,7 +337,9 @@ def chart(): return CHART_HTML
 def journal():
     c=sqlite3.connect(DB); c.row_factory=sqlite3.Row
     rows=[dict(r) for r in c.execute('SELECT * FROM signals ORDER BY bos DESC LIMIT 200')]
-    c.close(); return jsonify(signals=rows)
+    c.close()
+    if _wants_html(): return _page('Journal', _table(rows))
+    return jsonify(signals=rows)
 
 @app.route('/candidates')
 def candidates():
@@ -292,6 +355,9 @@ def candidates():
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
     rec=[r for r in tr if r.get('trig_ms',0)>=cut]
     rec.sort(key=lambda r:r.get('trig_ms',0))
+    if _wants_html():
+        _summ=' · '.join("%s: %s"%(k,v) for k,v in Counter(r['stage'] for r in rec).items())
+        return _page('Candidates (%gh)'%hours, "<div class='sum'>etapy: %s</div>"%_summ + _table(rec))
     return jsonify(hours=hours, liczba=len(rec),
                    podsumowanie=dict(Counter(r['stage'] for r in rec)), kandydaci=rec)
 
@@ -301,7 +367,9 @@ def regime():
     try: w=int(request.args.get('window','20'))
     except Exception: w=20
     import regime as _regime
-    return jsonify(_regime.regime_stats(BUF, HERE, window=w))
+    _st=_regime.regime_stats(BUF, HERE, window=w)
+    if _wants_html(): return _kv_page('Reżim', _st)
+    return jsonify(_st)
 
 @app.route('/monitor')
 def monitor():
