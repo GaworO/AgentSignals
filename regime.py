@@ -7,23 +7,23 @@ import os, subprocess, pickle, statistics as st
 
 
 def sim_R(x, hi, lo, cl, n, CAP=480):
-    """modelowy wynik w R: scale-out 1/3 @1R, BE po 1R, runner na 3R. None = trade nierozstrzygniety."""
+    """modelowy wynik w R: BE@1R, TP calosc 2R, pelna pozycja. None = trade nierozstrzygniety."""
     e=x['entry']; sl=x['SL']; bull=x['dir']=='LONG'; R=abs(e-sl)
     if R<=0: return None
-    t1=e+R if bull else e-R; t3=e+3*R if bull else e-3*R
-    stop=sl; took1=False; i0=int(x['entry_bar'])+1; i=i0
+    tp=e+2*R if bull else e-2*R; belev=e+R if bull else e-R
+    i0=int(x['entry_bar'])+1; i=i0; armed=False
     while i<min(i0+CAP,n):
         h,l=hi[i],lo[i]
-        if (l<=stop) if bull else (h>=stop): return -1.0
-        if (h>=t1)  if bull else (l<=t1): took1=True; break
+        if (l<=sl) if bull else (h>=sl): return -1.0          # stop przed 1R
+        if (h>=tp) if bull else (l<=tp): return 2.0           # target przed 1R (przy waskim R)
+        if (h>=belev) if bull else (l<=belev): armed=True; i+=1; break
         i+=1
-    if not took1: return None
-    rstop=e; j=i+1                       # BE po 1R
-    while j<min(i0+CAP,n):
-        h,l=hi[j],lo[j]
-        if (l<=rstop) if bull else (h>=rstop): return (1/3)*1.0
-        if (h>=t3)    if bull else (l<=t3): return (1/3)*1.0+(2/3)*3.0
-        j+=1
+    if not armed: return None
+    while i<min(i0+CAP,n):                                     # po 1R: SL na BE, cel 2R
+        h,l=hi[i],lo[i]
+        if (l<=e) if bull else (h>=e): return 0.0
+        if (h>=tp) if bull else (l<=tp): return 2.0
+        i+=1
     return None
 
 

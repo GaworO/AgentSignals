@@ -110,7 +110,7 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 <!-- CHART -->
 <div class="panel">
   <h3>Krzywa edge — P&L miesięczny + skumulowany</h3>
-  <div class="cap">Scale-out 1:3 · BE po 1R · SL 10–30 pkt · 0,5%/100k · po kosztach. Szara strefa = reżim wygasły.</div>
+  <div class="cap">BE@1R · TP całość 2R · pełna pozycja · SL 10–30 pkt · 0,5%/R · po kosztach.</div>
   <div id="chart"></div>
 </div>
 
@@ -138,9 +138,9 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 <script>
 // ——— DANE (realne, z backtestu: BE+koszty, SL 10–30) ———
 const M = ['06.25','07.25','08.25','09.25','10.25','11.25','12.25','01.26','02.26','03.26','04.26','05.26'];
-const PNL = [155,7469,4560,1859,837,1483,4745,1819,288,-164,-151,127];
-const TR  = [8,14,8,7,17,4,10,7,5,4,8,1];
-const DEAD_FROM = 8; // indeks 02.26 = początek strefy wygasłej
+const PNL = [682,8711,5173,1796,2698,1859,5189,4717,2853,-64,48,1936];   // BE@1R/2R, SL 10-30, $500/R, po kosztach
+const TR  = [6,16,8,6,17,4,7,8,4,2,9,2];
+const DEAD_FROM = 99; // brak strefy wygasłej — pod BE@1R/2R 2026 jest zdrowy (luty +$2853, nie martwy)
 
 // ——— WERDYKT: live z /regime, fallback na dane referencyjne ———
 function pf(a){const p=a.filter(x=>x>0).reduce((s,b)=>s+b,0);const n=Math.abs(a.filter(x=>x<=0).reduce((s,b)=>s+b,0));return n===0?(p>0?99:0):p/n;}
@@ -149,12 +149,12 @@ function gcls(ok,warn){return ok?'g-green':(warn?'g-amber':'g-red');}
 const V = {
   red:   {word:'STOP', sub:'Reżim wygasły', dir:'Edge uśpiony — przewaga poniżej progu. Zejdź na paper albo minimalny rozmiar i czekaj na powrót. Forsowanie tradów tutaj to pułapka (w Twojej historii forced trade = 0% WR).'},
   amber: {word:'OSTROŻNIE', sub:'Strefa decyzji', dir:'Przewaga niejednoznaczna lub za mało danych. Połowiczny rozmiar, tylko najczystsze setupy. Obserwuj, czy rolling PF wraca nad 1,6, czy spada pod 1,2.'},
-  green: {word:'GRAJ', sub:'Przewaga żywa', dir:'Rolling PF i EV w zdrowym zakresie — pełny rozmiar wg planu (1/3 na 1:1, BE, runner na 1:3, SL 10–30).'}
+  green: {word:'GRAJ', sub:'Przewaga żywa', dir:'Rolling PF i EV w zdrowym zakresie — pełny rozmiar wg planu (BE@1R, TP całość 2R, pełna pozycja, SL 10–30).'}
 };
 const ACTS = {
   red:['Zejdź na paper lub minimalny rozmiar — nie handluj uśpionego edge realną kasą.','Nie forsuj tradów, gdy agent milczy — cisza to sygnał, nie usterka.','Pełny rozmiar dopiero po powrocie rolling PF nad 1,6.','Diagnoza: walk-forward na dłuższych danych Databento.'],
   amber:['Połowiczny rozmiar.','Tylko A-setupy z pełną konfluencją — resztę pomijaj.','Próg: PF<1,2 → stop, PF≥1,6 → pełny rozmiar.'],
-  green:['Pełny rozmiar wg planu.','Trzymaj regułę wyjścia 1/3 @1R · BE · runner 1:3.','Sprawdzaj monitor raz dziennie — pierwszy czerwony = redukuj.']
+  green:['Pełny rozmiar wg planu.','Trzymaj regułę: BE@1R · TP 2R · pełna pozycja.','Sprawdzaj monitor raz dziennie — pierwszy czerwony = redukuj.']
 };
 
 function render(o){
@@ -178,7 +178,7 @@ function fallback(){
   const p=pf(W), ev=s/tr;
   const state=(p>=1.6&&s>0)?'green':(p>=1.2?'amber':'red');
   return {state, source:'źródło: backtest referencyjny', sub2:'otwórz przez …/monitor by liczyć live',
-    mtype:'Choppy — szerokie stopy', mtColor:'red', mtDesc:'Reżim wygasły od lutego — patrz krzywa.',
+    mtype:'Mieszany — patrz krzywa', mtColor:(state==='green'?'green':(state==='amber'?'amber':'red')), mtDesc:'Ostatnie 3 mies. dodatnie pod BE@1R/2R — reżim zdrowy. Live licz przez /monitor.',
     gauges:[
       {lab:'Rolling PF · 3 mies.', val:p.toFixed(2), note:'≥1,6 graj · <1,2 stop', cls:gcls(p>=1.6,p>=1.2), fill:Math.min(p/2,1)},
       {lab:'Rolling EV · /trade', val:(ev>=0?'+':'')+'$'+Math.round(ev), note:'oczekiwana wartość', cls:gcls(ev>50,ev>0), fill:Math.max(0,Math.min((ev+200)/400,1))},
@@ -190,7 +190,7 @@ function live(d){
     mtype:d.market_type, mtColor:d.market_color, mtDesc:d.market_desc,
     gauges:[
       {lab:'Rolling PF · '+d.window+' tradów', val:(d.pf>=99?'∞':d.pf.toFixed(2)), note:'≥1,6 graj · <1,2 stop', cls:gcls(d.pf>=1.6,d.pf>=1.2), fill:Math.min(d.pf/2,1)},
-      {lab:'Rolling EV · w R', val:(d.ev_R>=0?'+':'')+d.ev_R+'R', note:'modelowy scale-out 1:3', cls:gcls(d.ev_R>0.3,d.ev_R>0), fill:Math.max(0,Math.min((d.ev_R+1)/3,1))},
+      {lab:'Rolling EV · w R', val:(d.ev_R>=0?'+':'')+d.ev_R+'R', note:'modelowy BE@1R/2R', cls:gcls(d.ev_R>0.3,d.ev_R>0), fill:Math.max(0,Math.min((d.ev_R+1)/3,1))},
       {lab:'Podaż ≤30 / setupów', val:d.supply+' / '+(d.setups_total||0), note:'mediana SL '+d.sl_med+' pkt'+((d.supply===0&&d.setups_total>0)?' · szerokie = choppy':''), cls:gcls(d.supply>=12,d.supply>=6), fill:Math.min((d.setups_total||0)/20,1)}
     ]};
 }
@@ -211,9 +211,11 @@ pull(); setInterval(pull, 60000);
   function by(v){return padT + ih*((maxBar-v)/(maxBar-minBar));}
   function cy(v){return padT + ih*(1-(v/cumMax));}
   let s=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" font-family="DM Mono,monospace">`;
-  // dead zone
-  s+=`<rect x="${padL+bw*DEAD_FROM}" y="${padT}" width="${bw*(M.length-DEAD_FROM)}" height="${ih}" fill="#f87171" opacity="0.06"/>`;
-  s+=`<text x="${padL+bw*DEAD_FROM+6}" y="${padT+14}" fill="#f87171" font-size="8" letter-spacing="1.5" opacity="0.8">REŻIM WYGASŁY</text>`;
+  // dead zone (rysowana tylko gdy realnie istnieje)
+  if(DEAD_FROM < M.length){
+    s+=`<rect x="${padL+bw*DEAD_FROM}" y="${padT}" width="${bw*(M.length-DEAD_FROM)}" height="${ih}" fill="#f87171" opacity="0.06"/>`;
+    s+=`<text x="${padL+bw*DEAD_FROM+6}" y="${padT+14}" fill="#f87171" font-size="8" letter-spacing="1.5" opacity="0.8">REŻIM WYGASŁY</text>`;
+  }
   // zero line
   s+=`<line x1="${padL}" y1="${y0}" x2="${W-padR}" y2="${y0}" stroke="#333" stroke-width="1"/>`;
   // bars
