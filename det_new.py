@@ -333,7 +333,7 @@ for d in days:
     run_level(a,ft,et,'F.P.FVG',None,'SHORT')  # close pod FVG -> cont short
 
 # ---- H/L sesji : low->rev LONG / cont SHORT ; high->rev SHORT / cont LONG ----
-SH={'ASIA':('AH','AL'),'LO':('LH','LL'),'NYL':('NYLH','NYLL'),'NYPM':('NYPMH','NYPML')}
+SH={'ASIA':('AH','AL'),'LO':('LH','LL'),'NYAM':('NYAMH','NYAML'),'NYL':('NYLH','NYLL'),'NYPM':('NYPMH','NYPML')}
 for sname,s0,eidx,Hh,Ll in sessinst:
     if sname not in SH: continue
     hn,ln=SH[sname]; ft=T[eidx]
@@ -341,6 +341,35 @@ for sname,s0,eidx,Hh,Ll in sessinst:
     di=dayi[dates[eidx]]; endd=days[min(di+V,len(days)-1)]; et=T[df.index[df.date==endd][-1]]
     run_level(Hh,ft,et,hn,'SHORT','LONG')   # high sesji
     run_level(Ll,ft,et,ln,'LONG','SHORT')   # low sesji
+
+# ---- PDH/PDL (poprzedni dzien) : high->rev SHORT/cont LONG ; low->rev LONG/cont SHORT ----
+# pierwsza interakcja w dniu d, TP leci przez liq_above/liq_below (nastepna plynnosc, nie sam poziom)
+for _di in range(1,len(days)):
+    d=days[_di]; pdh,pdl=day_hl[days[_di-1]]
+    _ix=df.index[df.date==d]
+    if len(_ix)==0: continue
+    ft=int(T[_ix[0]])-1; et=int(T[_ix[-1]])
+    run_level(pdh,ft,et,'PDH','SHORT','LONG')
+    run_level(pdl,ft,et,'PDL','LONG','SHORT')
+
+# ---- PWH/PWL (poprzedni tydzien ISO) : jak wyzej, pierwsza interakcja w biezacym tygodniu ----
+_iso=df.dt.dt.isocalendar()
+_wk=list(zip(_iso.year.values,_iso.week.values))
+from collections import OrderedDict as _OD
+_weeks=_OD()
+for _i,_k in enumerate(_wk):
+    if _k not in _weeks: _weeks[_k]=[_i,_i,float(hi[_i]),float(lo[_i])]
+    else:
+        _w=_weeks[_k]; _w[1]=_i
+        if hi[_i]>_w[2]: _w[2]=float(hi[_i])
+        if lo[_i]<_w[3]: _w[3]=float(lo[_i])
+_wkeys=list(_weeks.keys())
+for _wi in range(1,len(_wkeys)):
+    pwh=_weeks[_wkeys[_wi-1]][2]; pwl=_weeks[_wkeys[_wi-1]][3]
+    _s0,_s1=_weeks[_wkeys[_wi]][0],_weeks[_wkeys[_wi]][1]
+    ft=int(T[_s0])-1; et=int(T[_s1])
+    run_level(pwh,ft,et,'PWH','SHORT','LONG')
+    run_level(pwl,ft,et,'PWL','LONG','SHORT')
 
 # ---- NDOG/NWOG (.c, jedna jednostka, GAP) : trigger = powrot do poziomu ----
 for pr,ta,nm,fd,md,ct in gaplev:

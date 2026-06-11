@@ -28,9 +28,9 @@ def session_of(hhmm):
 def to_signal(x):
     isL = x['dir']=='LONG'
     slpts = abs(x['entry']-x['SL']) or 25
-    t1 = round((x['entry']+slpts) if isL else (x['entry']-slpts),2)      # 1R: zamknij 1/3
-    t2 = round((x['entry']+slpts*3) if isL else (x['entry']-slpts*3),2)  # 3R: runner
-    t3 = round((x['entry']+slpts*5) if isL else (x['entry']-slpts*5),2)  # 5R: opcjonalny
+    t1 = round((x['entry']+slpts) if isL else (x['entry']-slpts),2)      # 1R: przesun SL na BE (NIE zamykaj)
+    t2 = round((x['entry']+slpts*2) if isL else (x['entry']-slpts*2),2)  # 2R: TP calosc
+    t3 = ''                                                              # nieuzywane (koniec scale-out)
     wk = 'BULL' if str(x['bias']).startswith('LONG') else ('BEAR' if str(x['bias']).startswith('SHORT') else '')
     trail=' | '.join(f'{a}-{b}' for a,b,_ in x['trail'][:3])
     return {
@@ -66,10 +66,10 @@ def to_alert(x):
     emoji = '🟢' if x['dir']=='LONG' else '🔴'
     model = 'Reversal' if x['model']=='Reversal' else 'Cont'
     slpts = abs(x['entry']-x['SL']); isL = x['dir']=='LONG'
-    t1 = round((x['entry']+slpts) if isL else (x['entry']-slpts),1)      # 1R: zamknij 1/3
-    tr = round((x['entry']+3*slpts) if isL else (x['entry']-3*slpts),1)  # 3R: runner
+    be = round((x['entry']+slpts) if isL else (x['entry']-slpts),1)      # 1R: SL na BE
+    tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)  # 2R: TP calosc
     base = (f"{emoji} {x['dir']} | {model} · Kat: {x['cat']} | Entry {x['entry']} | SL {x['SL']}"
-            f"\n🎯 1/3 @ {t1} (1R) → potem SL na BE | runner 2/3 @ {tr} (3R)")
+            f"\n🎯 TP całość @ {tp} (2R) | przy 1R ({be}) przesuń SL na BE — NIE zamykaj części")
     s = size_for(x['entry'], x['SL'])
     if s:
         qty, slpts, perc, real, pct = s
@@ -93,9 +93,9 @@ def to_prealert(x):
     base = (f"⏳ PRZYGOTUJ SIĘ (czekaj na BOS — NIE wchodź) {emoji} {x['dir']} | {model} · Kat: {x['cat']}"
             f" | Entry~{x['entry']} | SL~{x['SL']}")
     sp = abs(x['entry']-x['SL']); isL = x['dir']=='LONG'
-    pt1 = round((x['entry']+sp) if isL else (x['entry']-sp),1)
-    ptr = round((x['entry']+3*sp) if isL else (x['entry']-3*sp),1)
-    base += f" | 1/3@{pt1} (1R)→BE · 2/3@{ptr} (3R)"
+    pbe = round((x['entry']+sp) if isL else (x['entry']-sp),1)
+    ptp = round((x['entry']+2*sp) if isL else (x['entry']-2*sp),1)
+    base += f" | TP@{ptp} (2R) · BE przy 1R ({pbe})"
     s = size_for(x['entry'], x['SL'])
     if s:
         qty, slpts, perc, real, pct = s
