@@ -16,6 +16,7 @@ try: import requests
 except Exception: requests=None
 from flask import Flask, request, jsonify
 import live_emit   # to_alert, post_webhook, key
+import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza intake'u
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +30,7 @@ BUF  = os.path.join(DATA_DIR, 'buffer.csv')
 OUT  = os.path.join(DATA_DIR, 'agent_out.pkl')
 SENT = os.path.join(DATA_DIR, 'agent_sent.json')
 DB   = os.path.join(DATA_DIR, 'journal.db')
+TRADES = os.path.join(DATA_DIR, 'trades.json')   # otwarte trady do sledzenia 1R/3R
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
@@ -157,6 +159,8 @@ def _process_new(now_ms=None):
         code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
         print('ALERT', code, txt, flush=True)
         _save_db(x, txt, code)
+        try: manage.register(x, TRADES)
+        except Exception as e: print('manage.register err', e, flush=True)
         if WEBHOOK_URL and str(code).startswith('2'): sentn.add(live_emit.key(x))
         elif not WEBHOOK_URL: sentn.add(live_emit.key(x))
     # ====== PRE-ALERTY (etap odbicia od CE, przed BOS) — info, NIE zapisywane do dziennika ======
@@ -191,6 +195,14 @@ def bars():
     with _lock:
         _append_bar(b)
         res=_process_new(now_ms)
+        try:                                              # sledzenie 1R/3R — nie moze ruszyc intake'u
+            _hi=float(b['high']); _lo=float(b['low'])
+            def _msend(m):
+                print('MANAGE', m, flush=True)
+                if WEBHOOK_URL: live_emit.post_webhook(m, WEBHOOK_URL)
+            manage.check(_hi, _lo, now_ms, _msend, TRADES)
+        except Exception as e:
+            print('manage.check err', e, flush=True)
         nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
         _last.update(last_bar=str(b.get('ts_event')), bars_in_buffer=nb,
                      setups_seen=res.get('nowe', res.get('primed')),

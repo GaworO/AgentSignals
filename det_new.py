@@ -173,12 +173,13 @@ def confirm_chain(disp,dr):
     # 1) retrace + odbicie (wspolne z PRE)
     ce,bounce=find_bounce(disp,dr)
     if bounce is None: return None
-    # 2) BOS: po odbiciu przelam ekstrem displacementu w kierunku
+    # 2) BOS: po odbiciu przelam ekstrem displacementu w kierunku PO ZAMKNIECIU
+    #    (close, nie knot — odrzuca sweepy/fakeouty; potw. 2025 +PF + 2022-23 +PF)
     ext=disp['swhi'] if bull else disp['swlo']
     bos=None
     for j in range(bounce+1,min(bounce+1+BOSWIN,n)):
-        if bull and hi[j]>ext: bos=j;break
-        if (not bull) and lo[j]<ext: bos=j;break
+        if bull and cl[j]>ext: bos=j;break
+        if (not bull) and cl[j]<ext: bos=j;break
     if bos is None: return None
     return dict(ce=ce,bounce=bounce,bos=bos)
 
