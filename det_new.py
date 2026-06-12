@@ -1,3 +1,4 @@
+# det_new.py — PROD v2 (2026-06): reguła odbicia = BODY trzyma 50% FVG (close>=CE); DIB always-on (displacement-into-break, tag +DIB = klasa B). Wejście CE, BE@1R/TP2R.
 import pandas as pd, numpy as np, pickle, datetime as dt
 
 # ============ LOADER ============
@@ -154,6 +155,30 @@ def find_displacement(t,dr):
                         swlo=swlo,swhi=swhi,atr5=round(atr5,1))
     return None
 
+def find_displacement_dib(t,dr):
+    bull=dr=='LONG'; best=None
+    for u in range(max(MAXIMP,t-2),min(t+3,n)):
+        for L in range(1,MAXIMP+1):
+            s=u-L+1
+            if s<1: continue
+            same=all((cl[x]>o[x]) if bull else (cl[x]<o[x]) for x in range(s,u+1))
+            if not same: continue
+            body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
+            if body<=0: continue
+            prior=max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
+            broke=(cl[u]>prior) if bull else (cl[u]<prior)
+            if not broke: continue
+            atr5=ATR[u] if ATR[u]>0 else 1e9
+            maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
+            if body<ATRMULT*atr5: continue
+            if body<maxbody: continue
+            fl=fvgs(s,u+2,bull)
+            if not fl: continue
+            f=fl[-1]; swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
+            cand=dict(s=s,u=u,L=L,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],swlo=swlo,swhi=swhi,atr5=round(atr5,1))
+            if best is None or body>best['body']: best=cand
+    return best
+
 def find_bounce(disp,dr):
     """krok 1 lancucha: retrace do CE FVG + odbicie nie przebija dalekiej krawedzi. Zwraca (ce, bounce|None)."""
     bull=dr=='LONG'; fl,fh=disp['fvg']; ce=round((fl+fh)/2,1); u=disp['u']
@@ -168,15 +193,21 @@ def find_bounce(disp,dr):
     return ce,bounce
 
 def confirm_chain(disp,dr):
-    """retrace odbija od 50% (CE) FVG displacementu -> BOS w kierunku = potwierdzenie."""
-    bull=dr=='LONG'; u=disp['u']
-    # 1) retrace + odbicie (wspolne z PRE)
-    ce,bounce=find_bounce(disp,dr)
+    """TWOJA regula: retrace w FVG, CIALO (close) trzyma 50% (CE) - zaden close < CE; knot moze nizej. Wejscie CE."""
+    bull=dr=='LONG'; u=disp['u']; fl,fh=disp['fvg']; ce=round((fl+fh)/2,1)
+    bounce=None
+    for r in range(u+1,min(u+1+RETWIN,n)):
+        if bull and lo[r]<=ce+TOL: bounce=r;break       # knot dotyka 50% -> fill limita CE
+        if (not bull) and hi[r]>=ce-TOL: bounce=r;break
+        if bull and hi[r]>disp['swhi']: break
+        if (not bull) and lo[r]<disp['swlo']: break
     if bounce is None: return None
-    # 2) BOS: po odbiciu przelam ekstrem displacementu w kierunku PO ZAMKNIECIU
-    #    (close, nie knot — odrzuca sweepy/fakeouty; potw. 2025 +PF + 2022-23 +PF)
-    ext=disp['swhi'] if bull else disp['swlo']
-    bos=None
+    # CIALO trzyma 50% od u+1..bounce (zaden close pod CE)
+    seg=cl[u+1:bounce+1]
+    if bull and bool((seg < ce-TOL).any()): return None
+    if (not bull) and bool((seg > ce+TOL).any()): return None
+    # BOS po close; po drodze tez nie wolno zamknac pod 50%
+    ext=disp['swhi'] if bull else disp['swlo']; bos=None
     for j in range(bounce+1,min(bounce+1+BOSWIN,n)):
         if bull and cl[j]>ext: bos=j;break
         if (not bull) and cl[j]<ext: bos=j;break
@@ -276,21 +307,17 @@ def emit_pre(t,model,name,dr,disp,bounce,ce):
         stage='PRE',entry_bar=int(bounce),entry_ms=bms,bos_ms=bms))
 
 def try_chain(trigger,dr,model,name):
-    """pierwszy POTWIERDZONY displacement po triggerze (jak pierwszy nie potwierdzi, sprobuj nastepny)."""
-    cur=trigger; pre_done=False
+    cur=trigger
     for _ in range(3):
         d=find_displacement(cur,dr)
-        if d is None:
-            _trace(trigger,dr,model,name,'katalizator trafiony, ale brak displacementu'); return
-        if _PRE and not pre_done:                       # PRE: pierwsze potwierdzone odbicie od CE (przed BOS)
-            ce,bnc=find_bounce(d,dr)
-            if bnc is not None: emit_pre(trigger,model,name,dr,d,bnc,ce); pre_done=True
+        if d is None: break
         c=confirm_chain(d,dr)
-        if c:
-            _trace(trigger,dr,model,name,'POTWIERDZONY (displacement+odbicie+BOS)',d)
-            emit(trigger,model,name,dr,d,c); return
-        _trace(trigger,dr,model,name,'displacement OK, ale brak potwierdzenia (odbicie/BOS)',d)
+        if c: emit(trigger,model,name,dr,d,c); return
         cur=d['u']
+    d2=find_displacement_dib(trigger,dr)
+    if d2 is not None:
+        c2=confirm_chain(d2,dr)
+        if c2: emit(trigger,model,name+'+DIB',dr,d2,c2)
 
 def run_level(level,form_t,end_t,name,rev_dir,cont_dir):
     """KATALIZATOR-PULA (F.P.FVG, H/L sesji, BSL/SSL): pierwsza interakcja. rev=sweep(wick), cont=body-break(close)."""

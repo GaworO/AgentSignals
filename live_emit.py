@@ -25,6 +25,13 @@ def session_of(hhmm):
     if 120<=t<=300: return 'London SB'
     return 'pozaKZ'
 
+def grade(x):
+    """A = setup forward (body trzyma 50%); B = DIB (displacement zlamal poziom). Zawsze wykrywane oba."""
+    return 'B' if 'DIB' in str(x.get('cat','')) else 'A'
+
+def catname(x):
+    return str(x.get('cat','')).replace('+DIB','')
+
 def to_signal(x):
     isL = x['dir']=='LONG'
     slpts = abs(x['entry']-x['SL']) or 25
@@ -39,11 +46,11 @@ def to_signal(x):
         'Direction': x['dir'],
         'Quality': 'OTE',
         'Strategy': 'REV' if x['model']=='Reversal' else 'CONT',
-        'Catalyst': x['cat'],
+        'Catalyst': catname(x),
         'Session': session_of(x['bos']),
         'Entry': x['entry'], 'SL': x['SL'], 'T1': t1, 'T2': t2, 'T3': t3,
         'Result': '', 'PnL': '',
-        'Note': f"bias {x['bias']}({x['bias_align']}) | trailing FVG: {trail}",
+        'Note': f"klasa {grade(x)} | bias {x['bias']}({x['bias_align']}) | trailing FVG: {trail}",
         'Weekly': wk,
     }
 
@@ -68,7 +75,8 @@ def to_alert(x):
     slpts = abs(x['entry']-x['SL']); isL = x['dir']=='LONG'
     be = round((x['entry']+slpts) if isL else (x['entry']-slpts),1)      # 1R: SL na BE
     tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)  # 2R: TP calosc
-    base = (f"{emoji} {x['dir']} | {model} · Kat: {x['cat']} | Entry {x['entry']} | SL {x['SL']}"
+    g = grade(x); gtag = '🅰️ klasa A' if g=='A' else '🅱️ klasa B (DIB)'
+    base = (f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)} | Entry {x['entry']} | SL {x['SL']}"
             f"\n🎯 TP całość @ {tp} (2R) | przy 1R ({be}) przesuń SL na BE — NIE zamykaj części")
     s = size_for(x['entry'], x['SL'])
     if s:
