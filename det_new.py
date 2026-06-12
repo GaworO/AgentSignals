@@ -312,12 +312,22 @@ def try_chain(trigger,dr,model,name):
         d=find_displacement(cur,dr)
         if d is None: break
         c=confirm_chain(d,dr)
-        if c: emit(trigger,model,name,dr,d,c); return
+        if c:
+            _trace(trigger,dr,model,name,'POTWIERDZONY (displacement+odbicie+BOS)',d)
+            emit(trigger,model,name,dr,d,c); return
+        _trace(trigger,dr,model,name,'displacement OK, ale brak potwierdzenia (odbicie/BOS)',d)
         cur=d['u']
+    # fallback DIB: noga ktora SAMA zlamala poziom
     d2=find_displacement_dib(trigger,dr)
-    if d2 is not None:
-        c2=confirm_chain(d2,dr)
-        if c2: emit(trigger,model,name+'+DIB',dr,d2,c2)
+    if d2 is None:
+        _trace(trigger,dr,model,name,'katalizator trafiony, ale brak displacementu')
+        return
+    c2=confirm_chain(d2,dr)
+    if c2:
+        _trace(trigger,dr,model,name+'+DIB','POTWIERDZONY przez DIB (displacement zlamal poziom)',d2)
+        emit(trigger,model,name+'+DIB',dr,d2,c2)
+    else:
+        _trace(trigger,dr,model,name+'+DIB','DIB: displacement OK, ale brak potwierdzenia (odbicie/BOS)',d2)
 
 def run_level(level,form_t,end_t,name,rev_dir,cont_dir):
     """KATALIZATOR-PULA (F.P.FVG, H/L sesji, BSL/SSL): pierwsza interakcja. rev=sweep(wick), cont=body-break(close)."""
