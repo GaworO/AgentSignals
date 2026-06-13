@@ -76,6 +76,7 @@ def to_alert(x):
     be = round((x['entry']+slpts) if isL else (x['entry']-slpts),1)      # 1R: SL na BE
     tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)  # 2R: TP calosc
     g = grade(x); gtag = '🅰️ klasa A' if g=='A' else '🅱️ klasa B (DIB)'
+    if x.get('bias_align')=='Y': gtag += ' ⭐bias'
     base = (f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)} | Entry {x['entry']} | SL {x['SL']}"
             f"\n🎯 TP całość @ {tp} (2R) | przy 1R ({be}) przesuń SL na BE — NIE zamykaj części")
     s = size_for(x['entry'], x['SL'])
@@ -98,7 +99,7 @@ def to_prealert(x):
     """PRE-alert: etap odbicia od CE, BOS jeszcze nie. NIE jest wejsciem — 'badz gotowa'."""
     emoji = '🟢' if x['dir']=='LONG' else '🔴'
     model = 'Reversal' if x['model']=='Reversal' else 'Cont'
-    base = (f"⏳ PRZYGOTUJ SIĘ (czekaj na BOS — NIE wchodź) {emoji} {x['dir']} | {model} · Kat: {x['cat']}"
+    base = (f"⏳ PRZYGOTUJ SIĘ (czekaj na BOS — NIE wchodź) · {'🅰️ A' if grade(x)=='A' else '🅱️ B (DIB)'}{' ⭐bias' if x.get('bias_align')=='Y' else ''} {emoji} {x['dir']} | {model} · Kat: {catname(x)}"
             f" | Entry~{x['entry']} | SL~{x['SL']}")
     sp = abs(x['entry']-x['SL']); isL = x['dir']=='LONG'
     pbe = round((x['entry']+sp) if isL else (x['entry']-sp),1)

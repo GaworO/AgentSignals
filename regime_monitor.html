@@ -110,7 +110,7 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 <!-- CHART -->
 <div class="panel">
   <h3>Krzywa edge — P&L miesięczny + skumulowany</h3>
-  <div class="cap">body-50% + DIB (klasy A/B) · wszystkie sesje · BE@1R · TP całość 2R · pełna pozycja · SL 10–30 pkt · 0,5%/R · po kosztach.</div>
+  <div class="cap">body-50% + DIB + filtry v2.1 (selektywny DIB, −NWOG, ⭐bias) · klasy A/B · wszystkie sesje · BE@1R · TP całość 2R · pełna pozycja · SL 10–30 pkt · 0,5%/R · po kosztach.</div>
   <div id="chart"></div>
 </div>
 
@@ -138,8 +138,8 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 <script>
 // ——— DANE (realne, z backtestu: BE+koszty, SL 10–30) ———
 const M = ['06.25','07.25','08.25','09.25','10.25','11.25','12.25','01.26','02.26','03.26','04.26','05.26'];
-const PNL = [4480,6495,7185,4933,8918,1929,5466,5065,6281,5216,2254,10157];   // body-50%+DIB, BE@1R/2R, SL 10-30, $500/R, po kosztach
-const TR  = [12,29,12,17,22,10,24,12,10,13,18,16];
+const PNL = [4503,5568,4246,2510,8947,2973,7078,5082,3345,3838,872,5780];   // v2.1 (body-50%+DIB+filtry), BE@1R/2R, $500/R, po kosztach
+const TR  = [11,24,7,13,20,7,17,11,6,5,13,8];
 const DEAD_FROM = 99; // brak strefy wygasłej — body-50%+DIB: każdy z 12 mies. dodatni (min +$1929)
 
 // ——— WERDYKT: live z /regime, fallback na dane referencyjne ———

@@ -93,6 +93,8 @@ MAXIMP=3          # max swiec impulsu
 RETWIN=20         # okno na retrace do 50% FVG
 BOSWIN=30         # okno na BOS po odbiciu
 BUF=3.
+DIB_MAX_R=float(os.environ.get('DIB_MAX_R','31'))            # v2.1 selektywny DIB: max ryzyko (pkt); szersze = ucinane
+DISABLE_CATS=set(c for c in os.environ.get('DISABLE_CATS','NWOG').split(',') if c)  # v2.1: katalizatory wycięte (EV~0)
 VIMIN=10.         # min luka body-to-body, by liczyc VI jako katalizator
 VIBIG=50.         # min VI, by dzialal jako magnes (TP/bias)
 def dayidx_for(epoch):
@@ -180,16 +182,18 @@ def find_displacement_dib(t,dr):
     return best
 
 def find_bounce(disp,dr):
-    """krok 1 lancucha: retrace do CE FVG + odbicie nie przebija dalekiej krawedzi. Zwraca (ce, bounce|None)."""
+    """etap odbicia (PRE, przed BOS): retrace w FVG + CIALO trzyma 50% (spojne z confirm_chain). Zwraca (ce, bounce|None)."""
     bull=dr=='LONG'; fl,fh=disp['fvg']; ce=round((fl+fh)/2,1); u=disp['u']
     bounce=None
     for r in range(u+1,min(u+1+RETWIN,n)):
         if bull and lo[r]<=ce+TOL: bounce=r;break
         if (not bull) and hi[r]>=ce-TOL: bounce=r;break
-        # jesli zanim dojdzie do CE zrobi nowy ekstrem -> idzie dalej bez retrace
+        if bull and hi[r]>disp['swhi']: break       # uciekl bez retrace
+        if (not bull) and lo[r]<disp['swlo']: break
     if bounce is None: return ce,None
-    if bull and cl[bounce]<fl-TOL: return ce,None      # odbicie przebilo daleka krawedz FVG
-    if (not bull) and cl[bounce]>fh+TOL: return ce,None
+    seg=cl[u+1:bounce+1]                              # CIALO trzyma 50%
+    if bull and bool((seg<ce-TOL).any()): return ce,None
+    if (not bull) and bool((seg>ce+TOL).any()): return ce,None
     return ce,bounce
 
 def confirm_chain(disp,dr):
@@ -277,6 +281,8 @@ def emit(t,model,name,dr,disp,conf):
     entry=ce                                   # glowne wejscie = FVG CE
     if bull: sl=round(disp['swlo']-BUF,1); tp=liq_above(conf['bos'],entry)
     else:    sl=round(disp['swhi']+BUF,1); tp=liq_below(conf['bos'],entry)
+    if any(c in name for c in DISABLE_CATS): return                  # v2.1: katalizator wyciety (np. NWOG)
+    if '+DIB' in name and abs(entry-sl) > DIB_MAX_R: return          # v2.1 selektywny DIB: szeroki stop -> odrzuc
     trail=[(x[0],x[1],x[2]) for x in fvgs(conf['bos'],min(conf['bos']+40,n),bull)]  # trailing FVG = info (lo,hi,bar)
     b,pdv=bias_for(conf['bos']); align='Y' if b.replace('?','')==dr else ('?' if '?' in b or b=='niejasny' else 'N')
     out.append(dict(date=str(dates[conf['bos']]),model=model,cat=name,dir=dr,
@@ -307,10 +313,13 @@ def emit_pre(t,model,name,dr,disp,bounce,ce):
         stage='PRE',entry_bar=int(bounce),entry_ms=bms,bos_ms=bms))
 
 def try_chain(trigger,dr,model,name):
-    cur=trigger
+    cur=trigger; pre_done=False
     for _ in range(3):
         d=find_displacement(cur,dr)
         if d is None: break
+        if _PRE and not pre_done:                       # PRE-alert: odbicie od CE (body 50%) przed BOS
+            ce,bnc=find_bounce(d,dr)
+            if bnc is not None: emit_pre(trigger,model,name,dr,d,bnc,ce); pre_done=True
         c=confirm_chain(d,dr)
         if c:
             _trace(trigger,dr,model,name,'POTWIERDZONY (displacement+odbicie+BOS)',d)
@@ -322,6 +331,9 @@ def try_chain(trigger,dr,model,name):
     if d2 is None:
         _trace(trigger,dr,model,name,'katalizator trafiony, ale brak displacementu')
         return
+    if _PRE and not pre_done:                            # PRE-alert tez dla DIB
+        ce,bnc=find_bounce(d2,dr)
+        if bnc is not None: emit_pre(trigger,model,name+'+DIB',dr,d2,bnc,ce); pre_done=True
     c2=confirm_chain(d2,dr)
     if c2:
         _trace(trigger,dr,model,name+'+DIB','POTWIERDZONY przez DIB (displacement zlamal poziom)',d2)
