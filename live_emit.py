@@ -16,6 +16,8 @@ try:
 except Exception:
     SETUPS = []   # agent importuje tylko funkcje (to_alert/post_webhook/key); pkl niepotrzebny
 RISK = 580   # jak w signals.html
+CONTRACT = os.environ.get('CONTRACT','')   # jawny kontrakt do wpisywania zlecen, np. 'MNQU2026' (pusty = nie pokazuj)
+OFFSET = float(os.environ.get('PRICE_OFFSET','0'))   # przelicz ceny MNQ1! -> twoj kontrakt (Tradovate). 0 poza rolowaniem.
 SENT_FILE = '/home/claude/sent_signals.json'   # dedup miedzy uruchomieniami
 
 def session_of(hhmm):
@@ -77,8 +79,14 @@ def to_alert(x):
     tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)  # 2R: TP calosc
     g = grade(x); gtag = '🅰️ klasa A' if g=='A' else '🅱️ klasa B (DIB)'
     if x.get('bias_align')=='Y': gtag += ' ⭐bias'
-    base = (f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)} | Entry {x['entry']} | SL {x['SL']}"
-            f"\n🎯 TP całość @ {tp} (2R) | przy 1R ({be}) przesuń SL na BE — NIE zamykaj części")
+    rpts = round(slpts,1); tppts = round(2*slpts,1)
+    e_d = round(x['entry']+OFFSET,1); sl_d = round(x['SL']+OFFSET,1); tp_d = round(tp+OFFSET,1)
+    base = (f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
+    if CONTRACT or OFFSET:
+        base += f"\n📄 Kontrakt: {CONTRACT or '—'}" + (f" (ceny +{round(OFFSET,1)} z MNQ1!)" if OFFSET else "")
+    base += (f"\n🎯 Entry {e_d}"
+             f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt"
+             f"\n🎯 TP {tp_d} · +{tppts} pkt (2R) | BE po +{rpts} pkt w zysku — NIE zamykaj części")
     s = size_for(x['entry'], x['SL'])
     if s:
         qty, slpts, perc, real, pct = s
