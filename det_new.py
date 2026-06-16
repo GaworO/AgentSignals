@@ -95,7 +95,13 @@ BOSWIN=30         # okno na BOS po odbiciu
 BUF=3.
 DIB_MAX_R=float(os.environ.get('DIB_MAX_R','31'))            # v2.1 selektywny DIB: max ryzyko (pkt); szersze = ucinane
 DISABLE_CATS=set(c for c in os.environ.get('DISABLE_CATS','NWOG').split(',') if c)  # v2.1: katalizatory wycięte (EV~0)
+RETEST_CATS=os.environ.get('RETEST_CATS','AL,PDL,NYLL,NYPML,SSL H1,NYLH,NYPMH')  # Opcja2: kat. dozwolone na re-testach (#2+); 'ALL'=wszystkie; ''=tylko #1
+_RETEST_ALL=RETEST_CATS.strip().upper()=='ALL'
+_RETEST_SET=set(c.strip() for c in RETEST_CATS.split(',') if c.strip())
+RETEST_MAX_R=float(os.environ.get('RETEST_MAX_R','40'))    # cap re-testów: max ryzyko (pkt); szersze tniemy (np. AL#16 R=123)
+RETEST_MAX_BRK=int(os.environ.get('RETEST_MAX_BRK','4'))   # cap re-testów: tylko płytkie przebicia #2-4 (głębsze = szum)
 VIMIN=10.         # min luka body-to-body, by liczyc VI jako katalizator
+_cur_break=1      # AB: numer przebicia biezacego triggera
 VIBIG=50.         # min VI, by dzialal jako magnes (TP/bias)
 def dayidx_for(epoch):
     i=int(np.searchsorted(T,epoch)); return min(max(i,0),n-1)
@@ -283,9 +289,11 @@ def emit(t,model,name,dr,disp,conf):
     else:    sl=round(disp['swhi']+BUF,1); tp=liq_below(conf['bos'],entry)
     if any(c in name for c in DISABLE_CATS): return                  # v2.1: katalizator wyciety (np. NWOG)
     if '+DIB' in name and abs(entry-sl) > DIB_MAX_R: return          # v2.1 selektywny DIB: szeroki stop -> odrzuc
+    if _cur_break>=2 and not _RETEST_ALL and name.replace('+DIB','') not in _RETEST_SET: return  # Opcja2: re-testy tylko na mocnych kat.
+    if _cur_break>=2 and (abs(entry-sl)>RETEST_MAX_R or _cur_break>RETEST_MAX_BRK): return  # cap: tnij glebokie/szerokie re-testy
     trail=[(x[0],x[1],x[2]) for x in fvgs(conf['bos'],min(conf['bos']+40,n),bull)]  # trailing FVG = info (lo,hi,bar)
     b,pdv=bias_for(conf['bos']); align='Y' if b.replace('?','')==dr else ('?' if '?' in b or b=='niejasny' else 'N')
-    out.append(dict(date=str(dates[conf['bos']]),model=model,cat=name,dir=dr,
+    out.append(dict(brk=_cur_break,date=str(dates[conf['bos']]),model=model,cat=name,dir=dr,
         trig=df.dt[t].strftime('%H:%M'),disp_end=df.dt[disp['u']].strftime('%H:%M'),
         bounce=df.dt[conf['bounce']].strftime('%H:%M'),bos=df.dt[conf['bos']].strftime('%H:%M'),
         entry=entry,ote62=ote62,ote79=ote79,SL=sl,TP=tp,
@@ -342,35 +350,47 @@ def try_chain(trigger,dr,model,name):
         _trace(trigger,dr,model,name+'+DIB','DIB: displacement OK, ale brak potwierdzenia (odbicie/BOS)',d2)
 
 def run_level(level,form_t,end_t,name,rev_dir,cont_dir):
-    """KATALIZATOR-PULA (F.P.FVG, H/L sesji, BSL/SSL): pierwsza interakcja. rev=sweep(wick), cont=body-break(close)."""
+    """AB: KAZDE przebicie (re-arm po cofnieciu o BUF), tag _cur_break."""
+    global _cur_break
     a0=dayidx_for(form_t); a1=min(dayidx_for(end_t)+1,n)
     win=[i for i in range(a0,a1) if T[i]>form_t]
     if not win: return
     if rev_dir:
-        bull=rev_dir=='LONG'
+        bull=rev_dir=='LONG'; armed=True; k=0
         for i in win:
-            if (lo[i]<=level) if bull else (hi[i]>=level):
-                try_chain(i,rev_dir,'Reversal',name); break
+            hit=(lo[i]<=level) if bull else (hi[i]>=level)
+            if armed and hit:
+                k+=1; _cur_break=k; try_chain(i,rev_dir,'Reversal',name); armed=False
+            elif (not armed) and ((lo[i]>level+BUF) if bull else (hi[i]<level-BUF)):
+                armed=True
     if cont_dir:
-        bull=cont_dir=='LONG'
+        bull=cont_dir=='LONG'; armed=True; k=0
         for i in win:
-            if (cl[i]>level) if bull else (cl[i]<level):
-                try_chain(i,cont_dir,'Cont',name); break
+            hit=(cl[i]>level) if bull else (cl[i]<level)
+            if armed and hit:
+                k+=1; _cur_break=k; try_chain(i,cont_dir,'Cont',name); armed=False
+            elif (not armed) and ((cl[i]<level-BUF) if bull else (cl[i]>level+BUF)):
+                armed=True
 
 def run_gap(zlo,zhi,form_t,end_t,name):
-    """KATALIZATOR-GAP (NDOG/NWOG/VI): cena odskoczyla, trigger = POWROT do strefy (tap), kierunek wg podejscia."""
+    """AB: KAZDY tap strefy (re-arm po wyjsciu), tag _cur_break."""
+    global _cur_break
     a0=dayidx_for(form_t); a1=min(dayidx_for(end_t)+1,n)
     win=[i for i in range(a0,a1) if T[i]>form_t]
     if not win: return
-    touch=None
+    mid=(zlo+zhi)/2; armed=False; k=0
     for i in win:
-        if lo[i]<=zhi and hi[i]>=zlo: touch=i; break
-    if touch is None or touch==win[0]: return
-    mid=(zlo+zhi)/2; from_below = cl[touch-1] < mid
-    if from_below:
-        try_chain(touch,'SHORT','Reversal',name); try_chain(touch,'LONG','Cont',name)
-    else:
-        try_chain(touch,'LONG','Reversal',name);  try_chain(touch,'SHORT','Cont',name)
+        inzone = lo[i]<=zhi and hi[i]>=zlo
+        if armed and inzone:
+            k+=1; _cur_break=k
+            from_below = cl[i-1] < mid
+            if from_below:
+                try_chain(i,'SHORT','Reversal',name); try_chain(i,'LONG','Cont',name)
+            else:
+                try_chain(i,'LONG','Reversal',name);  try_chain(i,'SHORT','Cont',name)
+            armed=False
+        elif not inzone:
+            armed=True
 
 # ---- F.P.FVG (strefa) : reversal oba kierunki + cont oba kierunki ----
 for d in days:

@@ -79,6 +79,7 @@ def to_alert(x):
     tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)  # 2R: TP calosc
     g = grade(x); gtag = '🅰️ klasa A' if g=='A' else '🅱️ klasa B (DIB)'
     if x.get('bias_align')=='Y': gtag += ' ⭐bias'
+    if x.get('brk',1)>=2: gtag += f" 🔁 re-test #{x['brk']}"
     rpts = round(slpts,1); tppts = round(2*slpts,1)
     e_d = round(x['entry']+OFFSET,1); sl_d = round(x['SL']+OFFSET,1); tp_d = round(tp+OFFSET,1)
     base = (f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
