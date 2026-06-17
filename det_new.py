@@ -100,7 +100,7 @@ _RETEST_ALL=RETEST_CATS.strip().upper()=='ALL'
 _RETEST_SET=set(c.strip() for c in RETEST_CATS.split(',') if c.strip())
 RETEST_MAX_R=float(os.environ.get('RETEST_MAX_R','40'))    # cap re-testów: max ryzyko (pkt); szersze tniemy (np. AL#16 R=123)
 RETEST_MAX_BRK=int(os.environ.get('RETEST_MAX_BRK','4'))   # cap re-testów: tylko płytkie przebicia #2-4 (głębsze = szum)
-MAX_STOP_R=float(os.environ.get('MAX_STOP_R','30'))        # globalny cap ryzyka (pkt) na KAŻDY setup, też brk=1 (tnie 70-122pkt potwory; EV bez zmian, mniejsza wariancja)
+MAX_STOP_R=float(os.environ.get('MAX_STOP_R','36'))        # globalny cap ryzyka (pkt) na KAŻDY setup, też brk=1 (tnie 70-122pkt potwory; EV bez zmian, mniejsza wariancja)
 VIMIN=10.         # min luka body-to-body, by liczyc VI jako katalizator
 _cur_break=1      # AB: numer przebicia biezacego triggera
 VIBIG=50.         # min VI, by dzialal jako magnes (TP/bias)
