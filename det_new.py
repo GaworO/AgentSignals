@@ -100,6 +100,7 @@ _RETEST_ALL=RETEST_CATS.strip().upper()=='ALL'
 _RETEST_SET=set(c.strip() for c in RETEST_CATS.split(',') if c.strip())
 RETEST_MAX_R=float(os.environ.get('RETEST_MAX_R','40'))    # cap re-testów: max ryzyko (pkt); szersze tniemy (np. AL#16 R=123)
 RETEST_MAX_BRK=int(os.environ.get('RETEST_MAX_BRK','4'))   # cap re-testów: tylko płytkie przebicia #2-4 (głębsze = szum)
+MAX_STOP_R=float(os.environ.get('MAX_STOP_R','30'))        # globalny cap ryzyka (pkt) na KAŻDY setup, też brk=1 (tnie 70-122pkt potwory; EV bez zmian, mniejsza wariancja)
 VIMIN=10.         # min luka body-to-body, by liczyc VI jako katalizator
 _cur_break=1      # AB: numer przebicia biezacego triggera
 VIBIG=50.         # min VI, by dzialal jako magnes (TP/bias)
@@ -288,6 +289,7 @@ def emit(t,model,name,dr,disp,conf):
     if bull: sl=round(disp['swlo']-BUF,1); tp=liq_above(conf['bos'],entry)
     else:    sl=round(disp['swhi']+BUF,1); tp=liq_below(conf['bos'],entry)
     if any(c in name for c in DISABLE_CATS): return                  # v2.1: katalizator wyciety (np. NWOG)
+    if abs(entry-sl) > MAX_STOP_R: return                            # globalny cap ryzyka: tnij KAZDY szeroki stop (tez brk=1), maxR -> 30pkt
     if '+DIB' in name and abs(entry-sl) > DIB_MAX_R: return          # v2.1 selektywny DIB: szeroki stop -> odrzuc
     if _cur_break>=2 and not _RETEST_ALL and name.replace('+DIB','') not in _RETEST_SET: return  # Opcja2: re-testy tylko na mocnych kat.
     if _cur_break>=2 and (abs(entry-sl)>RETEST_MAX_R or _cur_break>RETEST_MAX_BRK): return  # cap: tnij glebokie/szerokie re-testy
