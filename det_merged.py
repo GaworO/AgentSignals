@@ -1,0 +1,652 @@
+# det_merged.py — PROD v3 (2026-06): scalenie det_new.py + ote_strategy.py
+# ZMIANY vs det_new:
+#   1. bias_for() zastąpiony daily_bias_yest() z ote_strategy (wczoraj close vs midpoint range)
+#   2. confirm_chain() zastąpiony ote_confirm() z ote_strategy (running low/high BOS, FVG held body-only, ostatnie odbicie)
+#   3. emit() zastąpiony ote_emit() — entry z FVG ruchu BOS (ciasny SL), TP stały 2R, filtr dir==bias
+#   4. Zachowane bez zmian: loader, ATR, sesje, katalizatory, find_displacement(), find_displacement_dib(), manage.py kompatybilność
+# BOSWIN: ustawiony na 30 (jak w det_new). ote_strategy miała 8 — może wrócić do mniejszej wartości
+# po obserwacji live supply setupów. Zmień OTE_BOSWIN niżej.
+import pandas as pd, numpy as np, pickle, datetime as dt
+
+# ============ LOADER ============
+import os
+df=pd.read_csv(os.environ.get('DATA_CSV','/mnt/user-data/uploads/MNQ_databento_1m.csv'))
+ts=pd.to_datetime(df.ts_event,utc=True).dt.as_unit('ns')   # pandas3 = us -> wymus ns (T=//1e9)
+df=df.assign(ts=ts).sort_values('ts').reset_index(drop=True); ts=df.ts
+df['dt']=ts.dt.tz_convert('Etc/GMT+4')   # sztywne UTC-4 (jak TFO), bez DST
+o,hi,lo,cl=df.open.values,df.high.values,df.low.values,df.close.values
+T=(ts.astype('int64')//10**9).values
+H=df.dt.dt.hour.values; Mi=df.dt.dt.minute.values
+df['date']=df.dt.dt.date.values; dates=df.date.values; n=len(df); mins=H*60+Mi
+days=sorted(df.date.unique()); dayi={d:i for i,d in enumerate(days)}
+
+# ============ 5m ATR mapped to 1m ============
+b5=T//300
+g5=df.assign(b5=b5).groupby('b5').agg(h5=('high','max'),l5=('low','min'))
+g5['atr']=(g5.h5-g5.l5).rolling(20).mean().shift(1)
+ATR=df.assign(b5=b5).merge(g5[['atr']],left_on='b5',right_index=True,how='left')['atr'].values
+ATR=np.where(np.isnan(ATR),0.0,ATR)
+
+# ============ SESSIONS (TFO windows, UTC-4) ============
+def sess(h,m):
+    if h>=20:return'ASIA'
+    if 2<=h<5:return'LO'
+    if (h==9 and m>=30)or(10<=h<12):return'NYAM'
+    if h==12:return'NYL'
+    if (h==13 and m>=30)or(14<=h<16):return'NYPM'
+    if 16<=h<20:return'PM_AH'
+    return'PREM'
+S=np.array([sess(h,m) for h,m in zip(H,Mi)])
+inst=[];cid=-1;prev=None
+for s in S:
+    if s!=prev:cid+=1
+    inst.append(cid);prev=s
+inst=np.array(inst)
+sessinst=[]
+for c in np.unique(inst):
+    ix=np.where(inst==c)[0]
+    sessinst.append((S[ix[0]],int(ix[0]),int(ix[-1]),float(hi[ix].max()),float(lo[ix].min())))
+
+# ============ CATALYSTS ============
+# F.P.FVG : pierwszy FVG sesji NYAM danego dnia
+fpfvg={}
+for d in days:
+    ix=list(df.index[(df.date==d)&(S=='NYAM')])
+    for kk in range(2,len(ix)):
+        k,k2=ix[kk],ix[kk-2]
+        if lo[k]>hi[k2]: fpfvg[d]=(hi[k2],lo[k],k); break
+        if hi[k]<lo[k2]: fpfvg[d]=(hi[k],lo[k2],k); break
+# PDH/PDL
+day_hl={d:(hi[df.index[df.date==d]].max(),lo[df.index[df.date==d]].min()) for d in days}
+# NDOG/NWOG -> JEDNA jednostka, poziom = .c (close), 2 / 5 dni, uniewaznienie przy przejsciu
+gaplev=[]
+for d in days:
+    bef=df[(df.date==d)&(H<17)]; aft=df[(df.date==d)&(H>=18)]
+    if len(bef) and len(aft) and pd.Timestamp(d).weekday()<4:
+        c17=cl[bef.index[-1]]; ta=T[aft.index[0]]
+        gaplev.append([c17,ta,'NDOG',d,2])
+    if pd.Timestamp(d).weekday()==6:
+        sun=df[(df.date==d)&(H>=18)]; frd=[x for x in days if pd.Timestamp(x).weekday()==4 and x<d]
+        if len(sun) and frd:
+            fri=df[(df.date==frd[-1])&(H<17)]
+            if len(fri):
+                fc=cl[fri.index[-1]]; ta=T[sun.index[0]]
+                gaplev.append([fc,ta,'NWOG',d,5])
+for g in gaplev:
+    pr,ta=g[0],g[1]; ct=float('inf')
+    idxs=np.where((T>ta)&(lo<=pr)&(hi>=pr))[0]
+    if len(idxs): ct=T[idxs[0]]
+    g.append(ct)
+# BSL/SSL : rowne high/low z H1
+g1=df.set_index(ts).resample('1h').agg(h=('high','max'),l=('low','min')).dropna()
+H1,L1=g1.h.values,g1.l.values; G1=(g1.index.astype('int64')//10**9).values
+swh=[(H1[k],G1[k+2]) for k in range(2,len(g1)-2) if H1[k]>=max(H1[k-1],H1[k-2],H1[k+1],H1[k+2])]
+swl=[(L1[k],G1[k+2]) for k in range(2,len(g1)-2) if L1[k]<=min(L1[k-1],L1[k-2],L1[k+1],L1[k+2])]
+def equals(sw,tol=4.):
+    eq=[]
+    for i in range(len(sw)):
+        for j in range(i+1,len(sw)):
+            if sw[j][1]-sw[i][1]>86400: break
+            if abs(sw[i][0]-sw[j][0])<=tol: eq.append((round((sw[i][0]+sw[j][0])/2,1),sw[j][1]))
+    return eq
+eqH=equals(swh); eqL=equals(swl)
+
+# ============ PARAMS ============
+TOL=3.            # tolerancja CE / krawedzi FVG
+LOOKBACK=15       # struktura krotkoterminowa do break of structure
+ATRMULT=1.5       # sila displacementu: suma cial >= ATRMULT*ATR5m
+DISPWIN=10        # ile barow po triggerze szukam impulsu
+MAXIMP=3          # max swiec impulsu
+RETWIN=20         # okno na retrace do 50% FVG (ote_confirm uzywa RETWIN=30 wewnetrznie — patrz nizej)
+BOSWIN=30         # okno na BOS po odbiciu (det_new: 30; ote_strategy oryginalna: 8)
+                  # UWAGA: moze zmniejszyc do 8-15 jesli supply setupow zbyt duzy lub BOS-y sa "leniwe"
+BUF=3.
+# ── Parametry OTE (z ote_strategy.py, uzywane przez ote_confirm i ote_entry) ──
+OTE_RETWIN    = 30    # okno na odbicie w ote_confirm
+OTE_BOSWIN    = 30    # okno na BOS w ote_confirm — ZOSTAWIONO 30 (ote_strategy miala 8)
+                      # TODO: rozwazyc zmniejszenie do 8-15 po obserwacji live; mniejsze = szybszy BOS wymagany = mniej setupow ale mocniejsze
+OTE_MAX_STOP_R= 45.0  # max szerokosc stopu w ote_entry (pkt)
+OTE_TP_R      = 2.0   # TP = 2R stale
+DIB_MAX_R=float(os.environ.get('DIB_MAX_R','31'))            # v2.1 selektywny DIB: max ryzyko (pkt); szersze = ucinane
+DISABLE_CATS=set(c for c in os.environ.get('DISABLE_CATS','NWOG').split(',') if c)  # v2.1: katalizatory wycięte (EV~0)
+RETEST_CATS=os.environ.get('RETEST_CATS','AL,PDL,NYLL,NYPML,SSL H1,NYLH,NYPMH')  # Opcja2: kat. dozwolone na re-testach (#2+); 'ALL'=wszystkie; ''=tylko #1
+_RETEST_ALL=RETEST_CATS.strip().upper()=='ALL'
+_RETEST_SET=set(c.strip() for c in RETEST_CATS.split(',') if c.strip())
+RETEST_MAX_R=float(os.environ.get('RETEST_MAX_R','40'))    # cap re-testów: max ryzyko (pkt); szersze tniemy (np. AL#16 R=123)
+RETEST_MAX_BRK=int(os.environ.get('RETEST_MAX_BRK','4'))   # cap re-testów: tylko płytkie przebicia #2-4 (głębsze = szum)
+MAX_STOP_R=float(os.environ.get('MAX_STOP_R','36'))        # globalny cap ryzyka (pkt) na KAŻDY setup, też brk=1 (tnie 70-122pkt potwory; EV bez zmian, mniejsza wariancja)
+VIMIN=10.         # min luka body-to-body, by liczyc VI jako katalizator
+_cur_break=1      # AB: numer przebicia biezacego triggera
+VIBIG=50.         # min VI, by dzialal jako magnes (TP/bias)
+def dayidx_for(epoch):
+    i=int(np.searchsorted(T,epoch)); return min(max(i,0),n-1)
+
+# ============ VOLUME IMBALANCE (luka body-to-body open[k] vs close[k-1]) ============
+vis=[]   # (lo,hi,bar,bull,mag)
+for k in range(1,n):
+    g=o[k]-cl[k-1]
+    if g>=VIMIN and cl[k]>o[k]:  vis.append((round(float(cl[k-1]),2),round(float(o[k]),2),k,True,round(float(g),1)))
+    if -g>=VIMIN and cl[k]<o[k]: vis.append((round(float(o[k]),2),round(float(cl[k-1]),2),k,False,round(float(-g),1)))
+bigvi=[]   # duze VI + bar domkniecia (magnes wazny dopoki niedomkniety)
+for a,b,bar,bull,mag in vis:
+    if mag<VIBIG: continue
+    fillbar=n
+    idx=np.where((lo[bar+1:]<=b)&(hi[bar+1:]>=a))[0]
+    if len(idx): fillbar=bar+1+int(idx[0])
+    bigvi.append((round((a+b)/2,2),bar,bull,mag,fillbar))
+def vi_draw(t):
+    """niedomkniety duzy VI najblizej (z 2 dni) -> kierunek magnesu i poziom"""
+    up=dn=None
+    for ce,bar,bull,mag,fillbar in bigvi:
+        if not (bar<t<fillbar): continue
+        if (T[t]-T[bar])>2*86400: continue
+        if ce>cl[t] and (up is None or ce<up): up=ce
+        if ce<cl[t] and (dn is None or ce>dn): dn=ce
+    return up,dn
+
+# ============ HELPERS ============
+def fvgs(a,b,bull):
+    out=[]
+    for k in range(max(a,2),min(b,n)):
+        if bull and lo[k]>hi[k-2] and lo[k]-hi[k-2]>=TOL: out.append((round(hi[k-2],1),round(lo[k],1),k))
+        if not bull and hi[k]<lo[k-2] and lo[k-2]-hi[k]>=TOL: out.append((round(hi[k],1),round(lo[k-2],1),k))
+    return out
+
+def find_displacement(t,dr):
+    """od bara triggera t szukaj impulsu 1-3 swiec: break struktury + zostawia FVG + sila."""
+    bull = dr=='LONG'
+    for u in range(t+1,min(t+1+DISPWIN,n)):
+        for L in range(1,MAXIMP+1):
+            s=u-L+1
+            if s<=t: continue
+            same = all((cl[x]>o[x]) if bull else (cl[x]<o[x]) for x in range(s,u+1))
+            if not same: continue
+            body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
+            if body<=0: continue
+            prior = max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
+            broke = (cl[u]>prior) if bull else (cl[u]<prior)
+            if not broke: continue
+            atr5=ATR[u] if ATR[u]>0 else 1e9
+            maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
+            if body < ATRMULT*atr5: continue
+            if body < maxbody: continue
+            fl=fvgs(s,u+2,bull)
+            if not fl: continue
+            f=fl[-1]                       # FVG displacementu (najswiezszy)
+            swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
+            return dict(s=s,u=u,L=L,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],
+                        swlo=swlo,swhi=swhi,atr5=round(atr5,1))
+    return None
+
+def find_displacement_dib(t,dr):
+    bull=dr=='LONG'; best=None
+    for u in range(max(MAXIMP,t-2),min(t+3,n)):
+        for L in range(1,MAXIMP+1):
+            s=u-L+1
+            if s<1: continue
+            same=all((cl[x]>o[x]) if bull else (cl[x]<o[x]) for x in range(s,u+1))
+            if not same: continue
+            body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
+            if body<=0: continue
+            prior=max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
+            broke=(cl[u]>prior) if bull else (cl[u]<prior)
+            if not broke: continue
+            atr5=ATR[u] if ATR[u]>0 else 1e9
+            maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
+            if body<ATRMULT*atr5: continue
+            if body<maxbody: continue
+            fl=fvgs(s,u+2,bull)
+            if not fl: continue
+            f=fl[-1]; swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
+            cand=dict(s=s,u=u,L=L,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],swlo=swlo,swhi=swhi,atr5=round(atr5,1))
+            if best is None or body>best['body']: best=cand
+    return best
+
+def find_bounce(disp,dr):
+    """etap odbicia (PRE, przed BOS): retrace w FVG + CIALO trzyma 50% (spojne z confirm_chain). Zwraca (ce, bounce|None)."""
+    bull=dr=='LONG'; fl,fh=disp['fvg']; ce=round((fl+fh)/2,1); u=disp['u']
+    bounce=None
+    for r in range(u+1,min(u+1+RETWIN,n)):
+        if bull and lo[r]<=ce+TOL: bounce=r;break
+        if (not bull) and hi[r]>=ce-TOL: bounce=r;break
+        if bull and hi[r]>disp['swhi']: break       # uciekl bez retrace
+        if (not bull) and lo[r]<disp['swlo']: break
+    if bounce is None: return ce,None
+    seg=cl[u+1:bounce+1]                              # CIALO trzyma 50%
+    if bull and bool((seg<ce-TOL).any()): return ce,None
+    if (not bull) and bool((seg>ce+TOL).any()): return ce,None
+    return ce,bounce
+
+def confirm_chain(disp,dr):
+    """TWOJA regula: retrace w FVG, CIALO (close) trzyma 50% (CE) - zaden close < CE; knot moze nizej. Wejscie CE."""
+    bull=dr=='LONG'; u=disp['u']; fl,fh=disp['fvg']; ce=round((fl+fh)/2,1)
+    bounce=None
+    for r in range(u+1,min(u+1+RETWIN,n)):
+        if bull and lo[r]<=ce+TOL: bounce=r;break       # knot dotyka 50% -> fill limita CE
+        if (not bull) and hi[r]>=ce-TOL: bounce=r;break
+        if bull and hi[r]>disp['swhi']: break
+        if (not bull) and lo[r]<disp['swlo']: break
+    if bounce is None: return None
+    # CIALO trzyma 50% od u+1..bounce (zaden close pod CE)
+    seg=cl[u+1:bounce+1]
+    if bull and bool((seg < ce-TOL).any()): return None
+    if (not bull) and bool((seg > ce+TOL).any()): return None
+    # BOS po close; po drodze tez nie wolno zamknac pod 50%
+    ext=disp['swhi'] if bull else disp['swlo']; bos=None
+    for j in range(bounce+1,min(bounce+1+BOSWIN,n)):
+        if bull and cl[j]>ext: bos=j;break
+        if (not bull) and cl[j]<ext: bos=j;break
+    if bos is None: return None
+    return dict(ce=ce,bounce=bounce,bos=bos)
+
+def liq_above(t,px):
+    c=[v[3] for v in sessinst if v[3]>px+5 and v[2]<t]
+    di=dayi[dates[t]]
+    if di>0: c.append(day_hl[days[di-1]][0])
+    up,_=vi_draw(t)
+    if up is not None: c.append(up)        # duzy VI jako magnes-cel
+    c=[x for x in c if x>px+5]; return round(min(c),1) if c else None
+def liq_below(t,px):
+    c=[v[4] for v in sessinst if v[4]<px-5 and v[2]<t]
+    di=dayi[dates[t]]
+    if di>0: c.append(day_hl[days[di-1]][1])
+    _,dn=vi_draw(t)
+    if dn is not None: c.append(dn)        # duzy VI jako magnes-cel
+    c=[x for x in c if x<px-5]; return round(max(c),1) if c else None
+
+# ============ BIAS (v3 — daily_bias_yest z ote_strategy, priorytet nad bias_for) ============
+# Stara bias_for() (5-dniowy range + struktura D1 + VI draw) zostawiona jako referencja/debug,
+# ale NIE jest juz uzywana w emisji. Nowa logika: wczoraj close vs midpoint wczorajszego range.
+dd=df.set_index(ts).resample('1D').agg(h=('high','max'),l=('low','min'),c=('close','last')).dropna()
+dD=dd.index.tz_convert('Etc/GMT+4').date
+dH_d,dL_d,dC_d=dd.h.values,dd.l.values,dd.c.values
+# dEnd: epoch konca kazdego dnia w sekundach — uzywamy ts (ns) -> //1e9 -> sekundy, +86400
+_dEnd=(dd.index.astype('int64')//10**9).values + 86400
+
+def daily_bias_yest(t_epoch):
+    """BIAS z ote_strategy: yesterday close > midpoint(yesterday H/L) -> LONG, inaczej -> SHORT.
+    t_epoch = sekundy (T[bar]). Zawsze zwraca LONG lub SHORT (nigdy niejasny gdy di>=0)."""
+    di=int(np.searchsorted(_dEnd,int(t_epoch)))-1
+    if di<0: return 'niejasny'
+    mid=(_dH_day[di]+_dL_day[di])/2.0
+    return 'LONG' if _dC_day[di]>mid else 'SHORT'
+_dH_day,_dL_day,_dC_day=dH_d,dL_d,dC_d  # aliasy dla daily_bias_yest
+
+def bias_for(t):
+    """STARA bias (det_new v2) — zostawiona do debug/porownania, nie uzywana w emisji."""
+    d=dates[t]; di=dayi[d]
+    j=np.searchsorted(dD,d)
+    if j<5: return ('niejasny','-')
+    rngH=dH_d[j-5:j].max(); rngL=dL_d[j-5:j].min(); eq=(rngH+rngL)/2
+    px=cl[t]
+    pd_='discount' if px<eq else 'premium'
+    up=dH_d[j-1]>dH_d[j-3] and dL_d[j-1]>dL_d[j-3]
+    dn=dH_d[j-1]<dH_d[j-3] and dL_d[j-1]<dL_d[j-3]
+    if pd_=='discount' and up: b='LONG'
+    elif pd_=='premium' and dn: b='SHORT'
+    elif pd_=='discount' and not dn: b='LONG?'
+    elif pd_=='premium' and not up: b='SHORT?'
+    else: b='niejasny'
+    vu,vd=vi_draw(t)
+    if b=='niejasny':
+        if vu and not vd: b='LONG?'
+        elif vd and not vu: b='SHORT?'
+    elif b=='LONG?' and vu and not vd: b='LONG'
+    elif b=='SHORT?' and vd and not vu: b='SHORT'
+    return (b,pd_)
+
+def daily_bias_yest(t_epoch):
+    """BIAS z ote_strategy: yesterday close > midpoint(yesterday H/L) -> LONG, inaczej -> SHORT.
+    Zawsze zwraca LONG lub SHORT (nigdy niejasny) — upraszcza filtrowanie."""
+    di=int(np.searchsorted(_dEnd,t_epoch))-1
+    if di<0: return 'niejasny'
+    mid=(_dH_day[di]+_dL_day[di])/2.0
+    return 'LONG' if _dC_day[di]>mid else 'SHORT'
+_dH_day,_dL_day,_dC_day=dH_d,dL_d,dC_d  # aliasy dla daily_bias_yest
+
+def bias_for(t):
+    """STARA bias (det_new v2) — zostawiona do debug/porownania, nie uzywana w emisji."""
+    d=dates[t]; di=dayi[d]
+    j=np.searchsorted(dD,d)
+    if j<5: return ('niejasny','-')
+    rngH=dH_d[j-5:j].max(); rngL=dL_d[j-5:j].min(); eq=(rngH+rngL)/2
+    px=cl[t]
+    pd_='discount' if px<eq else 'premium'
+    up=dH_d[j-1]>dH_d[j-3] and dL_d[j-1]>dL_d[j-3]
+    dn=dH_d[j-1]<dH_d[j-3] and dL_d[j-1]<dL_d[j-3]
+    if pd_=='discount' and up: b='LONG'
+    elif pd_=='premium' and dn: b='SHORT'
+    elif pd_=='discount' and not dn: b='LONG?'
+    elif pd_=='premium' and not up: b='SHORT?'
+    else: b='niejasny'
+    vu,vd=vi_draw(t)
+    if b=='niejasny':
+        if vu and not vd: b='LONG?'
+        elif vd and not vu: b='SHORT?'
+    elif b=='LONG?' and vu and not vd: b='LONG'
+    elif b=='SHORT?' and vd and not vu: b='SHORT'
+    return (b,pd_)
+
+# ============ EMISJA SETUPU (v3) ============
+out=[]
+pre_out=[]; _PRE=bool(os.environ.get('PRE_ALERT'))
+_TRACE=[]; _DBG=bool(os.environ.get('DEBUG_TRACE'))
+def _trace(trigger,dr,model,name,stage,disp=None):
+    if not _DBG: return
+    rec=dict(cat=name,model=model,dir=dr,trig=df.dt[trigger].strftime('%Y-%m-%d %H:%M'),
+             trig_ms=int(df.dt[trigger].timestamp()*1000),stage=stage)
+    if disp is not None:
+        rec['disp_end']=df.dt[disp['u']].strftime('%H:%M'); rec['fvg']=[round(disp['fvg'][0],1),round(disp['fvg'][1],1)]
+    _TRACE.append(rec)
+
+
+# ── ote_confirm() z ote_strategy (podmieniona confirm_chain) ─────────────────
+def ote_confirm(disp, dr):
+    """Potwierdzenie OTE (z ote_strategy.py).
+    Roznice vs confirm_chain:
+      - bierze OSTATNIE odbicie (nie pierwsze)
+      - BOS = close za running min/max (nie za stale swhi/swlo displacementu)
+      - FVG held: zadne CIALO poza FVG do BOS (nie tylko knot)
+      - BOSWIN = OTE_BOSWIN (domyslnie 30, oryginalna ote_strategy: 8)
+      - dno swinga potwierdzony cofnieciem (walk-forward)
+    Zwraca dict z 7 kluczami: ce, bounce, bos, conf_bar, legrej, swingext, brklevel.
+    confirm_chain zwracala 3 klucze — ote_emit() uzywa wszystkich 7."""
+    bull=dr=='LONG'
+    u,s=disp['u'],disp['s']
+    fl,fh=disp['fvg']; ce=round((fl+fh)/2,2)
+    first_b=last_b=bos=brklevel=None
+    run=float(min(lo[s:u+1])) if not bull else float(max(hi[s:u+1]))
+    for j in range(u+1, min(u+1+OTE_RETWIN+OTE_BOSWIN, n)):
+        if (cl[j]>fh) if (not bull) else (cl[j]<fl):
+            return None                                    # cialo przebilo cala FVG -> martwy
+        if last_b is not None and ((cl[j]<run-0.01) if (not bull) else (cl[j]>run+0.01)):
+            bos,brklevel=j,run; break                     # BOS za running min/max
+        inzone=(hi[j]>=fl and hi[j]<=fh+TOL) if (not bull) else (lo[j]<=fh and lo[j]>=fl-TOL)
+        if inzone:
+            if first_b is None: first_b=j
+            last_b=j                                      # OSTATNIE odbicie
+        run=min(run,lo[j]) if not bull else max(run,hi[j])
+        if first_b is None and (((lo[j]<disp['swlo']) if (not bull) else (hi[j]>disp['swhi']))):
+            return None                                   # uciekl bez odbicia
+    if bos is None or last_b is None: return None
+    bounce=last_b
+    legrej=float(max(hi[bounce:bos+1])) if not bull else float(min(lo[bounce:bos+1]))
+    # dno/szczyt swinga po BOS, potwierdzony cofnieciem (walk-forward)
+    ext=lo[bos] if not bull else hi[bos]; conf_bar=None
+    for m in range(bos+1, min(bos+1+OTE_BOSWIN, n)):
+        if not bull:
+            if lo[m]<ext-0.01: ext=lo[m]
+            elif lo[m]>ext+0.01: conf_bar=m; break
+        else:
+            if hi[m]>ext+0.01: ext=hi[m]
+            elif hi[m]<ext-0.01: conf_bar=m; break
+    if conf_bar is None: conf_bar=min(bos+1+OTE_BOSWIN,n)-1
+    return dict(ce=ce,bounce=bounce,bos=bos,conf_bar=conf_bar,
+                legrej=legrej,swingext=float(ext),brklevel=round(brklevel,2))
+
+
+# ── ote_entry() z ote_strategy — entry z FVG ruchu BOS, SL ciasny ───────────
+def ote_entry(disp, dr, conf):
+    """Entry = CE FVG zostawionej przez ruch BOS (ciasny SL nad/pod ta FVG).
+    Fallback: OTE 62% jesli brak FVG. TP staly 2R."""
+    bull=dr=='LONG'; fl,fh=disp['fvg']
+    bos,conf_bar=conf['bos'],conf['conf_bar']
+    if not bull: legtop,legbot=conf['legrej'],conf['swingext']
+    else:        legbot,legtop=conf['legrej'],conf['swingext']
+    rng=legtop-legbot
+    if rng<=0: return None
+    ote62=round(legbot+0.62*rng,2) if not bull else round(legtop-0.62*rng,2)
+    # szukaj FVG zostawionej przez ruch BOS
+    efl=efh=efk=None
+    for k in range(max(bos,2), min(conf_bar+3,n)):
+        if (not bull) and hi[k]<lo[k-2]: efl,efh,efk=hi[k],lo[k-2],k; break
+        if bull and lo[k]>hi[k-2]:       efl,efh,efk=hi[k-2],lo[k],k; break
+    if efl is not None:
+        entry=round((efl+efh)/2,2); entrymode='FVG'; fillfrom=efk+1
+        sl=round(efh+BUF,2) if (not bull) else round(efl-BUF,2)
+    else:
+        entry=ote62; entrymode='OTE'; fillfrom=conf_bar
+        sl=round(fh+BUF,2) if (not bull) else round(fl-BUF,2)
+    R=abs(entry-sl)
+    if R<=0 or R>OTE_MAX_STOP_R: return None
+    tp=round(entry-OTE_TP_R*R,2) if (not bull) else round(entry+OTE_TP_R*R,2)
+    # fill walk-forward: czekaj na faktyczne trafienie limitu
+    fill=None
+    for r in range(fillfrom, min(fillfrom+OTE_RETWIN+OTE_BOSWIN,n)):
+        if (hi[r]>=entry) if (not bull) else (lo[r]<=entry): fill=r; break
+    if fill is None: return None
+    return dict(entrymode=entrymode,entry=entry,SL=sl,TP=tp,R=round(R,1),
+                fill_bar=fill,
+                efvg=(None if efl is None else (round(efl,2),round(efh,2))),
+                legtop=round(legtop,2),legbot=round(legbot,2),brklevel=conf['brklevel'])
+
+
+# ── ote_emit() — zastepuje stare emit(), zachowuje klucze kompatybilne z live_emit.py ──
+def ote_emit(t, model, name, dr, disp, conf):
+    """Filtr kierunku: emituj tylko gdy dr == daily_bias_yest (niejasny => pomijaj).
+    SL = nad/pod FVG przebicia (ciasny). TP = staly 2R. Klucze out[] zgodne z live_emit.py."""
+    # ── filtr bias (PRIORYTET) ──
+    t_epoch=int(T[conf['bos']])
+    bias=daily_bias_yest(t_epoch)
+    if bias=='niejasny': return                           # brak zamknietego dnia — pomijaj
+    if dr!=bias: return                                   # kierunek przeciwny do biasu — odrzuc
+
+    # ── filtry ryzyka (jak w det_new) ──
+    if any(c in name for c in DISABLE_CATS): return
+    if _cur_break>=2 and not _RETEST_ALL and name.replace('+DIB','') not in _RETEST_SET: return
+    if _cur_break>=2 and _cur_break>RETEST_MAX_BRK: return
+
+    # ── parametry wejscia z ote_entry ──
+    e=ote_entry(disp,dr,conf)
+    if e is None: return
+    if e['R']>MAX_STOP_R: return                         # globalny cap
+    if '+DIB' in name and e['R']>DIB_MAX_R: return
+    if _cur_break>=2 and e['R']>RETEST_MAX_R: return
+
+    fl,fh=disp['fvg']
+    bull=dr=='LONG'
+    leg_hi,leg_lo=disp['swhi'],disp['swlo']; rng=leg_hi-leg_lo
+    ote62=round(leg_hi-0.62*rng,1) if bull else round(leg_lo+0.62*rng,1)
+    ote79=round(leg_hi-0.79*rng,1) if bull else round(leg_lo+0.79*rng,1)
+    trail=[(x[0],x[1],x[2]) for x in fvgs(conf['bos'],min(conf['bos']+40,n),bull)]
+    align='Y'  # bias filtr przeszedl => zawsze zgodny
+    out.append(dict(brk=_cur_break,date=str(dates[conf['bos']]),model=model,cat=name,dir=dr,
+        trig=df.dt[t].strftime('%H:%M'),disp_end=df.dt[disp['u']].strftime('%H:%M'),
+        bounce=df.dt[conf['bounce']].strftime('%H:%M'),bos=df.dt[conf['bos']].strftime('%H:%M'),
+        entry=e['entry'],ote62=ote62,ote79=ote79,SL=e['SL'],TP=e['TP'],R=e['R'],
+        entrymode=e['entrymode'],efvg=e['efvg'],
+        fvg_lo=round(fl,1),fvg_hi=round(fh,1),
+        bias=bias,bias_align=align,trail=trail,
+        emit_bar=int(conf['bos']),entry_bar=int(e['fill_bar']),
+        entry_ms=int(df.dt[e['fill_bar']].timestamp()*1000),
+        bos_ms=int(df.dt[conf['bos']].timestamp()*1000)))
+
+def emit_pre(t,model,name,dr,disp,bounce,ce):
+    """rekord PRE: odbicie od CE potwierdzone, BOS jeszcze NIE. Entry~CE, SL ze struktury, TP orientacyjny.
+    bos_ms = czas odbicia (uzywany przez straznik swiezosci i flagi sesji/newsow)."""
+    bull=dr=='LONG'; fl,fh=disp['fvg']
+    leg_hi,leg_lo=disp['swhi'],disp['swlo']; rng=leg_hi-leg_lo
+    ote62=round(leg_hi-0.62*rng,1) if bull else round(leg_lo+0.62*rng,1)
+    ote79=round(leg_hi-0.79*rng,1) if bull else round(leg_lo+0.79*rng,1)
+    if bull: sl=round(disp['swlo']-BUF,1); tp=liq_above(bounce,ce)
+    else:    sl=round(disp['swhi']+BUF,1); tp=liq_below(bounce,ce)
+    bms=int(df.dt[bounce].timestamp()*1000)
+    pre_out.append(dict(date=str(dates[bounce]),model=model,cat=name,dir=dr,
+        trig=df.dt[t].strftime('%H:%M'),disp_end=df.dt[disp['u']].strftime('%H:%M'),
+        bounce=df.dt[bounce].strftime('%H:%M'),bos='',
+        entry=ce,ote62=ote62,ote79=ote79,SL=sl,TP=tp,
+        fvg_lo=round(fl,1),fvg_hi=round(fh,1),
+        stage='PRE',entry_bar=int(bounce),entry_ms=bms,bos_ms=bms))
+
+def try_chain(trigger,dr,model,name):
+    cur=trigger; pre_done=False
+    for _ in range(3):
+        d=find_displacement(cur,dr)
+        if d is None: break
+        if _PRE and not pre_done:                       # PRE-alert: odbicie od CE (body 50%) przed BOS
+            ce,bnc=find_bounce(d,dr)
+            if bnc is not None: emit_pre(trigger,model,name,dr,d,bnc,ce); pre_done=True
+        c=ote_confirm(d,dr)                             # v3: ote_confirm zamiast confirm_chain
+        if c:
+            _trace(trigger,dr,model,name,'POTWIERDZONY (ote_confirm: running BOS + ostatnie odbicie)',d)
+            ote_emit(trigger,model,name,dr,d,c); return  # v3: ote_emit zamiast emit
+        _trace(trigger,dr,model,name,'displacement OK, ale brak potwierdzenia ote_confirm',d)
+        cur=d['u']
+    # fallback DIB: noga ktora SAMA zlamala poziom
+    d2=find_displacement_dib(trigger,dr)
+    if d2 is None:
+        _trace(trigger,dr,model,name,'katalizator trafiony, ale brak displacementu')
+        return
+    if _PRE and not pre_done:                            # PRE-alert tez dla DIB
+        ce,bnc=find_bounce(d2,dr)
+        if bnc is not None: emit_pre(trigger,model,name+'+DIB',dr,d2,bnc,ce); pre_done=True
+    c2=ote_confirm(d2,dr)                               # v3: ote_confirm tez dla DIB
+    if c2:
+        _trace(trigger,dr,model,name+'+DIB','POTWIERDZONY przez DIB (ote_confirm)',d2)
+        ote_emit(trigger,model,name+'+DIB',dr,d2,c2)   # v3: ote_emit
+    else:
+        _trace(trigger,dr,model,name+'+DIB','DIB: displacement OK, ale brak potwierdzenia ote_confirm',d2)
+
+def run_level(level,form_t,end_t,name,rev_dir,cont_dir):
+    """AB: KAZDE przebicie (re-arm po cofnieciu o BUF), tag _cur_break."""
+    global _cur_break
+    a0=dayidx_for(form_t); a1=min(dayidx_for(end_t)+1,n)
+    win=[i for i in range(a0,a1) if T[i]>form_t]
+    if not win: return
+    if rev_dir:
+        bull=rev_dir=='LONG'; armed=True; k=0
+        for i in win:
+            hit=(lo[i]<=level) if bull else (hi[i]>=level)
+            if armed and hit:
+                k+=1; _cur_break=k; try_chain(i,rev_dir,'Reversal',name); armed=False
+            elif (not armed) and ((lo[i]>level+BUF) if bull else (hi[i]<level-BUF)):
+                armed=True
+    if cont_dir:
+        bull=cont_dir=='LONG'; armed=True; k=0
+        for i in win:
+            hit=(cl[i]>level) if bull else (cl[i]<level)
+            if armed and hit:
+                k+=1; _cur_break=k; try_chain(i,cont_dir,'Cont',name); armed=False
+            elif (not armed) and ((cl[i]<level-BUF) if bull else (cl[i]>level+BUF)):
+                armed=True
+
+def run_gap(zlo,zhi,form_t,end_t,name):
+    """AB: KAZDY tap strefy (re-arm po wyjsciu), tag _cur_break."""
+    global _cur_break
+    a0=dayidx_for(form_t); a1=min(dayidx_for(end_t)+1,n)
+    win=[i for i in range(a0,a1) if T[i]>form_t]
+    if not win: return
+    mid=(zlo+zhi)/2; armed=False; k=0
+    for i in win:
+        inzone = lo[i]<=zhi and hi[i]>=zlo
+        if armed and inzone:
+            k+=1; _cur_break=k
+            from_below = cl[i-1] < mid
+            if from_below:
+                try_chain(i,'SHORT','Reversal',name); try_chain(i,'LONG','Cont',name)
+            else:
+                try_chain(i,'LONG','Reversal',name);  try_chain(i,'SHORT','Cont',name)
+            armed=False
+        elif not inzone:
+            armed=True
+
+# ---- F.P.FVG (strefa) : reversal oba kierunki + cont oba kierunki ----
+for d in days:
+    if d not in fpfvg: continue
+    a,b,form=fpfvg[d]; ft=T[form]; et=T[df.index[df.date==d][-1]]
+    run_level(a,ft,et,'F.P.FVG','LONG',None)   # tap dolnej krawedzi -> rev long
+    run_level(b,ft,et,'F.P.FVG','SHORT',None)  # tap gornej krawedzi -> rev short
+    run_level(b,ft,et,'F.P.FVG',None,'LONG')   # close nad FVG -> cont long
+    run_level(a,ft,et,'F.P.FVG',None,'SHORT')  # close pod FVG -> cont short
+
+# ---- H/L sesji : low->rev LONG / cont SHORT ; high->rev SHORT / cont LONG ----
+SH={'ASIA':('AH','AL'),'LO':('LH','LL'),'NYAM':('NYAMH','NYAML'),'NYL':('NYLH','NYLL'),'NYPM':('NYPMH','NYPML')}
+for sname,s0,eidx,Hh,Ll in sessinst:
+    if sname not in SH: continue
+    hn,ln=SH[sname]; ft=T[eidx]
+    V=1 if sname in ('NYPM','ASIA') else 0
+    di=dayi[dates[eidx]]; endd=days[min(di+V,len(days)-1)]; et=T[df.index[df.date==endd][-1]]
+    run_level(Hh,ft,et,hn,'SHORT','LONG')   # high sesji
+    run_level(Ll,ft,et,ln,'LONG','SHORT')   # low sesji
+
+# ---- PDH/PDL (poprzedni dzien) : high->rev SHORT/cont LONG ; low->rev LONG/cont SHORT ----
+# pierwsza interakcja w dniu d, TP leci przez liq_above/liq_below (nastepna plynnosc, nie sam poziom)
+for _di in range(1,len(days)):
+    d=days[_di]; pdh,pdl=day_hl[days[_di-1]]
+    _ix=df.index[df.date==d]
+    if len(_ix)==0: continue
+    ft=int(T[_ix[0]])-1; et=int(T[_ix[-1]])
+    run_level(pdh,ft,et,'PDH','SHORT','LONG')
+    run_level(pdl,ft,et,'PDL','LONG','SHORT')
+
+# ---- PWH/PWL (poprzedni tydzien ISO) : jak wyzej, pierwsza interakcja w biezacym tygodniu ----
+_iso=df.dt.dt.isocalendar()
+_wk=list(zip(_iso.year.values,_iso.week.values))
+from collections import OrderedDict as _OD
+_weeks=_OD()
+for _i,_k in enumerate(_wk):
+    if _k not in _weeks: _weeks[_k]=[_i,_i,float(hi[_i]),float(lo[_i])]
+    else:
+        _w=_weeks[_k]; _w[1]=_i
+        if hi[_i]>_w[2]: _w[2]=float(hi[_i])
+        if lo[_i]<_w[3]: _w[3]=float(lo[_i])
+_wkeys=list(_weeks.keys())
+for _wi in range(1,len(_wkeys)):
+    pwh=_weeks[_wkeys[_wi-1]][2]; pwl=_weeks[_wkeys[_wi-1]][3]
+    _s0,_s1=_weeks[_wkeys[_wi]][0],_weeks[_wkeys[_wi]][1]
+    ft=int(T[_s0])-1; et=int(T[_s1])
+    run_level(pwh,ft,et,'PWH','SHORT','LONG')
+    run_level(pwl,ft,et,'PWL','LONG','SHORT')
+
+# ---- NDOG/NWOG (.c, jedna jednostka, GAP) : trigger = powrot do poziomu ----
+for pr,ta,nm,fd,md,ct in gaplev:
+    et=T[df.index[df.date==days[min(dayi[fd]+md,len(days)-1)]][-1]]
+    et=min(et, ct if ct!=float('inf') else et)
+    run_gap(pr,pr,ta,et,nm)
+
+# ---- BSL/SSL H1 (2 dni) : BSL high-> rev SHORT/cont LONG ; SSL low-> rev LONG/cont SHORT ----
+for P,t0 in eqH:
+    sb=dayidx_for(t0); et=T[df.index[df.date==days[min(dayi[dates[sb]]+2,len(days)-1)]][-1]]
+    run_level(P,t0,et,'BSL H1','SHORT','LONG')
+for P,t0 in eqL:
+    sb=dayidx_for(t0); et=T[df.index[df.date==days[min(dayi[dates[sb]]+2,len(days)-1)]][-1]]
+    run_level(P,t0,et,'SSL H1','LONG','SHORT')
+
+# ---- VOLUME IMBALANCE (katalizator-GAP, 2 dni) : trigger = powrot do strefy VI ----
+for a,b,bar,bull,mag in vis:
+    et=T[df.index[df.date==days[min(dayi[dates[bar]]+2,len(days)-1)]][-1]]
+    run_gap(a,b,T[bar],et,'VI')
+
+# ============ DEDUP + FILTR 17.05+ ============
+from collections import Counter,defaultdict
+seen=set(); ded=[]
+for x in sorted(out,key=lambda z:z['emit_bar']):
+    key=(x['model'],x['cat'],x['dir'],x['emit_bar']//30)
+    if key in seen: continue
+    seen.add(key); ded.append(x)
+import os as _os
+_cut=_os.environ.get('CUTOFF','2026-05-17')   # pusty => bez filtra (tryb agenta)
+if _cut:
+    cut=pd.Timestamp(_cut,tz='Etc/GMT+4')
+    finals=[x for x in ded if df.dt[x['emit_bar']]>=cut]
+else:
+    finals=list(ded)
+finals=sorted(finals,key=lambda z:z['emit_bar'])
+pickle.dump(finals,open(_os.environ.get('OUT_PKL','/home/claude/det_new.pkl'),'wb'))
+if _PRE:
+    pseen=set(); pded=[]
+    for x in sorted(pre_out,key=lambda z:z['entry_bar']):
+        k=(x['model'],x['cat'],x['dir'],x['entry_bar']//30)
+        if k in pseen: continue
+        pseen.add(k); pded.append(x)
+    if _cut: pfin=[x for x in pded if df.dt[x['entry_bar']]>=cut]
+    else:    pfin=list(pded)
+    pfin=sorted(pfin,key=lambda z:z['entry_bar'])
+    pickle.dump(pfin, open(_os.environ.get('PRE_PKL','/home/claude/det_pre.pkl'),'wb'))
+    print('PRE (odbicia od CE):',len(pfin))
+if _os.environ.get('DEBUG_TRACE'):
+    import json as _json
+    _json.dump(_TRACE, open(_os.environ.get('TRACE_OUT','/home/claude/trace.json'),'w'))
+print('CALOSC:',len(ded),'| Model:',dict(Counter(x['model'] for x in ded)))
+print('wynik (po filtrze):',len(finals),'| Model:',dict(Counter(x['model'] for x in finals)))
+print('po katalizatorze:',dict(Counter(x['cat'] for x in finals)))
