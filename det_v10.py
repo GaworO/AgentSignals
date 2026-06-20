@@ -1,0 +1,468 @@
+# det_new.py — PROD v2 (2026-06): reguła odbicia = BODY trzyma 50% FVG (close>=CE); DIB always-on (displacement-into-break, tag +DIB = klasa B). Wejście CE, BE@1R/TP2R.
+import pandas as pd, numpy as np, pickle, datetime as dt
+
+# ============ LOADER ============
+import os
+df=pd.read_csv(os.environ.get('DATA_CSV','/mnt/user-data/uploads/MNQ_databento_1m.csv'))
+ts=pd.to_datetime(df.ts_event,utc=True).dt.as_unit('ns')   # pandas3 = us -> wymus ns (T=//1e9)
+df=df.assign(ts=ts).sort_values('ts').reset_index(drop=True); ts=df.ts
+df['dt']=ts.dt.tz_convert('Etc/GMT+4')   # sztywne UTC-4 (jak TFO), bez DST
+o,hi,lo,cl=df.open.values,df.high.values,df.low.values,df.close.values
+T=(ts.astype('int64')//10**9).values
+H=df.dt.dt.hour.values; Mi=df.dt.dt.minute.values
+df['date']=df.dt.dt.date.values; dates=df.date.values; n=len(df); mins=H*60+Mi
+days=sorted(df.date.unique()); dayi={d:i for i,d in enumerate(days)}
+
+# ============ 5m ATR mapped to 1m ============
+b5=T//300
+g5=df.assign(b5=b5).groupby('b5').agg(h5=('high','max'),l5=('low','min'))
+g5['atr']=(g5.h5-g5.l5).rolling(20).mean().shift(1)
+ATR=df.assign(b5=b5).merge(g5[['atr']],left_on='b5',right_index=True,how='left')['atr'].values
+ATR=np.where(np.isnan(ATR),0.0,ATR)
+
+# ============ SESSIONS (TFO windows, UTC-4) ============
+def sess(h,m):
+    if h>=20:return'ASIA'
+    if 2<=h<5:return'LO'
+    if (h==9 and m>=30)or(10<=h<12):return'NYAM'
+    if h==12:return'NYL'
+    if (h==13 and m>=30)or(14<=h<16):return'NYPM'
+    if 16<=h<20:return'PM_AH'
+    return'PREM'
+S=np.array([sess(h,m) for h,m in zip(H,Mi)])
+inst=[];cid=-1;prev=None
+for s in S:
+    if s!=prev:cid+=1
+    inst.append(cid);prev=s
+inst=np.array(inst)
+sessinst=[]
+for c in np.unique(inst):
+    ix=np.where(inst==c)[0]
+    sessinst.append((S[ix[0]],int(ix[0]),int(ix[-1]),float(hi[ix].max()),float(lo[ix].min())))
+
+# ============ CATALYSTS ============
+# F.P.FVG : pierwszy FVG sesji NYAM danego dnia
+fpfvg={}
+for d in days:
+    ix=list(df.index[(df.date==d)&(S=='NYAM')])
+    for kk in range(2,len(ix)):
+        k,k2=ix[kk],ix[kk-2]
+        if lo[k]>hi[k2]: fpfvg[d]=(hi[k2],lo[k],k); break
+        if hi[k]<lo[k2]: fpfvg[d]=(hi[k],lo[k2],k); break
+# PDH/PDL
+day_hl={d:(hi[df.index[df.date==d]].max(),lo[df.index[df.date==d]].min()) for d in days}
+# NDOG/NWOG -> JEDNA jednostka, poziom = .c (close), 2 / 5 dni, uniewaznienie przy przejsciu
+gaplev=[]
+for d in days:
+    bef=df[(df.date==d)&(H<17)]; aft=df[(df.date==d)&(H>=18)]
+    if len(bef) and len(aft) and pd.Timestamp(d).weekday()<4:
+        c17=cl[bef.index[-1]]; ta=T[aft.index[0]]
+        gaplev.append([c17,ta,'NDOG',d,2])
+    if pd.Timestamp(d).weekday()==6:
+        sun=df[(df.date==d)&(H>=18)]; frd=[x for x in days if pd.Timestamp(x).weekday()==4 and x<d]
+        if len(sun) and frd:
+            fri=df[(df.date==frd[-1])&(H<17)]
+            if len(fri):
+                fc=cl[fri.index[-1]]; ta=T[sun.index[0]]
+                gaplev.append([fc,ta,'NWOG',d,5])
+for g in gaplev:
+    pr,ta=g[0],g[1]; ct=float('inf')
+    idxs=np.where((T>ta)&(lo<=pr)&(hi>=pr))[0]
+    if len(idxs): ct=T[idxs[0]]
+    g.append(ct)
+# BSL/SSL : rowne high/low z H1
+g1=df.set_index(ts).resample('1h').agg(h=('high','max'),l=('low','min')).dropna()
+H1,L1=g1.h.values,g1.l.values; G1=(g1.index.astype('int64')//10**9).values
+swh=[(H1[k],G1[k+2]) for k in range(2,len(g1)-2) if H1[k]>=max(H1[k-1],H1[k-2],H1[k+1],H1[k+2])]
+swl=[(L1[k],G1[k+2]) for k in range(2,len(g1)-2) if L1[k]<=min(L1[k-1],L1[k-2],L1[k+1],L1[k+2])]
+def equals(sw,tol=4.):
+    eq=[]
+    for i in range(len(sw)):
+        for j in range(i+1,len(sw)):
+            if sw[j][1]-sw[i][1]>86400: break
+            if abs(sw[i][0]-sw[j][0])<=tol: eq.append((round((sw[i][0]+sw[j][0])/2,1),sw[j][1]))
+    return eq
+eqH=equals(swh); eqL=equals(swl)
+
+# ============ PARAMS ============
+TOL=3.            # tolerancja CE / krawedzi FVG
+LOOKBACK=15       # struktura krotkoterminowa do break of structure
+ATRMULT=1.5       # sila displacementu: suma cial >= ATRMULT*ATR5m
+DISPWIN=10        # ile barow po triggerze szukam impulsu
+MAXIMP=3          # max swiec impulsu
+RETWIN=20         # okno na retrace do 50% FVG
+BOSWIN=30         # okno na BOS po odbiciu
+BUF=3.
+VIMIN=10.         # min luka body-to-body, by liczyc VI jako katalizator
+_cur_break=1      # AB: numer przebicia biezacego triggera
+VIBIG=50.         # min VI, by dzialal jako magnes (TP/bias)
+def dayidx_for(epoch):
+    i=int(np.searchsorted(T,epoch)); return min(max(i,0),n-1)
+
+# ============ VOLUME IMBALANCE (luka body-to-body open[k] vs close[k-1]) ============
+vis=[]   # (lo,hi,bar,bull,mag)
+for k in range(1,n):
+    g=o[k]-cl[k-1]
+    if g>=VIMIN and cl[k]>o[k]:  vis.append((round(float(cl[k-1]),2),round(float(o[k]),2),k,True,round(float(g),1)))
+    if -g>=VIMIN and cl[k]<o[k]: vis.append((round(float(o[k]),2),round(float(cl[k-1]),2),k,False,round(float(-g),1)))
+bigvi=[]   # duze VI + bar domkniecia (magnes wazny dopoki niedomkniety)
+for a,b,bar,bull,mag in vis:
+    if mag<VIBIG: continue
+    fillbar=n
+    idx=np.where((lo[bar+1:]<=b)&(hi[bar+1:]>=a))[0]
+    if len(idx): fillbar=bar+1+int(idx[0])
+    bigvi.append((round((a+b)/2,2),bar,bull,mag,fillbar))
+def vi_draw(t):
+    """niedomkniety duzy VI najblizej (z 2 dni) -> kierunek magnesu i poziom"""
+    up=dn=None
+    for ce,bar,bull,mag,fillbar in bigvi:
+        if not (bar<t<fillbar): continue
+        if (T[t]-T[bar])>2*86400: continue
+        if ce>cl[t] and (up is None or ce<up): up=ce
+        if ce<cl[t] and (dn is None or ce>dn): dn=ce
+    return up,dn
+
+# ============ HELPERS ============
+def fvgs(a,b,bull):
+    out=[]
+    for k in range(max(a,2),min(b,n)):
+        if bull and lo[k]>hi[k-2] and lo[k]-hi[k-2]>=TOL: out.append((round(hi[k-2],1),round(lo[k],1),k))
+        if not bull and hi[k]<lo[k-2] and lo[k-2]-hi[k]>=TOL: out.append((round(hi[k],1),round(lo[k-2],1),k))
+    return out
+
+def find_displacement(t,dr):
+    """od bara triggera t szukaj impulsu 1-3 swiec: break struktury + zostawia FVG + sila."""
+    bull = dr=='LONG'
+    for u in range(t+1,min(t+1+DISPWIN,n)):
+        for L in range(1,MAXIMP+1):
+            s=u-L+1
+            if s<=t: continue
+            same = all((cl[x]>o[x]) if bull else (cl[x]<o[x]) for x in range(s,u+1))
+            if not same: continue
+            body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
+            if body<=0: continue
+            prior = max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
+            broke = (cl[u]>prior) if bull else (cl[u]<prior)
+            if not broke: continue
+            atr5=ATR[u] if ATR[u]>0 else 1e9
+            maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
+            if body < ATRMULT*atr5: continue
+            if body < maxbody: continue
+            fl=fvgs(s,u+2,bull)
+            if not fl: continue
+            f=fl[-1]                       # FVG displacementu (najswiezszy)
+            swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
+            return dict(s=s,u=u,L=L,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],
+                        swlo=swlo,swhi=swhi,atr5=round(atr5,1))
+    return None
+
+def find_displacement_dib(t,dr):
+    bull=dr=='LONG'; best=None
+    for u in range(max(MAXIMP,t-2),min(t+3,n)):
+        for L in range(1,MAXIMP+1):
+            s=u-L+1
+            if s<1: continue
+            same=all((cl[x]>o[x]) if bull else (cl[x]<o[x]) for x in range(s,u+1))
+            if not same: continue
+            body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
+            if body<=0: continue
+            prior=max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
+            broke=(cl[u]>prior) if bull else (cl[u]<prior)
+            if not broke: continue
+            atr5=ATR[u] if ATR[u]>0 else 1e9
+            maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
+            if body<ATRMULT*atr5: continue
+            if body<maxbody: continue
+            fl=fvgs(s,u+2,bull)
+            if not fl: continue
+            f=fl[-1]; swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
+            cand=dict(s=s,u=u,L=L,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],swlo=swlo,swhi=swhi,atr5=round(atr5,1))
+            if best is None or body>best['body']: best=cand
+    return best
+
+# ============ BIAS (v0, FLAGA nie filtr) ============
+dd=df.set_index(ts).resample('1D').agg(h=('high','max'),l=('low','min'),c=('close','last')).dropna()
+dD=dd.index.tz_convert('Etc/GMT+4').date
+dH,dL,dC=dd.h.values,dd.l.values,dd.c.values
+def bias_for(t):
+    d=dates[t]; di=dayi[d]
+    # zakres tradingowy = ostatnie 5 dni
+    j=np.searchsorted(dD,d)
+    if j<5: return ('niejasny','-')
+    rngH=dH[j-5:j].max(); rngL=dL[j-5:j].min(); eq=(rngH+rngL)/2
+    px=cl[t]
+    pd_=  'discount' if px<eq else 'premium'
+    # struktura D1: HH/HL vs LH/LL z ostatnich 3 dni
+    up = dH[j-1]>dH[j-3] and dL[j-1]>dL[j-3]
+    dn = dH[j-1]<dH[j-3] and dL[j-1]<dL[j-3]
+    if pd_=='discount' and up: b='LONG'
+    elif pd_=='premium' and dn: b='SHORT'
+    elif pd_=='discount' and not dn: b='LONG?'
+    elif pd_=='premium' and not up: b='SHORT?'
+    else: b='niejasny'
+    # duzy niedomkniety VI = magnes/draw: wzmacnia lub rozstrzyga bias
+    vu,vd=vi_draw(t)
+    if b=='niejasny':
+        if vu and not vd: b='LONG?'
+        elif vd and not vu: b='SHORT?'
+    elif b=='LONG?' and vu and not vd: b='LONG'
+    elif b=='SHORT?' and vd and not vu: b='SHORT'
+    return (b,pd_)
+
+# ============ EMISJA SETUPU ============
+out=[]
+def run_level(level,form_t,end_t,name,rev_dir,cont_dir):
+    """AB: KAZDE przebicie (re-arm po cofnieciu o BUF), tag _cur_break."""
+    global _cur_break
+    a0=dayidx_for(form_t); a1=min(dayidx_for(end_t)+1,n)
+    win=[i for i in range(a0,a1) if T[i]>form_t]
+    if not win: return
+    if rev_dir:
+        bull=rev_dir=='LONG'; armed=True; k=0
+        for i in win:
+            hit=(lo[i]<=level) if bull else (hi[i]>=level)
+            if armed and hit:
+                k+=1; _cur_break=k; try_chain(i,rev_dir,'Reversal',name); armed=False
+            elif (not armed) and ((lo[i]>level+BUF) if bull else (hi[i]<level-BUF)):
+                armed=True
+    if cont_dir:
+        bull=cont_dir=='LONG'; armed=True; k=0
+        for i in win:
+            hit=(cl[i]>level) if bull else (cl[i]<level)
+            if armed and hit:
+                k+=1; _cur_break=k; try_chain(i,cont_dir,'Cont',name); armed=False
+            elif (not armed) and ((cl[i]<level-BUF) if bull else (cl[i]>level+BUF)):
+                armed=True
+
+def run_gap(zlo,zhi,form_t,end_t,name):
+    """AB: KAZDY tap strefy (re-arm po wyjsciu), tag _cur_break."""
+    global _cur_break
+    a0=dayidx_for(form_t); a1=min(dayidx_for(end_t)+1,n)
+    win=[i for i in range(a0,a1) if T[i]>form_t]
+    if not win: return
+    mid=(zlo+zhi)/2; armed=False; k=0
+    for i in win:
+        inzone = lo[i]<=zhi and hi[i]>=zlo
+        if armed and inzone:
+            k+=1; _cur_break=k
+            from_below = cl[i-1] < mid
+            if from_below:
+                try_chain(i,'SHORT','Reversal',name); try_chain(i,'LONG','Cont',name)
+            else:
+                try_chain(i,'LONG','Reversal',name);  try_chain(i,'SHORT','Cont',name)
+            armed=False
+        elif not inzone:
+            armed=True
+
+# ======================================================================
+# LOGIKA WEJSCIA v10 (chain + entry; jedyna logika - chain det_new usuniety) (FVG-edge / OTE 62%, SL=CE disp, TP 2R, PO BOS)
+# Rusztowanie katalizatorow + DIB zostaje; chain/emit z v10. Bez knobow dopasowania.
+# ======================================================================
+SESSION_BOUNDS=[0,8,13,18]
+MAX_STOP_R=float(os.environ.get('MAX_STOP_R','40'))   # cap ryzyka (pkt): tnie kruche szerokie stopy; EV ROSNIE (nie tylko wariancja). Challenge: ustaw 30
+_TRC=[]; _DBG=bool(os.environ.get('DEBUG_TRACE'))     # trace dla endpointu /candidates (diagnostyka etapow)
+def _trc(trigger,dr,model,name,stage,disp=None):
+    if not _DBG: return
+    r=dict(cat=name,model=model,dir=dr,trig=df.dt[trigger].strftime('%Y-%m-%d %H:%M'),
+           trig_ms=int(df.dt[trigger].timestamp()*1000),stage=stage)
+    if disp is not None: r['disp_end']=df.dt[disp['u']].strftime('%H:%M'); r['fvg']=[round(disp['fvg'][0],1),round(disp['fvg'][1],1)]
+    _TRC.append(r)
+def session_end_bar(b):
+    t=df.dt.iloc[b]; h=t.hour
+    nb=min(x for x in SESSION_BOUNDS+[24] if x>h)
+    bound=t.normalize()+pd.Timedelta(hours=nb); j=b
+    while j+1<n and df.dt.iloc[j+1]<bound: j+=1
+    return j
+
+def find_rejection_v10(disp,dr):
+    bull=dr=='LONG'; fl,fh=disp['fvg']; ce=round((fl+fh)/2,2); fb=disp['fvg_bar']
+    origin=None; ob=None; tests=[]; broke=None
+    for j in range(fb+1,min(fb+1+RETWIN,n)):
+        if (cl[j]>ce) if not bull else (cl[j]<ce): broke=j; break
+        wick=(hi[j]>=fl) if not bull else (lo[j]<=fh)
+        body=(cl[j]<=ce) if not bull else (cl[j]>=ce)
+        if wick and body:
+            ext=hi[j] if not bull else lo[j]; tests.append(j)
+            if origin is None or (ext>origin if not bull else ext<origin): origin,ob=ext,j
+    if broke is not None or origin is None: return None
+    return dict(ce=ce,origin=round(origin,2),origin_bar=ob,tests=tests)
+
+def find_setup_v10(disp,dr):
+    bull=dr=='LONG'; rej=find_rejection_v10(disp,dr)
+    if not rej: return None
+    origin=rej['origin']; ob=rej['origin_bar']; ce=rej['ce']; s=disp['s']; u=disp['u']
+    struct0=float(max(hi[s:ob])) if bull else float(min(lo[s:ob])); level=struct0
+    for j in range(ob+1, min(ob+1+BOSWIN,n)):
+        if (cl[j]>ce) if not bull else (cl[j]<ce): return None
+        if (cl[j]>level) if bull else (cl[j]<level):
+            end=float(max(hi[ob:j+1])) if bull else float(min(lo[ob:j+1]))
+            return dict(dr=dr,origin=origin,origin_bar=ob,end=round(end,2),bos_bar=j,ce=ce,
+                        fvg=disp['fvg'],fvg_bar=disp['fvg_bar'],s=s,u=u)
+        level = max(level,hi[j]) if bull else min(level,lo[j])
+    return None
+
+def impulse_end_v10(ob,bb,bull,K=2,cap=40):
+    ext=hi[ob] if bull else lo[ob]; eb=ob; stall=0
+    for m in range(ob+1, min(n, bb+cap)):
+        if (hi[m]>ext) if bull else (lo[m]<ext): ext=hi[m] if bull else lo[m]; eb=m; stall=0
+        elif m>bb:
+            stall+=1
+            if stall>=K: break
+    return round(float(ext),2), min(eb+K, n-1)   # FIX look-ahead: bar POTWIERDZENIA szczytu
+
+def find_entry_v10(su):
+    bull=su['dr']=='LONG'; ob=su['origin_bar']; bb=su['bos_bar']
+    sl=round((su['fvg'][0]+su['fvg'][1])/2,2)
+    fl_=fvgs(ob, bb+2, bull); seen=set(); fvl=[]
+    for f in fl_:
+        if f[2] in seen: continue
+        seen.add(f[2]); fvl.append(f)
+    if not fvl: return None
+    fvg=fvl[-1]; entry=fvg[1] if bull else fvg[0]
+    risk=(entry-sl) if bull else (sl-entry)
+    if risk<=0: return None
+    tp=round(entry+2*risk,2) if bull else round(entry-2*risk,2)
+    return dict(entry=round(entry,2),sl=sl,tp=tp,risk=round(risk,2),sfvg_bar=fvg[2])
+
+def find_entry_fibo_v10(su, ote=0.62):
+    bull=su['dr']=='LONG'; ob=su['origin_bar']; bb=su['bos_bar']
+    sl=round((su['fvg'][0]+su['fvg'][1])/2,2)
+    hh,eb=impulse_end_v10(ob,bb,bull); hl=su['origin']
+    entry=round(hh+ote*(hl-hh),2); risk=(entry-sl) if bull else (sl-entry)
+    if risk<=0: return None
+    tp=round(entry+2*risk,2) if bull else round(entry-2*risk,2)
+    return dict(entry=entry,sl=sl,tp=tp,risk=round(risk,2),hh_bar=eb,ote=ote)
+
+ENTRY_PRIMARY=os.environ.get('ENTRY_PRIMARY','fvg')   # 'fvg'=krawedz swing-FVG (DOMYSLNE, +0.07R/4lata lepsze); 'fibo'=OTE-na-wszystkich (testowane GORSZE)
+def _ent_fvg(su):
+    e=find_entry_v10(su)
+    return dict(**e, kind='FVG', start_bar=max(e['sfvg_bar'],su['bos_bar'])+1) if e else None
+def _ent_fibo(su):
+    e=find_entry_fibo_v10(su)
+    return dict(**e, kind='FIBO', start_bar=max(e['hh_bar'],su['bos_bar'])+1) if e else None
+def get_entry_v10(su):
+    if ENTRY_PRIMARY=='fibo': return _ent_fibo(su) or _ent_fvg(su)
+    return _ent_fvg(su) or _ent_fibo(su)
+
+def emit(t,model,name,dr,disp,conf=None):   # wejscie v10 (FVG-edge/OTE), SL=CE disp, TP 2R, BEZ filtrow dopasowania
+    _trc(t,dr,model,name,'displacement OK',disp)
+    su=find_setup_v10(disp,dr)
+    if su is None: _trc(t,dr,model,name,'brak setupu (odbicie/BOS)',disp); return
+    _trc(t,dr,model,name,'setup OK (BOS)',disp)
+    e=get_entry_v10(su)
+    if e is None: _trc(t,dr,model,name,'brak wejscia',disp); return
+    if e['risk']>MAX_STOP_R: _trc(t,dr,model,name,f'odciety cap (R={e["risk"]:.0f}pkt)',disp); return  # cap ryzyka
+    _trc(t,dr,model,name,'POTWIERDZONY',disp)
+    b,pdv=bias_for(su['bos_bar']); align='Y' if b.replace('?','')==dr else ('?' if '?' in b or b=='niejasny' else 'N')
+    out.append(dict(brk=_cur_break,date=str(dates[su['bos_bar']]),model=model,cat=name,dir=dr,
+        cls=('B' if '+DIB' in name else 'A'),entry=e['entry'],SL=e['sl'],TP=e['tp'],risk=e['risk'],kind=e['kind'],
+        bias=b,bias_align=align,bos=df.dt[su['bos_bar']].strftime('%H:%M'),
+        s=int(disp['s']),u=int(disp['u']),fvg_lo=round(disp['fvg'][0],2),fvg_hi=round(disp['fvg'][1],2),
+        fvg_bar=int(disp['fvg_bar']),origin_bar=int(su['origin_bar']),bos_bar=int(su['bos_bar']),ce=round(su['ce'],2),
+        sfvg_bar=int(e['sfvg_bar']) if e.get('sfvg_bar') is not None else None,
+        hh_bar=int(e['hh_bar']) if e.get('hh_bar') is not None else None,
+        emit_bar=int(su['bos_bar']),entry_bar=int(e['start_bar']),
+        bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
+        bos_ms=int(df.dt[su['bos_bar']].timestamp()*1000)))
+
+def try_chain(trigger,dr,model,name):   # chain v10 (klasa A); DIB = klasa B z TYM SAMYM wejsciem v10
+    cur=trigger
+    for _ in range(3):
+        d=find_displacement(cur,dr)
+        if d is None: break
+        before=len(out); emit(trigger,model,name,dr,d)
+        if len(out)>before: return
+        cur=d['u']
+    d2=find_displacement_dib(trigger,dr)
+    if d2 is None: return
+    emit(trigger,model,name+'+DIB',dr,d2)          # klasa B = sposob znalezienia displacementu; wejscie identyczne (v10)
+
+# ---- F.P.FVG (strefa) : reversal oba kierunki + cont oba kierunki ----
+for d in days:
+    if d not in fpfvg: continue
+    a,b,form=fpfvg[d]; ft=T[form]; et=T[df.index[df.date==d][-1]]
+    run_level(a,ft,et,'F.P.FVG','LONG',None)   # tap dolnej krawedzi -> rev long
+    run_level(b,ft,et,'F.P.FVG','SHORT',None)  # tap gornej krawedzi -> rev short
+    run_level(b,ft,et,'F.P.FVG',None,'LONG')   # close nad FVG -> cont long
+    run_level(a,ft,et,'F.P.FVG',None,'SHORT')  # close pod FVG -> cont short
+
+# ---- H/L sesji : low->rev LONG / cont SHORT ; high->rev SHORT / cont LONG ----
+SH={'ASIA':('AH','AL'),'LO':('LH','LL'),'NYAM':('NYAMH','NYAML'),'NYL':('NYLH','NYLL'),'NYPM':('NYPMH','NYPML')}
+for sname,s0,eidx,Hh,Ll in sessinst:
+    if sname not in SH: continue
+    hn,ln=SH[sname]; ft=T[eidx]
+    V=1 if sname in ('NYPM','ASIA') else 0
+    di=dayi[dates[eidx]]; endd=days[min(di+V,len(days)-1)]; et=T[df.index[df.date==endd][-1]]
+    run_level(Hh,ft,et,hn,'SHORT','LONG')   # high sesji
+    run_level(Ll,ft,et,ln,'LONG','SHORT')   # low sesji
+
+# ---- PDH/PDL (poprzedni dzien) : high->rev SHORT/cont LONG ; low->rev LONG/cont SHORT ----
+# pierwsza interakcja w dniu d (wejscie/SL/TP = v10: limit FVG/OTE, SL=CE, TP 2R)
+for _di in range(1,len(days)):
+    d=days[_di]; pdh,pdl=day_hl[days[_di-1]]
+    _ix=df.index[df.date==d]
+    if len(_ix)==0: continue
+    ft=int(T[_ix[0]])-1; et=int(T[_ix[-1]])
+    run_level(pdh,ft,et,'PDH','SHORT','LONG')
+    run_level(pdl,ft,et,'PDL','LONG','SHORT')
+
+# ---- PWH/PWL (poprzedni tydzien ISO) : jak wyzej, pierwsza interakcja w biezacym tygodniu ----
+_iso=df.dt.dt.isocalendar()
+_wk=list(zip(_iso.year.values,_iso.week.values))
+from collections import OrderedDict as _OD
+_weeks=_OD()
+for _i,_k in enumerate(_wk):
+    if _k not in _weeks: _weeks[_k]=[_i,_i,float(hi[_i]),float(lo[_i])]
+    else:
+        _w=_weeks[_k]; _w[1]=_i
+        if hi[_i]>_w[2]: _w[2]=float(hi[_i])
+        if lo[_i]<_w[3]: _w[3]=float(lo[_i])
+_wkeys=list(_weeks.keys())
+for _wi in range(1,len(_wkeys)):
+    pwh=_weeks[_wkeys[_wi-1]][2]; pwl=_weeks[_wkeys[_wi-1]][3]
+    _s0,_s1=_weeks[_wkeys[_wi]][0],_weeks[_wkeys[_wi]][1]
+    ft=int(T[_s0])-1; et=int(T[_s1])
+    run_level(pwh,ft,et,'PWH','SHORT','LONG')
+    run_level(pwl,ft,et,'PWL','LONG','SHORT')
+
+# ---- NDOG/NWOG (.c, jedna jednostka, GAP) : trigger = powrot do poziomu ----
+for pr,ta,nm,fd,md,ct in gaplev:
+    et=T[df.index[df.date==days[min(dayi[fd]+md,len(days)-1)]][-1]]
+    et=min(et, ct if ct!=float('inf') else et)
+    run_gap(pr,pr,ta,et,nm)
+
+# ---- BSL/SSL H1 (2 dni) : BSL high-> rev SHORT/cont LONG ; SSL low-> rev LONG/cont SHORT ----
+for P,t0 in eqH:
+    sb=dayidx_for(t0); et=T[df.index[df.date==days[min(dayi[dates[sb]]+2,len(days)-1)]][-1]]
+    run_level(P,t0,et,'BSL H1','SHORT','LONG')
+for P,t0 in eqL:
+    sb=dayidx_for(t0); et=T[df.index[df.date==days[min(dayi[dates[sb]]+2,len(days)-1)]][-1]]
+    run_level(P,t0,et,'SSL H1','LONG','SHORT')
+
+# ---- VOLUME IMBALANCE (katalizator-GAP, 2 dni) : trigger = powrot do strefy VI ----
+for a,b,bar,bull,mag in vis:
+    et=T[df.index[df.date==days[min(dayi[dates[bar]]+2,len(days)-1)]][-1]]
+    run_gap(a,b,T[bar],et,'VI')
+
+# ============ DEDUP + FILTR 17.05+ ============
+from collections import Counter,defaultdict
+seen=set(); ded=[]
+for x in sorted(out,key=lambda z:z['emit_bar']):
+    key=(x['model'],x['cat'],x['dir'],x['emit_bar']//30)
+    if key in seen: continue
+    seen.add(key); ded.append(x)
+import os as _os
+_cut=_os.environ.get('CUTOFF','2026-05-17')   # pusty => bez filtra (tryb agenta)
+if _cut:
+    cut=pd.Timestamp(_cut,tz='Etc/GMT+4')
+    finals=[x for x in ded if df.dt[x['emit_bar']]>=cut]
+else:
+    finals=list(ded)
+finals=sorted(finals,key=lambda z:z['emit_bar'])
+pickle.dump(finals,open(_os.environ.get('OUT_PKL','/home/claude/det_new.pkl'),'wb'))
+if _DBG:
+    import json as _json
+    _json.dump(_TRC, open(_os.environ.get('TRACE_OUT','/home/claude/trace.json'),'w'))
+print('CALOSC:',len(ded),'| Model:',dict(Counter(x['model'] for x in ded)))
+print('wynik (po filtrze):',len(finals),'| Model:',dict(Counter(x['model'] for x in finals)))
+print('po katalizatorze:',dict(Counter(x['cat'] for x in finals)))

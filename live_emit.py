@@ -81,11 +81,12 @@ def to_alert(x):
     if x.get('bias_align')=='Y': gtag += ' ⭐bias'
     if x.get('brk',1)>=2: gtag += f" 🔁 re-test #{x['brk']}"
     rpts = round(slpts,1); tppts = round(2*slpts,1)
+    side = 'BUY' if isL else 'SELL'
     e_d = round(x['entry']+OFFSET,1); sl_d = round(x['SL']+OFFSET,1); tp_d = round(tp+OFFSET,1)
-    base = (f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
+    base = (f"📋 {side} LIMIT · POSTAW (BOS potwierdzony — zlecenie oczekujące, fill na cofnięciu) · {gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
     if CONTRACT or OFFSET:
         base += f"\n📄 Kontrakt: {CONTRACT or '—'}" + (f" (ceny +{round(OFFSET,1)} z MNQ1!)" if OFFSET else "")
-    base += (f"\n🎯 Entry {e_d}"
+    base += (f"\n🎯 {side} LIMIT {e_d} ({x.get('kind','FVG/OTE')})"
              f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt"
              f"\n🎯 TP {tp_d} · +{tppts} pkt (2R) | BE po +{rpts} pkt w zysku — NIE zamykaj części")
     s = size_for(x['entry'], x['SL'])
@@ -102,24 +103,9 @@ def post_webhook(text,url):
         return f'ERR {e}'
 
 def key(x): return f"{x['date']}|{x['model']}|{x['cat']}|{x['dir']}|{x['bos']}"
-def key_pre(x): return f"{x['date']}|{x['model']}|{x['cat']}|{x['dir']}|PRE|{x['bounce']}"
 
-def to_prealert(x):
-    """PRE-alert: etap odbicia od CE, BOS jeszcze nie. NIE jest wejsciem — 'badz gotowa'."""
-    emoji = '🟢' if x['dir']=='LONG' else '🔴'
-    model = 'Reversal' if x['model']=='Reversal' else 'Cont'
-    base = (f"⏳ PRZYGOTUJ SIĘ (czekaj na BOS — NIE wchodź) · {'🅰️ A' if grade(x)=='A' else '🅱️ B (DIB)'}{' ⭐bias' if x.get('bias_align')=='Y' else ''} {emoji} {x['dir']} | {model} · Kat: {catname(x)}"
-            f" | Entry~{x['entry']} | SL~{x['SL']}")
-    sp = abs(x['entry']-x['SL']); isL = x['dir']=='LONG'
-    pbe = round((x['entry']+sp) if isL else (x['entry']-sp),1)
-    ptp = round((x['entry']+2*sp) if isL else (x['entry']-2*sp),1)
-    base += f" | TP@{ptp} (2R) · BE przy 1R ({pbe})"
-    s = size_for(x['entry'], x['SL'])
-    if s:
-        qty, slpts, perc, real, pct = s
-        base += f"\n📐 Orientacyjnie: {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
-    base += "\n— to NIE wejście. Potwierdzenie BOS przyjdzie osobnym alertem (lub nie — ~28% odbić nie dochodzi)."
-    return base
+# (usunięte) key_pre / to_prealert — stary PRE-alert „czekaj na BOS — NIE wchodź" zniesiony.
+# W v10 wejście to LIMIT stawiany PO potwierdzeniu BOS (to_alert powyżej) — osobny etap PRE niepotrzebny.
 
 def load_sent():
     try: return set(json.load(open(SENT_FILE)))

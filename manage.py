@@ -1,7 +1,7 @@
 # manage.py — sledzenie otwartych tradow i alerty zarzadzania.
 # Strategia: BE@1R / TP calosc 2R / pelna pozycja. Po 1R stop -> BE (entry).
 # Wyjscia: SL (-1R), BE (0R po uzbrojeniu), TP 2R (+2R), albo wygasniecie po 8h.
-# Rdzen (det_new) zamrozony. Wywolywane z agent.py: register() po potwierdzonym alercie,
+# Rdzen (det_v10) zamrozony. Wywolywane z agent.py: register() po potwierdzonym alercie,
 # check() na kazdym nowym barze. Opakowane try/except po stronie agenta — nie moze ruszyc intake'u.
 import json
 

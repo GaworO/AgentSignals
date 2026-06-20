@@ -1,7 +1,7 @@
 """
 AGENT live (osobny serwis — NIE wrzucac do NQsignals).
 - TV (alert co domkniety bar 1m) -> POST /bars  [CICHO, bez Telegrama]
-- agent trzyma bufor, liczy det_new.py, i TYLKO nowe potwierdzone setupy -> POST na WEBHOOK_URL (Telegram)
+- agent trzyma bufor, liczy det_v10.py (LIVE), i TYLKO nowe potwierdzone setupy -> POST na WEBHOOK_URL (Telegram)
 - na starcie oznacza istniejace setupy jako 'widziane' (zero zalewania historia)
 
 ENV:
@@ -90,17 +90,13 @@ def _append_bar(b):
         with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
 
 def _detect():
-    pre_pkl=os.path.join(DATA_DIR,'agent_pre.pkl')
-    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=OUT, CUTOFF='',   # CUTOFF pusty = bez filtra dat
-             PRE_ALERT='1', PRE_PKL=pre_pkl)                     # PRE w tym samym przebiegu (confirmed bez zmian)
-    subprocess.run(['python3', os.path.join(HERE,'det_new.py')], env=env,
-                   capture_output=True, timeout=120)
+    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=OUT, CUTOFF='')   # CUTOFF pusty = bez filtra dat
+    subprocess.run(['python3', os.path.join(HERE,'det_v10.py')], env=env,
+                   capture_output=True, timeout=180)
     import pickle
     try: conf=pickle.load(open(OUT,'rb'))
     except Exception: conf=[]
-    try: pre=pickle.load(open(pre_pkl,'rb'))
-    except Exception: pre=[]
-    return conf, pre
+    return conf, []                                              # v10: brak PRE (wejście = LIMIT po BOS)
 
 # ====== KALENDARZ NEWSOW (ForexFactory weekly) + FLAGI NO-TRADE ======
 HIGH = {'CPI','Core CPI','Non-Farm','NFP','PPI','GDP','Core PCE','PCE','ISM','FOMC','Federal Funds','Powell'}
@@ -135,11 +131,11 @@ def flags_for(x):
 
 def _process_new(now_ms=None):
     global _primed
-    setups, pres = _detect()
+    setups, _ = _detect()
     sent=_load_sent()
     keys=[live_emit.key(x) for x in setups]
-    if not _primed:                       # pierwszy przebieg: oznacz wszystko (confirmed + pre) jako widziane
-        allk=set(keys)|{live_emit.key_pre(x) for x in pres}
+    if not _primed:                       # pierwszy przebieg: oznacz wszystko jako widziane
+        allk=set(keys)
         _save_sent(allk); _primed=True
         return {'primed': len(allk)}
     fresh=[x for x,k in zip(setups,keys) if k not in sent]
@@ -163,25 +159,8 @@ def _process_new(now_ms=None):
         except Exception as e: print('manage.register err', e, flush=True)
         if WEBHOOK_URL and str(code).startswith('2'): sentn.add(live_emit.key(x))
         elif not WEBHOOK_URL: sentn.add(live_emit.key(x))
-    # ====== PRE-ALERTY (etap odbicia od CE, przed BOS) — info, NIE zapisywane do dziennika ======
-    conf_sig={(x['date'],x['model'],x['cat'],x['dir'],x['bounce']) for x in setups}
-    pre_ms = int(os.environ.get('PRE_FRESH_MIN', os.environ.get('FRESH_MIN','15')))*60*1000
-    for x in pres:
-        kp=live_emit.key_pre(x)
-        if kp in sentn: continue
-        if (x['date'],x['model'],x['cat'],x['dir'],x['bounce']) in conf_sig:
-            sentn.add(kp); continue                          # BOS juz w tym przebiegu -> poszedl potwierdzony, PRE zbedny
-        if now_ms and x.get('bos_ms') and (now_ms - x['bos_ms']) > pre_ms:
-            sentn.add(kp); continue                          # stare odbicie -> wycisz
-        fl, hard = flags_for(x)
-        if hard and NO_TRADE_SUPPRESS:
-            sentn.add(kp); continue
-        txt=live_emit.to_prealert(x)
-        if fl: txt += '  ⚠ ' + ', '.join(fl)
-        code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
-        print('PREALERT', code, txt, flush=True)
-        if WEBHOOK_URL and str(code).startswith('2'): sentn.add(kp)
-        elif not WEBHOOK_URL: sentn.add(kp)
+    # ====== (usunięte) PRE-ALERTY — stary etap odbicia od CE „czekaj na BOS" zniesiony.
+    # v10: wejście to LIMIT stawiany PO potwierdzeniu BOS, wysyłany przez to_alert powyżej.
     _save_sent(sentn)
     return {'nowe': len(fresh)}
 
@@ -349,7 +328,8 @@ def candidates():
     tout=os.path.join(DATA_DIR,'trace.json')
     env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=os.path.join(DATA_DIR,'cand_out.pkl'),
              CUTOFF='', DEBUG_TRACE='1', TRACE_OUT=tout)
-    subprocess.run(['python3', os.path.join(HERE,'det_new.py')], env=env, capture_output=True, timeout=120)
+    # /candidates = endpoint DIAGNOSTYCZNY: ten sam det_v10.py co live, z DEBUG_TRACE (trace etapow). Nie dotyka alertow.
+    subprocess.run(['python3', os.path.join(HERE,'det_v10.py')], env=env, capture_output=True, timeout=180)
     try: tr=_json.load(open(tout))
     except Exception: tr=[]
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
@@ -361,7 +341,7 @@ def candidates():
     return jsonify(hours=hours, liczba=len(rec),
                    podsumowanie=dict(Counter(r['stage'] for r in rec)), kandydaci=rec)
 
-# ====== MONITOR REŻIMU (logika w regime.py — rdzen det_new.py nietkniety) ======
+# ====== MONITOR REŻIMU (logika w regime.py — rdzen det_v10.py nietkniety) ======
 @app.route('/regime')
 def regime():
     try: w=int(request.args.get('window','20'))
