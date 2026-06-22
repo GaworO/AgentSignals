@@ -348,10 +348,13 @@ def candidates():
     from collections import Counter
     hours=float(request.args.get('hours','12'))
     tout=os.path.join(DATA_DIR,'trace.json')
+    gated = os.environ.get('REGIME_GATE','')=='1'
+    det_file = os.environ.get('DET_FILE') or ('det_v11.py' if gated else 'det_v10.py')
     env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=os.path.join(DATA_DIR,'cand_out.pkl'),
              CUTOFF='', DEBUG_TRACE='1', TRACE_OUT=tout)
-    # /candidates = endpoint DIAGNOSTYCZNY: ten sam det_v10.py co live, z DEBUG_TRACE (trace etapow). Nie dotyka alertow.
-    subprocess.run(['python3', os.path.join(HERE,'det_v10.py')], env=env, capture_output=True, timeout=180)
+    if gated: env['EOD_INTRADAY']='1' if _eod_flag() else ''
+    # /candidates = DIAGNOSTYKA: ten SAM detektor co live (det_v11 gdy REGIME_GATE=1), z DEBUG_TRACE. Nie dotyka alertow.
+    subprocess.run(['python3', os.path.join(HERE,det_file)], env=env, capture_output=True, timeout=180)
     try: tr=_json.load(open(tout))
     except Exception: tr=[]
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
