@@ -53,13 +53,18 @@ def regime_stats(buf_path, here, window=20, sl_min=10.0, sl_max=30.0):
     try: import pandas as pd
     except Exception: return {'ok': False, 'err': 'pandas'}
     out = buf_path + '.regime.pkl'
+    det = os.environ.get('REGIME_DET', 'det_v11.py')   # classify on the LIVE detector (v11); EOD off to avoid circularity
+    try: os.remove(out)                                # never serve a STALE pkl if the run fails -> monitor must not freeze
+    except OSError: pass
     try:
-        det = os.environ.get('REGIME_DET', 'det_v11.py')   # classify on the LIVE detector (v11); EOD off to avoid circularity
         env = dict(os.environ, DATA_CSV=buf_path, OUT_PKL=out, CUTOFF='', EOD_INTRADAY='')
-        subprocess.run(['python3', os.path.join(here, det)], env=env, capture_output=True, timeout=180)
+        r = subprocess.run(['python3', os.path.join(here, det)], env=env, capture_output=True, timeout=180)
+        if r.returncode != 0:                          # surface the failure so /regime shows it instead of going stale
+            return {'ok': False, 'err': f'{det} rc={r.returncode}',
+                    'stderr': (r.stderr.decode('utf-8', 'ignore')[-400:] if r.stderr else '')}
         S = pickle.load(open(out, 'rb'))
-    except Exception:
-        S = []
+    except Exception as ex:
+        return {'ok': False, 'err': f'{type(ex).__name__}: {ex}'}
     try:
         df = pd.read_csv(buf_path); ts = pd.to_datetime(df.ts_event, utc=True)
         df = df.assign(ts=ts).sort_values('ts').reset_index(drop=True)

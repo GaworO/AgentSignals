@@ -196,7 +196,14 @@ function live(d){
 }
 
 render(fallback());
-function pull(){ fetch('/regime').then(r=>r.json()).then(d=>{ if(d&&d.ok) render(live(d)); }).catch(()=>{}); }
+function setStamp(t){ var s=document.getElementById('stamp'); if(s) s.textContent=t; }
+function pull(){
+  fetch('/regime',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+    var t=new Date().toLocaleTimeString();
+    if(d&&d.ok){ render(live(d)); setStamp('źródło: live · /regime · odświeżono '+t); }
+    else { render(fallback()); setStamp('⚠ LIVE OFF '+t+' — /regime: '+((d&&(d.err||d.stderr))||'brak ok')+' (pokazuję backtest referencyjny)'); }
+  }).catch(function(e){ render(fallback()); setStamp('⚠ LIVE OFF — /regime nieosiągalne ('+e+')'); });
+}
 pull(); setInterval(pull, 60000);
 
 // ——— CHART (SVG, ręczny) ———
