@@ -108,7 +108,9 @@ TOL=3.            # tolerancja CE / krawedzi FVG
 LOOKBACK=15       # struktura krotkoterminowa do break of structure
 ATRMULT=1.5       # sila displacementu: suma cial >= ATRMULT*ATR5m
 DISPWIN=10        # ile barow po triggerze szukam impulsu
-MAXIMP=3          # max swiec impulsu
+MAXIMP=3          # max swiec impulsu (uzywane przez DIB / klasa B)
+MINIMP=int(os.environ.get('MINIMP','4'))   # V1 (2026-06): min dlugosc ciagu displacementu (>3 swiec)
+MAXEXT=40         # V1: bezpiecznik max dlugosci ciagu
 RETWIN=20         # okno na retrace do 50% FVG
 BOSWIN=30         # okno na BOS po odbiciu
 BUF=3.
@@ -153,29 +155,30 @@ def fvgs(a,b,bull):
     return out
 
 def find_displacement(t,dr):
-    """od bara triggera t szukaj impulsu 1-3 swiec: break struktury + zostawia FVG + sila."""
+    """V1 (2026-06): displacement = CALY nieprzerwany ciag swiec jednego koloru, min MINIMP swiec.
+    Start po triggerze t, rozszerz do konca ciagu; break struktury + zostawia FVG + sila (cala noga)."""
     bull = dr=='LONG'
-    for u in range(t+1,min(t+1+DISPWIN,n)):
-        for L in range(1,MAXIMP+1):
-            s=u-L+1
-            if s<=t: continue
-            same = all((cl[x]>o[x]) if bull else (cl[x]<o[x]) for x in range(s,u+1))
-            if not same: continue
-            body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
-            if body<=0: continue
-            prior = max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
-            broke = (cl[u]>prior) if bull else (cl[u]<prior)
-            if not broke: continue
-            atr5=ATR[u] if ATR[u]>0 else 1e9
-            maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
-            if body < ATRMULT*atr5: continue
-            if body < maxbody: continue
-            fl=fvgs(s,u+2,bull)
-            if not fl: continue
-            f=fl[-1]                       # FVG displacementu (najswiezszy)
-            swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
-            return dict(s=s,u=u,L=L,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],
-                        swlo=swlo,swhi=swhi,atr5=round(atr5,1))
+    for s in range(t+1,min(t+1+DISPWIN,n)):
+        if not ((cl[s]>o[s]) if bull else (cl[s]<o[s])): continue   # s = pierwsza swieca ciagu
+        u=s
+        while u+1<min(s+MAXEXT,n) and ((cl[u+1]>o[u+1]) if bull else (cl[u+1]<o[u+1])):
+            u+=1                                                     # rozszerz przez caly ciag jednego koloru
+        if (u-s+1)<MINIMP: continue                                 # wymagaj min MINIMP swiec (>3)
+        body=sum((cl[x]-o[x]) if bull else (o[x]-cl[x]) for x in range(s,u+1))
+        if body<=0: continue
+        prior = max(hi[max(0,s-LOOKBACK):s]) if bull else min(lo[max(0,s-LOOKBACK):s])
+        broke = (cl[u]>prior) if bull else (cl[u]<prior)
+        if not broke: continue
+        atr5=ATR[u] if ATR[u]>0 else 1e9
+        maxbody=max((abs(cl[x]-o[x])) for x in range(max(0,s-10),s)) if s>0 else 0
+        if body < ATRMULT*atr5: continue
+        if body < maxbody: continue
+        fl=fvgs(s,u+2,bull)
+        if not fl: continue
+        f=fl[-1]                       # FVG displacementu (najswiezszy)
+        swlo=float(min(lo[s:u+1])); swhi=float(max(hi[s:u+1]))
+        return dict(s=s,u=u,L=u-s+1,body=round(body,1),fvg=(f[0],f[1]),fvg_bar=f[2],
+                    swlo=swlo,swhi=swhi,atr5=round(atr5,1))
     return None
 
 def find_displacement_dib(t,dr):
