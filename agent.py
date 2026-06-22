@@ -17,6 +17,7 @@ except Exception: requests=None
 from flask import Flask, request, jsonify
 import live_emit   # to_alert, post_webhook, key
 import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza intake'u
+import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,9 +56,9 @@ def _save_db(x, alert_text, code):
         (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (live_emit.key(x), dt.datetime.utcnow().isoformat(timespec='seconds'),
-         x['date'],x['model'],x['cat'],x['dir'],x['trig'],x['disp_end'],x['bounce'],x['bos'],
-         x['entry'],x['ote62'],x['ote79'],x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
-         x['bias'],x['bias_align'], json.dumps(x['trail']), alert_text, str(code), '', None))
+         x['date'],x['model'],x['cat'],x['dir'],x.get('trig',''),x.get('disp_end',''),x.get('bounce',''),x['bos'],
+         x['entry'],x.get('ote62'),x.get('ote79'),x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
+         x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None))
     c.commit(); c.close()
 
 def _seed_buffer():
@@ -89,14 +90,35 @@ def _append_bar(b):
     if len(rows) > BUFFER_BARS+1:
         with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
 
+_gate = {'at': 0.0, 'eod_on': False}
+def _eod_flag():
+    """Regime-gated EOD (v12): policz rezim max raz na REGIME_TTL_SEC (regime_stats jest drogie —
+    odpala detektor jako subprocess), Telegram tylko przy zmianie. Zwraca True/False = EOD ON/OFF."""
+    import time
+    now = time.time()
+    if now - _gate['at'] > float(os.environ.get('REGIME_TTL_SEC', '3600')):
+        try:
+            import regime as _regime
+            reg = _regime.regime_stats(BUF, HERE)
+            eod_on, lab, code = regime_gate.notify_if_changed(reg, WEBHOOK_URL, DATA_DIR, live_emit.post_webhook)
+            _gate['eod_on'] = eod_on; _gate['at'] = now
+            print('[regime_gate] EOD', lab, code, flush=True)
+        except Exception as e:
+            print('[regime_gate] err', e, flush=True)   # fail-safe: zostaw poprzedni stan
+    return _gate['eod_on']
+
 def _detect():
+    gated = os.environ.get('REGIME_GATE', '') == '1'            # opt-in: bez tego = stare zachowanie (det_v10)
+    det_file = os.environ.get('DET_FILE') or ('det_v11.py' if gated else 'det_v10.py')
     env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=OUT, CUTOFF='')   # CUTOFF pusty = bez filtra dat
-    subprocess.run(['python3', os.path.join(HERE,'det_v10.py')], env=env,
+    if gated:
+        env['EOD_INTRADAY'] = '1' if _eod_flag() else ''        # regime-gated: ON w choppy, OFF w trend
+    subprocess.run(['python3', os.path.join(HERE, det_file)], env=env,
                    capture_output=True, timeout=180)
     import pickle
     try: conf=pickle.load(open(OUT,'rb'))
     except Exception: conf=[]
-    return conf, []                                              # v10: brak PRE (wejście = LIMIT po BOS)
+    return conf, []                                              # wejscie = LIMIT po BOS
 
 # ====== KALENDARZ NEWSOW (ForexFactory weekly) + FLAGI NO-TRADE ======
 HIGH = {'CPI','Core CPI','Non-Farm','NFP','PPI','GDP','Core PCE','PCE','ISM','FOMC','Federal Funds','Powell'}
