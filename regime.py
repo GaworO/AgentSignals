@@ -1,6 +1,6 @@
 """
 regime.py — analiza reżimu rynku: typ rynku (choppy/trendowy/cichy) + modelowy rolling PF/EV.
-MODUŁ. NIE rusza rdzenia det_v10.py (det leci jako subprocess). agent.py tylko importuje i woła.
+MODUŁ. NIE rusza rdzenia detektora (det leci jako subprocess; domyślnie det_v11.py, EOD off). agent.py tylko importuje i woła.
 Nowe funkcje analityczne dokładamy TUTAJ, nie w rdzeniu.
 """
 import os, subprocess, pickle, statistics as st
@@ -54,8 +54,9 @@ def regime_stats(buf_path, here, window=20, sl_min=10.0, sl_max=30.0):
     except Exception: return {'ok': False, 'err': 'pandas'}
     out = buf_path + '.regime.pkl'
     try:
-        env = dict(os.environ, DATA_CSV=buf_path, OUT_PKL=out, CUTOFF='')
-        subprocess.run(['python3', os.path.join(here, 'det_v10.py')], env=env, capture_output=True, timeout=180)
+        det = os.environ.get('REGIME_DET', 'det_v11.py')   # classify on the LIVE detector (v11); EOD off to avoid circularity
+        env = dict(os.environ, DATA_CSV=buf_path, OUT_PKL=out, CUTOFF='', EOD_INTRADAY='')
+        subprocess.run(['python3', os.path.join(here, det)], env=env, capture_output=True, timeout=180)
         S = pickle.load(open(out, 'rb'))
     except Exception:
         S = []
