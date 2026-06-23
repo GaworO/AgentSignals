@@ -14,7 +14,7 @@ import os, csv, json, subprocess, threading, sqlite3, shutil, datetime as dt
 from zoneinfo import ZoneInfo
 try: import requests
 except Exception: requests=None
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import live_emit   # to_alert, post_webhook, key
 import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza intake'u
 import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
@@ -32,9 +32,11 @@ OUT  = os.path.join(DATA_DIR, 'agent_out.pkl')
 SENT = os.path.join(DATA_DIR, 'agent_sent.json')
 DB   = os.path.join(DATA_DIR, 'journal.db')
 TRADES = os.path.join(DATA_DIR, 'trades.json')   # otwarte trady do sledzenia 1R/3R
+ARCHIVE = os.path.join(DATA_DIR, 'archive.csv')  # pelna historia barow — NIGDY nie przycinana (backtesty / odswiezenie seed.csv)
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
+VERSION = 'v15'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -77,11 +79,23 @@ def _save_sent(s): json.dump(sorted(s), open(SENT,'w'))
 def _append_bar(b):
     ts=str(b['ts_event']).strip()
     if '+' not in ts and 'Z' not in ts: ts=ts+'+00:00'   # spojny format z seedem (UTC, +00:00)
+    row=[ts,b['open'],b['high'],b['low'],b['close'],b.get('volume',0)]
+    # --- ARCHIWUM: zasiej z istniejącego bufora PRZED dopisaniem nowego bara (bez duplikatu) ---
+    arch_new = not os.path.exists(ARCHIVE)
+    if arch_new and os.path.exists(BUF):
+        try:
+            with open(BUF) as src, open(ARCHIVE,'w') as dst: dst.write(src.read())
+            arch_new=False
+        except Exception: pass
     new = not os.path.exists(BUF)
     with open(BUF,'a',newline='') as f:
         w=csv.writer(f)
         if new: w.writerow(COLS)
-        w.writerow([ts,b['open'],b['high'],b['low'],b['close'],b.get('volume',0)])
+        w.writerow(row)
+    with open(ARCHIVE,'a',newline='') as f:          # pelna historia — NIGDY nie przycinana
+        w=csv.writer(f)
+        if arch_new: w.writerow(COLS)
+        w.writerow(row)
     with open(BUF) as f: rows=f.readlines()
     if len(rows) > BUFFER_BARS+1:
         with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
@@ -304,12 +318,18 @@ def _kv_page(title, d):
 @app.route('/status')
 def status():
     nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
+    na=(sum(1 for _ in open(ARCHIVE))-1) if os.path.exists(ARCHIVE) else 0
     _last['bars_in_buffer']=nb
-    if _wants_html(): return _kv_page('Status', dict(primed=_primed, **_last))
-    return jsonify(primed=_primed, **_last)
+    if _wants_html(): return _kv_page('Status', dict(version=VERSION, primed=_primed, archive_bars=na, **_last))
+    return jsonify(version=VERSION, primed=_primed, archive_bars=na, **_last)
+
+@app.route('/archive')
+def archive():
+    if not os.path.exists(ARCHIVE): return jsonify(error='brak archiwum jeszcze'), 404
+    return send_file(ARCHIVE, mimetype='text/csv', as_attachment=True, download_name='archive.csv')
 
 @app.route('/health')
-def health(): return jsonify(ok=True, primed=_primed, webhook=bool(WEBHOOK_URL), buffer=os.path.exists(BUF))
+def health(): return jsonify(ok=True, version=VERSION, primed=_primed, webhook=bool(WEBHOOK_URL), buffer=os.path.exists(BUF))
 
 def _bars_json(n=200):
     if not os.path.exists(BUF): return []
