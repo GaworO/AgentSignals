@@ -51,6 +51,7 @@ class Config:
             disp_mode=e.get('DISP_MODE', 'chain'),
             minimp=int(e.get('MINIMP', '3')),
             maxext=int(e.get('MAXEXT', '40')),
+            dispwin=int(e.get('DISPWIN', '10')),
             max_stop_r=float(e.get('MAX_STOP_R', '40')),
             entry_primary=e.get('ENTRY_PRIMARY', 'fvg'),
             cutoff=e.get('CUTOFF', '2026-05-17'),
