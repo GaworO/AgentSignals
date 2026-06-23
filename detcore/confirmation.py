@@ -13,11 +13,34 @@ from .catalysts import vi_draw
 
 
 def find_displacement(ctx, t, dr):
-    """From trigger bar t, find a 1-3 candle impulse: breaks structure + leaves FVG + strong."""
+    """From trigger bar t, find an impulse: breaks structure + leaves FVG + strong.
+    disp_mode='chain' (V1, default): start a >=minimp same-colour run, extend through the WHOLE
+    unbroken run, treat it as one displacement. 'orig' (V0): shortest 1-3 candle impulse."""
     o, hi, lo, cl, ATR, n = ctx.o, ctx.hi, ctx.lo, ctx.cl, ctx.ATR, ctx.n
     DISPWIN, MAXIMP, LOOKBACK, ATRMULT = ctx.cfg.dispwin, ctx.cfg.maximp, ctx.cfg.lookback, ctx.cfg.atrmult
     bull = dr == 'LONG'
-    for u in range(t + 1, min(t + 1 + DISPWIN, n)):
+    if ctx.cfg.disp_mode == 'chain':                  # ---- V1: start >=minimp candles, extend the whole same-colour run ----
+        MINIMP, MAXEXT = ctx.cfg.minimp, ctx.cfg.maxext
+        for s in range(t + 1, min(t + 1 + DISPWIN, n)):
+            if not ((cl[s] > o[s]) if bull else (cl[s] < o[s])): continue   # s = first candle of a same-colour run
+            u = s
+            while u + 1 < min(s + MAXEXT, n) and ((cl[u + 1] > o[u + 1]) if bull else (cl[u + 1] < o[u + 1])): u += 1
+            if (u - s + 1) < MINIMP: continue          # the run must be >= MINIMP candles
+            body = sum((cl[x] - o[x]) if bull else (o[x] - cl[x]) for x in range(s, u + 1))
+            if body <= 0: continue
+            prior = max(hi[max(0, s - LOOKBACK):s]) if bull else min(lo[max(0, s - LOOKBACK):s])
+            if not ((cl[u] > prior) if bull else (cl[u] < prior)): continue
+            atr5 = ATR[u] if ATR[u] > 0 else 1e9
+            maxbody = max((abs(cl[x] - o[x])) for x in range(max(0, s - 10), s)) if s > 0 else 0
+            if body < ATRMULT * atr5: continue
+            if body < maxbody: continue
+            fl = fvgs(ctx, s, u + 2, bull)
+            if not fl: continue
+            f = fl[-1]; swlo = float(min(lo[s:u + 1])); swhi = float(max(hi[s:u + 1]))
+            return dict(s=s, u=u, L=u - s + 1, body=round(body, 1), fvg=(f[0], f[1]), fvg_bar=f[2],
+                        swlo=swlo, swhi=swhi, atr5=round(atr5, 1))
+        return None
+    for u in range(t + 1, min(t + 1 + DISPWIN, n)):   # ---- V0: shortest 1-3 candle impulse ----
         for L in range(1, MAXIMP + 1):
             s = u - L + 1
             if s <= t: continue
