@@ -160,31 +160,61 @@ def _process_new(now_ms=None):
         allk=set(keys)
         _save_sent(allk); _primed=True
         return {'primed': len(allk)}
-    fresh=[x for x,k in zip(setups,keys) if k not in sent]
+    def _tkey(x):                         # tożsamość TRADE'a (bez katalizatora) — do scalania duplikatów
+        return "T|%s|%s|%s|%s|%.1f|%.1f" % (x['date'], x['model'], x['dir'], x['bos'],
+                                            float(x['entry']), float(x['SL']))
+    fresh=[x for x,k in zip(setups,keys) if k not in sent and _tkey(x) not in sent]
     sentn=set(sent)
     fresh_ms = int(os.environ.get('FRESH_MIN','15'))*60*1000   # strażnik świeżości: alarmuj tylko swieze
+    max_retest = int(os.environ.get('MAX_RETEST','0'))         # 0 = bez limitu; np. 4 = nie alarmuj po 4. re-teście
+    live=[]                               # po filtrze świeżości
     for x in fresh:
         if now_ms and x.get('bos_ms') and (now_ms - x['bos_ms']) > fresh_ms:
             print('STALE skip (stary setup, nie alarmuje):', live_emit.key(x), flush=True)
             sentn.add(live_emit.key(x)); continue
-        fl, hard = flags_for(x)
-        txt=live_emit.to_alert(x)
-        if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(x).replace('|','%7C').replace(' ','%20').replace(':','%3A')
+        live.append(x)
+    # --- SCAL DUPLIKATY: ten sam trade (entry/SL/BOS) z wielu katalizatorów = JEDNA wiadomość ---
+    groups={}
+    for x in live:
+        groups.setdefault(_tkey(x), []).append(x)
+    nfired=0
+    for tk, members in groups.items():
+        rep=sorted(members, key=lambda m:(live_emit.grade(m)=='A', m.get('bias_align')=='Y',
+                                          int(m.get('brk',1))), reverse=True)[0]
+        allkeys=[live_emit.key(m) for m in members] + [tk]
+        if max_retest and min(int(m.get('brk',1)) for m in members) > max_retest:   # filtr re-testów
+            print('RETEST skip (za duzo re-testow, min brk>%d):' % max_retest, tk, flush=True)
+            for kk in allkeys: sentn.add(kk)
+            continue
+        cats=[]
+        for m in members:
+            c=live_emit.catname(m)
+            if c not in cats: cats.append(c)
+        merged=' + '.join(cats) + ('+DIB' if live_emit.grade(rep)=='B' else '')
+        repx=dict(rep); repx['cat']=merged
+        fl, hard = flags_for(rep)
+        txt=live_emit.to_alert(repx)
+        if len(members)>1:
+            txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
+        if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
         if fl: txt += '  ⚠ ' + ', '.join(fl)
         if hard and NO_TRADE_SUPPRESS:                       # twarde wyciszenie tylko jak wlaczone
             print('SUPPRESS (high-impact)', txt, flush=True)
-            _save_db(x, txt+' [SUPPRESSED]', 'suppressed'); sentn.add(live_emit.key(x)); continue
+            _save_db(repx, txt+' [SUPPRESSED]', 'suppressed')
+            for kk in allkeys: sentn.add(kk)
+            continue
         code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
         print('ALERT', code, txt, flush=True)
-        _save_db(x, txt, code)
-        try: manage.register(x, TRADES)
+        _save_db(repx, txt, code)
+        try: manage.register(repx, TRADES)
         except Exception as e: print('manage.register err', e, flush=True)
-        if WEBHOOK_URL and str(code).startswith('2'): sentn.add(live_emit.key(x))
-        elif not WEBHOOK_URL: sentn.add(live_emit.key(x))
+        if (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
+            for kk in allkeys: sentn.add(kk)
+        nfired+=1
     # ====== (usunięte) PRE-ALERTY — stary etap odbicia od CE „czekaj na BOS" zniesiony.
     # v10: wejście to LIMIT stawiany PO potwierdzeniu BOS, wysyłany przez to_alert powyżej.
     _save_sent(sentn)
-    return {'nowe': len(fresh)}
+    return {'nowe': nfired}
 
 @app.route('/bars', methods=['POST'])
 def bars():
