@@ -28,6 +28,9 @@ class Config:
     mode: str = 'confirm'                 # 'confirm' (v10 multi-break) | 'sweep' (die on 1st breach)
     cap_days: int = 10                    # backstop: level dies after N trading days if never swept
     eod_intraday: bool = False            # v12: session H/L tapped-but-unconfirmed expires end of day
+    disp_mode: str = 'chain'              # displacement: 'chain' = V1 (start>=minimp, extend whole same-colour run) | 'orig' = V0 (1-3 candle)
+    minimp: int = 3                       # V1: min candles to start the chain
+    maxext: int = 40                      # V1: safety cap on chain length
     max_stop_r: float = 40.0              # risk cap in points
     entry_primary: str = 'fvg'            # 'fvg' | 'fibo'
     cutoff: str = '2026-05-17'            # '' => no date filter (agent / backtest mode)
@@ -45,6 +48,10 @@ class Config:
             mode=e.get('MODE', 'confirm'),
             cap_days=int(e.get('CAP_DAYS', '10')),
             eod_intraday=bool(e.get('EOD_INTRADAY')),
+            disp_mode=e.get('DISP_MODE', 'chain'),
+            minimp=int(e.get('MINIMP', '3')),
+            maxext=int(e.get('MAXEXT', '40')),
+            dispwin=int(e.get('DISPWIN', '10')),
             max_stop_r=float(e.get('MAX_STOP_R', '40')),
             entry_primary=e.get('ENTRY_PRIMARY', 'fvg'),
             cutoff=e.get('CUTOFF', '2026-05-17'),
