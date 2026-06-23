@@ -105,22 +105,25 @@ def _append_bar(b):
     if len(rows) > BUFFER_BARS+1:
         with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
 
-_gate = {'at': 0.0, 'eod_on': False}
-def _eod_flag():
-    """Regime-gated EOD (v12): policz rezim max raz na REGIME_TTL_SEC (regime_stats jest drogie —
-    odpala detektor jako subprocess), Telegram tylko przy zmianie. Zwraca True/False = EOD ON/OFF."""
+_gate = {'at': 0.0, 'eod_on': False, 'reg': None}
+def _regime_now():
+    """Policz rezim max raz na REGIME_TTL_SEC (regime_stats odpala detektor jako subprocess — drogie).
+    Cache w _gate['reg']; zasila i EOD gate (v12) i size gate (v16). EOD Telegram tylko przy zmianie."""
     import time
     now = time.time()
-    if now - _gate['at'] > float(os.environ.get('REGIME_TTL_SEC', '3600')):
+    if _gate.get('reg') is None or now - _gate['at'] > float(os.environ.get('REGIME_TTL_SEC', '3600')):
         try:
             import regime as _regime
-            reg = _regime.regime_stats(BUF, HERE)
-            eod_on, lab, code = regime_gate.notify_if_changed(reg, WEBHOOK_URL, DATA_DIR, live_emit.post_webhook)
-            _gate['eod_on'] = eod_on; _gate['at'] = now
-            print('[regime_gate] EOD', lab, code, flush=True)
+            reg = _regime.regime_stats(BUF, HERE); _gate['reg'] = reg; _gate['at'] = now
+            if os.environ.get('REGIME_GATE', '') == '1':     # EOD notify tylko gdy gate wlaczony
+                eod_on, lab, code = regime_gate.notify_if_changed(reg, WEBHOOK_URL, DATA_DIR, live_emit.post_webhook)
+                _gate['eod_on'] = eod_on
+                if code != 'unchanged': print('[regime_gate] EOD', lab, code, flush=True)
         except Exception as e:
-            print('[regime_gate] err', e, flush=True)   # fail-safe: zostaw poprzedni stan
-    return _gate['eod_on']
+            print('[regime] err', e, flush=True)   # fail-safe: zostaw poprzedni stan
+    return _gate.get('reg')
+def _eod_flag():
+    _regime_now(); return _gate['eod_on']
 
 def _detect():
     gated = os.environ.get('REGIME_GATE', '') == '1'            # opt-in: bez tego = stare zachowanie (det_v10)
@@ -193,6 +196,13 @@ def _process_new(now_ms=None):
     for x in live:
         groups.setdefault(_tkey(x), []).append(x)
     nfired=0
+    # --- v16 REGIME SIZE GATE (opt-in): adaptacja rozmiaru / pomijanie w choppy ---
+    _rsg = os.environ.get('REGIME_SIZE_GATE','')=='1'; _rskip = os.environ.get('REGIME_SKIP_CHOP','')=='1'
+    _rcolor=None; _rlabel=''; _rfac=1.0
+    if _rsg or _rskip:
+        _reg=_regime_now() or {}
+        _rcolor=_reg.get('market_color') or _reg.get('state')
+        _rlabel=_reg.get('market_type','?'); _rfac={'green':1.0,'amber':0.5,'red':0.25}.get(_rcolor,1.0)
     for tk, members in groups.items():
         rep=sorted(members, key=lambda m:(live_emit.grade(m)=='A', m.get('bias_align')=='Y',
                                           int(m.get('brk',1))), reverse=True)[0]
@@ -213,6 +223,11 @@ def _process_new(now_ms=None):
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
         if fl: txt += '  ⚠ ' + ', '.join(fl)
+        if _rskip and _rcolor=='red':                        # regime gate: w choppy nie alarmuj (edge ~0 po kosztach)
+            print('CHOP-SKIP', txt, flush=True); _save_db(repx, txt+' [CHOP-SKIP]', 'chop-skip')
+            for kk in allkeys: sentn.add(kk)
+            continue
+        if _rsg: txt += f"\n🌡️ Reżim: {_rlabel} — sugerowany rozmiar {_rfac}× (chop = mniejszy/odpuść)"
         if hard and NO_TRADE_SUPPRESS:                       # twarde wyciszenie tylko jak wlaczone
             print('SUPPRESS (high-impact)', txt, flush=True)
             _save_db(repx, txt+' [SUPPRESSED]', 'suppressed')
