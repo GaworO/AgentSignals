@@ -17,6 +17,18 @@ def _save(path, lst):
     except Exception:
         pass
 
+def _record(opath, t, r, reason, bar_ms):
+    """Zapisz wynik zamknietego trade'a (realized R) do trwalego logu — zasila /performance."""
+    if not opath: return
+    try:
+        outs = _load(opath)
+        if any(o.get('key') == t['key'] for o in outs): return   # idempotentne po kluczu
+        outs.append(dict(key=t['key'], dir=t['dir'], cat=t['cat'], entry=t['entry'], sl=t['sl'],
+                         r=r, reason=reason, bos_ms=t.get('bos_ms', 0), closed_ms=int(bar_ms or 0)))
+        _save(opath, outs[-500:])
+    except Exception:
+        pass
+
 def register(x, path):
     """Zarejestruj potwierdzony trade do sledzenia. Idempotentne (po kluczu)."""
     e = float(x['entry']); sl = float(x['SL']); bull = x['dir'] == 'LONG'; R = abs(e - sl)
@@ -31,7 +43,7 @@ def register(x, path):
                     filled=False, done1=False))
     _save(path, lst[-50:])   # trzymaj ostatnie 50
 
-def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000):
+def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000, outcomes_path=None):
     """Na nowym barze. NAJPIERW brama FILL: wejscie to LIMIT (cofniecie) — nie liczymy zadnych
        celow dopoki limit nie zostanie trafiony. Niewypelniony limit anulujemy po fill_ms (2h).
        Po fillu, kolejnosc ADVERSE-FIRST (najpierw ruch przeciw — konserwatywnie):
@@ -62,6 +74,7 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000
             # 1) SL (ruch przeciw) — sprawdzany NAJPIERW
             if (lo <= sl) if bull else (hi >= sl):
                 send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl}. Trade zamknięty (−1R). Zakończony.")
+                _record(outcomes_path, t, -1.0, 'SL', bar_ms)
                 drop = True; changed = True
             # 2) inaczej: 1R -> uzbrojenie BE
             elif (hi >= r1) if bull else (lo <= r1):
@@ -74,14 +87,17 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000
             if (lo <= e) if bull else (hi >= e):
                 send(f"➖ BE {emoji} {t['dir']} · {t['cat']} → cena wróciła na entry ({e}). "
                      f"Trade zamknięty (0R). Zakończony.")
+                _record(outcomes_path, t, 0.0, 'BE', bar_ms)
                 drop = True; changed = True
             # 4) inaczej: 2R -> TP
             elif (hi >= r2) if bull else (lo <= r2):
                 send(f"🎯 2R OSIĄGNIĘTE {emoji} {t['dir']} · {t['cat']} → ZAMKNIJ całość @ {r2}. "
                      f"Trade zakończony (+2R).")
+                _record(outcomes_path, t, 2.0, 'TP', bar_ms)
                 drop = True; changed = True
 
         if not drop and t.get('bos_ms') and bar_ms and (bar_ms - t['bos_ms']) > expire_ms:
+            _record(outcomes_path, t, None, 'timeout', bar_ms)
             drop = True; changed = True
 
         if not drop: keep.append(t)

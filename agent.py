@@ -33,6 +33,7 @@ SENT = os.path.join(DATA_DIR, 'agent_sent.json')
 DB   = os.path.join(DATA_DIR, 'journal.db')
 TRADES = os.path.join(DATA_DIR, 'trades.json')   # otwarte trady do sledzenia 1R/3R
 ARCHIVE = os.path.join(DATA_DIR, 'archive.csv')  # pelna historia barow — NIGDY nie przycinana (backtesty / odswiezenie seed.csv)
+OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety trade -> /performance
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
@@ -245,7 +246,7 @@ def bars():
             def _msend(m):
                 print('MANAGE', m, flush=True)
                 if WEBHOOK_URL: live_emit.post_webhook(m, WEBHOOK_URL)
-            manage.check(_hi, _lo, now_ms, _msend, TRADES)
+            manage.check(_hi, _lo, now_ms, _msend, TRADES, outcomes_path=OUTCOMES)
         except Exception as e:
             print('manage.check err', e, flush=True)
         nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
@@ -314,6 +315,42 @@ def _kv_page(title, d):
         val = json.dumps(v) if isinstance(v, (dict, list)) else v
         body += "<tr><th style='width:170px'>%s</th><td>%s</td></tr>" % (_h.escape(str(k)), _h.escape(str(val)))
     return _page(title, body + "</tbody></table></div>")
+
+@app.route('/performance')
+def performance():
+    outs=[]
+    try: outs=json.load(open(OUTCOMES))
+    except Exception: outs=[]
+    res=[o for o in outs if o.get('r') is not None]
+    rs=[float(o['r']) for o in res]
+    def _st(a):
+        if not a: return dict(n=0)
+        w=sum(1 for x in a if x>0)
+        return dict(n=len(a), exp_R=round(sum(a)/len(a),3), win_pct=round(100*w/len(a),1), total_R=round(sum(a),1))
+    timeouts=sum(1 for o in outs if o.get('reason')=='timeout')
+    body=dict(live_all=_st(rs), live_last20=_st(rs[-20:]), live_last50=_st(rs[-50:]),
+              recorded=len(outs), timeouts=timeouts,
+              backtest_ref={'favorable_R':0.29,'weak_R':0.10},
+              note='LIVE modeled R (agent fills na dotk. ceny). Porownaj exp_R do backtest_ref.')
+    if _wants_html(): return _kv_page('Performance (LIVE)', body)
+    return jsonify(**body)
+
+@app.route('/lastalert')
+def lastalert():
+    import html as _h
+    nlim=int(request.args.get('n','3'))
+    rows=[]
+    try:
+        c=sqlite3.connect(DB)
+        for r in c.execute("SELECT logged_at,dir,cat,entry,SL,TP,alert FROM signals ORDER BY logged_at DESC LIMIT ?",(nlim,)):
+            rows.append(dict(logged_at=r[0],dir=r[1],cat=r[2],entry=r[3],SL=r[4],TP=r[5],alert=r[6]))
+        c.close()
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+    if _wants_html():
+        body="".join("<pre style='white-space:pre-wrap'>%s</pre><hr>"%_h.escape(str(x.get('alert') or '')) for x in rows)
+        return _page('Ostatnie alerty (pelne SL/TP)', "<div class='wrap'>"+body+"</div>")
+    return jsonify(n=len(rows), alerts=rows)
 
 @app.route('/status')
 def status():
