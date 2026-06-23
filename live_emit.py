@@ -83,12 +83,15 @@ def to_alert(x):
     rpts = round(slpts,1); tppts = round(2*slpts,1)
     side = 'BUY' if isL else 'SELL'
     e_d = round(x['entry']+OFFSET,1); sl_d = round(x['SL']+OFFSET,1); tp_d = round(tp+OFFSET,1)
+    tp3 = round((x['entry']+3*slpts) if isL else (x['entry']-3*slpts),1)
+    tp3_d = round(tp3+OFFSET,1); tp3pts = round(3*slpts,1)
     base = (f"📋 {side} LIMIT · POSTAW (BOS potwierdzony — zlecenie oczekujące, fill na cofnięciu) · {gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
     if CONTRACT or OFFSET:
         base += f"\n📄 Kontrakt: {CONTRACT or '—'}" + (f" (ceny +{round(OFFSET,1)} z MNQ1!)" if OFFSET else "")
     base += (f"\n🎯 {side} LIMIT {e_d} ({x.get('kind','FVG/OTE')})"
-             f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt"
-             f"\n🎯 TP {tp_d} · +{tppts} pkt (2R) | BE po +{rpts} pkt w zysku — NIE zamykaj części")
+             f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt · BE po +{rpts} pkt (1R)"
+             f"\n🎯 TP2 {tp_d} · +{tppts} pkt (2R — cel systemu, zweryfikowany)"
+             f"\n🎯 TP3 {tp3_d} · +{tp3pts} pkt (3R — opcjonalny runner, niezweryfikowany)")
     s = size_for(x['entry'], x['SL'])
     if s:
         qty, slpts, perc, real, pct = s

@@ -27,11 +27,14 @@ def register(x, path):
     lst = _load(path)
     if any(t.get('key') == key for t in lst): return
     lst.append(dict(key=key, dir=x['dir'], cat=x['cat'], entry=e, sl=round(sl,1),
-                    r1=round(r1,1), r2=round(r2,1), bos_ms=int(x.get('bos_ms', 0)), done1=False))
+                    r1=round(r1,1), r2=round(r2,1), bos_ms=int(x.get('bos_ms', 0)),
+                    filled=False, done1=False))
     _save(path, lst[-50:])   # trzymaj ostatnie 50
 
-def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000):
-    """Na nowym barze, kolejnosc ADVERSE-FIRST (najpierw ruch przeciw — konserwatywnie):
+def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000):
+    """Na nowym barze. NAJPIERW brama FILL: wejscie to LIMIT (cofniecie) — nie liczymy zadnych
+       celow dopoki limit nie zostanie trafiony. Niewypelniony limit anulujemy po fill_ms (2h).
+       Po fillu, kolejnosc ADVERSE-FIRST (najpierw ruch przeciw — konserwatywnie):
        PRZED 1R:  SL trafiony -> -1R, koniec.  Inaczej 1R trafiony -> przesun SL na BE.
        PO 1R:     entry trafiony (BE) -> 0R, koniec.  Inaczej 2R trafiony -> +2R, koniec.
        Stare trady (>8h od BOS) wygasaja. send(msg) wysyla powiadomienie."""
@@ -41,6 +44,19 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000):
     for t in lst:
         bull = t['dir'] == 'LONG'; emoji = '🟢' if bull else '🔴'; drop = False
         e = t['entry']; sl = t['sl']; r1 = t['r1']; r2 = t.get('r2', t.get('r3'))
+
+        # ---- FILL GATE: bez tego leciały fałszywe TP/SL zaraz po wejściu (limit nie był wypełniony) ----
+        if not t.get('filled'):
+            hit_entry = (lo <= e) if bull else (hi >= e)
+            if hit_entry:
+                t['filled'] = True; changed = True
+                send(f"✅ FILL {emoji} {t['dir']} · {t['cat']} → wejście @ {e} aktywne (SL {sl} · cel 2R {r2}).")
+                keep.append(t); continue          # celów nie sprawdzamy na barze wypełnienia — czekamy na kolejny
+            if t.get('bos_ms') and bar_ms and (bar_ms - t['bos_ms']) > fill_ms:
+                send(f"⌛ {emoji} {t['dir']} · {t['cat']} → limit @ {e} niewypełniony w {fill_ms//3600000}h — anulowany.")
+                drop = True; changed = True
+            if not drop: keep.append(t)
+            continue
 
         if not t['done1']:
             # 1) SL (ruch przeciw) — sprawdzany NAJPIERW
