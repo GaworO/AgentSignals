@@ -37,7 +37,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v16'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
+VERSION = 'v18'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -63,6 +63,31 @@ def _save_db(x, alert_text, code):
          x['entry'],x.get('ote62'),x.get('ote79'),x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
          x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None))
     c.commit(); c.close()
+
+def _exec_order(x):
+    """Route 2 (semi-auto): wyślij PRE-STAGED zlecenie bracket do TradersPost (EXEC_WEBHOOK).
+    Z auto-submit OFF w TradersPost zlecenie czeka na Twoje 1-klik zatwierdzenie (MFF: nadzór nad
+    każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście. EXEC_QTY domyślnie 1 (start mały)."""
+    url = os.environ.get('EXEC_WEBHOOK', '')
+    if not url or requests is None: return
+    try:
+        off = float(os.environ.get('PRICE_OFFSET', '0'))
+        bull = x['dir'] == 'LONG'; e = float(x['entry']); sl = float(x['SL']); R = abs(e - sl)
+        tp = (e + 2*R) if bull else (e - 2*R)
+        payload = {
+            "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
+            "action": "buy" if bull else "sell",
+            "orderType": "limit",
+            "limitPrice": round(e + off, 2),
+            "quantity": int(os.environ.get('EXEC_QTY', '1')),
+            "takeProfit": {"limitPrice": round(tp + off, 2)},
+            "stopLoss": {"type": "stop", "stopPrice": round(sl + off, 2)},
+            "timeInForce": "gtc",
+        }
+        r = requests.post(url, json=payload, timeout=10)
+        print('EXEC', getattr(r, 'status_code', '?'), payload, flush=True)
+    except Exception as ex:
+        print('EXEC err', ex, flush=True)
 
 def _seed_buffer():
     if os.path.exists(BUF) or not os.path.exists(SEED_CSV): return
@@ -238,6 +263,7 @@ def _process_new(now_ms=None):
         _save_db(repx, txt, code)
         try: manage.register(repx, TRADES)
         except Exception as e: print('manage.register err', e, flush=True)
+        _exec_order(repx)   # route 2: pre-stage zlecenie na TradersPost (auto-submit OFF = czeka na Twój 1-klik)
         if (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)
         nfired+=1
@@ -379,6 +405,27 @@ def status():
 def archive():
     if not os.path.exists(ARCHIVE): return jsonify(error='brak archiwum jeszcze'), 404
     return send_file(ARCHIVE, mimetype='text/csv', as_attachment=True, download_name='archive.csv')
+
+@app.route('/exectest')
+def exectest():
+    """Route 2 test: wyślij PRZYKŁADOWE zlecenie do TradersPost (EXEC_WEBHOOK) + ping Telegram.
+    Wymaga EXEC_TEST_SECRET (env) i ?secret=. Bezpieczne: TradersPost (manual submit) trzyma je jako
+    oczekujące dopóki nie zatwierdzisz. Param: ?dir=LONG&entry=29700&sl=29690"""
+    sec = os.environ.get('EXEC_TEST_SECRET', '')
+    if not sec or request.args.get('secret', '') != sec:
+        return jsonify(error='ustaw EXEC_TEST_SECRET (env) i podaj ?secret=...'), 401
+    side = request.args.get('dir', 'LONG').upper()
+    entry = float(request.args.get('entry', '29700'))
+    sl = float(request.args.get('sl', str(entry - 10 if side == 'LONG' else entry + 10)))
+    sample = {'dir': side, 'entry': entry, 'SL': sl}
+    _exec_order(sample)
+    if WEBHOOK_URL:
+        try: live_emit.post_webhook(f"🧪 TEST (route 2) — wysłano przykładowe zlecenie {side} {entry} / SL {sl} "
+                                    f"(qty {os.environ.get('EXEC_QTY','1')}) do TradersPost. Zatwierdź/odrzuć tam (paper).", WEBHOOK_URL)
+        except Exception as e: print('exectest tg err', e, flush=True)
+    return jsonify(ok=True, exec_webhook_set=bool(os.environ.get('EXEC_WEBHOOK')),
+                   ticker=os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
+                   sample=sample, note='sprawdź TradersPost (paper) — oczekujące zlecenie + Telegram')
 
 @app.route('/health')
 def health(): return jsonify(ok=True, version=VERSION, primed=_primed, webhook=bool(WEBHOOK_URL), buffer=os.path.exists(BUF))
