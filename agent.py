@@ -67,28 +67,51 @@ def _save_db(x, alert_text, code):
 def _exec_order(x, text=None):
     """Route 2 (semi-auto): wyślij PRE-STAGED zlecenie bracket do TradersPost (EXEC_WEBHOOK).
     Z auto-submit OFF w TradersPost zlecenie czeka na Twoje 1-klik zatwierdzenie (MFF: nadzór nad
-    każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście. EXEC_QTY domyślnie 1 (start mały)."""
+    każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście.
+    EXEC_QTY='auto' (domyślnie) = ryzyko jak w alercie (size_for); liczba = sztywno; EXEC_MAX_QTY = limit."""
     url = os.environ.get('EXEC_WEBHOOK', '')
-    if not url or requests is None: return
+    if not url or requests is None: return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
     try:
         off = float(os.environ.get('PRICE_OFFSET', '0'))
         bull = x['dir'] == 'LONG'; e = float(x['entry']); sl = float(x['SL']); R = abs(e - sl)
         tp = (e + 2*R) if bull else (e - 2*R)
+        # Wielkosc: 'auto' (domyslnie) = ryzyko jak w alercie (size_for: RISK_PCT% z ACCOUNT, MNQ $2/pkt),
+        # ta sama liczba kontraktow co w linii "Ryzyko: N kontr.". Liczba w EXEC_QTY = sztywno.
+        # EXEC_MAX_QTY = opcjonalny limit (np. regula max kontraktow MFF / eval).
+        _q = os.environ.get('EXEC_QTY', 'auto').strip().lower()
+        if _q.isdigit() and int(_q) > 0:
+            qty = int(_q)
+        else:
+            try:
+                _sf = live_emit.size_for(e, sl); qty = int(_sf[0]) if _sf else 1
+            except Exception:
+                qty = 1
+        _cap = os.environ.get('EXEC_MAX_QTY', '').strip()
+        if _cap.isdigit() and int(_cap) > 0:
+            qty = min(qty, int(_cap))
+        qty = max(1, int(qty))
         payload = {
             "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
             "action": "buy" if bull else "sell",
             "orderType": "limit",
             "limitPrice": round(e + off, 2),
-            "quantity": int(os.environ.get('EXEC_QTY', '1')),
+            "quantity": qty,
             "takeProfit": {"limitPrice": round(tp + off, 2)},
             "stopLoss": {"type": "stop", "stopPrice": round(sl + off, 2)},
             "timeInForce": "gtc",
         }
         if text: payload["text"] = text   # relay /stage użyje jako treść -> JEDNA wiadomość zamiast dwóch
         r = requests.post(url, json=payload, timeout=10)
-        print('EXEC', getattr(r, 'status_code', '?'), payload, flush=True)
+        st = getattr(r, 'status_code', None)
+        body = ''
+        try: body = (r.text or '')[:200]
+        except Exception: pass
+        print('EXEC', st, payload, flush=True)
+        return {"sent": True, "status": st, "resp": body,
+                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": payload.get("quantity")}
     except Exception as ex:
         print('EXEC err', ex, flush=True)
+        return {"sent": False, "error": str(ex), "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}
 
 def _seed_buffer():
     if os.path.exists(BUF) or not os.path.exists(SEED_CSV): return
@@ -422,10 +445,10 @@ def exectest():
     entry = float(request.args.get('entry', '29700'))
     sl = float(request.args.get('sl', str(entry - 10 if side == 'LONG' else entry + 10)))
     sample = {'dir': side, 'entry': entry, 'SL': sl}
-    _exec_order(sample)   # -> relay /stage -> JEDNA wiadomość z przyciskami
-    return jsonify(ok=True, exec_webhook_set=bool(os.environ.get('EXEC_WEBHOOK')),
+    relay = _exec_order(sample)   # -> relay /stage -> JEDNA wiadomość z przyciskami
+    return jsonify(ok=True, exec_webhook_set=bool(os.environ.get('EXEC_WEBHOOK')), relay=relay,
                    ticker=os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
-                   sample=sample, note='sprawdź TradersPost (paper) — oczekujące zlecenie + Telegram')
+                   sample=sample, note='relay.status 200 = relay przyjął (sprawdź Telegram); 401 = zły secret w EXEC_WEBHOOK; sent:false = zły URL/sieć')
 
 @app.route('/health')
 def health(): return jsonify(ok=True, version=VERSION, primed=_primed, webhook=bool(WEBHOOK_URL), buffer=os.path.exists(BUF))
