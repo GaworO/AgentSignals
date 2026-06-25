@@ -322,6 +322,11 @@ def bars():
                      setups_seen=res.get('nowe', res.get('primed')),
                      processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
+    # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; POZA lockiem; NIE wplywa na A/B) ---
+    _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
+    if _furl and requests is not None:
+        try: requests.post(_furl, json=b, timeout=3)
+        except Exception: pass
     return jsonify(ok=True, **res)
 
 def _wants_html():
