@@ -37,7 +37,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v20'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
+VERSION = 'v21'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -280,6 +280,9 @@ def _process_new(now_ms=None):
         repx=dict(rep); repx['cat']=merged
         fl, hard = flags_for(rep)
         txt=live_emit.to_alert(repx)
+        _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci
+        _hdr='🕒 '+dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')+((f' · setup sprzed {_age:.0f} min'+(' ⚠️ STARY!' if _age>20 else '')) if _age is not None else '')
+        txt=_hdr+'\n'+txt                                                                   # pierwsza linia = KIEDY -> stary alert widac na pierwszy rzut oka
         if len(members)>1:
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
