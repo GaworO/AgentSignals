@@ -42,6 +42,7 @@ BUF        = os.environ.get('STRAT_F_BUF') or os.environ.get('BUF') or os.path.j
 WEBHOOK_F  = os.environ.get('STRAT_F_WEBHOOK') or os.environ.get('WEBHOOK_URL', '')
 EXEC_F     = os.environ.get('EXEC_WEBHOOK_F', '')
 SENT_F     = os.environ.get('SENT_F_FILE', '/home/claude/sent_signals_F.json')
+F_TRADES   = os.environ.get('F_TRADES_FILE') or os.path.join(os.path.dirname(SENT_F) or '.', 'f_trades.json')
 FRESH_MIN  = int(os.environ.get('STRAT_F_FRESH_MIN', '30'))
 OFFSET     = float(os.environ.get('PRICE_OFFSET', '0'))
 ONLY_CONT  = os.environ.get('STRAT_F_ONLY_CONT', '1') == '1'
@@ -167,6 +168,63 @@ def _save(p, d):
     _ensure_dir(p); json.dump(d, open(p, 'w'))
 
 
+# ================= LIVE F JOURNAL (own file on the volume; separate from A/B) =================
+def _journal_add(x):
+    """Record a fresh F alert so you can SEE it live + track its outcome."""
+    j = _load(F_TRADES); k = key_f(x)
+    if k not in j:
+        j[k] = dict(date=x['date'], dir=x['dir'], entry=x['entry'], SL=x['SL'], TP=x['TP'], risk=x['risk'],
+                    fvg_lo=x['fvg_lo'], fvg_hi=x['fvg_hi'], be=False, status='alerted',
+                    alert_ts=dt.datetime.utcnow().isoformat(timespec='seconds'))
+        _save(F_TRADES, j)
+
+
+def _journal_update(b):
+    """Per-bar state machine for the journal: resting limit -> filled -> win/loss/be (BE@1R, TP=2R,
+    intrabar SL-first); a body close through the gap before fill -> cancelled. Outcome modeled from
+    the live bars (same rules as the backtest)."""
+    try:
+        hi = float(b['high']); lo = float(b['low']); cl = float(b['close'])
+    except Exception:
+        return
+    ts = str(b.get('ts_event', '')); j = _load(F_TRADES); changed = False
+    for k, t in j.items():
+        if t['status'] in ('win', 'loss', 'be', 'cancelled', 'expired'):
+            continue
+        bull = t['dir'] == 'LONG'; e = t['entry']; sl = t['SL']; tp = t['TP']; risk = t['risk']
+        far = t['fvg_lo'] if bull else t['fvg_hi']
+        if t['status'] == 'alerted':                      # limit resting
+            broke = (cl < far) if bull else (cl > far)
+            if broke:
+                t['status'] = 'cancelled'; t['close_ts'] = ts; changed = True; continue
+            if lo <= e <= hi:
+                t['status'] = 'filled'; t['be'] = False; t['fill_ts'] = ts; changed = True
+        elif t['status'] == 'filled':                     # manage BE@1R / TP2R / SL-first
+            be = t.get('be', False); cur = e if be else sl; oneR = e + risk if bull else e - risk
+            hit_sl = (lo <= cur) if bull else (hi >= cur); hit_tp = (hi >= tp) if bull else (lo <= tp)
+            if hit_sl:
+                t['status'] = 'be' if be else 'loss'; t['R'] = 0.0 if be else -1.0; t['close_ts'] = ts; changed = True; continue
+            if hit_tp:
+                t['status'] = 'win'; t['R'] = 2.0; t['close_ts'] = ts; changed = True; continue
+            if (not be) and ((hi >= oneR) if bull else (lo <= oneR)):
+                t['be'] = True; changed = True
+    if changed:
+        _save(F_TRADES, j)
+
+
+def _journal_stats():
+    from collections import Counter
+    vals = list(_load(F_TRADES).values())
+    closed = [t for t in vals if t['status'] in ('win', 'loss', 'be')]
+    wins = sum(1 for t in closed if t['status'] == 'win'); n = len(closed)
+    totR = round(sum(t.get('R', 0.0) for t in closed), 2)
+    riskusd = float(os.environ.get('ACCOUNT', '100000')) * float(os.environ.get('RISK_PCT', '0.5')) / 100.0
+    return dict(alerts=len(vals), filled=sum(1 for t in vals if t['status'] in ('filled', 'win', 'loss', 'be')),
+                closed=n, wins=wins, winpct=round(100 * wins / n, 1) if n else 0.0,
+                totR=totR, dollars=round(totR * riskusd), by_status=dict(Counter(t['status'] for t in vals)),
+                trades=sorted(vals, key=lambda z: z.get('alert_ts', ''), reverse=True)[:60])
+
+
 def process_f(buf=BUF, now_ms=None):
     if os.environ.get('STRAT_F_ENABLED') != '1':
         return {'disabled': True}
@@ -180,7 +238,7 @@ def process_f(buf=BUF, now_ms=None):
                 txt = to_alert_f(x)
                 code = exec_f(x, txt, 'enter') if EXEC_F else (live_emit.post_webhook(txt, WEBHOOK_F) if WEBHOOK_F else 'no-url')
                 if EXEC_F and WEBHOOK_F: live_emit.post_webhook(txt, WEBHOOK_F)   # also notify
-                print('F-ALERT', code, k, flush=True); state[k] = 'alerted'; fired += 1
+                print('F-ALERT', code, k, flush=True); state[k] = 'alerted'; fired += 1; _journal_add(x)
             else:
                 state[k] = status      # filled/invalid/expired/stale on first sight -> never alert
         elif st == 'alerted':                           # limit was resting; react to a state change
@@ -238,6 +296,7 @@ try:
         _append_bar_f(b); _state['bars'] += 1
         try:
             r = process_f(F_BUF, int(time.time() * 1000))
+            _journal_update(b)                     # update live F journal (fill / TP / SL / R) from this bar
             _state['alerts'] += r.get('f_alerts', 0); _state['cancels'] += r.get('f_cancels', 0)
             if r.get('f_alerts'): _state['last_alert'] = dt.datetime.utcnow().isoformat(timespec='seconds')
             return jsonify(ok=True, **r)
@@ -262,6 +321,27 @@ try:
         if not sec or request.args.get('secret') != sec:
             return jsonify(error='set EXEC_TEST_SECRET (env) and pass ?secret=...'), 401
         return jsonify(ok=True, exec_webhook_F_set=bool(EXEC_F), result=exec_f(_SAMPLE, to_alert_f(_SAMPLE), 'enter'))
+
+    @app.route('/performance_f')
+    def _perf_f():                         # live F results (JSON): win rate, R, $ — separate from A/B
+        return jsonify(strategy='F (F.P. PFVG Continuation)', **_journal_stats())
+
+    @app.route('/log')
+    def _log():                            # live F journal as an HTML table -> just open it in a browser
+        s = _journal_stats(); rows = ''
+        for t in s['trades']:
+            col = {'win': '#1b9e3a', 'loss': '#d33', 'be': '#888', 'cancelled': '#b80', 'filled': '#1565c0'}.get(t['status'], '#555')
+            rows += (f"<tr><td>{t.get('alert_ts','')[:16]}</td><td>{t['dir']}</td><td>{t['entry']}</td>"
+                     f"<td>{t['SL']}</td><td>{t['TP']}</td><td style='color:{col};font-weight:600'>{t['status']}</td>"
+                     f"<td>{t.get('R','')}</td></tr>")
+        return ("<html><body style='font-family:system-ui;background:#0f0f0f;color:#eee;padding:18px'>"
+                f"<h2>Strategy F — live (Continuation only)</h2>"
+                f"<p>alerts <b>{s['alerts']}</b> · filled <b>{s['filled']}</b> · closed <b>{s['closed']}</b> · "
+                f"win <b>{s['winpct']}%</b> · totR <b>{s['totR']}</b> · ~<b>${s['dollars']}</b> &nbsp;|&nbsp; {s['by_status']}</p>"
+                "<table cellpadding=6 style='border-collapse:collapse' border=1>"
+                "<tr><th>alert (UTC)</th><th>dir</th><th>entry</th><th>SL</th><th>TP</th><th>status</th><th>R</th></tr>"
+                f"{rows}</table><p style='color:#777;font-size:12px'>Wynik modelowany z barów F (BE@1R/TP2R/SL-first). "
+                "Porównaj z realnymi fillami TradersPost.</p></body></html>")
 except Exception as _flask_err:
     app = None
 
