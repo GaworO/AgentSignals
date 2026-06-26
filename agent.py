@@ -244,6 +244,18 @@ def _process_new(now_ms=None):
                                             float(x['entry']), float(x['SL']))
     fresh=[x for x,k in zip(setups,keys) if k not in sent and _tkey(x) not in sent]
     sentn=set(sent)
+    # v21: GAP-AWARE RE-PRIME — po przerwie w feedzie (outage LUB okno redeployu) pomin katch-up batch.
+    # Po dziurze poziomy (PDH / H sesji) sa liczone W POPRZEK dziury -> stale. Oznacz wszystko widziane,
+    # NIE alarmuj; swieze setupy ida od nastepnego (juz ciaglego) bara.
+    _gap = _feed_gap_min()
+    if _gap is not None and _gap > float(os.environ.get('GAP_REPRIME_MIN','30')):
+        for x in setups: sentn.add(live_emit.key(x)); sentn.add(_tkey(x))
+        _save_sent(sentn)
+        print('GAP RE-PRIME: feed wrocil po %.0f min — pomijam %d katch-up setupow (stale poziomy)' % (_gap, len(setups)), flush=True)
+        if WEBHOOK_URL:
+            try: live_emit.post_webhook(f"♻️ Feed wrócił po przerwie ~{_gap:.0f} min — pomijam katch-up (poziomy policzone w poprzek dziury). Świeże setupy od następnego bara.", WEBHOOK_URL)
+            except Exception as e: print('[gap-reprime] post err', e, flush=True)
+        return {'gap_reprime': len(setups), 'gap_min': round(_gap,1)}
     fresh_ms = int(os.environ.get('FRESH_MIN','15'))*60*1000   # strażnik świeżości: alarmuj tylko swieze
     max_retest = int(os.environ.get('MAX_RETEST','0'))         # 0 = bez limitu; np. 4 = nie alarmuj po 4. re-teście
     live=[]                               # po filtrze świeżości
@@ -577,6 +589,20 @@ def monitor():
     from flask import send_from_directory
     return send_from_directory(HERE, 'regime_monitor.html')
 
+def _feed_gap_min():
+    """Minuty miedzy dwoma ostatnimi barami w buforze (czytane z dysku -> przezywa restart/redeploy).
+    Wykrywa dziure w feedzie: outage (dni) albo okno redeployu (sekundy/minuty)."""
+    try:
+        with open(BUF) as f: rows = f.readlines()
+        if len(rows) < 3: return None
+        def _ms(line):
+            ts = line.split(',')[0].strip()
+            if '+' not in ts and 'Z' not in ts: ts = ts + '+00:00'
+            return dt.datetime.fromisoformat(ts).timestamp() * 1000
+        return (_ms(rows[-1]) - _ms(rows[-2])) / 60000.0
+    except Exception: return None
+
+
 def _market_open_now():
     """True when CME Globex MNQ should be delivering bars (fixed UTC-4, no DST — like the rest of the agent).
     Closed: all Saturday; Sunday before 18:00 ET; Friday after 17:00 ET; daily maintenance 17:00–18:00 ET."""
@@ -602,6 +628,10 @@ def _heartbeat_loop():
     while True:
         try:
             _time.sleep(HEARTBEAT_EVERY)
+            _hc = os.environ.get('HEALTHCHECK_URL', '')   # v21: zewnetrzny dead-man's switch (np. Healthchecks.io)
+            if _hc and requests is not None:               # ping co cykl = dowod ze AGENT zyje; gdy padnie, brak pingu -> zewn. alarm
+                try: requests.get(_hc, timeout=4)
+                except Exception: pass
             if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
             age = _feed_age_min()
             stale = age > STALE_MIN and _market_open_now()

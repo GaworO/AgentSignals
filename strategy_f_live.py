@@ -44,6 +44,7 @@ EXEC_F     = os.environ.get('EXEC_WEBHOOK_F', '')
 SENT_F     = os.environ.get('SENT_F_FILE', '/home/claude/sent_signals_F.json')
 F_TRADES   = os.environ.get('F_TRADES_FILE') or os.path.join(os.path.dirname(SENT_F) or '.', 'f_trades.json')
 FRESH_MIN  = int(os.environ.get('STRAT_F_FRESH_MIN', '30'))
+FILL_MIN   = int(os.environ.get('STRAT_F_FILL_MIN', '30'))    # limit ważny tylko N min po displacemencie (było 240) — usuwa spóźnione wejścia
 OFFSET     = float(os.environ.get('PRICE_OFFSET', '0'))
 ONLY_CONT  = os.environ.get('STRAT_F_ONLY_CONT', '1') == '1'
 
@@ -70,15 +71,15 @@ def _signal_status(r, hi, lo, cl, n):
       'expired' = fill window elapsed with no touch."""
     bull = r['dir'] == 'LONG'; fl, fh = r['fl'], r['fh']
     entry = fh if bull else fl; far = fl if bull else fh
-    end = min(r['u'] + 1 + S.MAXFILL, n)
+    end = min(r['u'] + 1 + FILL_MIN, n)                 # okno wypełnienia = FILL_MIN min po displacemencie
     for i in range(r['u'] + 1, end):
         touched = lo[i] <= entry <= hi[i]
         broke = (cl[i] < far) if bull else (cl[i] > far)
         if touched:
-            return 'invalid' if broke else 'filled'   # entry candle closes through -> cancel; else filled
+            return 'invalid' if broke else 'filled'    # entry candle closes through -> cancel; else filled
         if broke:
-            return 'invalid'                           # bodied through before any touch -> cancel
-    return 'live' if end < n or (r['u'] + 1 + S.MAXFILL) > n else 'expired'
+            return 'invalid'                            # bodied through before any touch -> cancel
+    return 'live' if (r['u'] + 1 + FILL_MIN) > n else 'expired'   # okno minęło bez dotknięcia -> expired
 
 
 def f_signals(buf=BUF):
@@ -175,6 +176,7 @@ def _journal_add(x):
     if k not in j:
         j[k] = dict(date=x['date'], dir=x['dir'], entry=x['entry'], SL=x['SL'], TP=x['TP'], risk=x['risk'],
                     fvg_lo=x['fvg_lo'], fvg_hi=x['fvg_hi'], be=False, status='alerted',
+                    disp_end_ms=x.get('disp_end_ms', 0),
                     alert_ts=dt.datetime.utcnow().isoformat(timespec='seconds'))
         _save(F_TRADES, j)
 
@@ -188,12 +190,19 @@ def _journal_update(b):
     except Exception:
         return
     ts = str(b.get('ts_event', '')); j = _load(F_TRADES); changed = False
+    try:
+        _t = ts if ('+' in ts or 'Z' in ts) else ts + '+00:00'
+        bar_ms = int(dt.datetime.fromisoformat(_t.replace('Z', '+00:00')).timestamp() * 1000)
+    except Exception:
+        bar_ms = 0
     for k, t in j.items():
         if t['status'] in ('win', 'loss', 'be', 'cancelled', 'expired'):
             continue
         bull = t['dir'] == 'LONG'; e = t['entry']; sl = t['SL']; tp = t['TP']; risk = t['risk']
         far = t['fvg_lo'] if bull else t['fvg_hi']
         if t['status'] == 'alerted':                      # limit resting
+            if bar_ms and t.get('disp_end_ms') and (bar_ms - t['disp_end_ms']) > FILL_MIN * 60 * 1000:
+                t['status'] = 'expired'; t['close_ts'] = ts; changed = True; continue   # okno minęło -> anuluj limit
             broke = (cl < far) if bull else (cl > far)
             if broke:
                 t['status'] = 'cancelled'; t['close_ts'] = ts; changed = True; continue
