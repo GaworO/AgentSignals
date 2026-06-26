@@ -37,11 +37,23 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v19'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
+VERSION = 'v20'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
 _last = {'last_bar': None, 'bars_in_buffer': 0, 'setups_seen': None, 'processed_at': None}
+
+# ====== v20: SERVER-SIDE FEED HEARTBEAT ======
+# Intake is event-driven: if TradingView stops POSTing /bars, NO request handler runs, so the
+# silence is invisible from inside the app (exactly what happened 06-23: 3 days unnoticed). This
+# background thread is the one thing that runs WITHOUT an inbound bar — so it is what notices the
+# feed died and pings Telegram. Opt out with HEARTBEAT=0.
+import time as _time
+_START = dt.datetime.utcnow()
+_hb = {'alerted': False}
+HEARTBEAT       = os.environ.get('HEARTBEAT', '1') != '0'                 # default ON
+STALE_MIN       = float(os.environ.get('STALE_MIN', '20'))               # min w/o a new bar = stale (market hours)
+HEARTBEAT_EVERY = float(os.environ.get('HEARTBEAT_EVERY_SEC', '300'))    # how often to check (seconds)
 
 def _init_db():
     c=sqlite3.connect(DB)
@@ -175,8 +187,8 @@ def _eod_flag():
     _regime_now(); return _gate['eod_on']
 
 def _detect():
-    gated = os.environ.get('REGIME_GATE', '') == '1'            # opt-in: bez tego = stare zachowanie (det_v10)
-    det_file = os.environ.get('DET_FILE') or ('det_v11.py' if gated else 'det_v10.py')
+    gated = os.environ.get('REGIME_GATE', '') == '1'            # REGIME_GATE=1 -> wlacza EOD_INTRADAY; detektor i tak = v11
+    det_file = os.environ.get('DET_FILE', 'det_v11.py')   # v20: v11 (detcore) = live detector; DET_FILE nadpisuje
     env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=OUT, CUTOFF='')   # CUTOFF pusty = bez filtra dat
     if gated:
         env['EOD_INTRADAY'] = '1' if _eod_flag() else ''        # regime-gated: ON w choppy, OFF w trend
@@ -530,7 +542,7 @@ def candidates():
     hours=float(request.args.get('hours','12'))
     tout=os.path.join(DATA_DIR,'trace.json')
     gated = os.environ.get('REGIME_GATE','')=='1'
-    det_file = os.environ.get('DET_FILE') or ('det_v11.py' if gated else 'det_v10.py')
+    det_file = os.environ.get('DET_FILE', 'det_v11.py')   # v20: v11 (detcore) = live detector; DET_FILE nadpisuje
     env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=os.path.join(DATA_DIR,'cand_out.pkl'),
              CUTOFF='', DEBUG_TRACE='1', TRACE_OUT=tout)
     if gated: env['EOD_INTRADAY']='1' if _eod_flag() else ''
@@ -562,7 +574,55 @@ def monitor():
     from flask import send_from_directory
     return send_from_directory(HERE, 'regime_monitor.html')
 
+def _market_open_now():
+    """True when CME Globex MNQ should be delivering bars (fixed UTC-4, no DST — like the rest of the agent).
+    Closed: all Saturday; Sunday before 18:00 ET; Friday after 17:00 ET; daily maintenance 17:00–18:00 ET."""
+    t = dt.datetime.now(NY); wd = t.weekday(); m = t.hour * 60 + t.minute
+    if wd == 5: return False                       # Saturday
+    if wd == 6 and m < 18 * 60: return False       # Sunday before 18:00 ET
+    if wd == 4 and m >= 17 * 60: return False      # Friday after 17:00 ET
+    if 17 * 60 <= m < 18 * 60: return False        # daily maintenance halt
+    return True
+
+def _feed_age_min():
+    """Minutes since the last /bars was processed (or since process start if none yet)."""
+    last = _last.get('processed_at'); ref = None
+    if last:
+        try: ref = dt.datetime.fromisoformat(last)
+        except Exception: ref = None
+    if ref is None: ref = _START
+    return (dt.datetime.utcnow() - ref).total_seconds() / 60.0
+
+def _heartbeat_loop():
+    """Alert Telegram ONCE when the feed goes stale during market hours, and once when it recovers.
+    Never raises — a watchdog that can crash is worse than none."""
+    while True:
+        try:
+            _time.sleep(HEARTBEAT_EVERY)
+            if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
+            age = _feed_age_min()
+            stale = age > STALE_MIN and _market_open_now()
+            if stale and not _hb['alerted']:
+                msg = (f"⚠️ AGENT FEED STALE — brak nowego bara od {age:.0f} min "
+                       f"(ostatni: {_last.get('last_bar')}). Detektor NIE dostaje danych — zero alertów do naprawy.\n"
+                       f"Sprawdź: (1) alert TradingView → /bars (najczęstsza przyczyna), (2) Railway nie śpi / redeploy.")
+                if PUBLIC_URL: msg += f"\n{PUBLIC_URL}/status"
+                try: live_emit.post_webhook(msg, WEBHOOK_URL)
+                except Exception as e: print('[heartbeat] post err', e, flush=True)
+                _hb['alerted'] = True
+                print('[heartbeat] STALE alert sent, age=%.0f min' % age, flush=True)
+            elif (not stale) and _hb['alerted'] and age <= STALE_MIN:
+                try: live_emit.post_webhook(f"✅ AGENT FEED WRÓCIŁ — bary znowu spływają (ostatni: {_last.get('last_bar')}).", WEBHOOK_URL)
+                except Exception as e: print('[heartbeat] post err', e, flush=True)
+                _hb['alerted'] = False
+                print('[heartbeat] RECOVERED', flush=True)
+        except Exception as e:
+            print('[heartbeat] loop err', e, flush=True)   # never die
+
 _init_db(); _seed_buffer()
+if HEARTBEAT:
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))
