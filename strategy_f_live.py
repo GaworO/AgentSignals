@@ -342,6 +342,29 @@ try:
                 "<tr><th>alert (UTC)</th><th>dir</th><th>entry</th><th>SL</th><th>TP</th><th>status</th><th>R</th></tr>"
                 f"{rows}</table><p style='color:#777;font-size:12px'>Wynik modelowany z barów F (BE@1R/TP2R/SL-first). "
                 "Porównaj z realnymi fillami TradersPost.</p></body></html>")
+
+    @app.route('/candidates')
+    def _candidates():                     # wykryte setupy F.P. PFVG (Continuation) + status -> czy F znajduje trady
+        try:
+            sigs = f_signals(F_BUF)
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)), 200
+        leg = {'live': '#1565c0', 'filled': '#1b9e3a', 'invalid': '#b8860b', 'expired': '#888'}
+        rows = ''
+        for x in sorted(sigs, key=lambda z: (z['date'], z['disp_end']), reverse=True)[:80]:
+            col = leg.get(x['status'], '#555')
+            rows += (f"<tr><td>{x['date']} {x['disp_end']}</td><td>{x['dir']}</td><td>{x['entry']}</td>"
+                     f"<td>{x['SL']}</td><td>{x['TP']}</td><td>{x['fvg_lo']}–{x['fvg_hi']}</td>"
+                     f"<td style='color:{col};font-weight:600'>{x['status']}</td></tr>")
+        return ("<html><body style='font-family:system-ui;background:#0f0f0f;color:#eee;padding:18px'>"
+                "<h2>Strategy F — kandydaci (wykryte setupy F.P. PFVG · Continuation)</h2>"
+                f"<p>{len(sigs)} w buforze &nbsp;|&nbsp; <b style='color:#1565c0'>live</b> = limit czeka na dotknięcie · "
+                "<b style='color:#1b9e3a'>filled</b> = cena dotknęła · <b style='color:#b8860b'>invalid</b> = ciało przebiło lukę (brak wejścia) · "
+                "<b style='color:#888'>expired</b> = okno minęło</p>"
+                "<table cellpadding=6 style='border-collapse:collapse' border=1>"
+                "<tr><th>setup (NY-AM)</th><th>dir</th><th>entry</th><th>SL</th><th>TP</th><th>F.P. PFVG</th><th>status</th></tr>"
+                f"{rows}</table><p style='color:#777;font-size:12px'>Kandydat = pierwszy displacement Continuation danego dnia. "
+                "Alert/zlecenie idzie tylko dla świeżych ze statusem 'live'.</p></body></html>")
 except Exception as _flask_err:
     app = None
 
