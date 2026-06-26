@@ -461,8 +461,13 @@ def status():
     nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
     na=(sum(1 for _ in open(ARCHIVE))-1) if os.path.exists(ARCHIVE) else 0
     _last['bars_in_buffer']=nb
-    if _wants_html(): return _kv_page('Status', dict(version=VERSION, primed=_primed, archive_bars=na, **_last))
-    return jsonify(version=VERSION, primed=_primed, archive_bars=na, **_last)
+    _age=_feed_age_min(); _mkt=_market_open_now()                  # v21: zdrowie feedu wprost w /status
+    _body=dict(version=VERSION, primed=_primed, archive_bars=na, **_last,
+               feed_age_min=round(_age,1), market_open=_mkt,
+               feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety
+               heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')))
+    if _wants_html(): return _kv_page('Status', _body)
+    return jsonify(_body)
 
 @app.route('/archive')
 def archive():
