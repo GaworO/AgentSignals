@@ -151,7 +151,8 @@ def run_all(ctx):
 
     # ---- session H/L (v11/SWEEP): low->rev LONG/cont SHORT ; high->rev SHORT/cont LONG ----
     SH = {'ASIA': ('AH', 'AL'), 'LO': ('LH', 'LL'), 'NYAM': ('NYAMH', 'NYAML'),
-          'NYL': ('NYLH', 'NYLL'), 'NYPM': ('NYPMH', 'NYPML')}
+          'NYL': ('NYLH', 'NYLL'), 'NYPM': ('NYPMH', 'NYPML'),
+          'PREM': ('PREMH', 'PREML')}   # pre-market H/L as catalyst — ALERT-ONLY forward test (PREML>PREMH; see PREM_ANALYSIS.md)
     for sname, s0, eidx, Hh, Ll in sessinst:
         if sname not in SH: continue
         hn, ln = SH[sname]; ft = T[eidx]
