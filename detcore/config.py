@@ -22,6 +22,7 @@ class Config:
     vimin: float = 10.0        # min body-to-body gap to register a Volume Imbalance
     vibig: float = 50.0        # min VI to act as a magnet (TP / bias)
     rr: float = 2.0            # take-profit reward multiple (was the hardcoded 2*risk)
+    rej_frac: float = 0.5      # rejection invalidation/body-hold as frac of FVG from entry side: 0.5=CE (default, unchanged) | 0.25=stricter. env REJ_FRAC.
     session_bounds: tuple = (0, 8, 13, 18)
 
     # ---- env-driven knobs (unchanged names + defaults vs the monolith) ----
@@ -52,6 +53,7 @@ class Config:
             minimp=int(e.get('MINIMP', '3')),
             maxext=int(e.get('MAXEXT', '40')),
             dispwin=int(e.get('DISPWIN', '10')),
+            rej_frac=float(e.get('REJ_FRAC', '0.5')),
             max_stop_r=float(e.get('MAX_STOP_R', '40')),
             entry_primary=e.get('ENTRY_PRIMARY', 'fvg'),
             cutoff=e.get('CUTOFF', '2026-05-17'),

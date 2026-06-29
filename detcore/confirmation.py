@@ -96,11 +96,13 @@ def find_rejection_v10(ctx, disp, dr):
     hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
     RETWIN = ctx.cfg.retwin
     bull = dr == 'LONG'; fl, fh = disp['fvg']; ce = round((fl + fh) / 2, 2); fb = disp['fvg_bar']
+    rf = ctx.cfg.rej_frac                                    # rejection invalidation/body-hold threshold as frac of gap from entry side (0.5 = CE)
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
     origin = None; ob = None; tests = []; broke = None
     for j in range(fb + 1, min(fb + 1 + RETWIN, n)):
-        if (cl[j] > ce) if not bull else (cl[j] < ce): broke = j; break
+        if (cl[j] > thr) if not bull else (cl[j] < thr): broke = j; break
         wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
-        body = (cl[j] <= ce) if not bull else (cl[j] >= ce)
+        body = (cl[j] <= thr) if not bull else (cl[j] >= thr)
         if wick and body:
             ext = hi[j] if not bull else lo[j]; tests.append(j)
             if origin is None or (ext > origin if not bull else ext < origin): origin, ob = ext, j
@@ -114,9 +116,11 @@ def find_setup_v10(ctx, disp, dr):
     bull = dr == 'LONG'; rej = find_rejection_v10(ctx, disp, dr)
     if not rej: return None
     origin = rej['origin']; ob = rej['origin_bar']; ce = rej['ce']; s = disp['s']; u = disp['u']
+    fl, fh = disp['fvg']; rf = ctx.cfg.rej_frac             # same threshold as the rejection (0.5 = CE)
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
     struct0 = float(max(hi[s:ob])) if bull else float(min(lo[s:ob])); level = struct0
     for j in range(ob + 1, min(ob + 1 + BOSWIN, n)):
-        if (cl[j] > ce) if not bull else (cl[j] < ce): return None
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return None
         if (cl[j] > level) if bull else (cl[j] < level):
             end = float(max(hi[ob:j + 1])) if bull else float(min(lo[ob:j + 1]))
             return dict(dr=dr, origin=origin, origin_bar=ob, end=round(end, 2), bos_bar=j, ce=ce,
