@@ -55,6 +55,32 @@ except Exception:
 
 ET = ZoneInfo('America/New_York')
 
+# ---------- self-contained fallbacks (work even if live_emit / parent repo is absent) ----------
+def _size_for(entry, sl):
+    if live_emit is not None:
+        try: return live_emit.size_for(entry, sl)
+        except Exception: pass
+    try:
+        acct = float(os.environ.get('ACCOUNT', '100000')); riskp = float(os.environ.get('RISK_PCT', '0.5'))
+        ptval = float(os.environ.get('POINT_VALUE', '2')); risk_usd = acct * riskp / 100.0
+        slpts = abs(float(entry) - float(sl))
+        if slpts <= 0: return None
+        qty = int(risk_usd // (slpts * ptval)); real = qty * slpts * ptval
+        return qty, round(slpts, 1), round(slpts * ptval), round(real), round(real / acct * 100, 2)
+    except Exception:
+        return None
+
+def _post_webhook(text, url):
+    if live_emit is not None:
+        try: return live_emit.post_webhook(text, url)
+        except Exception: pass
+    if requests is None: return 'no-requests'
+    try:
+        r = requests.post(url, data=text.encode('utf-8'), headers={'Content-Type': 'text/plain'}, timeout=10)
+        return getattr(r, 'status_code', None)
+    except Exception as e:
+        return f'ERR {e}'
+
 # ---------- config ----------
 BUF        = os.environ.get('STRAT_ORB_BUF') or os.environ.get('BUF') or os.path.join(PARENT, 'buffer.csv')
 WEBHOOK    = os.environ.get('STRAT_ORB_WEBHOOK') or os.environ.get('WEBHOOK_URL', '')
@@ -172,11 +198,10 @@ def to_alert(x):
             f"\n🎯 TP {round(x['TP']+OFFSET,1)} · +{round(TARGET_R*x['risk'],1)} pkt ({TARGET_R:.0f}R)"
             f"\n📐 zakres 09:30–09:{29+ORB_MIN} = {x['or_pts']:.0f} pkt · wybicie {x['brk_time']}{gap_line}"
             f"\n🧭 reżim 20D: {x['bias']} → {('ZGODNY' if x['bias_align']=='Y' else x['bias_align'])}")
-    if live_emit is not None:
-        s = live_emit.size_for(x['entry'], x['SL'])
-        if s:
-            qty, slpts, perc, real, pct = s
-            base += f"\n📏 {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)  ⟵ mniejszy rozmiar gdy zakres szeroki"
+    s = _size_for(x['entry'], x['SL'])
+    if s:
+        qty, slpts, perc, real, pct = s
+        base += f"\n📏 {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)  ⟵ mniejszy rozmiar gdy zakres szeroki"
     base += "\n⚠ Strategy ORB — OSOBNY strumień. NIE myl z A/B, C ani F. Korelacja z A/B ≈ 0.10."
     return base
 
@@ -185,8 +210,7 @@ def td_payload(x, action='enter'):
     isL = x['dir'] == 'LONG'; e = float(x['entry']); sl = float(x['SL']); R = abs(e - sl)
     tp = (e + TARGET_R * R) if isL else (e - TARGET_R * R)
     qty = 1
-    if live_emit is not None:
-        s = live_emit.size_for(e, sl); qty = int(s[0]) if s else 1
+    s = _size_for(e, sl); qty = int(s[0]) if s else 1
     cap = os.environ.get('EXEC_MAX_QTY_ORB', '').strip()
     if cap.isdigit() and int(cap) > 0: qty = min(qty, int(cap))
     qty = max(1, qty)
@@ -235,7 +259,7 @@ def poll():
     if k in sent:
         print('[orb_live] already alerted today'); return []
     txt = to_alert(x)
-    if WEBHOOK and live_emit is not None: live_emit.post_webhook(txt, WEBHOOK)
+    if WEBHOOK: _post_webhook(txt, WEBHOOK)
     if EXEC_ORB: exec_orb(x, text=txt, action='enter')
     j = _ld(ORB_TRADES); j[k] = dict(x, status='alerted', alert_ts=dt.datetime.utcnow().isoformat(timespec='seconds')); _sv(ORB_TRADES, j)
     sent[k] = dt.datetime.utcnow().isoformat(timespec='seconds'); _sv(SENT_ORB, sent)

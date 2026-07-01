@@ -106,6 +106,19 @@ SL at the opposite edge (=1R), TP=2R, GTC, tagged **🅾 STRATEGY ORB**. It fire
 breakouts by 10:30 ET, only **with** the 20-day regime. It is *not* a plain limit — a breakout is momentum
 (a plain-limit/retest entry tested at **half** the expectancy; see `MNQ_DEEP_RESEARCH.md §8`).
 
+## ⚠ If the Railway build FAILS ("Failed to build an image")
+That is a build/dependency error, not the strategy code. Almost always Railway can't find a `requirements.txt`
+at the folder it's building. Fixes:
+1. **Now included:** this folder ships its own `requirements.txt` + `Procfile`, so it deploys **standalone**
+   too — set the Railway service **Root Directory = `strategy_orb`** (Settings → Source) and it will build.
+   With a subfolder root, use start command **`gunicorn orb_live:app --workers 1 --bind 0.0.0.0:$PORT`**
+   (no `--chdir`).
+2. If you build from the **repo root** instead, keep Root Directory blank and make sure the **root**
+   `requirements.txt` lists `flask gunicorn pandas numpy requests`.
+3. Click **View logs → Build** on the failed deploy to see the exact line; paste it to me if it still fails.
+4. The service is self-contained — it no longer needs `live_emit`/`detcore` from the parent repo (it has
+   built-in sizing + Telegram fallbacks), so a standalone repo of just this folder works.
+
 ## Gate 0 (same discipline as everything else)
 Prove **≥ +0.10R over 30–50 live/paper trades** before sizing it up. At ~116 trades/yr (bias-aligned) that's a
 few months. The dashboard's realized performance is your scoreboard.
