@@ -225,7 +225,7 @@ def to_alert(x):
             f"\n📋 {trig}-LIMIT: trigger {round(x['entry']+OFFSET,1)} → limit {lim}  (POSTAW TERAZ, GTC)"
             f"\n   ⤷ to NIE jest zwykły limit — wejście na WYBICIU krawędzi zakresu (stop-limit)"
             f"\n🛑 SL {round(x['SL']+OFFSET,1)} = przeciwna krawędź · ryzyko {rp} pkt ({rp*4:.0f} ticks){be_line}"
-            f"\n🎯 TP {round(x['TP']+OFFSET,1)} · +{round(TARGET_R*x['risk'],1)} pkt ({TARGET_R:.0f}R)"
+            f"\n🎯 TP {round(x['TP']+OFFSET,1)} · +{round(TARGET_R*x['risk'],1)} pkt ({TARGET_R:g}R)"
             f"\n📐 zakres 09:30–09:{29+ORB_MIN} = {x['or_pts']:.0f} pkt · wybicie {x['brk_time']}{gap_line}"
             f"\n🧭 reżim 20D: {x['bias']} → {('ZGODNY' if x['bias_align']=='Y' else x['bias_align'])}")
     s = _size_for(x['entry'], x['SL'])
