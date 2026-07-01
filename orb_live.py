@@ -82,10 +82,11 @@ def _post_webhook(text, url):
         return f'ERR {e}'
 
 # ---------- config ----------
-BUF        = os.environ.get('STRAT_ORB_BUF') or os.environ.get('BUF') or os.path.join(PARENT, 'buffer.csv')
+AGENT_URL  = os.environ.get('AGENT_URL', '').rstrip('/')   # e.g. https://agentsignals-production.up.railway.app -> ORB pulls bars from the agent
+BUF        = os.environ.get('STRAT_ORB_BUF') or os.environ.get('BUF') or ('/tmp/orb_buffer.csv' if AGENT_URL else os.path.join(PARENT, 'buffer.csv'))
 WEBHOOK    = os.environ.get('STRAT_ORB_WEBHOOK') or os.environ.get('WEBHOOK_URL', '')
 EXEC_ORB   = os.environ.get('EXEC_WEBHOOK_ORB', '')
-SENT_ORB   = os.environ.get('SENT_ORB_FILE', '/home/claude/sent_signals_ORB.json')
+SENT_ORB   = os.environ.get('SENT_ORB_FILE', '/tmp/sent_signals_ORB.json')
 ORB_TRADES = os.environ.get('ORB_TRADES_FILE') or os.path.join(os.path.dirname(SENT_ORB) or '.', 'orb_trades.json')
 OFFSET     = float(os.environ.get('PRICE_OFFSET', '0'))
 ENABLED    = os.environ.get('STRAT_ORB_ENABLED', '') == '1'
@@ -111,6 +112,35 @@ OPEN_MIN = 9 * 60 + 30          # 09:30
 ORB_END  = OPEN_MIN + ORB_MIN - 1
 
 # ---------- buffer ----------
+def refresh_buffer_from_agent():
+    """Pull live bars from the agent (AGENT_URL) into the local buffer. No-op if AGENT_URL unset."""
+    if not AGENT_URL or requests is None:
+        return False
+    # 1) full-history CSV (enough for the 20-day bias + prior-close gap)
+    try:
+        r = requests.get(AGENT_URL + '/archive', timeout=25)
+        if getattr(r, 'status_code', 0) == 200 and len(r.content) > 100 and b',' in r.content[:300]:
+            os.makedirs(os.path.dirname(BUF) or '.', exist_ok=True)
+            with open(BUF, 'wb') as f: f.write(r.content)
+            return True
+    except Exception as e:
+        print('ORB archive fetch err', e, flush=True)
+    # 2) fallback: last ~200 bars as JSON from /chart-data
+    try:
+        r = requests.get(AGENT_URL + '/chart-data', timeout=15)
+        bars = (r.json() or {}).get('bars', [])
+        if bars:
+            os.makedirs(os.path.dirname(BUF) or '.', exist_ok=True)
+            with open(BUF, 'w') as f:
+                f.write('ts_event,open,high,low,close\n')
+                for b in bars:
+                    ts = dt.datetime.utcfromtimestamp(int(b['time'])).strftime('%Y-%m-%d %H:%M:%S+00:00')
+                    f.write(f"{ts},{b['open']},{b['high']},{b['low']},{b['close']}\n")
+            return True
+    except Exception as e:
+        print('ORB chart-data fetch err', e, flush=True)
+    return False
+
 def load_buffer(path=BUF):
     df = pd.read_csv(path)
     tcol = 'ts_event' if 'ts_event' in df.columns else ('ts' if 'ts' in df.columns else df.columns[0])
@@ -129,7 +159,7 @@ def regime_bias(df, today):
     closes = rth.groupby('date')['close'].last()
     opens = rth.groupby('date')['open'].first()
     prior = closes[closes.index < today]
-    if len(prior) < MA_DAYS or today not in opens.index:
+    if len(prior) < 10 or today not in opens.index:   # need >=10 daily closes; uses up to MA_DAYS
         return '?', np.nan
     ma = prior.tail(MA_DAYS).mean()
     o = opens.loc[today]
@@ -251,6 +281,7 @@ def key_orb(x): return f"ORB|{x['date']}|{x['dir']}"        # one alert per day+
 def poll():
     if not ENABLED:
         print('STRAT_ORB_ENABLED != 1 -> idle'); return []
+    refresh_buffer_from_agent()
     x = orb_signal(BUF)
     if not x: print('[orb_live] no signal'); return []
     if not x['fresh']:
@@ -353,6 +384,7 @@ def _svg_equity(eq):
             f'<polyline fill="none" stroke="{col}" stroke-width="2" points="{" ".join(pts)}"/></svg>')
 
 def render_dashboard():
+    refresh_buffer_from_agent()
     log = update_outcomes(); p = perf(log); ts = today_state()
     rows = sorted(log.values(), key=lambda t: (t.get('date', ''), t.get('brk_time', '')), reverse=True)
     def badge(t):
@@ -410,7 +442,7 @@ if app is not None:
     @app.route('/health')
     def _health(): return jsonify(ok=True, enabled=ENABLED, buffer=BUF)
     @app.route('/api/state')
-    def _state(): return jsonify(today=today_state(), performance=perf(update_outcomes()))
+    def _state(): refresh_buffer_from_agent(); return jsonify(today=today_state(), performance=perf(update_outcomes()))
     @app.route('/poll')
     def _pollroute(): return jsonify(fired=poll())
     def _bg_loop():
