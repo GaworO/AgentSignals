@@ -510,6 +510,64 @@ async function load(){try{
 load();setInterval(load,30000);
 </script></body></html>"""
 
+HOW_HTML = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Strategy C — jak działa</title><style>
+body{background:#0b0e14;color:#e6e9ef;font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:18px;max-width:900px}
+h1{font-size:20px;margin:0 0 2px}h2{font-size:15px;margin:20px 0 6px;color:#e6e9ef}
+.mut{color:#9aa3b5;font-size:13px}.card{background:#0e1320;border:1px solid #1b2230;border-radius:12px;padding:14px 16px;margin:12px 0}
+ol{padding-left:20px;line-height:1.55}ol li{margin:8px 0}b{color:#fff}
+.k{display:inline-block;min-width:20px;height:20px;line-height:20px;text-align:center;background:#22304a;color:#8ab4f8;border-radius:50%;font-size:12px;font-weight:700;margin-right:6px}
+.pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.amber{background:#3a2f13;color:#f5b301}.green{background:#123524;color:#4ade80}.red{background:#3a1516;color:#f87171}.blue{background:#12294a;color:#3b82f6}
+a{color:#8ab4f8}
+</style></head><body>
+<h1>&#127474; Strategy C — staircase displacement</h1>
+<div class=mut>Model kontynuacji: schodkowy displacement &rarr; rejection w luce &rarr; BOS &rarr; wejście limit. Edge ~+0.68R, ~1 trade / 2&ndash;3 tyg. Dodatek do A/B (nie dubluje). <a href="."> &larr; dashboard</a></div>
+
+<div class=card>
+<svg viewBox="0 0 840 350" width="100%" xmlns="http://www.w3.org/2000/svg">
+<rect width="840" height="350" fill="#0b0e14"/>
+<rect x="300" y="104" width="185" height="34" fill="#f5b301" opacity="0.16"/>
+<text x="303" y="99" fill="#f5b301" font-size="12">luka FVG (jedna z &#8805;2)</text>
+<line x1="300" y1="121" x2="560" y2="121" stroke="#f87171" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="125" fill="#f87171" font-size="11.5">SL = CE luki</text>
+<line x1="300" y1="150" x2="560" y2="150" stroke="#3b82f6" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="154" fill="#3b82f6" font-size="11.5">wejście (limit @ FVG)</text>
+<line x1="300" y1="208" x2="560" y2="208" stroke="#4ade80" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="212" fill="#4ade80" font-size="11.5">TP = 2R</text>
+<line x1="330" y1="240" x2="700" y2="240" stroke="#9aa3b5" stroke-dasharray="4 4" stroke-width="1"/><text x="330" y="256" fill="#9aa3b5" font-size="11.5">ekstremum displacementu (dno)</text>
+<polyline fill="none" stroke="#e2e8f0" stroke-width="2.4" points="55,55 105,55 105,95 160,95 160,135 215,135 215,175 270,175 270,215 330,240 435,116 462,130 520,190 560,240 620,285 700,320"/>
+<circle cx="200" cy="150" r="11" fill="#22304a"/><text x="200" y="154" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">1</text>
+<circle cx="392" cy="150" r="11" fill="#22304a"/><text x="392" y="154" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">2</text>
+<circle cx="452" cy="103" r="11" fill="#22304a"/><text x="452" y="107" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">3</text>
+<circle cx="556" cy="223" r="11" fill="#22304a"/><text x="556" y="227" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">4</text>
+<circle cx="660" cy="303" r="11" fill="#22304a"/><text x="660" y="307" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">5</text>
+<text x="60" y="40" fill="#f87171" font-size="12" font-weight="700">SHORT (przykład)</text>
+</svg>
+</div>
+
+<h2>Krok po kroku</h2>
+<ol>
+<li><span class=k>1</span><b>Displacement (schodek).</b> Seria wielu małych świec w jedną stronę (&#8805;8 świec, &#8805;70% jednego koloru), łącznie <b>4&ndash;14&times;ATR</b>, mostkująca cofnięcia &lt;50% ruchu, która <b>przebija ekstremum z ostatnich 20 świec</b> i zostawia <b>&#8805;2 luki FVG</b>. To NIE musi być jedna wielka świeca — o to właśnie chodzi w „schodku".</li>
+<li><span class=k>2</span><b>Retrace w lukę.</b> Po zakończeniu displacementu cena wraca do <b>jednej z tych luk FVG</b>.</li>
+<li><span class=k>3</span><b>Rejection.</b> W luce świeca <b>zamyka ciało trzymając CE</b> (środek luki) — czyli nie przebija ciałem połowy luki. To jest odrzucenie. <span class="pill amber">to widać na /c jako „rejection · czeka na BOS"</span></li>
+<li><span class=k>4</span><b>BOS.</b> Świeca <b>zamyka się za ekstremum displacementu</b> (dla SHORT: poniżej dna). To potwierdza kontynuację — <b>to jest ta bramka, która daje edge</b> (bez niej trady tracą).</li>
+<li><span class=k>5</span><b>Wejście.</b> Limit na krawędzi luki (v10), <span class="pill red">SL = CE luki</span> <span class="pill green">TP = 2R</span> <span class="pill blue">BE po +1R</span>. LONG odwrotnie.</li>
+</ol>
+
+<h2>Filtry (kiedy C w ogóle liczy)</h2>
+<div class=card class=mut>
+Tylko sesje <b>NYAM / PREM</b> &middot; <b>dodatek do A/B</b> — pomija setup w ±3 barach od tradu A/B (nigdy nie dubluje) &middot; pomija <b>kontr-bias</b> (align=N).
+</div>
+
+<h2>Przykład (Twój 06-10)</h2>
+<div class=card>
+SHORT: schodkowy spadek 01:09&rarr;01:33 do dna <b>21756.5</b>, zostawił lukę <b>~21850</b>. Cena odbiła w lukę i ją utrzymała (rejection o 01:39) — <b>ale nie zrobiła BOS</b> (nie zamknęła się z powrotem poniżej 21756.5), więc <b>C słusznie nie wzięło tradu</b>. Właśnie brak kroku 4 (BOS) był powodem, że „nie było wejścia" — nie dotknięcie luki.
+</div>
+
+<h2>Uczciwie o edge</h2>
+<div class=card>
++0.68R/trade, <b>dodatni każdy z 5 lat</b>, ~11 tradów/rok. Win ~50% (bez BE ~65%) — niski winrate + wypłata 2:1 = zarabia (próg 33%). <b>OOS cienki</b> (2 trady) &rarr; live to prawdziwy test: <b>Gate 0 = udowodnić &#8805;+0.15R na 30&ndash;50 live tradach</b> zanim skalujesz. Licznik masz na stronie /c.
+</div>
+</body></html>"""
+
 def register_routes(app, prefix='/c'):
     """Mount the Strategy-C dashboard + JSON endpoints onto an EXISTING Flask app (e.g. the A/B agent).
     prefix='/c' → page at /c, data at /c/performance //candidates //journal //health. prefix='' → root."""
@@ -520,6 +578,7 @@ def register_routes(app, prefix='/c'):
     def _perf(): return jsonify(_stats_from_journal(_ld(C_TRADES)))
     def _cand(): return jsonify(_ld(C_CAND) or {'cands':[],'counts':{}})
     def _jr(): return jsonify(_ld(C_TRADES))
+    def _how(): return HOW_HTML
     def _bars():                                     # F-style intake: agent forwards each bar here
         from flask import request as _rq
         b=_rq.get_json(force=True,silent=True) or {}
@@ -533,6 +592,7 @@ def register_routes(app, prefix='/c'):
     app.add_url_rule(p+'/performance','c_perf',_perf)
     app.add_url_rule(p+'/candidates','c_cand',_cand)
     app.add_url_rule(p+'/journal','c_journal',_jr)
+    app.add_url_rule(p+'/how','c_how',_how)
     app.add_url_rule(p+'/bars','c_bars',_bars,methods=['POST'])
     return app
 
