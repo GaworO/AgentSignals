@@ -295,6 +295,11 @@ def _process_new(now_ms=None):
         _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci
         _hdr='🕒 '+dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')+((f' · setup sprzed {_age:.0f} min'+(' ⚠️ STARY!' if _age>20 else '')) if _age is not None else '')
         txt=_hdr+'\n'+txt                                                                   # pierwsza linia = KIEDY -> stary alert widac na pierwszy rzut oka
+        try:                                                                                # v22: ⭐ SELECT tag (tier T4, AB_AUDIT_6K_2026-07) — tylko oznaczenie, zero zmian logiki
+            import select_tag as _sel
+            _st=_sel.tagline(repx, members)
+            if _st: txt=_st+txt
+        except Exception as _se: print('select_tag err', _se, flush=True)
         if len(members)>1:
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
@@ -372,14 +377,11 @@ _VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui
  ".bdg{background:#4ade80;color:#04210f;font:8px monospace;padding:1px 5px;border-radius:3px;margin-right:6px;text-transform:uppercase}"
  ".empty{padding:20px;color:#555;font:12px monospace}</style>")
 _F_URL = os.environ.get('STRAT_F_URL', 'https://strategy-f-production.up.railway.app').rstrip('/')
-_ORB_URL = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
 _VIEW_NAV = ("<div class='nav'><a href='/journal'>journal</a><a href='/candidates'>candidates</a>"
  "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a>"
  "<span style='color:#444'>&nbsp;|&nbsp;F:</span>"
  f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
- f"<a href='{_F_URL}/performance_f'>F·perf</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;ORB:</span>"
- f"<a href='{_ORB_URL}/'>ORB·dashboard</a></div>")
+ f"<a href='{_F_URL}/performance_f'>F·perf</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
 _PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','result','pnl','rr']
 
