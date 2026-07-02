@@ -377,11 +377,14 @@ _VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui
  ".bdg{background:#4ade80;color:#04210f;font:8px monospace;padding:1px 5px;border-radius:3px;margin-right:6px;text-transform:uppercase}"
  ".empty{padding:20px;color:#555;font:12px monospace}</style>")
 _F_URL = os.environ.get('STRAT_F_URL', 'https://strategy-f-production.up.railway.app').rstrip('/')
+_ORB_URL = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
 _VIEW_NAV = ("<div class='nav'><a href='/journal'>journal</a><a href='/candidates'>candidates</a>"
  "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a>"
  "<span style='color:#444'>&nbsp;|&nbsp;F:</span>"
  f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
- f"<a href='{_F_URL}/performance_f'>F·perf</a></div>")
+ f"<a href='{_F_URL}/performance_f'>F·perf</a>"
+ "<span style='color:#444'>&nbsp;|&nbsp;ORB:</span>"
+ f"<a href='{_ORB_URL}/'>ORB·dashboard</a><a href='{_ORB_URL}/how'>ORB·how</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
 _PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','result','pnl','rr']
 
