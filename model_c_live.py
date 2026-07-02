@@ -546,11 +546,27 @@ def start_background():
             time.sleep(int(os.environ.get('STRAT_C_POLL_SEC','90')))
     threading.Thread(target=_bg,daemon=True).start()
 
+app = None
+def _ensure_app():
+    """Create the module-level Flask `app` (routes + detection thread). Mirrors agent:app so Railway/
+    railpack auto-detects Flask and `gunicorn model_c_live:app --bind 0.0.0.0:$PORT` works like the other services."""
+    global app
+    if app is not None: return app
+    try:
+        from flask import Flask
+        _a = Flask(__name__); register_routes(_a, ''); start_background(); app = _a
+    except Exception as _e:
+        print('[model C] web app init skipped:', _e, flush=True)
+    return app
+
 def _run_web():
-    """Standalone: own Flask app (own Railway service) + detection thread."""
-    from flask import Flask
-    app=Flask(__name__); register_routes(app,''); start_background()
-    app.run(host='0.0.0.0',port=int(os.environ.get('PORT','8080')))
+    """Local dev: python3 model_c_live.py --serve (Flask dev server)."""
+    _ensure_app()
+    if app is not None: app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8080')))
+
+# Build `app` at import so `gunicorn model_c_live:app` serves it (skip for one-shot CLI commands).
+if not any(_a in sys.argv for _a in ('--candidates','--perf','--loop')):
+    _ensure_app()
 
 if __name__=='__main__':
     if '--serve' in sys.argv:                 # web dashboard (own URL) + poll loop in background
