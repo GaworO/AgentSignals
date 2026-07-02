@@ -48,9 +48,30 @@ def _f(v):
     try:
         if v in (None, ''):
             return None
-        return float(str(v).replace(',', '').replace('$', '').strip())
+        s = str(v).strip().replace(',', '').replace('$', '').replace(' ', '')
+        neg = s.startswith('(') and s.endswith(')')   # broker notation: (438.00) = -438.00
+        s = s.strip('()')
+        val = float(s)
+        return -val if neg else val
     except Exception:
         return None
+
+
+def _parse_dt(s):
+    """Return (YYYY-MM-DD, HH:MM) from common broker timestamp formats. Falls back to raw string."""
+    s = (s or '').strip()
+    for fmt in ('%m/%d/%Y %H:%M:%S', '%m/%d/%Y %H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
+                '%m/%d/%Y %I:%M:%S %p', '%d/%m/%Y %H:%M:%S'):
+        try:
+            d = dt.datetime.strptime(s, fmt); return d.strftime('%Y-%m-%d'), d.strftime('%H:%M')
+        except Exception:
+            pass
+    for fmt in ('%m/%d/%Y', '%Y-%m-%d', '%d/%m/%Y'):
+        try:
+            return dt.datetime.strptime(s, fmt).strftime('%Y-%m-%d'), ''
+        except Exception:
+            pass
+    return s, ''
 
 
 def _classify(pnl):
@@ -226,12 +247,45 @@ def _match(header):
     return None
 
 
-def _import_csv(DB, text, strategy, default_setup=''):
+def _import_csv(DB, text, strategy, default_setup='', risk_per_trade=None):
     rdr = csv.reader(io.StringIO(text))
     rows = [r for r in rdr if any(c.strip() for c in r)]
     if not rows:
         return 0, 'empty file'
-    header = rows[0]
+    header = [h.strip() for h in rows[0]]
+    hl = [h.lower() for h in header]
+    strat = '' if strategy in (None, '', '__perrow__') else strategy   # '' = set per row later
+
+    # ---- Tradovate "Performance" export: derive side/entry/exit/date from the two fills ----
+    if 'buyprice' in hl and 'sellprice' in hl and 'boughttimestamp' in hl:
+        idx = {h: i for i, h in enumerate(hl)}
+        def g(raw, k): return raw[idx[k]] if (k in idx and idx[k] < len(raw)) else ''
+        def _ts(x):
+            d, t = _parse_dt(x)
+            try: return dt.datetime.strptime((d + ' ' + t).strip(), '%Y-%m-%d %H:%M')
+            except Exception: return None
+        n = 0
+        for raw in rows[1:]:
+            bp, sp = _f(g(raw, 'buyprice')), _f(g(raw, 'sellprice'))
+            bt, st_ = g(raw, 'boughttimestamp'), g(raw, 'soldtimestamp')
+            tb, ts = _ts(bt), _ts(st_)
+            side = ('LONG' if tb <= ts else 'SHORT') if (tb and ts) else ''
+            if side == 'SHORT':          # sold first = entry on a short
+                entry, exit_, edt = sp, bp, st_
+            else:                        # LONG (or unknown): bought first = entry
+                entry, exit_, edt = bp, sp, bt
+            date, tm = _parse_dt(edt)
+            pnlv = _f(g(raw, 'pnl'))
+            d = dict(date=date, time=tm, strategy=strat, setup='', side=side, taken=1,
+                     entry=entry, exit=exit_, size=_f(g(raw, 'qty')), risk_usd=risk_per_trade,
+                     pnl_usd=pnlv, pnl_r=(round(pnlv / risk_per_trade, 3) if (pnlv is not None and risk_per_trade) else None),
+                     result=_classify(pnlv), fees=None, signal_key='', notes='imported (tradovate)')
+            _insert(DB, d)
+            n += 1
+        tag = ' + risk/R applied' if risk_per_trade else ' (risk blank — not in export)'
+        return n, 'Tradovate: derived side/entry/exit/date/size/P&L' + tag
+
+    # ---- generic broker CSV: fuzzy column auto-map ----
     colmap = {i: _match(h) for i, h in enumerate(header)}
     n = 0
     for raw in rows[1:]:
@@ -246,11 +300,13 @@ def _import_csv(DB, text, strategy, default_setup=''):
             side = 'LONG'
         elif 'SELL' in side or 'SHORT' in side:
             side = 'SHORT'
-        d = dict(date=rec.get('date', ''), time='', strategy=strategy,
+        date, tm = _parse_dt(rec.get('date', ''))
+        d = dict(date=date, time=tm, strategy=strat,
                  setup=rec.get('setup', '') or default_setup, side=side, taken=1,
                  entry=_f(rec.get('entry')), exit=_f(rec.get('exit')), size=_f(rec.get('size')),
-                 risk_usd=None, pnl_usd=pnl, pnl_r=None, result=_classify(pnl),
-                 fees=_f(rec.get('fees')), signal_key='', notes='imported')
+                 risk_usd=risk_per_trade,
+                 pnl_usd=pnl, pnl_r=(round(pnl / risk_per_trade, 3) if (pnl is not None and risk_per_trade) else None),
+                 result=_classify(pnl), fees=_f(rec.get('fees')), signal_key='', notes='imported')
         if d['date'] or d['pnl_usd'] is not None:
             _insert(DB, d)
             n += 1
@@ -274,6 +330,7 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         "font:9px monospace;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #2a2a2a;white-space:nowrap}"
         "td{padding:6px 9px;border-bottom:1px solid #1a1a1a;white-space:nowrap}"
         "tr:hover td{background:#161616}"
+        "td select{background:#0a0a0a;color:#ebebeb;border:1px solid #333;border-radius:4px;font:11px monospace;padding:2px 4px}"
         "form.inl{display:inline}button{cursor:pointer;background:#1f2937;color:#cbd5e1;border:1px solid #374151;border-radius:4px;padding:3px 8px;font:11px monospace}"
         "button:hover{background:#374151}.bin{background:#3a1414;border-color:#5a1f1f;color:#f2b8b8}"
         ".addbox{background:#111;border:1px solid #262626;border-radius:8px;padding:12px;margin:8px 0 4px}"
@@ -318,7 +375,7 @@ def _dashboard_html(rows, sigs, acounts=None):
             pr += ("<tr><td>%s</td><td>%d</td><td>%d</td><td>%.0f%%</td><td>%s</td><td>%+.2fR</td></tr>"
                    % (s, d['n'], d['resolved'], d['win_pct'], _money(d['total_usd']), d['total_R']))
         pertbl = ("<div class='wrap'><table><thead><tr><th>Strategy</th><th>Taken</th><th>Resolved</th>"
-                  "<th>Win%</th><th>P&amp;L</th><th>R</th></tr></thead><tbody>%s</tbody></table></div>" % pr)
+                  "<th>Win%%</th><th>P&amp;L</th><th>R</th></tr></thead><tbody>%s</tbody></table></div>" % pr)
     else:
         pertbl = "<div class='empty'>No taken trades yet - log one below.</div>"
 
@@ -342,13 +399,16 @@ def _dashboard_html(rows, sigs, acounts=None):
             "<span class='fld'><label>Notes</label><br><input name='notes' id='f_notes' size='16'></span>"
             "<button class='go' type='submit'>Save trade</button></form></div>" % (opts, res_opts))
 
-    # import form
+    # import form (Tradovate-aware: fills side/entry/exit/date/size/P&L; you set strategy per row after)
+    imp_opts = "<option value='__perrow__'>— set per row after import —</option>" + opts
     impf = ("<div class='addbox'><form method='post' action='/pnl/import' enctype='multipart/form-data'>"
             "<label>Broker CSV</label> <input type='file' name='file' accept='.csv' required> "
-            "<label>as strategy</label> <select name='strategy'>%s</select> "
+            "<label>strategy</label> <select name='strategy'>%s</select> "
+            "<label>risk $/trade (optional)</label> <input name='risk_per_trade' size='6' placeholder='e.g. 100'> "
             "<button class='go' type='submit'>Import fills</button>"
-            "<div class='sub'>Auto-maps date/side/entry/exit/qty/P&amp;L/fees from common broker exports. "
-            "All rows tagged with the strategy you pick + marked Taken.</div></form></div>" % opts)
+            "<div class='sub'>Fills in side / entry / exit / date / size / P&amp;L automatically (Tradovate exports fully; "
+            "others best-effort). Leave strategy on <b>set per row</b> and pick it on each row below. "
+            "Risk isn't in broker exports — enter a $/trade to get R, or leave blank.</div></form></div>" % imp_opts)
 
     # alerts fired -> unified, tagged with WHICH STRATEGY, one-click prefill
     if acounts:
@@ -381,12 +441,19 @@ def _dashboard_html(rows, sigs, acounts=None):
         tr = ''
         for r in rows:
             takenbadge = "yes" if r.get('taken') else "-"
+            cur = str(r.get('strategy', '') or '')
+            o = "<option value=''%s>&mdash; pick &mdash;</option>" % (" selected" if not cur else "")
+            for s in STRATEGIES:
+                o += "<option%s>%s</option>" % (" selected" if s == cur else "", s)
+            need = "" if cur else " style='border-color:#b45309;background:#2a1c05'"
+            stratcell = ("<form class='inl' method='post' action='/pnl/setstrat/%s'>"
+                         "<select name='strategy' onchange='this.form.submit()'%s>%s</select></form>" % (r['id'], need, o))
             tr += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
                    "<td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
                    "<td><form class='inl' method='post' action='/pnl/toggle/%s'><button>%s</button></form> "
                    "<form class='inl' method='post' action='/pnl/del/%s' onsubmit=\"return confirm('Delete this trade?')\"><button class='bin'>del</button></form></td></tr>"
                    % (_h.escape(str(r.get('date', ''))), _h.escape(str(r.get('time', '') or '')),
-                      _h.escape(str(r.get('strategy', ''))), _h.escape(str(r.get('setup', '') or '')),
+                      stratcell, _h.escape(str(r.get('setup', '') or '')),
                       _h.escape(str(r.get('side', '') or '')), _h.escape(str(r.get('entry', '') or '')),
                       _h.escape(str(r.get('exit', '') or '')), _money(r.get('pnl_usd')),
                       ('%+.2f' % r['pnl_r']) if r.get('pnl_r') is not None else '-',
@@ -480,6 +547,12 @@ def register(app, DB, render_page=None, wants_html=None):
         c = sqlite3.connect(DB); c.execute('DELETE FROM fills WHERE id=?', (rid,)); c.commit(); c.close()
         return redirect('/pnl')
 
+    @app.route('/pnl/setstrat/<int:rid>', methods=['POST'])
+    def pnl_setstrat(rid):
+        s = request.form.get('strategy', '')
+        c = sqlite3.connect(DB); c.execute('UPDATE fills SET strategy=? WHERE id=?', (s, rid)); c.commit(); c.close()
+        return redirect('/pnl')
+
     @app.route('/pnl/toggle/<int:rid>', methods=['POST'])
     def pnl_toggle(rid):
         c = sqlite3.connect(DB)
@@ -493,8 +566,9 @@ def register(app, DB, render_page=None, wants_html=None):
         if not f:
             return redirect('/pnl')
         strat = request.form.get('strategy', 'Other')
+        rpt = _f(request.form.get('risk_per_trade'))
         text = f.read().decode('utf-8-sig', errors='replace')
-        n, mapped = _import_csv(DB, text, strat)
+        n, mapped = _import_csv(DB, text, strat, risk_per_trade=rpt)
         if _html():
             return redirect('/pnl')
         return jsonify(imported=n, mapping=mapped)
