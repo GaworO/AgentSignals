@@ -29,7 +29,7 @@ ENV (nothing fires unless STRAT_C_ENABLED=1 and a webhook is set):
   C_TOUCH_TOL=0  FVG-touch tolerance in POINTS (0=exact=current; ~2 = zone-tolerant, tested). Loosens ONLY the
                  rejection wick (price may miss the FVG edge by <=tol); body-CE + BOS unchanged. See README_TOUCH_TOL.md.
 """
-import os, sys, json, time, datetime as dt
+import os, sys, json, time, csv, threading, datetime as dt
 from zoneinfo import ZoneInfo
 HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
 from detcore.config import Config
@@ -378,6 +378,33 @@ def perf_summary(st):
             f"  exp {st['exp']:+.3f}R · suma {st['totR']:+.1f}R  |  {gate}\n"
             f"  pending {st['pending']} · no-fill {st['no_fill']}")
 
+COLS=['ts_event','open','high','low','close','volume']
+def _append_bar_c(b):
+    """Append ONE forwarded bar to C's own buffer (mirrors agent._append_bar), trim to BUFFER_BARS.
+    This is the F-style intake: the agent POSTs each closed bar to C's /bars, C builds its own buffer."""
+    ts=str(b['ts_event']).strip()
+    if '+' not in ts and 'Z' not in ts: ts=ts+'+00:00'
+    row=[ts,b['open'],b['high'],b['low'],b['close'],b.get('volume',0)]
+    new=not os.path.exists(BUF)
+    with open(BUF,'a',newline='') as f:
+        w=csv.writer(f)
+        if new: w.writerow(COLS)
+        w.writerow(row)
+    with open(BUF) as f: rows=f.readlines()
+    if len(rows)>BUFFER_BARS+1:
+        with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
+
+_poll_lock=threading.Lock()
+def _poll_safe():
+    """Run one detection cycle, never overlapping (fire-and-forget from /bars or the timer)."""
+    if not _poll_lock.acquire(blocking=False): return
+    try:
+        if ENABLED: poll()
+    except Exception as ex: print('[model C] poll err',ex,flush=True)
+    finally:
+        try: _poll_lock.release()
+        except Exception: pass
+
 def _fetch_buffer():
     """If STRAT_C_BUF_URL is set, pull the bar CSV from the agent over HTTP and cache it locally
     (bounded to BUFFER_BARS). No shared volume needed → the A/B agent is NEVER touched.
@@ -425,8 +452,110 @@ def _maybe_push(txt):
         elif EXEC_C and requests is not None: requests.post(EXEC_C,json={'text':txt},timeout=10)
     except Exception as ex: print('push err',ex,flush=True)
 
+# ───────────────────────── WEB DASHBOARD (own page for Strategy C) ─────────────────────────
+def _stats_from_journal(j):
+    """Running stats from the ALREADY-resolved journal (no detect) — for fast web reads."""
+    done=[x for x in j.values() if x.get('status') in ('win','loss','be')]
+    n_=len(done); w=sum(1 for x in done if x['status']=='win'); b=sum(1 for x in done if x['status']=='be'); l=sum(1 for x in done if x['status']=='loss')
+    tot=sum(x.get('R',0) for x in done)
+    return dict(n=n_,win=w,be=b,loss=l,winpct=(100*w/n_ if n_ else 0.0),winpct_exbe=(100*w/(w+l) if (w+l) else 0.0),
+                exp=(tot/n_ if n_ else 0.0),totR=tot,
+                pending=sum(1 for x in j.values() if x.get('status') in ('alerted',None)),
+                no_fill=sum(1 for x in j.values() if x.get('status')=='no_fill'))
+
+DASH_HTML = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Strategy C</title><style>
+body{background:#0b0e14;color:#e6e9ef;font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:16px}
+h1{font-size:18px;margin:0 0 2px}.mut{color:#9aa3b5;font-size:12px}
+.card{background:#0e1320;border:1px solid #1b2230;border-radius:12px;padding:14px;margin:12px 0}
+.big{font-size:34px;font-weight:700}.row{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-weight:700;font-size:13px}
+.g{background:#123524;color:#4ade80}.a{background:#3a2f13;color:#f5b301}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #1b2230}
+.step{padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.s_rejection{background:#3a2f13;color:#f5b301}.s_entry_pending{background:#12294a;color:#3b82f6}.s_filled{background:#123524;color:#4ade80}
+.s_displacement{background:#1b2230;color:#9aa3b5}.s_dropped_ab{background:#1b2230;color:#6b7280}.s_bos{background:#2a1f3a;color:#a78bfa}
+.long{color:#4ade80}.short{color:#f87171}
+</style></head><body>
+<h1>&#127474; Strategy C <span id=mode class=mut></span></h1><div class=mut id=upd>&#322;adowanie&#8230;</div>
+<div class=card><div class=mut>PERFORMANCE &#183; Gate 0 = +0.15R</div>
+<div class=row><div class=big id=exp>&#8211;</div><div id=gate class=badge></div></div><div class=mut id=perfline></div></div>
+<div class=card><div class=mut>PIPELINE &#183; mo&#380;liwe trady i ich krok</div>
+<div id=counts class=row style="margin:8px 0"></div>
+<table id=cand><thead><tr><th>kier.</th><th>displacement</th><th>FVG</th><th>krok</th><th>uwaga</th></tr></thead><tbody></tbody></table></div>
+<div class=card><div class=mut>OSTATNIE TRADY</div>
+<table id=jr><thead><tr><th>data</th><th>kier.</th><th>entry</th><th>status</th><th>R</th></tr></thead><tbody></tbody></table></div>
+<script>
+const B=location.pathname.endsWith('/')?location.pathname:location.pathname+'/';
+async function J(u){return (await fetch(B+u)).json()}
+async function load(){try{
+ const h=await J('health');document.getElementById('mode').textContent='&#183; '+h.mode+(h.enabled?'':' (idle)');
+ const p=await J('performance');
+ document.getElementById('exp').textContent=p.n?((p.exp>=0?'+':'')+p.exp.toFixed(3)+'R'):'brak';
+ const g=document.getElementById('gate');
+ if(!p.n){g.className='badge a';g.textContent='0 tradów'}
+ else if(p.exp>=0.15){g.className='badge g';g.textContent='✅ Gate 0'}
+ else{g.className='badge a';g.textContent='⏳ < +0.15R'}
+ document.getElementById('perfline').textContent=p.n+' tradów · W '+p.win+' · BE '+p.be+' · L '+p.loss+' · win '+p.winpct.toFixed(0)+'% (bez BE '+p.winpct_exbe.toFixed(0)+'%) · suma '+(p.totR>=0?'+':'')+p.totR.toFixed(1)+'R · pending '+p.pending;
+ const c=await J('candidates');const cs=c.cands||[];const cc=c.counts||{};
+ document.getElementById('counts').innerHTML=Object.keys(cc).map(k=>'<span class="step s_'+k+'">'+cc[k]+'× '+k+'</span>').join(' ');
+ document.querySelector('#cand tbody').innerHTML=cs.map(x=>'<tr><td class="'+(x.dir=='LONG'?'long':'short')+'">'+x.dir+'</td><td>'+x.disp_start+'→'+x.disp_end+'</td><td>'+x.fvg_lo+'–'+x.fvg_hi+'</td><td><span class="step s_'+x.step+'">'+x.step+'</span></td><td class=mut>'+(x.note||'')+'</td></tr>').join('')||'<tr><td colspan=5 class=mut>brak</td></tr>';
+ const jj=await J('journal');const rows=Object.values(jj).sort((a,b)=>(b.bos_ms||0)-(a.bos_ms||0)).slice(0,15);
+ document.querySelector('#jr tbody').innerHTML=rows.map(x=>'<tr><td>'+(x.date||'')+' '+(x.bos||'')+'</td><td class="'+(x.dir=='LONG'?'long':'short')+'">'+x.dir+'</td><td>'+x.entry+'</td><td>'+(x.status||'')+'</td><td>'+(x.R!=null?((x.R>=0?'+':'')+Number(x.R).toFixed(2)):'')+'</td></tr>').join('')||'<tr><td colspan=5 class=mut>brak</td></tr>';
+ document.getElementById('upd').textContent='odświeżono '+new Date().toLocaleTimeString();
+}catch(e){document.getElementById('upd').textContent='błąd: '+e}}
+load();setInterval(load,30000);
+</script></body></html>"""
+
+def register_routes(app, prefix='/c'):
+    """Mount the Strategy-C dashboard + JSON endpoints onto an EXISTING Flask app (e.g. the A/B agent).
+    prefix='/c' → page at /c, data at /c/performance //candidates //journal //health. prefix='' → root."""
+    from flask import jsonify
+    p=prefix.rstrip('/')
+    def _home(): return DASH_HTML
+    def _h(): return jsonify(ok=True,mode='TEST' if TEST else 'LIVE',enabled=ENABLED,touch_tol=TOUCH_TOL)
+    def _perf(): return jsonify(_stats_from_journal(_ld(C_TRADES)))
+    def _cand(): return jsonify(_ld(C_CAND) or {'cands':[],'counts':{}})
+    def _jr(): return jsonify(_ld(C_TRADES))
+    def _bars():                                     # F-style intake: agent forwards each bar here
+        from flask import request as _rq
+        b=_rq.get_json(force=True,silent=True) or {}
+        if 'close' not in b: return jsonify(error='brak OHLC'),400
+        try: _append_bar_c(b)
+        except Exception as ex: print('[model C] /bars append err',ex,flush=True)
+        threading.Thread(target=_poll_safe,daemon=True).start()   # detect on the fresh bar (non-overlapping)
+        return jsonify(ok=True)
+    app.add_url_rule(p or '/','c_home',_home)
+    app.add_url_rule(p+'/health','c_health',_h)
+    app.add_url_rule(p+'/performance','c_perf',_perf)
+    app.add_url_rule(p+'/candidates','c_cand',_cand)
+    app.add_url_rule(p+'/journal','c_journal',_jr)
+    app.add_url_rule(p+'/bars','c_bars',_bars,methods=['POST'])
+    return app
+
+_bg_started=False
+def start_background():
+    """Start the C detection loop in a daemon thread (idempotent). Only polls when STRAT_C_ENABLED=1.
+    Wrapped so a C failure can NEVER propagate into the host process (A/B stays untouched)."""
+    global _bg_started
+    if _bg_started: return
+    _bg_started=True
+    def _bg():
+        while True:
+            _poll_safe()                                          # safety net if no bars are being forwarded
+            time.sleep(int(os.environ.get('STRAT_C_POLL_SEC','90')))
+    threading.Thread(target=_bg,daemon=True).start()
+
+def _run_web():
+    """Standalone: own Flask app (own Railway service) + detection thread."""
+    from flask import Flask
+    app=Flask(__name__); register_routes(app,''); start_background()
+    app.run(host='0.0.0.0',port=int(os.environ.get('PORT','8080')))
+
 if __name__=='__main__':
-    if '--candidates' in sys.argv:            # on-demand pipeline: which step is each possible trade on
+    if '--serve' in sys.argv:                 # web dashboard (own URL) + poll loop in background
+        _run_web()
+    elif '--candidates' in sys.argv:          # on-demand pipeline: which step is each possible trade on
         b=_fetch_buffer(); cands=log_candidates(b); txt=cand_summary(cands); print('\n'+txt); _maybe_push(txt)
     elif '--perf' in sys.argv:                # on-demand performance: running win%/exp-R (Gate-0 gauge)
         b=_fetch_buffer(); _,st=resolve_perf(b); txt=perf_summary(st); print('\n'+txt); _maybe_push(txt)

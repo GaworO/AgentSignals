@@ -359,6 +359,11 @@ def bars():
     if _furl and requests is not None:
         try: requests.post(_furl, json=b, timeout=3)
         except Exception: pass
+    # --- Strategy C: DOKŁADNIE jak F — przekaz bar do serwisu C (fire-and-forget; NIE wplywa na A/B) ---
+    _curl = os.environ.get('STRAT_C_FORWARD_URL', '')
+    if _curl and requests is not None:
+        try: requests.post(_curl, json=b, timeout=3)
+        except Exception: pass
     return jsonify(ok=True, **res)
 
 def _wants_html():
@@ -669,6 +674,23 @@ _init_db(); _seed_buffer()
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
+
+# ── Strategy C — OSOBNY serwis (własny proces + detekcja). Agent tylko PROXY-uje jego stronę pod /c
+#    przez sieć WEWNĘTRZNĄ Railway (C_URL, np. http://strategy-c.railway.internal:8080). C nie ma
+#    publicznej domeny — wchodzisz do niego przez agenta. A/B (kod, /bars, detektor) — nietknięte.
+@app.route('/c', defaults={'_p': ''})
+@app.route('/c/<path:_p>')
+def _c_proxy(_p):
+    from flask import Response, request as _rq
+    base = os.environ.get('C_URL', '')
+    if not base: return ('Ustaw C_URL = wewnętrzny adres serwisu C (np. http://strategy-c.railway.internal:8080)', 503)
+    if requests is None: return ('requests missing', 503)
+    try:
+        r = requests.get(base.rstrip('/') + '/' + _p, params=_rq.args, timeout=15)
+        return Response(r.content, status=r.status_code,
+                        content_type=r.headers.get('content-type', 'text/html; charset=utf-8'))
+    except Exception as _e:
+        return ('Strategy C nieosiągalny (' + str(_e) + ')', 502)
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))
