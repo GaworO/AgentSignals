@@ -427,6 +427,9 @@ def poll():
     if not ENABLED:
         print('STRAT_C_ENABLED != 1 -> idle'); return []
     buf=_fetch_buffer()
+    if not os.path.exists(buf):
+        print('[model C] czekam na pierwszy bar (bufor jeszcze nie istnieje) — agent zacznie forwardować przy otwartym rynku',flush=True)
+        return []
     sigs=c_signals(buf); sent=_ld(SENT_C); fired=[]
     for x in sigs:
         k=key_c(x)
