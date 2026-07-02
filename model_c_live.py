@@ -468,78 +468,86 @@ def _stats_from_journal(j):
 
 DASH_HTML = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Strategy C</title><style>
-body{background:#0b0e14;color:#e6e9ef;font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:16px}
-h1{font-size:18px;margin:0 0 2px}.mut{color:#9aa3b5;font-size:12px}
-.card{background:#0e1320;border:1px solid #1b2230;border-radius:12px;padding:14px;margin:12px 0}
-.big{font-size:34px;font-weight:700}.row{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline}
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-weight:700;font-size:13px}
-.g{background:#123524;color:#4ade80}.a{background:#3a2f13;color:#f5b301}
-table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #1b2230}
-.step{padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
-.s_rejection{background:#3a2f13;color:#f5b301}.s_entry_pending{background:#12294a;color:#3b82f6}.s_filled{background:#123524;color:#4ade80}
-.s_displacement{background:#1b2230;color:#9aa3b5}.s_dropped_ab{background:#1b2230;color:#6b7280}.s_bos{background:#2a1f3a;color:#a78bfa}
-.long{color:#4ade80}.short{color:#f87171}
-</style></head><body>
-<h1>&#127474; Strategy C <span id=mode class=mut></span></h1><div class=mut id=upd>&#322;adowanie&#8230;</div>
-<div class=card><div class=mut>PERFORMANCE &#183; Gate 0 = +0.15R</div>
-<div class=row><div class=big id=exp>&#8211;</div><div id=gate class=badge></div></div><div class=mut id=perfline></div></div>
-<div class=card><div class=mut>PIPELINE &#183; mo&#380;liwe trady i ich krok</div>
-<div id=counts class=row style="margin:8px 0"></div>
-<table id=cand><thead><tr><th>kier.</th><th>displacement</th><th>FVG</th><th>krok</th><th>uwaga</th></tr></thead><tbody></tbody></table></div>
-<div class=card><div class=mut>OSTATNIE TRADY</div>
-<table id=jr><thead><tr><th>data</th><th>kier.</th><th>entry</th><th>status</th><th>R</th></tr></thead><tbody></tbody></table></div>
+*{box-sizing:border-box}body{background:#f8fafc;color:#0f172a;font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;font-size:14px}
+.wrap{max-width:1100px;margin:0 auto}
+.head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.h{font-size:20px;font-weight:700}
+.on{font-size:13px;font-weight:700;color:#16a34a}.on.test{color:#d97706}
+.howlink{margin-left:auto;color:#2563eb;text-decoration:none;font-size:13px}
+.desc{color:#64748b;font-size:13px;margin:6px 0 4px;line-height:1.5}
+.sec{font-size:16px;font-weight:700;margin:22px 0 10px}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.m{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
+.m .l{color:#64748b;font-size:12px}.m .v{font-size:22px;font-weight:700;margin-top:2px}
+.mut{color:#64748b;font-size:13px;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #eef2f6}th{color:#64748b;font-weight:600;background:#f8fafc}
+.long{color:#16a34a;font-weight:600}.short{color:#dc2626;font-weight:600}
+.foot{color:#94a3b8;font-size:12px;margin-top:14px}
+.pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.p_rejection{background:#fef3c7;color:#92400e}.p_entry_pending{background:#dbeafe;color:#1e40af}.p_filled{background:#dcfce7;color:#166534}.p_bos{background:#ede9fe;color:#5b21b6}
+</style></head><body><div class=wrap>
+<div class=head><span class=h>&#127474; Strategy C — Staircase Displacement</span><span class=on id=onb>(ON)</span><a class=howlink href="how">How it works + example &rarr;</a></div>
+<div class=desc>ICT retracement: displacement &rarr; rejection &rarr; BOS &rarr; wej&#347;cie limit (SL=CE, TP=2R, BE@1R). Osobny strumie&#324; od A/B &middot; F &middot; ORB. Backtest 5yr: +0.68R, ~11 trad/rok, dodatni 5/5. Gate 0 = udowodnij &#8805;+0.15R na 30&ndash;50 live tradach.</div>
+<div class=sec>&#9312; Kandydaci — dzi&#347; (<span id=today>&mdash;</span>)</div>
+<div id=cand class=card>&#322;adowanie&#8230;</div>
+<div class=sec>&#9313; Performance — realized (live log)</div>
+<div class=metrics id=metrics></div><div class=mut id=noclosed></div>
+<div class=sec>&#9314; Trade log</div>
+<table id=log><thead><tr><th>data</th><th>BOS</th><th>kier.</th><th>entry</th><th>SL</th><th>TP</th><th>ryzyko</th><th>bias</th><th>R</th><th>status</th></tr></thead><tbody></tbody></table>
+<div class=foot>Auto-od&#347;wie&#380;anie co 30s. Dziennik: /data/c_trades.json. Performance = zrealizowane R netto koszt&#243;w; otwarte trady poza statystyk&#261;.</div>
+</div>
 <script>
 const B=location.pathname.endsWith('/')?location.pathname:location.pathname+'/';
 async function J(u){return (await fetch(B+u)).json()}
+function num(x,d){return (x>=0?'+':'')+Number(x).toFixed(d)}
 async function load(){try{
- const h=await J('health');document.getElementById('mode').textContent='&#183; '+h.mode+(h.enabled?'':' (idle)');
+ const h=await J('health');const on=document.getElementById('onb');
+ if(h.mode=='TEST'){on.textContent='(TEST — cicho)';on.className='on test'}else{on.textContent=h.enabled?'(ON)':'(idle)';on.className='on'}
+ document.getElementById('today').textContent=new Date().toISOString().slice(0,10);
  const p=await J('performance');
- document.getElementById('exp').textContent=p.n?((p.exp>=0?'+':'')+p.exp.toFixed(3)+'R'):'brak';
- const g=document.getElementById('gate');
- if(!p.n){g.className='badge a';g.textContent='0 tradów'}
- else if(p.exp>=0.15){g.className='badge g';g.textContent='✅ Gate 0'}
- else{g.className='badge a';g.textContent='⏳ < +0.15R'}
- document.getElementById('perfline').textContent=p.n+' tradów · W '+p.win+' · BE '+p.be+' · L '+p.loss+' · win '+p.winpct.toFixed(0)+'% (bez BE '+p.winpct_exbe.toFixed(0)+'%) · suma '+(p.totR>=0?'+':'')+p.totR.toFixed(1)+'R · pending '+p.pending;
- const c=await J('candidates');const cs=c.cands||[];const cc=c.counts||{};
- document.getElementById('counts').innerHTML=Object.keys(cc).map(k=>'<span class="step s_'+k+'">'+cc[k]+'× '+k+'</span>').join(' ');
- document.querySelector('#cand tbody').innerHTML=cs.map(x=>'<tr><td class="'+(x.dir=='LONG'?'long':'short')+'">'+x.dir+'</td><td>'+x.disp_start+'→'+x.disp_end+'</td><td>'+x.fvg_lo+'–'+x.fvg_hi+'</td><td><span class="step s_'+x.step+'">'+x.step+'</span></td><td class=mut>'+(x.note||'')+'</td></tr>').join('')||'<tr><td colspan=5 class=mut>brak</td></tr>';
- const jj=await J('journal');const rows=Object.values(jj).sort((a,b)=>(b.bos_ms||0)-(a.bos_ms||0)).slice(0,15);
- document.querySelector('#jr tbody').innerHTML=rows.map(x=>'<tr><td>'+(x.date||'')+' '+(x.bos||'')+'</td><td class="'+(x.dir=='LONG'?'long':'short')+'">'+x.dir+'</td><td>'+x.entry+'</td><td>'+(x.status||'')+'</td><td>'+(x.R!=null?((x.R>=0?'+':'')+Number(x.R).toFixed(2)):'')+'</td></tr>').join('')||'<tr><td colspan=5 class=mut>brak</td></tr>';
- document.getElementById('upd').textContent='odświeżono '+new Date().toLocaleTimeString();
-}catch(e){document.getElementById('upd').textContent='błąd: '+e}}
+ const gate=p.n&&p.exp>=0.15;
+ const M=[['trades',p.n],['win&rarr;2R',p.winpct.toFixed(0)+'%'],['expectancy',num(p.exp,3)+' R'],['total',num(p.totR,1)+' R'],['open now',p.pending]];
+ document.getElementById('metrics').innerHTML=M.map((m,i)=>'<div class=m><div class=l>'+m[0]+'</div><div class="v"'+(i==2&&gate?' style="color:#16a34a"':'')+'>'+m[1]+'</div></div>').join('');
+ document.getElementById('noclosed').innerHTML=p.n?(gate?'<b style="color:#16a34a">✅ Gate 0 — exp &#8805; +0.15R</b>':'⏳ jeszcze &lt; +0.15R (Gate 0) · W '+p.win+' · BE '+p.be+' · L '+p.loss):'Brak zamkni&#281;tych trad&#243;w jeszcze.';
+ const c=await J('candidates');const cs=(c.cands||[]).filter(x=>['rejection','entry_pending','filled','bos'].indexOf(x.step)>=0&&(x.note||'').indexOf('uniewa')<0);
+ document.getElementById('cand').innerHTML=cs.length?cs.slice(-6).map(x=>{const e=x.entry?(' — entry '+x.entry+(x.sl?' · SL '+x.sl:'')):'';return '<div style="margin:5px 0"><span class="'+(x.dir=='LONG'?'long':'short')+'">'+x.dir+'</span> <span class="pill p_'+x.step+'">'+x.step+'</span>'+e+' · FVG '+x.fvg_lo+'–'+x.fvg_hi+' · disp '+x.disp_start+'&rarr;'+x.disp_end+' · '+(x.note||'')+'</div>'}).join(''):'<span class=mut>Brak &#347;wie&#380;ego kandydata dzi&#347;.</span>';
+ const jj=await J('journal');const rows=Object.values(jj).sort((a,b)=>(b.bos_ms||0)-(a.bos_ms||0)).slice(0,25);
+ document.querySelector('#log tbody').innerHTML=rows.length?rows.map(x=>'<tr><td>'+(x.date||'')+'</td><td>'+(x.bos||'')+'</td><td class="'+(x.dir=='LONG'?'long':'short')+'">'+x.dir+'</td><td>'+x.entry+'</td><td>'+(x.SL||'')+'</td><td>'+(x.TP||'')+'</td><td>'+(x.risk!=null?x.risk:'')+'</td><td>'+(x.bias_align||'')+'</td><td>'+(x.R!=null?num(x.R,2):'')+'</td><td>'+(x.status||'')+'</td></tr>').join(''):'<tr><td colspan=10 class=mut>Brak trad&#243;w w dzienniku.</td></tr>';
+}catch(e){document.getElementById('cand').innerHTML='<span class=mut>b&#322;&#261;d: '+e+'</span>'}}
 load();setInterval(load,30000);
 </script></body></html>"""
 
 HOW_HTML = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Strategy C — jak działa</title><style>
-body{background:#0b0e14;color:#e6e9ef;font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:18px;max-width:900px}
-h1{font-size:20px;margin:0 0 2px}h2{font-size:15px;margin:20px 0 6px;color:#e6e9ef}
-.mut{color:#9aa3b5;font-size:13px}.card{background:#0e1320;border:1px solid #1b2230;border-radius:12px;padding:14px 16px;margin:12px 0}
-ol{padding-left:20px;line-height:1.55}ol li{margin:8px 0}b{color:#fff}
-.k{display:inline-block;min-width:20px;height:20px;line-height:20px;text-align:center;background:#22304a;color:#8ab4f8;border-radius:50%;font-size:12px;font-weight:700;margin-right:6px}
+body{background:#f8fafc;color:#0f172a;font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:24px;max-width:900px}
+h1{font-size:20px;margin:0 0 2px}h2{font-size:16px;margin:22px 0 8px;color:#0f172a}
+.mut{color:#64748b;font-size:13px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin:12px 0}
+ol{padding-left:20px;line-height:1.55}ol li{margin:8px 0}b{color:#0f172a}
+.k{display:inline-block;min-width:20px;height:20px;line-height:20px;text-align:center;background:#dbeafe;color:#1e40af;border-radius:50%;font-size:12px;font-weight:700;margin-right:6px}
 .pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
-.amber{background:#3a2f13;color:#f5b301}.green{background:#123524;color:#4ade80}.red{background:#3a1516;color:#f87171}.blue{background:#12294a;color:#3b82f6}
-a{color:#8ab4f8}
+.amber{background:#fef3c7;color:#92400e}.green{background:#dcfce7;color:#166534}.red{background:#fee2e2;color:#991b1b}.blue{background:#dbeafe;color:#1e40af}
+a{color:#2563eb}
 </style></head><body>
 <h1>&#127474; Strategy C — staircase displacement</h1>
 <div class=mut>Model kontynuacji: schodkowy displacement &rarr; rejection w luce &rarr; BOS &rarr; wejście limit. Edge ~+0.68R, ~1 trade / 2&ndash;3 tyg. Dodatek do A/B (nie dubluje). <a href="."> &larr; dashboard</a></div>
 
 <div class=card>
 <svg viewBox="0 0 840 350" width="100%" xmlns="http://www.w3.org/2000/svg">
-<rect width="840" height="350" fill="#0b0e14"/>
-<rect x="300" y="104" width="185" height="34" fill="#f5b301" opacity="0.16"/>
+<rect width="840" height="350" fill="#ffffff"/>
+<rect x="300" y="104" width="185" height="34" fill="#f5b301" opacity="0.20"/>
 <text x="303" y="99" fill="#f5b301" font-size="12">luka FVG (jedna z &#8805;2)</text>
-<line x1="300" y1="121" x2="560" y2="121" stroke="#f87171" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="125" fill="#f87171" font-size="11.5">SL = CE luki</text>
+<line x1="300" y1="121" x2="560" y2="121" stroke="#dc2626" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="125" fill="#dc2626" font-size="11.5">SL = CE luki</text>
 <line x1="300" y1="150" x2="560" y2="150" stroke="#3b82f6" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="154" fill="#3b82f6" font-size="11.5">wejście (limit @ FVG)</text>
-<line x1="300" y1="208" x2="560" y2="208" stroke="#4ade80" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="212" fill="#4ade80" font-size="11.5">TP = 2R</text>
+<line x1="300" y1="208" x2="560" y2="208" stroke="#16a34a" stroke-dasharray="5 4" stroke-width="1"/><text x="565" y="212" fill="#16a34a" font-size="11.5">TP = 2R</text>
 <line x1="330" y1="240" x2="700" y2="240" stroke="#9aa3b5" stroke-dasharray="4 4" stroke-width="1"/><text x="330" y="256" fill="#9aa3b5" font-size="11.5">ekstremum displacementu (dno)</text>
-<polyline fill="none" stroke="#e2e8f0" stroke-width="2.4" points="55,55 105,55 105,95 160,95 160,135 215,135 215,175 270,175 270,215 330,240 435,116 462,130 520,190 560,240 620,285 700,320"/>
-<circle cx="200" cy="150" r="11" fill="#22304a"/><text x="200" y="154" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">1</text>
-<circle cx="392" cy="150" r="11" fill="#22304a"/><text x="392" y="154" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">2</text>
-<circle cx="452" cy="103" r="11" fill="#22304a"/><text x="452" y="107" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">3</text>
-<circle cx="556" cy="223" r="11" fill="#22304a"/><text x="556" y="227" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">4</text>
-<circle cx="660" cy="303" r="11" fill="#22304a"/><text x="660" y="307" fill="#8ab4f8" font-size="12" text-anchor="middle" font-weight="700">5</text>
-<text x="60" y="40" fill="#f87171" font-size="12" font-weight="700">SHORT (przykład)</text>
+<polyline fill="none" stroke="#0f172a" stroke-width="2.4" points="55,55 105,55 105,95 160,95 160,135 215,135 215,175 270,175 270,215 330,240 435,116 462,130 520,190 560,240 620,285 700,320"/>
+<circle cx="200" cy="150" r="11" fill="#dbeafe"/><text x="200" y="154" fill="#1e40af" font-size="12" text-anchor="middle" font-weight="700">1</text>
+<circle cx="392" cy="150" r="11" fill="#dbeafe"/><text x="392" y="154" fill="#1e40af" font-size="12" text-anchor="middle" font-weight="700">2</text>
+<circle cx="452" cy="103" r="11" fill="#dbeafe"/><text x="452" y="107" fill="#1e40af" font-size="12" text-anchor="middle" font-weight="700">3</text>
+<circle cx="556" cy="223" r="11" fill="#dbeafe"/><text x="556" y="227" fill="#1e40af" font-size="12" text-anchor="middle" font-weight="700">4</text>
+<circle cx="660" cy="303" r="11" fill="#dbeafe"/><text x="660" y="307" fill="#1e40af" font-size="12" text-anchor="middle" font-weight="700">5</text>
+<text x="60" y="40" fill="#dc2626" font-size="12" font-weight="700">SHORT (przykład)</text>
 </svg>
 </div>
 
