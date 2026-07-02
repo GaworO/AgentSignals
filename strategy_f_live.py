@@ -358,6 +358,7 @@ try:
     from flask import Flask, request, jsonify
     app = Flask(__name__)
 
+
     @app.route('/health')
     def _health(): return jsonify(ok=True, version=_state['version'], enabled=os.environ.get('STRAT_F_ENABLED') == '1')
 
@@ -411,13 +412,18 @@ try:
             rows += (f"<tr><td>{t.get('alert_ts','')[:16]}</td><td>{t['dir']}</td><td>{t['entry']}</td>"
                      f"<td>{t['SL']}</td><td>{t['TP']}</td><td style='color:{col};font-weight:600'>{t['status']}</td>"
                      f"<td>{t.get('R','')}</td></tr>")
-        return ("<html><body style='font-family:system-ui;background:#0f0f0f;color:#eee;padding:18px'>"
-                f"<h2>Strategy F — live (Continuation only) &nbsp;<a href='/how' style='font-size:14px;color:#4ea1ff'>📖 how it works →</a></h2>"
-                f"<p>alerts <b>{s['alerts']}</b> · filled <b>{s['filled']}</b> · closed <b>{s['closed']}</b> · "
+        return ("<html><head><meta charset=utf-8><style>"
+                "body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#fafafa;color:#222;padding:24px}"
+                "table{border-collapse:collapse;width:100%;background:#fff;font-size:13px}"
+                "th,td{border-bottom:1px solid #eee;padding:6px 8px;text-align:left}th{background:#f4f4f4}"
+                "a{color:#1565c0}h2{font-size:18px}.small{color:#888;font-size:12px}</style></head><body>"
+                "<p style='font-size:13px'><a href='/candidates'>candidates</a> &middot; <a href='/log'>trade log</a> &middot; <a href='/how'>&#128214; how it works</a></p>"
+                "<h2>Strategy F — live (Continuation only)</h2>"
+                f"<p class=small>alerts <b>{s['alerts']}</b> · filled <b>{s['filled']}</b> · closed <b>{s['closed']}</b> · "
                 f"win <b>{s['winpct']}%</b> · totR <b>{s['totR']}</b> · ~<b>${s['dollars']}</b> &nbsp;|&nbsp; {s['by_status']}</p>"
-                "<table cellpadding=6 style='border-collapse:collapse' border=1>"
+                "<table>"
                 "<tr><th>alert (UTC)</th><th>dir</th><th>entry</th><th>SL</th><th>TP</th><th>status</th><th>R</th></tr>"
-                f"{rows}</table><p style='color:#777;font-size:12px'>Wynik modelowany z barów F (BE@1R/TP2R/SL-first). "
+                f"{rows}</table><p class=small>Wynik modelowany z barów F (BE@1R/TP2R/SL-first). "
                 "Porównaj z realnymi fillami TradersPost.</p></body></html>")
 
     @app.route('/candidates')
@@ -433,14 +439,19 @@ try:
             rows += (f"<tr><td>{x['date']} {x['disp_end']}</td><td>{x['dir']}</td><td>{x['entry']}</td>"
                      f"<td>{x['SL']}</td><td>{x['TP']}</td><td>{x['fvg_lo']}–{x['fvg_hi']}</td>"
                      f"<td style='color:{col};font-weight:600'>{x['status']}</td></tr>")
-        return ("<html><body style='font-family:system-ui;background:#0f0f0f;color:#eee;padding:18px'>"
-                "<h2>Strategy F — kandydaci (wykryte setupy F.P. PFVG · Continuation) &nbsp;<a href='/how' style='font-size:14px;color:#4ea1ff'>📖 how it works →</a></h2>"
-                f"<p>{len(sigs)} w buforze &nbsp;|&nbsp; <b style='color:#1565c0'>live</b> = limit czeka na dotknięcie · "
+        return ("<html><head><meta charset=utf-8><style>"
+                "body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#fafafa;color:#222;padding:24px}"
+                "table{border-collapse:collapse;width:100%;background:#fff;font-size:13px}"
+                "th,td{border-bottom:1px solid #eee;padding:6px 8px;text-align:left}th{background:#f4f4f4}"
+                "a{color:#1565c0}h2{font-size:18px}.small{color:#888;font-size:12px}</style></head><body>"
+                "<p style='font-size:13px'><a href='/candidates'>candidates</a> &middot; <a href='/log'>trade log</a> &middot; <a href='/how'>&#128214; how it works</a></p>"
+                "<h2>Strategy F — kandydaci (wykryte setupy F.P. PFVG · Continuation)</h2>"
+                f"<p class=small>{len(sigs)} w buforze &nbsp;|&nbsp; <b style='color:#1565c0'>live</b> = limit czeka na dotknięcie · "
                 "<b style='color:#1b9e3a'>filled</b> = cena dotknęła · <b style='color:#b8860b'>invalid</b> = ciało przebiło lukę (brak wejścia) · "
                 "<b style='color:#888'>expired</b> = okno minęło</p>"
-                "<table cellpadding=6 style='border-collapse:collapse' border=1>"
+                "<table>"
                 "<tr><th>setup (NY-AM)</th><th>dir</th><th>entry</th><th>SL</th><th>TP</th><th>F.P. PFVG</th><th>status</th></tr>"
-                f"{rows}</table><p style='color:#777;font-size:12px'>Kandydat = pierwszy displacement Continuation danego dnia. "
+                f"{rows}</table><p class=small>Kandydat = pierwszy displacement Continuation danego dnia. "
                 "Alert/zlecenie idzie tylko dla świeżych ze statusem 'live'.</p></body></html>")
 
     @app.route('/how')
