@@ -288,70 +288,75 @@ def _append_bar_f(b):
 
 # ───────── /how page (inline, ORB-style — no separate file) ─────────
 def _example_svg_f():
-    return (
-        '<svg viewBox="0 0 760 400" width="100%" style="max-width:760px;background:#fff;border:1px solid #eee;border-radius:8px">'
-        '<text x="86" y="392" font-size="10" fill="#888">09:30</text>'
-        '<text x="300" y="392" font-size="10" fill="#888">NY-AM</text>'
-        '<text x="686" y="392" font-size="10" fill="#888">11:59</text>'
-        '<rect x="150" y="70" width="540" height="30" fill="#9e9e9e" fill-opacity="0.16" stroke="#bdbdbd" stroke-dasharray="3"/>'
-        '<line x1="150" y1="100" x2="690" y2="100" stroke="#9e9e9e" stroke-dasharray="4" stroke-width="1.3"/>'
-        '<text x="152" y="63" font-size="11" fill="#616161" font-weight="bold">1 &#183; F.P.FVG catalyst (first NY-AM gap) &rarr; the level</text>'
-        '<rect x="250" y="158" width="440" height="26" fill="#42a5f5" fill-opacity="0.28"/>'
-        '<text x="408" y="173" font-size="11" fill="#0d47a1" font-weight="bold">4 &#183; the gap it leaves = the FVG we trade</text>'
-        '<line x1="60" y1="150" x2="700" y2="150" stroke="#c62828" stroke-dasharray="4" stroke-width="1.4"/>'
-        '<text x="498" y="144" font-size="11" fill="#c62828" font-weight="bold">6 &#183; STOP = just past the gap (1R, ~14pt)</text>'
-        '<line x1="60" y1="184" x2="700" y2="184" stroke="#2e7d32" stroke-dasharray="4" stroke-width="1.4"/>'
-        '<text x="498" y="197" font-size="11" fill="#2e7d32" font-weight="bold">5 &#183; ENTRY = near edge, first touch back</text>'
-        '<line x1="60" y1="300" x2="700" y2="300" stroke="#1565c0" stroke-width="1.5"/>'
-        '<text x="540" y="316" font-size="11" fill="#1565c0" font-weight="bold">7 &#183; TARGET = 2R (BE at +1R)</text>'
-        '<polyline fill="none" stroke="#333" stroke-width="1.6" points="90,96 108,104 126,94 144,106 162,98 180,108 198,100 210,104 '
-        '220,120 230,150 240,182 250,210 260,236 270,248 284,230 298,208 310,190 318,184 332,204 348,232 366,258 386,282 406,298 '
-        '440,300 490,299 560,301 640,299 690,300"/>'
-        '<circle cx="214" cy="104" r="4.5" fill="#8e24aa"/>'
-        '<text x="70" y="128" font-size="11" fill="#8e24aa" font-weight="bold">2 &#183; a candle CLOSES through the level &rarr; continuation</text>'
-        '<text x="118" y="250" font-size="11" fill="#e67e22" font-weight="bold">3 &#183; displacement (strong, breaks structure)</text>'
-        '<circle cx="318" cy="184" r="5.5" fill="#fff" stroke="#2e7d32" stroke-width="2.4"/>'
-        '<text x="326" y="176" font-size="10.5" fill="#2e7d32" font-weight="bold">FILL</text>'
-        '<text x="404" y="292" font-size="22" fill="#1565c0">&#9733;</text>'
-        '<text x="360" y="336" font-size="11" fill="#1565c0" font-weight="bold">price runs on &rarr; +2R &#183; WIN</text>'
-        '<text x="60" y="368" font-size="10.5" fill="#555">1R = 0.5% of the account &rarr; wide gap = fewer contracts (gaps &gt; 40pt skipped).</text>'
-        '</svg>')
+    # LONG continuation example as candlesticks (mirrors the A/B how-it-works chart)
+    C = [(100.0,100.6,99.4,100.0),(100.0,100.4,99.2,99.5),(99.5,100.2,99.3,100.0),(100.0,100.7,99.6,100.5),
+         (100.5,100.8,100.1,100.4),(100.4,100.9,100.2,100.8),(100.8,101.3,100.6,101.2),(101.2,102.5,101.1,102.4),
+         (102.4,103.9,102.3,103.8),(103.8,104.7,103.7,104.6),(104.6,104.8,103.6,103.7),(103.7,103.9,103.5,103.6),
+         (103.6,104.5,103.5,104.4),(104.4,105.5,104.3,105.4),(105.4,106.1,105.3,106.0)]
+    def Y(p): return round(70 + (106.4 - p) * 37.0, 1)
+    def X(i): return 70 + i * 40
+    p = ['<svg viewBox="0 0 820 385" width="100%" style="max-width:820px;background:#fff;border:1px solid #eee;border-radius:8px">']
+    p.append('<text x="58" y="34" fill="#1b7a5a" font-size="13" font-weight="700">LONG (example)</text>')
+    p.append(f'<rect x="{X(8)-14}" y="{Y(103.7)}" width="{760-(X(8)-14)}" height="{round(Y(102.5)-Y(103.7),1)}" fill="#f5a623" fill-opacity="0.16"/>')
+    p.append(f'<text x="600" y="{Y(103.05)}" fill="#b8860b" font-size="11">FVG (traded gap)</text>')
+    for pr,col,lab in [(105.7,'#1b7a5a','TP · 2R'),(103.7,'#1565c0','entry · near edge (first touch)'),(102.7,'#c62828','SL · just past the gap (1R)'),(100.6,'#9aa3b5','first NY-AM FVG level')]:
+        y=Y(pr); p.append(f'<line x1="56" y1="{y}" x2="648" y2="{y}" stroke="{col}" stroke-dasharray="5 4" stroke-width="1.2"/>')
+        p.append(f'<text x="654" y="{y+4}" fill="{col}" font-size="11">{lab}</text>')
+    for i,(o,h,l,c) in enumerate(C):
+        x=X(i); up = c>=o; col='#1b9e3a' if up else '#e04b4b'
+        p.append(f'<line x1="{x}" y1="{Y(h)}" x2="{x}" y2="{Y(l)}" stroke="{col}" stroke-width="1.2"/>')
+        yt=Y(max(o,c)); yb=Y(min(o,c)); p.append(f'<rect x="{x-5}" y="{yt}" width="10" height="{max(round(yb-yt,1),1)}" fill="{col}"/>')
+    for n,i,pr in [(1,3,100.6),(2,6,101.2),(3,8,103.8),(4,11,103.7),(5,14,105.7)]:
+        x=X(i); y=Y(pr); p.append(f'<circle cx="{x}" cy="{y}" r="10" fill="#0e2a47"/><text x="{x}" y="{y+4}" fill="#fff" font-size="11" text-anchor="middle" font-weight="700">{n}</text>')
+    p.append('<text x="56" y="378" fill="#888" font-size="11">1 first NY-AM FVG (level) · 2 close through · 3 displacement leaves FVG · 4 first touch = entry · 5 TP 2R (SL past gap, BE @ +1R)</text>')
+    p.append('</svg>')
+    return ''.join(p)
 
 
 def render_how_f():
+    css = ("body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:26px;color:#222;background:#fafafa;max-width:860px}"
+           "h1{font-size:22px;margin:0 0 4px} h3{margin-top:24px;font-size:16px} a{color:#1565c0} .small{color:#666;font-size:13px}"
+           "ol{line-height:1.75} .card{background:#fff;border:1px solid #e6e6e6;border-radius:10px;padding:14px 16px;margin:12px 0}"
+           "table{border-collapse:collapse;width:100%;background:#fff;font-size:13px;margin-top:8px}"
+           "th,td{border-bottom:1px solid #eee;padding:7px 10px;text-align:left}th{background:#f4f4f4}"
+           ".warn{background:#fff8e1;border:1px solid #f0d98a;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:16px}")
     return (
         "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Strategy F - how it works</title><style>"
-        "body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:26px;color:#222;background:#fafafa;max-width:820px}"
-        "h1{font-size:21px} h3{margin-top:22px} a{color:#1565c0} .small{color:#888;font-size:13px}"
-        "ol{line-height:1.7} .warn{background:#fff8e1;border:1px solid #f0d98a;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:16px}"
-        "</style></head><body>"
-        "<p><a href='/candidates'>&larr; candidates</a> &nbsp;&#183;&nbsp; <a href='/log'>trade log</a></p>"
-        "<h1>&#129518; Strategy F - NY-AM displacement-FVG continuation</h1>"
-        "<div class=small>Waits for the first strong NY-AM move to leave a fair-value gap, then enters the <b>first "
-        "pullback</b> into that gap, with the move, for a 2R target. It uses the ICT engine (FVG + displacement + "
-        "structure break) <b>but the tested edge is momentum continuation - not the ICT narrative</b>: bias, "
-        "liquidity-pool targets and sweep-catalyst confluence were all tested and do not help. Same family as A/B/C - "
-        "<b>correlated, not a diversifier</b>.</div>"
-        "<h3>Example trade (real, out-of-sample &#183; 2026-06-18 SHORT)</h3>"
-        + _example_svg_f() +
+        "<title>Strategy F - how it works</title><style>" + css + "</style></head><body>"
+        "<p><a href='/candidates'>&larr; candidates</a> &middot; <a href='/log'>trade log</a></p>"
+        "<h1>&#129518; Strategy F &mdash; NY-AM displacement &rarr; FVG &rarr; first touch</h1>"
+        "<div class=small>A momentum-continuation cousin of A/B. The first strong NY-AM move leaves a Fair Value Gap; "
+        "instead of waiting for a second break of structure (A/B), F enters the <b>first pullback</b> into that gap, in "
+        "the direction of the move, for 2R. Same ICT engine, but the tested edge is <b>momentum, not the ICT narrative</b> "
+        "- so it is the same family as A/B/C (correlated), not a diversifier like ORB.</div>"
+        "<h3>Example trade</h3>"
+        "<div class=card>" + _example_svg_f() + "</div>"
         "<h3>The rules, step by step</h3><ol>"
-        "<li><b>Mark the catalyst.</b> The <b>first fair-value gap of NY-AM</b> (09:30-11:59 ET) - a 3-candle gap. Its edges are the level.</li>"
-        "<li><b>Wait for a continuation break.</b> A 1-min candle must <b>CLOSE through</b> the level (a close, not a wick).</li>"
-        "<li><b>Require a real displacement:</b> &ge;3 same-colour candles that <b>break the prior 15-bar structure</b>, "
-        "body &ge; <b>1.5&times; the 5m-ATR</b> and bigger than any recent candle - and it must <b>leave its own gap</b> (the one you trade).</li>"
-        "<li><b>Order:</b> limit at the <b>near edge</b> of that gap - stop <b>just past the far edge</b> (~14pt = 1R) - target <b>2R</b> - break-even at +1R.</li>"
-        "<li><b>One trade/day:</b> the <b>first continuation</b> of the session. The reversal direction is dropped (it doesn't pay).</li>"
-        "<li><b>Fill within ~30 min or cancel.</b> Size is automatic (1R = 0.5%); gaps wider than 40pt are skipped.</li></ol>"
-        "<h3>What to expect (backtest, 4 years, honest cut)</h3>"
-        "<div class=small>~160 trades/yr (~0.9/session) &#183; win ~37% (2R payoff - judge on expectancy) &#183; expectancy "
-        "<b>+0.42R</b> at a realistic 1-tick fill (band +0.33 to +0.48R) &#183; ~+$132k on $100k @ 0.5% over 4 years &#183; "
-        "<b>positive every year</b> (+0.38 / +0.50 / +0.40 / +0.37R) &#183; correlation with A/B high (same family).</div>"
-        "<div class=warn><b>In-sample.</b> 2022-06&rarr;2026-06. One out-of-sample check (14 June-2026 sessions) did not "
-        "break but only <b>4 trades filled</b> - proves nothing. The only real fragility is <b>fill quality</b> on the "
-        "~14pt stop; by design it <b>misses no-retrace runner days</b>. <b>Gate 0: prove &ge; +0.15R over 30-50 live "
-        "trades before sizing up.</b> Not financial advice.</div>"
-        "<p class=small><a href='/candidates'>&larr; back to candidates</a></p></body></html>")
+        "<li><b>Catalyst.</b> The <b>first Fair Value Gap of the NY-AM session</b> (09:30-11:59 ET) - a 3-candle gap. Its edges become the level to watch.</li>"
+        "<li><b>Continuation break.</b> A 1-min candle <b>closes through</b> that level (a close, not a wick) - this arms the setup in that direction.</li>"
+        "<li><b>Displacement.</b> An impulse &ge; <b>1.5&times; the 5-min ATR</b> that <b>breaks the prior 15-bar structure</b> (a run of &ge;3 same-colour candles) and <b>leaves its own FVG</b> - that fresh gap is what you trade.</li>"
+        "<li><b>First touch = entry.</b> A limit at the <b>near edge</b> of that gap fills on the first pullback. No second break-of-structure is required (that is the difference from A/B). The setup is <b>cancelled if a candle body closes back through the gap</b> before the fill.</li>"
+        "<li><b>Order:</b> limit at the fresh FVG edge - stop <b>just past the gap</b> (~14pt = 1R) - target <b>2R</b> - break-even at +1R. Stops wider than 40 pts are dropped. <b>Continuation only</b>, first setup of the day.</li>"
+        "</ol>"
+        "<h3>What to expect</h3>"
+        "<div class=small>Honest cut (first-continuation-of-day, near-edge entry, realistic 1-tick fill): <b>+0.42 R/trade</b> "
+        "(band +0.33 to +0.48), ~160 trades/yr, ~<b>37% win</b> to a 2R target, <b>positive every year</b> 2022-2026 "
+        "(+0.38 / +0.50 / +0.40 / +0.37R). Out-of-sample (14 June-2026 sessions): nothing broke, but only 4 fills - not yet proof. "
+        "Correlation with A/B: high (same family).</div>"
+        "<table><tr><th>Idea (tested this cycle)</th><th>Verdict</th></tr>"
+        "<tr><td>Higher-timeframe bias filter</td><td>minor / not a lever</td></tr>"
+        "<tr><td>Liquidity-pool target (vs fixed 2R)</td><td>worse than 2R</td></tr>"
+        "<tr><td>A/B liquidity catalyst under the leg</td><td>worse, not better</td></tr>"
+        "<tr><td>Sweep-and-reclaim before the leg</td><td>worse at every lookback</td></tr>"
+        "<tr><td>Reversal direction (fade the level)</td><td>dead (+0.07R) &rarr; dropped</td></tr>"
+        "<tr><td>Deeper retrace / 50%-of-leg entry</td><td>dead</td></tr></table>"
+        "<p class=small><b>F is a clean one-shot momentum trade</b> - the ICT confluence you would expect to help does not. "
+        "Trade the clean leg, protect at BE@1R, move on. No averaging in, no re-entry.</p>"
+        "<div class=warn><b>In-sample.</b> Discovered on 4 years of the same data; per-year consistency is the robustness "
+        "check, not a true hold-out. The only real fragility is <b>fill quality</b> on the ~14pt stop, and by design it "
+        "<b>misses no-retrace runner days</b>. <b>Gate 0: prove &ge; +0.15R over 30-50 live trades</b> before sizing up. "
+        "Not financial advice.</div>"
+        "<p class=small><a href='/candidates'>&larr; candidates</a> &middot; <a href='/log'>trade log</a></p></body></html>")
 
 
 try:
