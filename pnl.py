@@ -141,6 +141,35 @@ def _all(DB):
     return rows
 
 
+_PERIODS = [('all', 'All'), ('today', 'Today'), ('week', 'This week'), ('month', 'This month')]
+
+
+def _filter_period(rows, period):
+    if period in (None, '', 'all'):
+        return rows
+    today = dt.date.today()
+    out = []
+    for r in rows:
+        ds = (r.get('date') or '')[:10]
+        try:
+            d = dt.date.fromisoformat(ds)
+        except Exception:
+            out.append(r); continue
+        if period == 'today' and d == today:
+            out.append(r)
+        elif period == 'week' and 0 <= (today - d).days < 7:
+            out.append(r)
+        elif period == 'month' and d.year == today.year and d.month == today.month:
+            out.append(r)
+    return out
+
+
+def _periods_html(period):
+    return "<div class='periods'>" + ''.join(
+        "<a class='%s' href='/pnl?period=%s'>%s</a>" % ('on' if period == p else '', p, lbl)
+        for p, lbl in _PERIODS) + "</div>"
+
+
 def _recent_signals(DB, n=15):
     """Recent alerts the agent fired — so she can one-click 'log this' with real fill. Read-only."""
     try:
@@ -367,6 +396,10 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         "details.sect>summary::-webkit-details-marker{display:none}"
         "details.sect>summary:before{content:'+ ';color:#22d3ee;font-weight:700}details.sect[open]>summary:before{content:'\\2013 ';color:#22d3ee;font-weight:700}"
         "details.sect .addbox{margin:0;border:none;border-top:1px solid #262626;border-radius:0}"
+        ".periods{display:inline-flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}"
+        ".periods a{font:11px monospace;padding:6px 13px;border-radius:999px;color:#828a99;text-decoration:none;border:1px solid #2a2a2a}"
+        ".periods a:hover{color:#e6e9ef;border-color:#3a3a3a}"
+        ".periods a.on{background:#13251b;color:#4ade80;border-color:#1f7a41}"
         ".hero{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin:8px 0}"
         ".herobig{background:#111;border:1px solid #262626;border-radius:12px;padding:14px 16px}"
         ".herobig .k{color:#777;font:9px monospace;text-transform:uppercase;letter-spacing:.08em}"
@@ -629,7 +662,7 @@ def _icon_buttons_html():
             "</div>" % (_icon('plus'), _icon('upload'), _icon('download'), _icon('db')))
 
 
-def _dashboard_html(rows, sigs, acounts=None):
+def _dashboard_html(rows, sigs, acounts=None, period='all'):
     import html as _h
     overall, per = _stats(rows)
     acounts = acounts or {}
@@ -781,6 +814,7 @@ def _dashboard_html(rows, sigs, acounts=None):
             "<div class='sub'>real broker fills &#183; Taken toggle &#183; persisted in journal.db (downloadable)</div>"
             + "<button class='menutoggle' onclick='togMenu()'>&#9776; hide/show menu</button>"
             + _NAV
+            + _periods_html(period)
             + _hero_html(rows)
             + _icon_buttons_html()
             + (("<h3>Edge by strategy — live vs backtest</h3>" + _strategy_cards_html(rows)) if per else "")
@@ -805,12 +839,13 @@ def register(app, DB, render_page=None, wants_html=None):
 
     @app.route('/pnl')
     def pnl_dash():
-        rows = _all(DB)
+        period = request.args.get('period', 'all')
+        rows = _filter_period(_all(DB), period)
         if _html():
-            body = _dashboard_html(rows, _recent_alerts(DB), _alert_counts(DB))
+            body = _dashboard_html(rows, _recent_alerts(DB), _alert_counts(DB), period)
             return "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head><body>" + body + "</body></html>"
         overall, per = _stats(rows)
-        return jsonify(summary=overall, per_strategy=per, trades=rows,
+        return jsonify(period=period, summary=overall, per_strategy=per, trades=rows,
                        alerts=_recent_alerts(DB), alerts_by_strategy=_alert_counts(DB))
 
     @app.route('/pnl/fire', methods=['GET', 'POST'])
