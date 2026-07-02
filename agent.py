@@ -389,7 +389,9 @@ _VIEW_NAV = ("<div class='nav'><a href='/journal'>journal</a><a href='/candidate
  f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
  f"<a href='{_F_URL}/performance_f'>F·perf</a>"
  "<span style='color:#444'>&nbsp;|&nbsp;ORB:</span>"
- f"<a href='{_ORB_URL}/'>ORB·dashboard</a><a href='{_ORB_URL}/how'>ORB·how</a></div>")
+ f"<a href='{_ORB_URL}/'>ORB·dashboard</a><a href='{_ORB_URL}/how'>ORB·how</a>"
+ "<span style='color:#444'>&nbsp;|&nbsp;C:</span>"
+ "<a href='/c'>C·dashboard</a><a href='/c/candidates'>C·candidates</a><a href='/c/performance'>C·perf</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
 _PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','result','pnl','rr']
 
