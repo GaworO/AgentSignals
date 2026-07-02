@@ -359,6 +359,13 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         ".chartcard{background:#111;border:1px solid #262626;border-radius:8px;padding:10px}"
         ".chartcard h4{margin:0 0 6px;font:10px monospace;color:#888;text-transform:uppercase;letter-spacing:.06em}"
         ".chartcard svg{display:block;width:100%;height:auto}"
+        ".menutoggle{cursor:pointer;background:#1f2937;color:#cbd5e1;border:1px solid #374151;border-radius:5px;padding:5px 11px;font:11px monospace;margin:0 0 10px}"
+        "body.nomenu .nav{display:none}"
+        "details.sect{border:1px solid #262626;border-radius:8px;margin:8px 0;background:#0d0d0d}"
+        "details.sect>summary{cursor:pointer;list-style:none;padding:9px 12px;font:11px monospace;color:#9a9a9a;text-transform:uppercase;letter-spacing:.06em}"
+        "details.sect>summary::-webkit-details-marker{display:none}"
+        "details.sect>summary:before{content:'+ ';color:#22d3ee;font-weight:700}details.sect[open]>summary:before{content:'\\2013 ';color:#22d3ee;font-weight:700}"
+        "details.sect .addbox{margin:0;border:none;border-top:1px solid #262626;border-radius:0}"
         "@media(max-width:640px){"
         "body{padding:10px}h1{font-size:16px}h3{font-size:12px}"
         ".nav{line-height:1.9}.nav a{display:inline-block;margin:0 12px 4px 0}"
@@ -653,24 +660,29 @@ def _dashboard_html(rows, sigs, acounts=None):
         tradetbl = "<div class='empty'>No trades logged yet.</div>"
 
     js = ("<script>function pref(p){var o=JSON.parse(p);"
+          "var ls=document.getElementById('logsect');if(ls)ls.open=true;"
           "document.getElementById('f_date').value=o.date||'';"
           "document.getElementById('f_setup').value=o.setup||'';"
           "document.getElementById('f_entry').value=o.entry||'';"
           "var sv=document.getElementById('f_side');sv.value=o.side||'LONG';"
           "var st=document.getElementById('f_strategy');st.value=o.strategy||'A/B';"
           "document.getElementById('f_pnl').focus();"
-          "document.querySelector('.addbox').scrollIntoView({behavior:'smooth'});return false;}</script>")
+          "document.querySelector('.addbox').scrollIntoView({behavior:'smooth'});return false;}"
+          "function togMenu(){document.body.classList.toggle('nomenu');"
+          "try{localStorage.setItem('pnlmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}"
+          "try{if(localStorage.getItem('pnlmenu')==='0')document.body.classList.add('nomenu');}catch(e){}</script>")
 
     return (_CSS + "<h1>P&amp;L Journal - all strategies</h1>"
             "<div class='sub'>real broker fills &#183; Taken toggle &#183; persisted in journal.db (downloadable)</div>"
+            + "<button class='menutoggle' onclick='togMenu()'>&#9776; hide/show menu</button>"
             + _NAV
             + "<div class='cards'>" + cards + "</div>"
             + "<a class='dl' href='/pnl.csv'>&#8595; download CSV</a><a class='dl' href='/pnl.db'>&#8595; download database (journal.db)</a>"
             + "<h3>Summary by strategy — trades taken &amp; P&amp;L</h3>" + pertbl
             + "<h3>Backtest reference — edge, win rate &amp; profit factor</h3>" + reftbl
             + _charts_html(rows)
-            + "<h3>Log a trade (real fill)</h3>" + addf
-            + "<h3>Import broker CSV</h3>" + impf
+            + "<details class='sect' id='logsect'><summary>Log a trade (real fill)</summary>" + addf + "</details>"
+            + "<details class='sect'><summary>Import broker CSV</summary>" + impf + "</details>"
             + "<h3>All logged trades</h3>" + tradetbl
             + "<h3>Alerts fired - which strategy? (did you take any?)</h3>" + sigtbl
             + js)
