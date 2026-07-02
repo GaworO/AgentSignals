@@ -335,7 +335,8 @@ def _import_csv(DB, text, strategy, default_setup='', risk_per_trade=None):
 _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans-serif;margin:0;padding:16px}"
         "h1{font-size:18px;margin:0 0 2px}h3{font-size:13px;color:#9a9a9a;margin:18px 0 6px;text-transform:uppercase;letter-spacing:.06em}"
         ".sub{color:#555;font:11px monospace;margin-bottom:10px}"
-        ".nav{margin-bottom:12px;font:11px monospace}.nav a{color:#22d3ee;text-decoration:none;margin-right:14px}"
+        ".nav{margin-bottom:12px;font:11px monospace}.nav a{color:#6b7280;text-decoration:none;margin-right:14px}"
+        ".nav a:hover{color:#9ca3af}.nav a.active{color:#22d3ee;font-weight:700}"
         ".cards{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 4px}"
         ".card{background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 14px;min-width:120px}"
         ".card .k{color:#666;font:9px monospace;text-transform:uppercase;letter-spacing:.08em}"
@@ -379,7 +380,7 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         "}"
         "</style>")
 
-_NAV = ("<div class='nav'><a href='/pnl'>P&amp;L journal</a><a href='/journal'>signals</a>"
+_NAV = ("<div class='nav'><a class='active' href='/pnl'>P&amp;L journal</a><a href='/journal'>signals</a>"
         "<a href='/candidates'>candidates</a><a href='/performance'>A&#183;perf(modeled)</a>"
         "<a href='/status'>status</a></div>")
 
