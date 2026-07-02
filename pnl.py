@@ -217,8 +217,14 @@ def _stats(rows):
         sw = sum(1 for r in sres if r.get('result') == 'win')
         sp = [r['pnl_usd'] for r in srows if r.get('pnl_usd') is not None]
         sr = [r['pnl_r'] for r in srows if r.get('pnl_r') is not None]
+        gross_w = sum(x for x in sp if x > 0)
+        gross_l = -sum(x for x in sp if x < 0)
+        pf = (gross_w / gross_l) if gross_l > 0 else (None if gross_w == 0 else float('inf'))
         per[s] = dict(n=len(srows), resolved=len(sres), win_pct=round(100 * sw / len(sres), 1) if sres else 0.0,
-                      total_usd=_sum(sp), total_R=round(sum(sr), 2) if sr else 0.0)
+                      total_usd=_sum(sp), total_R=round(sum(sr), 2) if sr else 0.0,
+                      exp_r=round(sum(sr) / len(sr), 3) if sr else None,
+                      avg_usd=round(sum(sp) / len(sp), 2) if sp else 0.0,
+                      pf=(round(pf, 2) if (pf is not None and pf != float('inf')) else pf))
     return overall, per
 
 
@@ -338,6 +344,10 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         ".addbox label{font:9px monospace;color:#777;text-transform:uppercase;display:inline-block}"
         ".addbox .fld{display:inline-block;margin-right:4px}.go{background:#134e2a;border-color:#1f7a41;color:#c7f9d8;padding:6px 16px}"
         ".empty{padding:16px;color:#555;font:12px monospace}a.dl{color:#22d3ee;text-decoration:none;margin-right:14px;font:12px monospace}"
+        ".charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 4px}"
+        ".chartcard{background:#111;border:1px solid #262626;border-radius:8px;padding:10px}"
+        ".chartcard h4{margin:0 0 6px;font:10px monospace;color:#888;text-transform:uppercase;letter-spacing:.06em}"
+        ".chartcard canvas{max-height:240px}@media(max-width:640px){.charts{grid-template-columns:1fr}}"
         "</style>")
 
 _NAV = ("<div class='nav'><a href='/pnl'>P&amp;L journal</a><a href='/journal'>signals</a>"
@@ -350,6 +360,57 @@ def _money(v):
         return "<span class='zero'>-</span>"
     cls = 'pos' if v > 0 else ('neg' if v < 0 else 'zero')
     return "<span class='%s'>%s$%s</span>" % (cls, '+' if v > 0 else '', ('%.2f' % v))
+
+
+def _chart_payload(rows):
+    taken = [r for r in rows if r.get('taken')]
+    seq = [r for r in taken if r.get('pnl_usd') is not None]
+    seq.sort(key=lambda r: ((r.get('date') or ''), (r.get('time') or '')))
+    eq = []; run = 0.0
+    for r in seq:
+        run += r['pnl_usd']
+        eq.append({'t': ((r.get('date') or '') + ' ' + (r.get('time') or '')).strip(), 'y': round(run, 2)})
+    per = {}
+    for r in taken:
+        s = r.get('strategy') or 'Other'
+        per.setdefault(s, {'n': 0, 'pnl': 0.0})
+        per[s]['n'] += 1
+        if r.get('pnl_usd') is not None:
+            per[s]['pnl'] += r['pnl_usd']
+    order = sorted(per.items(), key=lambda x: -x[1]['pnl'])
+    labels = [s for s, _ in order]
+    pnl = [round(v['pnl'], 2) for _, v in order]
+    counts = [v['n'] for _, v in order]
+    resolved = [r for r in taken if (r.get('result') or 'open') != 'open']
+    wl = {'win': 0, 'loss': 0, 'be': 0}
+    for r in resolved:
+        k = r.get('result')
+        if k in wl:
+            wl[k] += 1
+    return dict(equity=eq, labels=labels, pnl=pnl, counts=counts, wl=wl)
+
+
+def _charts_html(rows):
+    cp = _chart_payload(rows)
+    if not cp['labels'] and not cp['equity']:
+        return ""
+    data_js = json.dumps(cp)
+    return (
+        "<script src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'></script>"
+        "<div class='charts'>"
+        "<div class='chartcard' style='grid-column:1/-1'><h4>Equity curve (cumulative $, taken trades)</h4><canvas id='cEquity'></canvas></div>"
+        "<div class='chartcard'><h4>P&amp;L by strategy</h4><canvas id='cPnl'></canvas></div>"
+        "<div class='chartcard'><h4>Trades taken by strategy</h4><canvas id='cCount'></canvas></div>"
+        "<div class='chartcard'><h4>Win / Loss / BE</h4><canvas id='cWL'></canvas></div>"
+        "</div>"
+        "<script>(function(){var D=%s;var g='#4ade80',r='#f87171',b='#22d3ee',m='#777';"
+        "function mk(id,c){var e=document.getElementById(id);if(e&&window.Chart){new Chart(e,c);}}"
+        "var ax={x:{ticks:{color:m,maxTicksLimit:8,autoSkip:true},grid:{color:'#1a1a1a'}},y:{ticks:{color:m},grid:{color:'#1a1a1a'}}};"
+        "mk('cEquity',{type:'line',data:{labels:D.equity.map(function(p){return p.t;}),datasets:[{data:D.equity.map(function(p){return p.y;}),borderColor:b,backgroundColor:'rgba(34,211,238,.12)',fill:true,tension:.2,pointRadius:2}]},options:{responsive:true,plugins:{legend:{display:false}},scales:ax}});"
+        "mk('cPnl',{type:'bar',data:{labels:D.labels,datasets:[{data:D.pnl,backgroundColor:D.pnl.map(function(v){return v>=0?g:r;})}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:m},grid:{display:false}},y:{ticks:{color:m},grid:{color:'#1a1a1a'}}}});"
+        "mk('cCount',{type:'bar',data:{labels:D.labels,datasets:[{data:D.counts,backgroundColor:b}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:m},grid:{display:false}},y:{ticks:{color:m,precision:0},grid:{color:'#1a1a1a'}}}});"
+        "mk('cWL',{type:'doughnut',data:{labels:['win','loss','be'],datasets:[{data:[D.wl.win,D.wl.loss,D.wl.be],backgroundColor:[g,r,m]}]},options:{responsive:true,plugins:{legend:{labels:{color:'#bbb'}}}}});"
+        "})();</script>" % data_js)
 
 
 def _dashboard_html(rows, sigs, acounts=None):
@@ -372,10 +433,25 @@ def _dashboard_html(rows, sigs, acounts=None):
     if per:
         pr = ''
         for s, d in per.items():
-            pr += ("<tr><td>%s</td><td>%d</td><td>%d</td><td>%.0f%%</td><td>%s</td><td>%+.2fR</td></tr>"
-                   % (s, d['n'], d['resolved'], d['win_pct'], _money(d['total_usd']), d['total_R']))
-        pertbl = ("<div class='wrap'><table><thead><tr><th>Strategy</th><th>Taken</th><th>Resolved</th>"
-                  "<th>Win%%</th><th>P&amp;L</th><th>R</th></tr></thead><tbody>%s</tbody></table></div>" % pr)
+            exp = d.get('exp_r')
+            if exp is None:
+                expcell = "<span class='zero'>—</span>"
+            else:
+                ecls = 'pos' if exp >= 0.15 else ('neg' if exp < 0 else 'zero')   # +0.15R = Gate-0 edge
+                expcell = "<span class='%s'>%+.3fR</span>" % (ecls, exp)
+            pf = d.get('pf')
+            pfcell = ('∞' if pf == float('inf') else ('%.2f' % pf if isinstance(pf, (int, float)) else '—'))
+            pfcls = 'pos' if (pf == float('inf') or (isinstance(pf, (int, float)) and pf >= 1)) else 'neg'
+            pr += ("<tr><td><b>%s</b></td><td>%d</td><td>%.0f%%</td><td>%s</td><td>%s</td>"
+                   "<td class='%s'>%s</td><td>%s</td><td>%+.2fR</td></tr>"
+                   % (s, d['n'], d['win_pct'], expcell, _money(d['avg_usd']),
+                      pfcls, pfcell, _money(d['total_usd']), d['total_R']))
+        pertbl = ("<div class='wrap'><table><thead><tr><th>Strategy</th><th>Trades</th><th>Win%%</th>"
+                  "<th title='avg R per trade — your edge'>Exp R (edge)</th><th>Avg $</th>"
+                  "<th title='gross win $ / gross loss $'>Profit factor</th><th>Total P&amp;L</th><th>Total R</th>"
+                  "</tr></thead><tbody>%s</tbody></table></div>"
+                  "<div class='sub'>Edge = Exp R (avg R/trade). Green ≥ +0.15R (your Gate-0). Profit factor &gt; 1 = net winning. "
+                  "R/edge needs Risk $ on the trade — set it in the log form or the import risk box.</div>" % pr)
     else:
         pertbl = "<div class='empty'>No taken trades yet - log one below.</div>"
 
@@ -440,7 +516,10 @@ def _dashboard_html(rows, sigs, acounts=None):
     if rows:
         tr = ''
         for r in rows:
-            takenbadge = "yes" if r.get('taken') else "-"
+            chk = ' checked' if r.get('taken') else ''
+            takencell = ("<form class='inl' method='post' action='/pnl/toggle/%s'>"
+                         "<input type='checkbox' title='counts in your P&amp;L when ticked' "
+                         "onchange='this.form.submit()'%s></form>" % (r['id'], chk))
             cur = str(r.get('strategy', '') or '')
             o = "<option value=''%s>&mdash; pick &mdash;</option>" % (" selected" if not cur else "")
             for s in STRATEGIES:
@@ -449,16 +528,14 @@ def _dashboard_html(rows, sigs, acounts=None):
             stratcell = ("<form class='inl' method='post' action='/pnl/setstrat/%s'>"
                          "<select name='strategy' onchange='this.form.submit()'%s>%s</select></form>" % (r['id'], need, o))
             tr += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
-                   "<td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
-                   "<td><form class='inl' method='post' action='/pnl/toggle/%s'><button>%s</button></form> "
-                   "<form class='inl' method='post' action='/pnl/del/%s' onsubmit=\"return confirm('Delete this trade?')\"><button class='bin'>del</button></form></td></tr>"
+                   "<td>%s</td><td>%s</td><td>%s</td><td style='text-align:center'>%s</td>"
+                   "<td><form class='inl' method='post' action='/pnl/del/%s' onsubmit=\"return confirm('Delete this trade?')\"><button class='bin'>del</button></form></td></tr>"
                    % (_h.escape(str(r.get('date', ''))), _h.escape(str(r.get('time', '') or '')),
                       stratcell, _h.escape(str(r.get('setup', '') or '')),
                       _h.escape(str(r.get('side', '') or '')), _h.escape(str(r.get('entry', '') or '')),
                       _h.escape(str(r.get('exit', '') or '')), _money(r.get('pnl_usd')),
                       ('%+.2f' % r['pnl_r']) if r.get('pnl_r') is not None else '-',
-                      _h.escape(str(r.get('result', '') or '')), takenbadge,
-                      r['id'], 'taken' if r.get('taken') else 'not', r['id']))
+                      _h.escape(str(r.get('result', '') or '')), takencell, r['id']))
         tradetbl = ("<div class='wrap'><table><thead><tr><th>Date</th><th>Time</th><th>Strat</th><th>Setup</th>"
                     "<th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L $</th><th>R</th><th>Result</th>"
                     "<th>Taken</th><th></th></tr></thead><tbody>%s</tbody></table></div>" % tr)
@@ -479,9 +556,10 @@ def _dashboard_html(rows, sigs, acounts=None):
             + _NAV
             + "<div class='cards'>" + cards + "</div>"
             + "<a class='dl' href='/pnl.csv'>&#8595; download CSV</a><a class='dl' href='/pnl.db'>&#8595; download database (journal.db)</a>"
+            + "<h3>Summary by strategy — trades taken &amp; P&amp;L</h3>" + pertbl
+            + _charts_html(rows)
             + "<h3>Log a trade (real fill)</h3>" + addf
             + "<h3>Import broker CSV</h3>" + impf
-            + "<h3>Per-strategy P&amp;L (taken only)</h3>" + pertbl
             + "<h3>All logged trades</h3>" + tradetbl
             + "<h3>Alerts fired - which strategy? (did you take any?)</h3>" + sigtbl
             + js)
