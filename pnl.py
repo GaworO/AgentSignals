@@ -367,7 +367,28 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         "details.sect>summary::-webkit-details-marker{display:none}"
         "details.sect>summary:before{content:'+ ';color:#22d3ee;font-weight:700}details.sect[open]>summary:before{content:'\\2013 ';color:#22d3ee;font-weight:700}"
         "details.sect .addbox{margin:0;border:none;border-top:1px solid #262626;border-radius:0}"
-        "@media(max-width:640px){"
+        ".hero{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin:8px 0}"
+        ".herobig{background:#111;border:1px solid #262626;border-radius:12px;padding:14px 16px}"
+        ".herobig .k{color:#777;font:9px monospace;text-transform:uppercase;letter-spacing:.08em}"
+        ".herobig .v{font:600 30px system-ui;margin:2px 0 4px}"
+        ".herosub{display:grid;grid-template-rows:1fr 1fr;gap:12px}"
+        ".herosub .card{margin:0}"
+        ".stratgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin:6px 0 4px}"
+        ".scard{background:#141414;border:1px solid #262626;border-radius:12px;padding:12px 14px}"
+        ".scard .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}"
+        ".scard .nm{font:600 14px system-ui}.scard .big{font:600 20px system-ui}"
+        ".scard .meta{font:10px monospace;color:#888;margin-top:3px}"
+        ".pill{font:8px monospace;padding:3px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.05em;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}"
+        ".pill.win{background:#0f2a1a;color:#4ade80}.pill.warn{background:#2a2005;color:#f59e0b}"
+        ".pill.lose{background:#2a1010;color:#f87171}.pill.neut{background:#1a1a1a;color:#8a8a8a}"
+        ".pill svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.9}"
+        ".ebar{height:6px;border-radius:999px;background:#0a0a0a;overflow:hidden;margin-top:9px}.ebar>div{height:100%}"
+        ".ibtns{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 2px}"
+        ".ibtn{display:inline-flex;align-items:center;gap:7px;background:#151515;color:#cbd5e1;border:1px solid #2a2a2a;"
+        "border-radius:8px;padding:8px 14px;font:12px system-ui;cursor:pointer;text-decoration:none}"
+        ".ibtn:hover{background:#1f2937;border-color:#374151}.ibtn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7}"
+        ".ibtn.accent{border-color:#134e2a;background:#0e2a18;color:#c7f9d8}.ibtn.accent:hover{background:#134e2a}"
+        "@media(max-width:640px){.hero{grid-template-columns:1fr}.ibtn{flex:1 1 calc(50% - 10px);justify-content:center}"
         "body{padding:10px}h1{font-size:16px}h3{font-size:12px}"
         ".nav{line-height:1.9}.nav a{display:inline-block;margin:0 12px 4px 0}"
         ".cards{gap:6px}.card{flex:1 1 calc(50% - 6px);min-width:0;padding:8px 10px}.card .v{font-size:17px}"
@@ -525,6 +546,89 @@ def _ref_table_html():
             "Edit BACKTEST_REF in pnl.py to change.</div>" % pr)
 
 
+_ICONS = {
+    'plus': "<path d='M8 2v12M2 8h12'/>",
+    'upload': "<path d='M8 11V3M5 6l3-3 3 3'/><path d='M2.5 13h11'/>",
+    'download': "<path d='M8 3v8M5 8l3 3 3-3'/><path d='M2.5 13.5h11'/>",
+    'db': "<ellipse cx='8' cy='4' rx='5' ry='2'/><path d='M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4'/><path d='M3 8c0 1.1 2.2 2 5 2s5-.9 5-2'/>",
+    'up': "<path d='M4 10.5l4-5 4 5'/>",
+    'down': "<path d='M4 5.5l4 5 4-5'/>",
+    'flat': "<path d='M3 8h10'/>",
+}
+
+
+def _icon(name):
+    return "<svg viewBox='0 0 16 16'>%s</svg>" % _ICONS.get(name, '')
+
+
+def _hero_html(rows):
+    overall, _p = _stats(rows)
+    cp = _chart_payload(rows)
+    eq = cp['equity']
+    tot = overall['total_usd']; totcls = 'pos' if tot > 0 else ('neg' if tot < 0 else 'zero')
+    if eq:
+        ys = [p['y'] for p in eq]; ymin = min(ys + [0.0]); ymax = max(ys + [0.0]); span = (ymax - ymin) or 1.0
+        n = len(eq); W, H = 320, 60
+        X = lambda i: (i / (n - 1) if n > 1 else 0.5) * W
+        Y = lambda v: 6 + (1 - (v - ymin) / span) * (H - 12)
+        pts = ' '.join('%.1f,%.1f' % (X(i), Y(p['y'])) for i, p in enumerate(eq))
+        col = '#4ade80' if eq[-1]['y'] >= 0 else '#f87171'
+        spark = ("<svg viewBox='0 0 %d %d' style='width:100%%;height:54px;margin-top:8px'>"
+                 "<polyline points='%s' fill='none' stroke='%s' stroke-width='2'/>"
+                 "<circle cx='%.1f' cy='%.1f' r='3' fill='%s'/></svg>" % (W, H, pts, col, X(n - 1), Y(eq[-1]['y']), col))
+    else:
+        spark = "<div class='sub' style='margin-top:8px'>No P&amp;L yet — log or import a trade.</div>"
+    r = overall['total_R']; rcls = 'pos' if r > 0 else ('neg' if r < 0 else 'zero')
+    return ("<div class='hero'>"
+            "<div class='herobig'><div class='k'>Total P&amp;L (taken)</div>"
+            "<div class='v %s'>%s$%s</div>%s</div>"
+            "<div class='herosub'>"
+            "<div class='card'><div class='k'>Total R</div><div class='v %s'>%+.1fR</div></div>"
+            "<div class='card'><div class='k'>Win rate</div><div class='v'>%.0f%%</div></div>"
+            "</div></div>"
+            % (totcls, '+' if tot > 0 else '', '{:,.0f}'.format(tot), spark, rcls, r, overall['win_pct']))
+
+
+def _strategy_cards_html(rows):
+    import html as _h
+    _o, per = _stats(rows)
+    if not per:
+        return ""
+    cards = ""
+    for s, d in per.items():
+        live = d.get('exp_r'); tgt = BACKTEST_REF.get(s, {}).get('exp_r'); usd = d.get('total_usd', 0.0)
+        if live is None:
+            cls, lbl, ic, frac = 'neut', 'no R yet', 'flat', 0.06
+        elif live < 0:
+            cls, lbl, ic, frac = 'lose', 'losing', 'down', 0.08
+        elif tgt and live >= tgt:
+            cls, lbl, ic, frac = 'win', 'beating edge', 'up', min(live / tgt, 1.5) / 1.5
+        else:
+            cls, lbl, ic, frac = 'warn', 'below target', 'flat', (live / tgt if tgt else 0.5)
+        frac = max(0.05, min(frac, 1.0))
+        barcol = {'win': '#4ade80', 'warn': '#f59e0b', 'lose': '#f87171', 'neut': '#555'}[cls]
+        ucls = 'pos' if usd > 0 else ('neg' if usd < 0 else 'zero')
+        lr = ('%+.3fR' % live) if live is not None else '—'
+        tr = ('%+.2fR' % tgt) if tgt is not None else '—'
+        cards += ("<div class='scard'><div class='top'><span class='nm'>%s</span>"
+                  "<span class='pill %s'>%s%s</span></div>"
+                  "<div class='big %s'>%s$%s</div>"
+                  "<div class='meta'>%s live &#183; %s target &#183; %d trades</div>"
+                  "<div class='ebar'><div style='width:%.0f%%;background:%s'></div></div></div>"
+                  % (_h.escape(str(s)), cls, _icon(ic), lbl, ucls, '+' if usd > 0 else '',
+                     '{:,.0f}'.format(usd), lr, tr, d['n'], frac * 100, barcol))
+    return "<div class='stratgrid'>" + cards + "</div>"
+
+
+def _icon_buttons_html():
+    return ("<div class='ibtns'>"
+            "<a class='ibtn accent' href='#logsect' onclick=\"var l=document.getElementById('logsect');if(l)l.open=true;\">%s Log trade</a>"
+            "<a class='ibtn' href='#impsect' onclick=\"var i=document.getElementById('impsect');if(i)i.open=true;\">%s Import CSV</a>"
+            "<a class='ibtn' href='/pnl.csv'>%s CSV</a>"
+            "<a class='ibtn' href='/pnl.db'>%s Database</a>"
+            "</div>" % (_icon('plus'), _icon('upload'), _icon('download'), _icon('db')))
+
+
 def _dashboard_html(rows, sigs, acounts=None):
     import html as _h
     overall, per = _stats(rows)
@@ -677,13 +781,16 @@ def _dashboard_html(rows, sigs, acounts=None):
             "<div class='sub'>real broker fills &#183; Taken toggle &#183; persisted in journal.db (downloadable)</div>"
             + "<button class='menutoggle' onclick='togMenu()'>&#9776; hide/show menu</button>"
             + _NAV
-            + "<div class='cards'>" + cards + "</div>"
-            + "<a class='dl' href='/pnl.csv'>&#8595; download CSV</a><a class='dl' href='/pnl.db'>&#8595; download database (journal.db)</a>"
+            + _hero_html(rows)
+            + _icon_buttons_html()
+            + (("<h3>Edge by strategy — live vs backtest</h3>" + _strategy_cards_html(rows)) if per else "")
+            + "<details class='sect'><summary>Detailed metrics &amp; cards</summary><div style='padding:6px 10px'>"
+            + "<div class='cards'>" + cards + "</div></div></details>"
             + "<h3>Summary by strategy — trades taken &amp; P&amp;L</h3>" + pertbl
             + "<h3>Backtest reference — edge, win rate &amp; profit factor</h3>" + reftbl
             + _charts_html(rows)
             + "<details class='sect' id='logsect'><summary>Log a trade (real fill)</summary>" + addf + "</details>"
-            + "<details class='sect'><summary>Import broker CSV</summary>" + impf + "</details>"
+            + "<details class='sect' id='impsect'><summary>Import broker CSV</summary>" + impf + "</details>"
             + "<h3>All logged trades</h3>" + tradetbl
             + "<h3>Alerts fired - which strategy? (did you take any?)</h3>" + sigtbl
             + js)

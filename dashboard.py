@@ -28,9 +28,11 @@ body{margin:0;background:#0b0e14;color:#e6e9ef;font-family:system-ui,Segoe UI,Ro
 aside{background:#0e1320;border-right:1px solid #1b2230;padding:14px 10px;overflow:auto}
 .brand{font-size:15px;font-weight:700;padding:4px 10px 8px;display:flex;align-items:center;gap:8px}
 .grp{font-size:11px;color:#6b7688;text-transform:uppercase;letter-spacing:.05em;padding:12px 10px 4px}
-.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:#9aa3b5;cursor:pointer;font-size:14px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:#828a99;cursor:pointer;font-size:14px}
 .nav:hover{background:#141a28;color:#e6e9ef}
-.nav.on{background:#12294a;color:#8ab4f8}
+.nav.on{background:#13251b;color:#4ade80;box-shadow:inset 3px 0 0 #4ade80}
+html[data-framed] aside,html[data-framed] header{display:none}
+html[data-framed] .app{grid-template-columns:1fr}
 .ic{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:0 0 16px}
 .ic svg{width:16px;height:16px;display:block}
 main{display:flex;flex-direction:column;min-width:0}
@@ -41,7 +43,7 @@ h1{font-size:18px;margin:0}.sub{color:#6b7688;font-size:13px}
 .tabs{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
 .tab{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:8px;color:#9aa3b5;cursor:pointer;font-size:13px;border:1px solid #1b2230}
 .tab:hover{color:#e6e9ef;border-color:#2a3550}
-.tab.on{background:#12294a;color:#8ab4f8;border-color:#22406e}
+.tab.on{background:#13251b;color:#4ade80;border-color:#1f7a41}
 .body{flex:1;min-height:0;position:relative}
 iframe{width:100%;height:100%;border:0;background:#fff}
 .static{padding:22px 26px;max-width:780px;overflow:auto;height:100%}
@@ -67,6 +69,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
   </main>
 </div>
 <script>
+if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
 var F="__F__", ORB="__ORB__";
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
