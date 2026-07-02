@@ -414,7 +414,7 @@ h1{{font-size:20px}} .cards{{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0}
 th,td{{border-bottom:1px solid #eee;padding:6px 8px;text-align:left}} th{{background:#f4f4f4}}
 .small{{color:#888;font-size:12px}}</style></head><body>
 <h1>🅾 Strategy ORB — Trend-Day Opening Breakout <span class=small>({enabled})</span></h1>
-<div class=small>Momentum breakout (NOT ICT). Separate stream from A/B · C · F. Backtest ref (4yr, net): bias-aligned +0.132R, ~121 trades/yr, ~19% to 2R, +0.10 corr w/ A/B.</div>
+<div class=small>Momentum breakout (NOT ICT). Separate stream from A/B · C · F. Backtest ref (4yr, net): +0.12R tap / +0.25R resting, ~116 trades/yr, 2.5R target, +0.10 corr w/ A/B. · <a href="/how" style="color:#1565c0">📖 How it works + example trade →</a></div>
 
 <h3>① Candidate — today ({ts.get('date','?')} · {ts.get('now','')})</h3>
 <div class=card style="min-width:100%">{cand}</div>
@@ -436,9 +436,60 @@ th,td{{border-bottom:1px solid #eee;padding:6px 8px;text-align:left}} th{{backgr
 </body></html>"""
     return html
 
+def _example_svg():
+    return ('<svg viewBox="0 0 720 380" width="100%" style="max-width:720px;background:#fff;border:1px solid #eee;border-radius:8px">'
+            '<text x="90" y="372" font-size="10" fill="#888">09:30</text>'
+            '<text x="150" y="372" font-size="10" fill="#888">09:44</text>'
+            '<text x="290" y="372" font-size="10" fill="#888">10:30</text>'
+            '<text x="460" y="372" font-size="10" fill="#888">12:00</text>'
+            '<text x="640" y="372" font-size="10" fill="#888">15:59</text>'
+            '<line x1="60" y1="110" x2="700" y2="110" stroke="#26a69a" stroke-dasharray="4" stroke-width="1.5"/>'
+            '<text x="505" y="104" font-size="11" fill="#1b7a5a" font-weight="bold">TARGET  +2.5R</text>'
+            '<line x1="60" y1="210" x2="700" y2="210" stroke="#1565c0" stroke-width="1.5"/>'
+            '<text x="470" y="205" font-size="11" fill="#1565c0" font-weight="bold">ENTRY = range high, on the break</text>'
+            '<line x1="60" y1="250" x2="700" y2="250" stroke="#ef5350" stroke-dasharray="4" stroke-width="1.5"/>'
+            '<text x="520" y="266" font-size="11" fill="#c62828" font-weight="bold">STOP = range low (1R)</text>'
+            '<rect x="90" y="210" width="60" height="40" fill="#ffe08a" fill-opacity="0.5" stroke="#c9a227" stroke-dasharray="3"/>'
+            '<text x="92" y="202" font-size="10" fill="#8a6d00">opening range 09:30-09:44</text>'
+            '<polyline fill="none" stroke="#333" stroke-width="1.6" points="90,240 100,225 110,245 120,222 130,248 140,228 150,236 160,216 172,206 182,200 194,212 206,204 226,190 256,175 286,160 316,150 346,136 376,126 406,116 428,111 470,106 510,112 550,101 590,109 630,103 670,107"/>'
+            '<circle cx="172" cy="206" r="5" fill="#d81b60"/>'
+            '<text x="150" y="150" font-size="11" fill="#d81b60" font-weight="bold">1. 1-min close breaks the range</text>'
+            '<text x="163" y="164" font-size="11" fill="#d81b60" font-weight="bold">-> ALERT sent to Telegram</text>'
+            '<text x="418" y="118" font-size="20" fill="#1b7a5a">*</text>'
+            '<text x="300" y="96" font-size="11" fill="#1b7a5a" font-weight="bold">2. +2.5R target reached</text>'
+            '<text x="60" y="300" font-size="10.5" fill="#555">risk (1R) auto-sized to 0.5% of account -> fewer contracts when the range is wide</text>'
+            '</svg>')
+
+def render_how():
+    return f"""<!doctype html><html><head><meta charset=utf-8><title>Strategy ORB - how it works</title>
+<style>body{{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:26px;color:#222;background:#fafafa;max-width:820px}}
+h1{{font-size:21px}} h3{{margin-top:22px}} a{{color:#1565c0}} .small{{color:#888;font-size:13px}}
+ol{{line-height:1.7}} .warn{{background:#fff8e1;border:1px solid #f0d98a;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:16px}}</style>
+</head><body>
+<p><a href="/">&larr; back to dashboard</a></p>
+<h1>🅾 Strategy ORB - Trend-Day Opening Breakout</h1>
+<div class=small>A <b>momentum</b> strategy - NOT ICT (no FVG, no displacement, no liquidity sweep). It captures the ~11% of days that trend from the open, which your A/B/C/F retracement models skip. Its daily P&amp;L is only ~0.10 correlated with A/B, so it diversifies the book.</div>
+<h3>Example trade</h3>
+{_example_svg()}
+<h3>The rules, step by step</h3>
+<ol>
+<li><b>Draw the box.</b> 09:30-09:44 ET high &amp; low = the opening range.</li>
+<li><b>Wait for a break.</b> First 1-min candle that <b>closes</b> beyond the box (above = long, below = short) - a close, not just a wick.</li>
+<li><b>Two filters:</b> the break must happen <b>by 10:30 ET</b>, and must agree with the <b>20-day trend</b> (price above its 20-day average -> longs only; below -> shorts only).</li>
+<li><b>Order:</b> stop-limit entry at the broken edge - stop = the <b>opposite</b> edge (= 1R) - target = <b>2.5R</b> - no break-even.</li>
+<li><b>Size:</b> automatic - 1R is always 0.5% of the account, so a wide range = fewer contracts.</li>
+</ol>
+<h3>What to expect</h3>
+<div class=small>~116 trades/year (~2-3 per week) - only ~17-20% hit the 2.5R target (a low-win, 2.5:1 payoff model - judge it on expectancy, like your F) - positive every year 2022-2026 - realistic edge +0.12R (tap after alert) to +0.25R (resting order at the edge).</div>
+<div class=warn><b>In-sample.</b> Discovered on 4 years of the same data; per-year consistency is the robustness check, not a true hold-out. The live log on the dashboard is the number that counts - prove &ge; +0.10R over 30-50 trades before sizing up. Not financial advice.</div>
+<p class=small><a href="/">&larr; back to dashboard</a></p>
+</body></html>"""
+
 if app is not None:
     @app.route('/')
     def _home(): return Response(render_dashboard(), mimetype='text/html')
+    @app.route('/how')
+    def _how(): return Response(render_how(), mimetype='text/html')
     @app.route('/health')
     def _health(): return jsonify(ok=True, enabled=ENABLED, buffer=BUF)
     @app.route('/api/state')
