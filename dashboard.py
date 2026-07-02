@@ -33,6 +33,10 @@ aside{background:#0e1320;border-right:1px solid #1b2230;padding:14px 10px;overfl
 .nav.on{background:#13251b;color:#4ade80;box-shadow:inset 3px 0 0 #4ade80}
 html[data-framed] aside,html[data-framed] header{display:none}
 html[data-framed] .app{grid-template-columns:1fr}
+.menubtn{background:#141a28;color:#9aa3b5;border:1px solid #1b2230;border-radius:8px;padding:6px 11px;cursor:pointer;font-size:15px;line-height:1;display:inline-flex;align-items:center}
+.menubtn:hover{color:#e6e9ef;border-color:#2a3550}
+body.nomenu aside{display:none}
+body.nomenu .app{grid-template-columns:1fr}
 .ic{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:0 0 16px}
 .ic svg{width:16px;height:16px;display:block}
 main{display:flex;flex-direction:column;min-width:0}
@@ -61,7 +65,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
   </aside>
   <main>
     <header>
-      <div class="hrow"><h1 id="ttl">P&amp;L</h1><span class="sub" id="sub"></span>
+      <div class="hrow"><button class="menubtn" onclick="toggleMenu()" title="Hide/show menu" aria-label="Hide or show menu">&#9776;</button><h1 id="ttl">P&amp;L</h1><span class="sub" id="sub"></span>
         <a class="open" id="open" href="#" target="_blank" rel="noopener" style="display:none"></a></div>
       <div class="tabs" id="tabs"></div>
     </header>
@@ -70,6 +74,8 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 </div>
 <script>
 if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
+function toggleMenu(){document.body.classList.toggle('nomenu');try{localStorage.setItem('deskmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}
+try{if(localStorage.getItem('deskmenu')==='0')document.body.classList.add('nomenu');}catch(e){}
 var F="__F__", ORB="__ORB__";
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
