@@ -23,6 +23,18 @@ Routes added:
 import os, csv, io, json, sqlite3, datetime as dt
 
 STRATEGIES = ['A/B', 'C', 'F', 'ORB', 'PREM', 'S1', 'S2', 'Other']
+
+# Backtest reference — the edge your LIVE numbers should track. From the 4-yr research; None = not
+# established yet. EDIT these to your verified figures (they're shown read-only as a target vs live).
+BACKTEST_REF = {
+    'A/B':  {'exp_r': 0.20,  'win_pct': None, 'pf': None},   # frozen-config 4yr ~+0.19-0.20R realistic
+    'C':    {'exp_r': 0.66,  'win_pct': None, 'pf': None},   # Model C staircase, +0.66R, positive every yr
+    'F':    {'exp_r': 0.045, 'win_pct': None, 'pf': None},   # realistic additive ~+0.045R (weak)
+    'PREM': {'exp_r': 0.246, 'win_pct': None, 'pf': 1.62},   # verified +0.246R, PF 1.62, 4/4 yrs
+    'ORB':  {'exp_r': None,  'win_pct': None, 'pf': None},
+    'S1':   {'exp_r': None,  'win_pct': None, 'pf': None},
+    'S2':   {'exp_r': None,  'win_pct': None, 'pf': None},
+}
 _COLS = ['id', 'logged_at', 'date', 'time', 'strategy', 'setup', 'side', 'taken',
          'entry', 'exit', 'size', 'risk_usd', 'pnl_usd', 'pnl_r', 'result', 'fees',
          'signal_key', 'notes']
@@ -347,7 +359,7 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         ".charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0 4px}"
         ".chartcard{background:#111;border:1px solid #262626;border-radius:8px;padding:10px}"
         ".chartcard h4{margin:0 0 6px;font:10px monospace;color:#888;text-transform:uppercase;letter-spacing:.06em}"
-        ".chartcard canvas{max-height:240px}@media(max-width:640px){.charts{grid-template-columns:1fr}}"
+        ".chartcard svg{display:block}@media(max-width:640px){.charts{grid-template-columns:1fr}}"
         "</style>")
 
 _NAV = ("<div class='nav'><a href='/pnl'>P&amp;L journal</a><a href='/journal'>signals</a>"
@@ -391,26 +403,86 @@ def _chart_payload(rows):
 
 
 def _charts_html(rows):
+    """Pure inline-SVG charts — no external library, renders whenever the page does."""
+    import html as _h
     cp = _chart_payload(rows)
     if not cp['labels'] and not cp['equity']:
         return ""
-    data_js = json.dumps(cp)
-    return (
-        "<script src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'></script>"
-        "<div class='charts'>"
-        "<div class='chartcard' style='grid-column:1/-1'><h4>Equity curve (cumulative $, taken trades)</h4><canvas id='cEquity'></canvas></div>"
-        "<div class='chartcard'><h4>P&amp;L by strategy</h4><canvas id='cPnl'></canvas></div>"
-        "<div class='chartcard'><h4>Trades taken by strategy</h4><canvas id='cCount'></canvas></div>"
-        "<div class='chartcard'><h4>Win / Loss / BE</h4><canvas id='cWL'></canvas></div>"
-        "</div>"
-        "<script>(function(){var D=%s;var g='#4ade80',r='#f87171',b='#22d3ee',m='#777';"
-        "function mk(id,c){var e=document.getElementById(id);if(e&&window.Chart){new Chart(e,c);}}"
-        "var ax={x:{ticks:{color:m,maxTicksLimit:8,autoSkip:true},grid:{color:'#1a1a1a'}},y:{ticks:{color:m},grid:{color:'#1a1a1a'}}};"
-        "mk('cEquity',{type:'line',data:{labels:D.equity.map(function(p){return p.t;}),datasets:[{data:D.equity.map(function(p){return p.y;}),borderColor:b,backgroundColor:'rgba(34,211,238,.12)',fill:true,tension:.2,pointRadius:2}]},options:{responsive:true,plugins:{legend:{display:false}},scales:ax}});"
-        "mk('cPnl',{type:'bar',data:{labels:D.labels,datasets:[{data:D.pnl,backgroundColor:D.pnl.map(function(v){return v>=0?g:r;})}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:m},grid:{display:false}},y:{ticks:{color:m},grid:{color:'#1a1a1a'}}}});"
-        "mk('cCount',{type:'bar',data:{labels:D.labels,datasets:[{data:D.counts,backgroundColor:b}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:m},grid:{display:false}},y:{ticks:{color:m,precision:0},grid:{color:'#1a1a1a'}}}});"
-        "mk('cWL',{type:'doughnut',data:{labels:['win','loss','be'],datasets:[{data:[D.wl.win,D.wl.loss,D.wl.be],backgroundColor:[g,r,m]}]},options:{responsive:true,plugins:{legend:{labels:{color:'#bbb'}}}}});"
-        "})();</script>" % data_js)
+    G, R, B, TXT = '#4ade80', '#f87171', '#22d3ee', '#8a8a8a'
+
+    # ---- equity line ----
+    eq = cp['equity']
+    if eq:
+        W, H, pl, pr, pt, pb = 800, 220, 54, 14, 14, 24
+        ys = [p['y'] for p in eq]; ymin = min(ys + [0.0]); ymax = max(ys + [0.0])
+        span = (ymax - ymin) or 1.0; n = len(eq)
+        def X(i): return pl + (i / (n - 1) if n > 1 else 0.5) * (W - pl - pr)
+        def Y(v): return pt + (1 - (v - ymin) / span) * (H - pt - pb)
+        y0 = Y(0.0)
+        pts = ' '.join('%.1f,%.1f' % (X(i), Y(p['y'])) for i, p in enumerate(eq))
+        area = ('M %.1f,%.1f ' % (X(0), y0) + ' '.join('L %.1f,%.1f' % (X(i), Y(p['y'])) for i, p in enumerate(eq)) + ' L %.1f,%.1f Z' % (X(n - 1), y0))
+        dots = ''.join("<circle cx='%.1f' cy='%.1f' r='2.4' fill='%s'/>" % (X(i), Y(p['y']), B) for i, p in enumerate(eq))
+        last = eq[-1]['y']
+        eqsvg = ("<svg viewBox='0 0 %d %d' style='width:100%%;height:auto'>" % (W, H)
+                 + "<line x1='%d' y1='%.1f' x2='%d' y2='%.1f' stroke='#333' stroke-width='1'/>" % (pl, y0, W - pr, y0)
+                 + "<path d='%s' fill='%s' opacity='0.12'/>" % (area, B)
+                 + "<polyline points='%s' fill='none' stroke='%s' stroke-width='2'/>" % (pts, B) + dots
+                 + "<text x='6' y='%.1f' fill='%s' font-size='11' font-family='monospace'>$%.0f</text>" % (Y(ymax) + 9, TXT, ymax)
+                 + "<text x='6' y='%.1f' fill='%s' font-size='11' font-family='monospace'>$%.0f</text>" % (Y(ymin) - 3, TXT, ymin)
+                 + "<text x='6' y='%.1f' fill='%s' font-size='11' font-family='monospace'>$0</text>" % (y0 + 4, TXT)
+                 + "<text x='%d' y='16' fill='%s' font-size='12' font-family='monospace' text-anchor='end'>%s</text>" % (W - pr, (G if last >= 0 else R), ('$%+.0f' % last))
+                 + "</svg>")
+    else:
+        eqsvg = "<div class='empty'>No P&amp;L yet.</div>"
+
+    def bars(labels, values, signed):
+        if not labels:
+            return "<div class='empty'>No data.</div>"
+        W, H, pl, pr, pt, pb = 420, 200, 42, 8, 18, 28
+        nn = len(labels); plotW = W - pl - pr; plotH = H - pt - pb
+        vmin = min(values + [0.0]) if signed else 0.0
+        vmax = max(values + [0.0]) if signed else max(values + [1.0])
+        span = (vmax - vmin) or 1.0
+        def Y(v): return pt + (1 - (v - vmin) / span) * plotH
+        y0 = Y(0.0); step = plotW / nn; bw = step * 0.55
+        out = ["<svg viewBox='0 0 %d %d' style='width:100%%;height:auto'>" % (W, H),
+               "<line x1='%d' y1='%.1f' x2='%d' y2='%.1f' stroke='#333' stroke-width='1'/>" % (pl, y0, W - pr, y0)]
+        for i, (lab, v) in enumerate(zip(labels, values)):
+            x = pl + step * i + (step - bw) / 2
+            yv = Y(v); top = min(yv, y0); h = max(abs(yv - y0), 0.6)
+            col = (G if v >= 0 else R) if signed else B
+            out.append("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='%s' rx='2'/>" % (x, top, bw, h, col))
+            vs = ('%+.0f' % v) if signed else ('%d' % int(v))
+            ly = (top - 4) if v >= 0 else (top + h + 11)
+            out.append("<text x='%.1f' y='%.1f' fill='%s' font-size='10' font-family='monospace' text-anchor='middle'>%s</text>" % (x + bw / 2, ly, TXT, vs))
+            out.append("<text x='%.1f' y='%d' fill='%s' font-size='10' font-family='monospace' text-anchor='middle'>%s</text>" % (x + bw / 2, H - 7, TXT, _h.escape(str(lab))))
+        out.append("</svg>")
+        return ''.join(out)
+
+    def stack(wl):
+        total = wl['win'] + wl['loss'] + wl['be']
+        if total == 0:
+            return "<div class='empty'>No resolved trades yet.</div>"
+        W, H, pad, y, h = 420, 78, 8, 14, 28
+        plotW = W - 2 * pad; x = pad
+        out = ["<svg viewBox='0 0 %d %d' style='width:100%%;height:auto'>" % (W, H)]
+        for name, cnt, col in (('win', wl['win'], G), ('loss', wl['loss'], R), ('be', wl['be'], '#777')):
+            w = plotW * cnt / total
+            if w > 0:
+                out.append("<rect x='%.1f' y='%d' width='%.1f' height='%d' fill='%s'/>" % (x, y, w, h, col))
+                if w > 22:
+                    out.append("<text x='%.1f' y='%d' fill='#04210f' font-size='12' font-family='monospace' text-anchor='middle'>%d</text>" % (x + w / 2, y + 19, cnt))
+                x += w
+        out.append("<text x='%d' y='%d' fill='%s' font-size='11' font-family='monospace'>%d win &#183; %d loss &#183; %d BE (%.0f%% win)</text>" % (pad, H - 8, TXT, wl['win'], wl['loss'], wl['be'], 100 * wl['win'] / total))
+        out.append("</svg>")
+        return ''.join(out)
+
+    return ("<div class='charts'>"
+            "<div class='chartcard' style='grid-column:1/-1'><h4>Equity curve (cumulative $, taken trades)</h4>%s</div>"
+            "<div class='chartcard'><h4>P&amp;L by strategy</h4>%s</div>"
+            "<div class='chartcard'><h4>Trades taken by strategy</h4>%s</div>"
+            "<div class='chartcard'><h4>Win / Loss / BE</h4>%s</div>"
+            "</div>" % (eqsvg, bars(cp['labels'], cp['pnl'], True), bars(cp['labels'], cp['counts'], False), stack(cp['wl'])))
 
 
 def _dashboard_html(rows, sigs, acounts=None):
@@ -442,16 +514,26 @@ def _dashboard_html(rows, sigs, acounts=None):
             pf = d.get('pf')
             pfcell = ('∞' if pf == float('inf') else ('%.2f' % pf if isinstance(pf, (int, float)) else '—'))
             pfcls = 'pos' if (pf == float('inf') or (isinstance(pf, (int, float)) and pf >= 1)) else 'neg'
-            pr += ("<tr><td><b>%s</b></td><td>%d</td><td>%.0f%%</td><td>%s</td><td>%s</td>"
-                   "<td class='%s'>%s</td><td>%s</td><td>%+.2fR</td></tr>"
-                   % (s, d['n'], d['win_pct'], expcell, _money(d['avg_usd']),
-                      pfcls, pfcell, _money(d['total_usd']), d['total_R']))
+            ref = BACKTEST_REF.get(s, {})
+            bt_exp = ('%+.3fR' % ref['exp_r']) if ref.get('exp_r') is not None else '—'
+            bt_pf = ('%.2f' % ref['pf']) if ref.get('pf') is not None else '—'
+            pr += ("<tr><td><b>%s</b></td><td>%d</td><td>%.0f%%</td><td>%s</td>"
+                   "<td class='zero' style='background:#141414'>%s</td><td>%s</td>"
+                   "<td class='%s'>%s</td><td class='zero' style='background:#141414'>%s</td>"
+                   "<td>%s</td><td>%+.2fR</td></tr>"
+                   % (s, d['n'], d['win_pct'], expcell, bt_exp, _money(d['avg_usd']),
+                      pfcls, pfcell, bt_pf, _money(d['total_usd']), d['total_R']))
         pertbl = ("<div class='wrap'><table><thead><tr><th>Strategy</th><th>Trades</th><th>Win%%</th>"
-                  "<th title='avg R per trade — your edge'>Exp R (edge)</th><th>Avg $</th>"
-                  "<th title='gross win $ / gross loss $'>Profit factor</th><th>Total P&amp;L</th><th>Total R</th>"
+                  "<th title='avg R per trade — your live edge'>Exp R (live)</th>"
+                  "<th title='backtest reference — the edge to beat' style='background:#141414'>Exp R (backtest)</th>"
+                  "<th>Avg $</th>"
+                  "<th title='gross win $ / gross loss $ (live)'>PF (live)</th>"
+                  "<th title='backtest profit factor' style='background:#141414'>PF (backtest)</th>"
+                  "<th>Total P&amp;L</th><th>Total R</th>"
                   "</tr></thead><tbody>%s</tbody></table></div>"
-                  "<div class='sub'>Edge = Exp R (avg R/trade). Green ≥ +0.15R (your Gate-0). Profit factor &gt; 1 = net winning. "
-                  "R/edge needs Risk $ on the trade — set it in the log form or the import risk box.</div>" % pr)
+                  "<div class='sub'>Live vs <b>backtest reference</b> (shaded cols = your 4-yr research target). "
+                  "Edge = Exp R; green ≥ +0.15R (Gate-0); PF &gt; 1 = net winning. Live R needs Risk $ on the trade. "
+                  "Edit BACKTEST_REF in pnl.py to update the reference numbers.</div>" % pr)
     else:
         pertbl = "<div class='empty'>No taken trades yet - log one below.</div>"
 
