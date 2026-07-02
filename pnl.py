@@ -22,18 +22,17 @@ Routes added:
 """
 import os, csv, io, json, sqlite3, datetime as dt
 
-STRATEGIES = ['A/B', 'C', 'F', 'ORB', 'PREM', 'S1', 'S2', 'Other']
+STRATEGIES = ['A/B', 'C', 'F', 'ORB', 'Other']   # PREM is a catalyst inside A/B, not a separate strategy
 
-# Backtest reference — the edge your LIVE numbers should track. From the 4-yr research; None = not
-# established yet. EDIT these to your verified figures (they're shown read-only as a target vs live).
+# Backtest reference — the edge your LIVE numbers should track. COMPUTED from the project's own
+# 4-yr trade logs (not memory): ab_trades.csv, modelC_trades.csv, orb_trades.csv (real_R),
+# prem_trades_4y.csv (net) / PREM_ANALYSIS headline, strategy_f results (net F.P. first-touch),
+# s1_trades.csv, s2_trades.csv. EDIT if you re-run with a different config.
 BACKTEST_REF = {
-    'A/B':  {'exp_r': 0.20,  'win_pct': None, 'pf': None},   # frozen-config 4yr ~+0.19-0.20R realistic
-    'C':    {'exp_r': 0.66,  'win_pct': None, 'pf': None},   # Model C staircase, +0.66R, positive every yr
-    'F':    {'exp_r': 0.045, 'win_pct': None, 'pf': None},   # realistic additive ~+0.045R (weak)
-    'PREM': {'exp_r': 0.246, 'win_pct': None, 'pf': 1.62},   # verified +0.246R, PF 1.62, 4/4 yrs
-    'ORB':  {'exp_r': None,  'win_pct': None, 'pf': None},
-    'S1':   {'exp_r': None,  'win_pct': None, 'pf': None},
-    'S2':   {'exp_r': None,  'win_pct': None, 'pf': None},
+    'A/B':  {'exp_r': 0.195, 'win_pct': 31.2, 'pf': 1.49, 'n': 6569},  # ab_trades.csv, all rows (PREM catalyst included)
+    'C':    {'exp_r': 0.679, 'win_pct': 50.0, 'pf': 3.28, 'n': 56},    # modelC_trades.csv (net)
+    'F':    {'exp_r': 0.125, 'win_pct': 27.0, 'pf': 1.31, 'n': 378},   # F.P. first-touch, NET (realistic)
+    'ORB':  {'exp_r': 0.227, 'win_pct': 46.4, 'pf': 1.46, 'n': 491},   # orb_trades.csv, real_R (realistic)
 }
 _COLS = ['id', 'logged_at', 'date', 'time', 'strategy', 'setup', 'side', 'taken',
          'entry', 'exit', 'size', 'risk_usd', 'pnl_usd', 'pnl_r', 'result', 'fees',
@@ -485,6 +484,28 @@ def _charts_html(rows):
             "</div>" % (eqsvg, bars(cp['labels'], cp['pnl'], True), bars(cp['labels'], cp['counts'], False), stack(cp['wl'])))
 
 
+def _ref_table_html():
+    """Backtest reference — computed from the project's 4-yr trade logs. Read-only target to beat."""
+    pr = ''
+    for s, d in BACKTEST_REF.items():
+        if d.get('exp_r') is None:
+            continue
+        exp = d['exp_r']
+        ecls = 'pos' if exp >= 0.15 else ('neg' if exp < 0 else 'zero')
+        pr += ("<tr><td><b>%s</b></td><td class='%s'>%+.3fR</td><td>%.1f%%</td><td class='%s'>%.2f</td><td>%s</td></tr>"
+               % (s, ecls, exp, d['win_pct'],
+                  'pos' if d['pf'] >= 1 else 'neg', d['pf'], '{:,}'.format(d.get('n', 0))))
+    if not pr:
+        return ''
+    return ("<div class='wrap'><table><thead><tr><th>Strategy</th>"
+            "<th title='avg R per trade'>Exp R (edge)</th><th>Win rate</th>"
+            "<th title='gross win / gross loss'>Profit factor</th><th>Backtest trades</th>"
+            "</tr></thead><tbody>%s</tbody></table></div>"
+            "<div class='sub'>Computed from the project's ~4-yr trade logs (A/B incl. PREM catalyst, C, F net, ORB realistic). "
+            "This is the edge each strategy showed in testing — your live numbers above should track it. "
+            "Edit BACKTEST_REF in pnl.py to change.</div>" % pr)
+
+
 def _dashboard_html(rows, sigs, acounts=None):
     import html as _h
     overall, per = _stats(rows)
@@ -514,28 +535,24 @@ def _dashboard_html(rows, sigs, acounts=None):
             pf = d.get('pf')
             pfcell = ('∞' if pf == float('inf') else ('%.2f' % pf if isinstance(pf, (int, float)) else '—'))
             pfcls = 'pos' if (pf == float('inf') or (isinstance(pf, (int, float)) and pf >= 1)) else 'neg'
-            ref = BACKTEST_REF.get(s, {})
-            bt_exp = ('%+.3fR' % ref['exp_r']) if ref.get('exp_r') is not None else '—'
-            bt_pf = ('%.2f' % ref['pf']) if ref.get('pf') is not None else '—'
+            bt = BACKTEST_REF.get(s, {})
+            bt_exp = ('%+.3fR' % bt['exp_r']) if bt.get('exp_r') is not None else '—'
             pr += ("<tr><td><b>%s</b></td><td>%d</td><td>%.0f%%</td><td>%s</td>"
-                   "<td class='zero' style='background:#141414'>%s</td><td>%s</td>"
-                   "<td class='%s'>%s</td><td class='zero' style='background:#141414'>%s</td>"
-                   "<td>%s</td><td>%+.2fR</td></tr>"
+                   "<td class='zero' style='background:#131313'>%s</td><td>%s</td>"
+                   "<td class='%s'>%s</td><td>%s</td><td>%+.2fR</td></tr>"
                    % (s, d['n'], d['win_pct'], expcell, bt_exp, _money(d['avg_usd']),
-                      pfcls, pfcell, bt_pf, _money(d['total_usd']), d['total_R']))
+                      pfcls, pfcell, _money(d['total_usd']), d['total_R']))
         pertbl = ("<div class='wrap'><table><thead><tr><th>Strategy</th><th>Trades</th><th>Win%%</th>"
                   "<th title='avg R per trade — your live edge'>Exp R (live)</th>"
-                  "<th title='backtest reference — the edge to beat' style='background:#141414'>Exp R (backtest)</th>"
-                  "<th>Avg $</th>"
-                  "<th title='gross win $ / gross loss $ (live)'>PF (live)</th>"
-                  "<th title='backtest profit factor' style='background:#141414'>PF (backtest)</th>"
+                  "<th title='backtest target (computed from project trade logs)' style='background:#131313'>Exp R (BT)</th>"
+                  "<th>Avg $</th><th title='gross win $ / gross loss $ (live)'>Profit factor</th>"
                   "<th>Total P&amp;L</th><th>Total R</th>"
                   "</tr></thead><tbody>%s</tbody></table></div>"
-                  "<div class='sub'>Live vs <b>backtest reference</b> (shaded cols = your 4-yr research target). "
-                  "Edge = Exp R; green ≥ +0.15R (Gate-0); PF &gt; 1 = net winning. Live R needs Risk $ on the trade. "
-                  "Edit BACKTEST_REF in pnl.py to update the reference numbers.</div>" % pr)
+                  "<div class='sub'>Live edge vs the shaded <b>Exp R (BT)</b> target. Green ≥ +0.15R (Gate-0); "
+                  "PF &gt; 1 = net winning. Live R needs Risk $ on the trade.</div>" % pr)
     else:
         pertbl = "<div class='empty'>No taken trades yet - log one below.</div>"
+    reftbl = _ref_table_html()
 
     # add form
     opts = ''.join("<option>%s</option>" % s for s in STRATEGIES)
@@ -639,6 +656,7 @@ def _dashboard_html(rows, sigs, acounts=None):
             + "<div class='cards'>" + cards + "</div>"
             + "<a class='dl' href='/pnl.csv'>&#8595; download CSV</a><a class='dl' href='/pnl.db'>&#8595; download database (journal.db)</a>"
             + "<h3>Summary by strategy — trades taken &amp; P&amp;L</h3>" + pertbl
+            + "<h3>Backtest reference — edge, win rate &amp; profit factor</h3>" + reftbl
             + _charts_html(rows)
             + "<h3>Log a trade (real fill)</h3>" + addf
             + "<h3>Import broker CSV</h3>" + impf
