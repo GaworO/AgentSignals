@@ -286,6 +286,74 @@ def _append_bar_f(b):
     if len(rows) > F_BUFFER_BARS + 1:
         with open(F_BUF, 'w') as f: f.write(rows[0] + ''.join(rows[-F_BUFFER_BARS:]))
 
+# ───────── /how page (inline, ORB-style — no separate file) ─────────
+def _example_svg_f():
+    return (
+        '<svg viewBox="0 0 760 400" width="100%" style="max-width:760px;background:#fff;border:1px solid #eee;border-radius:8px">'
+        '<text x="86" y="392" font-size="10" fill="#888">09:30</text>'
+        '<text x="300" y="392" font-size="10" fill="#888">NY-AM</text>'
+        '<text x="686" y="392" font-size="10" fill="#888">11:59</text>'
+        '<rect x="150" y="70" width="540" height="30" fill="#9e9e9e" fill-opacity="0.16" stroke="#bdbdbd" stroke-dasharray="3"/>'
+        '<line x1="150" y1="100" x2="690" y2="100" stroke="#9e9e9e" stroke-dasharray="4" stroke-width="1.3"/>'
+        '<text x="152" y="63" font-size="11" fill="#616161" font-weight="bold">1 &#183; F.P.FVG catalyst (first NY-AM gap) &rarr; the level</text>'
+        '<rect x="250" y="158" width="440" height="26" fill="#42a5f5" fill-opacity="0.28"/>'
+        '<text x="408" y="173" font-size="11" fill="#0d47a1" font-weight="bold">4 &#183; the gap it leaves = the FVG we trade</text>'
+        '<line x1="60" y1="150" x2="700" y2="150" stroke="#c62828" stroke-dasharray="4" stroke-width="1.4"/>'
+        '<text x="498" y="144" font-size="11" fill="#c62828" font-weight="bold">6 &#183; STOP = just past the gap (1R, ~14pt)</text>'
+        '<line x1="60" y1="184" x2="700" y2="184" stroke="#2e7d32" stroke-dasharray="4" stroke-width="1.4"/>'
+        '<text x="498" y="197" font-size="11" fill="#2e7d32" font-weight="bold">5 &#183; ENTRY = near edge, first touch back</text>'
+        '<line x1="60" y1="300" x2="700" y2="300" stroke="#1565c0" stroke-width="1.5"/>'
+        '<text x="540" y="316" font-size="11" fill="#1565c0" font-weight="bold">7 &#183; TARGET = 2R (BE at +1R)</text>'
+        '<polyline fill="none" stroke="#333" stroke-width="1.6" points="90,96 108,104 126,94 144,106 162,98 180,108 198,100 210,104 '
+        '220,120 230,150 240,182 250,210 260,236 270,248 284,230 298,208 310,190 318,184 332,204 348,232 366,258 386,282 406,298 '
+        '440,300 490,299 560,301 640,299 690,300"/>'
+        '<circle cx="214" cy="104" r="4.5" fill="#8e24aa"/>'
+        '<text x="70" y="128" font-size="11" fill="#8e24aa" font-weight="bold">2 &#183; a candle CLOSES through the level &rarr; continuation</text>'
+        '<text x="118" y="250" font-size="11" fill="#e67e22" font-weight="bold">3 &#183; displacement (strong, breaks structure)</text>'
+        '<circle cx="318" cy="184" r="5.5" fill="#fff" stroke="#2e7d32" stroke-width="2.4"/>'
+        '<text x="326" y="176" font-size="10.5" fill="#2e7d32" font-weight="bold">FILL</text>'
+        '<text x="404" y="292" font-size="22" fill="#1565c0">&#9733;</text>'
+        '<text x="360" y="336" font-size="11" fill="#1565c0" font-weight="bold">price runs on &rarr; +2R &#183; WIN</text>'
+        '<text x="60" y="368" font-size="10.5" fill="#555">1R = 0.5% of the account &rarr; wide gap = fewer contracts (gaps &gt; 40pt skipped).</text>'
+        '</svg>')
+
+
+def render_how_f():
+    return (
+        "<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Strategy F - how it works</title><style>"
+        "body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:26px;color:#222;background:#fafafa;max-width:820px}"
+        "h1{font-size:21px} h3{margin-top:22px} a{color:#1565c0} .small{color:#888;font-size:13px}"
+        "ol{line-height:1.7} .warn{background:#fff8e1;border:1px solid #f0d98a;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:16px}"
+        "</style></head><body>"
+        "<p><a href='/candidates'>&larr; candidates</a> &nbsp;&#183;&nbsp; <a href='/log'>trade log</a></p>"
+        "<h1>&#129518; Strategy F - NY-AM displacement-FVG continuation</h1>"
+        "<div class=small>Waits for the first strong NY-AM move to leave a fair-value gap, then enters the <b>first "
+        "pullback</b> into that gap, with the move, for a 2R target. It uses the ICT engine (FVG + displacement + "
+        "structure break) <b>but the tested edge is momentum continuation - not the ICT narrative</b>: bias, "
+        "liquidity-pool targets and sweep-catalyst confluence were all tested and do not help. Same family as A/B/C - "
+        "<b>correlated, not a diversifier</b>.</div>"
+        "<h3>Example trade (real, out-of-sample &#183; 2026-06-18 SHORT)</h3>"
+        + _example_svg_f() +
+        "<h3>The rules, step by step</h3><ol>"
+        "<li><b>Mark the catalyst.</b> The <b>first fair-value gap of NY-AM</b> (09:30-11:59 ET) - a 3-candle gap. Its edges are the level.</li>"
+        "<li><b>Wait for a continuation break.</b> A 1-min candle must <b>CLOSE through</b> the level (a close, not a wick).</li>"
+        "<li><b>Require a real displacement:</b> &ge;3 same-colour candles that <b>break the prior 15-bar structure</b>, "
+        "body &ge; <b>1.5&times; the 5m-ATR</b> and bigger than any recent candle - and it must <b>leave its own gap</b> (the one you trade).</li>"
+        "<li><b>Order:</b> limit at the <b>near edge</b> of that gap - stop <b>just past the far edge</b> (~14pt = 1R) - target <b>2R</b> - break-even at +1R.</li>"
+        "<li><b>One trade/day:</b> the <b>first continuation</b> of the session. The reversal direction is dropped (it doesn't pay).</li>"
+        "<li><b>Fill within ~30 min or cancel.</b> Size is automatic (1R = 0.5%); gaps wider than 40pt are skipped.</li></ol>"
+        "<h3>What to expect (backtest, 4 years, honest cut)</h3>"
+        "<div class=small>~160 trades/yr (~0.9/session) &#183; win ~37% (2R payoff - judge on expectancy) &#183; expectancy "
+        "<b>+0.42R</b> at a realistic 1-tick fill (band +0.33 to +0.48R) &#183; ~+$132k on $100k @ 0.5% over 4 years &#183; "
+        "<b>positive every year</b> (+0.38 / +0.50 / +0.40 / +0.37R) &#183; correlation with A/B high (same family).</div>"
+        "<div class=warn><b>In-sample.</b> 2022-06&rarr;2026-06. One out-of-sample check (14 June-2026 sessions) did not "
+        "break but only <b>4 trades filled</b> - proves nothing. The only real fragility is <b>fill quality</b> on the "
+        "~14pt stop; by design it <b>misses no-retrace runner days</b>. <b>Gate 0: prove &ge; +0.15R over 30-50 live "
+        "trades before sizing up.</b> Not financial advice.</div>"
+        "<p class=small><a href='/candidates'>&larr; back to candidates</a></p></body></html>")
+
+
 try:
     from flask import Flask, request, jsonify
     app = Flask(__name__)
@@ -344,7 +412,7 @@ try:
                      f"<td>{t['SL']}</td><td>{t['TP']}</td><td style='color:{col};font-weight:600'>{t['status']}</td>"
                      f"<td>{t.get('R','')}</td></tr>")
         return ("<html><body style='font-family:system-ui;background:#0f0f0f;color:#eee;padding:18px'>"
-                f"<h2>Strategy F — live (Continuation only)</h2>"
+                f"<h2>Strategy F — live (Continuation only) &nbsp;<a href='/how' style='font-size:14px;color:#4ea1ff'>📖 how it works →</a></h2>"
                 f"<p>alerts <b>{s['alerts']}</b> · filled <b>{s['filled']}</b> · closed <b>{s['closed']}</b> · "
                 f"win <b>{s['winpct']}%</b> · totR <b>{s['totR']}</b> · ~<b>${s['dollars']}</b> &nbsp;|&nbsp; {s['by_status']}</p>"
                 "<table cellpadding=6 style='border-collapse:collapse' border=1>"
@@ -366,7 +434,7 @@ try:
                      f"<td>{x['SL']}</td><td>{x['TP']}</td><td>{x['fvg_lo']}–{x['fvg_hi']}</td>"
                      f"<td style='color:{col};font-weight:600'>{x['status']}</td></tr>")
         return ("<html><body style='font-family:system-ui;background:#0f0f0f;color:#eee;padding:18px'>"
-                "<h2>Strategy F — kandydaci (wykryte setupy F.P. PFVG · Continuation)</h2>"
+                "<h2>Strategy F — kandydaci (wykryte setupy F.P. PFVG · Continuation) &nbsp;<a href='/how' style='font-size:14px;color:#4ea1ff'>📖 how it works →</a></h2>"
                 f"<p>{len(sigs)} w buforze &nbsp;|&nbsp; <b style='color:#1565c0'>live</b> = limit czeka na dotknięcie · "
                 "<b style='color:#1b9e3a'>filled</b> = cena dotknęła · <b style='color:#b8860b'>invalid</b> = ciało przebiło lukę (brak wejścia) · "
                 "<b style='color:#888'>expired</b> = okno minęło</p>"
@@ -374,6 +442,9 @@ try:
                 "<tr><th>setup (NY-AM)</th><th>dir</th><th>entry</th><th>SL</th><th>TP</th><th>F.P. PFVG</th><th>status</th></tr>"
                 f"{rows}</table><p style='color:#777;font-size:12px'>Kandydat = pierwszy displacement Continuation danego dnia. "
                 "Alert/zlecenie idzie tylko dla świeżych ze statusem 'live'.</p></body></html>")
+
+    @app.route('/how')
+    def _how(): return render_how_f()
 except Exception as _flask_err:
     app = None
 
