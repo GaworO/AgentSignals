@@ -18,6 +18,7 @@ from flask import Flask, request, jsonify, send_file
 import live_emit   # to_alert, post_webhook, key
 import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza intake'u
 import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
+import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + trasy /pnl; nie rusza intake'u/detektora
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -383,7 +384,7 @@ _VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui
  ".empty{padding:20px;color:#555;font:12px monospace}</style>")
 _F_URL = os.environ.get('STRAT_F_URL', 'https://strategy-f-production.up.railway.app').rstrip('/')
 _ORB_URL = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
-_VIEW_NAV = ("<div class='nav'><a href='/journal'>journal</a><a href='/candidates'>candidates</a>"
+_VIEW_NAV = ("<div class='nav'><a href='/pnl'>P&amp;L</a><a href='/journal'>journal</a><a href='/candidates'>candidates</a>"
  "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a>"
  "<span style='color:#444'>&nbsp;|&nbsp;F:</span>"
  f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
@@ -673,6 +674,7 @@ def _heartbeat_loop():
             print('[heartbeat] loop err', e, flush=True)   # never die
 
 _init_db(); _seed_buffer()
+pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
