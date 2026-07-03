@@ -362,6 +362,7 @@ def render_how_f():
 try:
     from flask import Flask, request, jsonify
     app = Flask(__name__)
+    import how_f; how_f.register(app)        # rich /how page (same isolated pattern as how_ab.py)
 
 
     @app.route('/health')

@@ -117,7 +117,7 @@ var GEN={
 var STRAT={
  ab:{name:'A/B',sub:'Displacement → FVG → 50% hold → BOS',tabs:[['candidates','Candidates','/candidates','list'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
- f:{name:'F',sub:'First-presentation FVG · momentum',ext:F,tabs:[['how','How it works',{html:F_HOW},'help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
+ f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
  orb:{name:'ORB',sub:'Opening-range breakout · momentum',ext:ORB,tabs:[['how','How it works',ORB+'/how','help'],['dash','Dashboard',ORB+'/','grid']]}
 };
 var NAV=[['General',[['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],['gen/news','News','news'],['gen/income','Income','income']]],
