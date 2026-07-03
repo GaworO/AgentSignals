@@ -22,6 +22,7 @@ import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + tr
 import how_ab      # A/B "how it works" page at /how — izolowany dodatek (ORB /how style), nie rusza detektora
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
+import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -688,6 +689,7 @@ _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 how_ab.register(app)                        # /how — A/B explainer page (ORB /how style, isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
+forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
