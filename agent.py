@@ -20,6 +20,7 @@ import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza
 import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
 import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + trasy /pnl; nie rusza intake'u/detektora
 import how_ab      # A/B "how it works" page at /how — izolowany dodatek (ORB /how style), nie rusza detektora
+import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
 
 app = Flask(__name__)
@@ -480,8 +481,10 @@ def status():
     na=(sum(1 for _ in open(ARCHIVE))-1) if os.path.exists(ARCHIVE) else 0
     _last['bars_in_buffer']=nb
     _age=_feed_age_min(); _mkt=_market_open_now()                  # v21: zdrowie feedu wprost w /status
+    try: _cme=cme_calendar.status().get('note','')                 # v22: DLACZEGO rynek zamkniety (swieto/early close)
+    except Exception: _cme=''
     _body=dict(version=VERSION, primed=_primed, archive_bars=na, **_last,
-               feed_age_min=round(_age,1), market_open=_mkt,
+               feed_age_min=round(_age,1), market_open=_mkt, cme_note=_cme,
                feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety
                heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')))
     if _wants_html(): return _kv_page('Status', _body)
@@ -627,14 +630,20 @@ def _feed_gap_min():
 
 
 def _market_open_now():
-    """True when CME Globex MNQ should be delivering bars (fixed UTC-4, no DST — like the rest of the agent).
-    Closed: all Saturday; Sunday before 18:00 ET; Friday after 17:00 ET; daily maintenance 17:00–18:00 ET."""
-    t = dt.datetime.now(NY); wd = t.weekday(); m = t.hour * 60 + t.minute
-    if wd == 5: return False                       # Saturday
-    if wd == 6 and m < 18 * 60: return False       # Sunday before 18:00 ET
-    if wd == 4 and m >= 17 * 60: return False      # Friday after 17:00 ET
-    if 17 * 60 <= m < 18 * 60: return False        # daily maintenance halt
-    return True
+    """True when CME Globex MNQ should be delivering bars.
+    v22: deleguje do cme_calendar (tygodniowy schedule + swieta/early-close, zegar gieldy America/Chicago
+    — poprawny w DST, w przeciwienstwie do starego sztywnego UTC-4 ktory zima rozjezdzal sie o 1h).
+    Fallback do starej logiki weekly-only gdyby modul kiedykolwiek rzucil — watchdog nie moze umrzec."""
+    try:
+        return cme_calendar.market_open()
+    except Exception as e:
+        print('[heartbeat] cme_calendar err (fallback weekly-only):', e, flush=True)
+        t = dt.datetime.now(NY); wd = t.weekday(); m = t.hour * 60 + t.minute
+        if wd == 5: return False                       # Saturday
+        if wd == 6 and m < 18 * 60: return False       # Sunday before 18:00 ET
+        if wd == 4 and m >= 17 * 60: return False      # Friday after 17:00 ET
+        if 17 * 60 <= m < 18 * 60: return False        # daily maintenance halt
+        return True
 
 def _feed_age_min():
     """Minutes since the last /bars was processed (or since process start if none yet)."""
