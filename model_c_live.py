@@ -187,7 +187,7 @@ def to_alert_c(x):
           f"\n🎯 TP {round(x['TP']+OFFSET,1)} · +{round(2*x['risk'],1)} pkt (2R)"
           f"\n🧩 displacement {x['disp_pts']:.0f} pkt ({x['run_atr']:.1f}×ATR) · retrace depth {x['depth']:.2f} · FVG {x['fvg_lo']}–{x['fvg_hi']}"
           f"\n📐 BOS {x['bos']} (po zakończeniu displacementu {x['disp_end']}) · bias {x['bias_align']}"
-          f"\n⛔ UNIEWAŻNIENIE: świeca ZAMKNIE ciałem {'nad' if isL else 'pod'} CE {round(x['ce']+OFFSET,1)} → ANULUJ limit")
+          f"\n⛔ UNIEWAŻNIENIE: świeca ZAMKNIE ciałem {'pod' if isL else 'nad'} CE {round(x['ce']+OFFSET,1)} → ANULUJ limit")
     s=live_emit.size_for(x['entry'],x['SL'])
     if s:
         qty,slpts,perc,real,pct=s; base+=f"\n📏 {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
