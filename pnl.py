@@ -36,7 +36,10 @@ BACKTEST_REF = {
 }
 _COLS = ['id', 'logged_at', 'date', 'time', 'strategy', 'setup', 'side', 'taken',
          'entry', 'exit', 'size', 'risk_usd', 'pnl_usd', 'pnl_r', 'result', 'fees',
-         'signal_key', 'notes']
+         'signal_key', 'notes', 'tv_url']
+
+TV_SYMBOL = os.environ.get('TV_SYMBOL', 'CME_MINI:MNQ1!')   # default chart for the "open TradingView" shortcut
+TV_OPEN = 'https://www.tradingview.com/chart/?symbol=' + TV_SYMBOL.replace(':', '%3A').replace(' ', '%20')
 
 
 def init(DB):
@@ -45,7 +48,11 @@ def init(DB):
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         logged_at TEXT, date TEXT, time TEXT, strategy TEXT, setup TEXT, side TEXT,
         taken INTEGER DEFAULT 1, entry REAL, exit REAL, size REAL, risk_usd REAL,
-        pnl_usd REAL, pnl_r REAL, result TEXT, fees REAL, signal_key TEXT, notes TEXT)''')
+        pnl_usd REAL, pnl_r REAL, result TEXT, fees REAL, signal_key TEXT, notes TEXT, tv_url TEXT)''')
+    try:
+        c.execute('ALTER TABLE fills ADD COLUMN tv_url TEXT')   # migrate DBs created before this column
+    except Exception:
+        pass
     # alerts = which strategy FIRED an alert (fed by /pnl/fire from each strategy service or the relay)
     c.execute('''CREATE TABLE IF NOT EXISTS alerts(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +120,7 @@ def _row_from_form(form):
         side=(form.get('side', '') or '').upper().strip(), taken=taken,
         entry=entry, exit=exit_, size=size, risk_usd=risk, pnl_usd=pnl, pnl_r=r,
         result=result, fees=fees, signal_key=form.get('signal_key', '').strip(),
-        notes=form.get('notes', '').strip())
+        notes=form.get('notes', '').strip(), tv_url=form.get('tv_url', '').strip())
 
 
 def _insert(DB, d):
@@ -378,6 +385,7 @@ _CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui,sans
         "td{padding:6px 9px;border-bottom:1px solid #1a1a1a;white-space:nowrap}"
         "tr:hover td{background:#161616}"
         "td select{background:#0a0a0a;color:#ebebeb;border:1px solid #333;border-radius:4px;font:11px monospace;padding:2px 4px}"
+        "a.tvl{display:inline-flex;vertical-align:middle}a.tvl svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.7}"
         "form.inl{display:inline}button{cursor:pointer;background:#1f2937;color:#cbd5e1;border:1px solid #374151;border-radius:4px;padding:3px 8px;font:11px monospace}"
         "button:hover{background:#374151}.bin{background:#3a1414;border-color:#5a1f1f;color:#f2b8b8}"
         ".addbox{background:#111;border:1px solid #262626;border-radius:8px;padding:12px;margin:8px 0 4px}"
@@ -587,6 +595,7 @@ _ICONS = {
     'up': "<path d='M4 10.5l4-5 4 5'/>",
     'down': "<path d='M4 5.5l4 5 4-5'/>",
     'flat': "<path d='M3 8h10'/>",
+    'ext': "<path d='M6 3H3v10h10v-3'/><path d='M9.5 3H13v3.5'/><path d='M13 3L7.5 8.5'/>",
 }
 
 
@@ -728,7 +737,10 @@ def _dashboard_html(rows, sigs, acounts=None, period='all'):
             "<span class='fld'><label>Result</label><br><select name='result' id='f_result'>%s</select></span>"
             "<span class='fld'><label>Taken?</label><br><input type='checkbox' name='taken' id='f_taken' checked></span>"
             "<span class='fld'><label>Notes</label><br><input name='notes' id='f_notes' size='16'></span>"
-            "<button class='go' type='submit'>Save trade</button></form></div>" % (opts, res_opts))
+            "<span class='fld'><label>TradingView link</label><br><input name='tv_url' id='f_tv' size='22' placeholder='paste chart URL'></span>"
+            "<button class='go' type='submit'>Save trade</button></form>" % (opts, res_opts))
+    addf += ("<div class='sub' style='margin-top:8px'>Tip: <a href='" + TV_OPEN + "' target='_blank' rel='noopener' style='color:#22d3ee'>open TradingView &#8599;</a>"
+             " &#183; on the chart use Share &#8594; copy link, then paste it above to attach it to this trade.</div></div>")
 
     # import form (Tradovate-aware: fills side/entry/exit/date/size/P&L; you set strategy per row after)
     imp_opts = "<option value='__perrow__'>— set per row after import —</option>" + opts
@@ -782,15 +794,18 @@ def _dashboard_html(rows, sigs, acounts=None, period='all'):
             need = "" if cur else " style='border-color:#b45309;background:#2a1c05'"
             stratcell = ("<form class='inl' method='post' action='/pnl/setstrat/%s'>"
                          "<select name='strategy' onchange='this.form.submit()'%s>%s</select></form>" % (r['id'], need, o))
+            tv = str(r.get('tv_url') or '').strip()
+            tvcell = ("<a class='tvl' href='%s' target='_blank' rel='noopener' title='open chart'>%s</a>"
+                      % (_h.escape(tv), _icon('ext'))) if tv.startswith('http') else ""
             tr += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
                    "<td>%s</td><td>%s</td><td>%s</td><td style='text-align:center'>%s</td>"
-                   "<td><form class='inl' method='post' action='/pnl/del/%s' onsubmit=\"return confirm('Delete this trade?')\"><button class='bin'>del</button></form></td></tr>"
+                   "<td style='white-space:nowrap'>%s<form class='inl' method='post' action='/pnl/del/%s' onsubmit=\"return confirm('Delete this trade?')\"><button class='bin'>del</button></form></td></tr>"
                    % (_h.escape(str(r.get('date', ''))), _h.escape(str(r.get('time', '') or '')),
                       stratcell, _h.escape(str(r.get('setup', '') or '')),
                       _h.escape(str(r.get('side', '') or '')), _h.escape(str(r.get('entry', '') or '')),
                       _h.escape(str(r.get('exit', '') or '')), _money(r.get('pnl_usd')),
                       ('%+.2f' % r['pnl_r']) if r.get('pnl_r') is not None else '-',
-                      _h.escape(str(r.get('result', '') or '')), takencell, r['id']))
+                      _h.escape(str(r.get('result', '') or '')), takencell, tvcell, r['id']))
         tradetbl = ("<div class='wrap'><table><thead><tr><th>Date</th><th>Time</th><th>Strat</th><th>Setup</th>"
                     "<th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L $</th><th>R</th><th>Result</th>"
                     "<th>Taken</th><th></th></tr></thead><tbody>%s</tbody></table></div>" % tr)
