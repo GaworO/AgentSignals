@@ -23,6 +23,7 @@ import how_ab      # A/B "how it works" page at /how — izolowany dodatek (ORB 
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
+import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -785,6 +786,7 @@ pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unifie
 how_ab.register(app)                        # /how — A/B explainer page (ORB /how style, isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
+allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)

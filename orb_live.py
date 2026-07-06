@@ -496,6 +496,9 @@ if app is not None:
     def _state(): refresh_buffer_from_agent(); return jsonify(today=today_state(), performance=perf(update_outcomes()))
     @app.route('/poll')
     def _pollroute(): return jsonify(fired=poll())
+    @app.route('/trades')
+    def _trades():                       # per-trade log as JSON (for the joined All-trades view)
+        return jsonify(list(update_outcomes().values()))
     def _bg_loop():
         while True:
             try: poll(); update_outcomes()

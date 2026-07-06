@@ -438,6 +438,8 @@ try:
             sigs = f_signals(F_BUF)
         except Exception as e:
             return jsonify(ok=False, error=str(e)), 200
+        if request.args.get('format') == 'json':     # JSON for the joined All-candidates view
+            return jsonify(candidates=sigs)
         leg = {'live': '#1565c0', 'filled': '#1b9e3a', 'invalid': '#b8860b', 'expired': '#888'}
         rows = ''
         for x in sorted(sigs, key=lambda z: (z['date'], z['disp_end']), reverse=True)[:80]:

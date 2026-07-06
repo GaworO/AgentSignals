@@ -113,6 +113,7 @@ var SETTINGS_AB='<h2>A/B settings (Railway env)</h2><div class="card"><table>'+
  .map(function(r){return '<tr><td><span class="pill">'+r[0]+'</span></td><td>'+r[1]+'</td><td class="mut">'+r[2]+'</td></tr>';}).join('')+'</table></div>';
 
 var GEN={
+ 'alltrades':{t:'All trades',frame:'/all/trades'}, 'allcands':{t:'All candidates',frame:'/all/candidates'},
  'pnl':{t:'P&L',frame:'/pnl'}, 'regime':{t:'Regime',frame:'/regime'}, 'monitor':{t:'Monitor',frame:'/monitor'},
  'news':{t:'News',html:'<h2>News &amp; high-impact suppression</h2><div class="card mut">The agent pulls the ForexFactory high-impact calendar (CPI, NFP, FOMC, PCE, ISM, PPI, GDP, Powell). Trades within &plusmn;30 min are flagged. <b>NO_TRADE_SUPPRESS=1</b> mutes them entirely - ON for funded accounts.</div>'},
  'income':{t:'Income',html:'<h2>Income &amp; scaling</h2><div class="card mut">Funded-account scaling toward the weekly target across multi-firm accounts. <b>Gate 0 for every strategy: prove &ge; +0.15R over 30-50 live trades before sizing up.</b></div>'}
@@ -122,7 +123,7 @@ var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut"><b>Summary = would-be results.</b> Every setup the detector confirms is modeled to its outcome (win +2R / breakeven 0 / loss -1R): <b>n</b> = how many trades would have been taken, <b>total_R</b> = would-be P&L in R (&times; your risk-per-trade = money), <b>exp_R</b> = per-trade edge, <b>win_pct</b> = hit rate. Backtest reference: EUR/USD +0.23R, USD/JPY +0.18R net.</div>'+
  '<div class="card mut"><b>Candidates &amp; setups</b> = the live funnel right now (which levels armed, which displaced, which confirmed). In-sample backtest; live fills are the open question.</div>';
 var STRAT={
- ab:{name:'A/B',sub:'Displacement → FVG → 50% hold → BOS',tabs:[['candidates','Candidates','/candidates','list'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
+ ab:{name:'A/B',sub:'Displacement → FVG → 50% hold → BOS',tabs:[['candidates','Candidates','/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
  orb:{name:'ORB',sub:'Opening-range breakout · momentum',ext:ORB,tabs:[['how','How it works',ORB+'/how','help'],['dash','Dashboard',ORB+'/','grid']]},
@@ -130,7 +131,7 @@ var STRAT={
  jpy:{name:'USD/JPY',sub:'Forex · observe only · JPY-calibrated (×100)',ext:JPY,tabs:[['sum','Summary',JPY+'/performance','chart'],['trades','Trades',JPY+'/outcomes','book'],['pine','Pine for TV',JPY+'/pine','file'],['cand','Candidates & setups',JPY+'/candidates','list'],['status','Status',JPY+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]}
 };
-var NAV=[['General',[['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],['gen/news','News','news'],['gen/income','Income','income']]],
+var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],['gen/news','News','news'],['gen/income','Income','income']]],
          ['Strategies',[['ab','A/B','ab'],['c','C','c'],['f','F','f'],['orb','ORB','orb']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
