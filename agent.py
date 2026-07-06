@@ -459,6 +459,101 @@ def performance():
     if _wants_html(): return _kv_page('Performance (LIVE)', body)
     return jsonify(**body)
 
+@app.route('/outcomes')
+def outcomes():
+    import datetime as _dt, html as _html
+    from urllib.parse import quote as _q
+    try: outs = json.load(open(OUTCOMES))
+    except Exception: outs = []
+    outs = list(reversed(outs))              # newest first
+    if not _wants_html():
+        return jsonify(n=len(outs), outcomes=outs)
+    def _tm(ms):
+        try: return _dt.datetime.utcfromtimestamp(int(ms) / 1000).strftime('%Y-%m-%d %H:%M')
+        except Exception: return ''
+    if not outs:
+        return _page('Trades (0)', "<div class='empty'>brak trade'ow jeszcze - czekaj na zamkniecie setupu.</div>")
+    rws = ''
+    for i, o in enumerate(outs):
+        r = float(o.get('r', 0) or 0)
+        rc = '#4ade80' if r > 0 else ('#f87171' if r < 0 else '#8a8a8a')
+        lk = '/chart?key=' + _q(str(o.get('key', '')))
+        snip = _html.escape(_pine_wrap(_pine_trade_lines(o) or [], 'Trade %s' % o.get('cat', '')))
+        pine_cell = ("<button onclick=\"navigator.clipboard.writeText(document.getElementById('p%d').value);this.textContent='copied'\" "
+                     "style='padding:3px 9px;background:#22d3ee;color:#04202a;border:0;border-radius:5px;font-weight:700;cursor:pointer'>Pine</button>"
+                     "<textarea id='p%d' style='display:none'>%s</textarea>") % (i, i, snip)
+        rws += ("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
+                "<td style='color:%s;font-weight:700'>%+.0fR</td><td>%s</td>"
+                "<td><a href='%s' target='_blank' style='color:#22d3ee'>chart</a></td><td>%s</td></tr>") % (
+                _tm(o.get('closed_ms')), o.get('dir', ''), o.get('cat', ''), o.get('entry', ''),
+                o.get('sl', ''), rc, r, o.get('reason', ''), lk, pine_cell)
+    tbl = ("<p class='mut'>Each row: <b>Pine</b> copies a standalone one-trade script; <b>chart</b> opens the built-in candle view. "
+           "For all trades on one TradingView chart, use the <b>Pine for TV</b> tab.</p>"
+           "<table><thead><tr><th>Closed</th><th>Dir</th><th>Catalyst</th><th>Entry</th><th>SL</th>"
+           "<th>Result</th><th>Reason</th><th>Chart</th><th>Pine</th></tr></thead><tbody>" + rws + "</tbody></table>")
+    return _page('Trades (%d)' % len(outs), tbl)
+
+
+def _pine_trade_lines(o):
+    try:
+        e = float(o.get('entry')); sl = float(o.get('sl'))
+    except Exception:
+        return None
+    bos = int(o.get('bos_ms') or 0)
+    if not bos:
+        return None
+    cl = int(o.get('closed_ms') or bos) or bos
+    r = float(o.get('r', 0) or 0)
+    gc = 'color.green' if r > 0 else ('color.red' if r < 0 else 'color.gray')
+    top = max(e, sl); bot = min(e, sl)
+    tp = e + 2.0 * (e - sl)                       # sign puts TP on the correct side
+    side = 'LONG' if e > sl else 'SHORT'
+    txt = ('%s %s %+.0fR %s' % (o.get('cat', ''), side, r, o.get('reason', ''))).replace('"', '').replace(chr(10), ' ').strip()
+    return ['    box.new(%d, %.5f, %d, %.5f, xloc=xloc.bar_time, border_color=%s, bgcolor=color.new(%s, 88))' % (bos, top, cl, bot, gc, gc),
+            '    line.new(%d, %.5f, %d, %.5f, xloc=xloc.bar_time, color=%s, width=2)' % (bos, e, cl, e, gc),
+            '    line.new(%d, %.5f, %d, %.5f, xloc=xloc.bar_time, color=color.new(color.teal, 0), style=line.style_dotted)' % (bos, tp, cl, tp),
+            '    label.new(%d, %.5f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=%s, textcolor=color.white, size=size.small)' % (bos, top, txt, gc)]
+
+
+def _pine_wrap(bodylines, title):
+    head = ['//@version=5',
+            'indicator("%s", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)' % title,
+            'if barstate.islast']
+    body = bodylines if bodylines else ['    label.new(bar_index, high, "no closed trades yet", style=label.style_label_down)']
+    return '\n'.join(head + body)
+
+
+def _pine_src(outs, title):
+    body = []
+    for o in outs:
+        ln = _pine_trade_lines(o)
+        if ln:
+            body += ln
+    return _pine_wrap(body, title)
+
+
+@app.route('/pine')
+def pine():
+    import html as _html
+    from flask import Response
+    try: outs = json.load(open(OUTCOMES))
+    except Exception: outs = []
+    title = 'Forex trades - ' + (os.environ.get('FOREX_INSTRUMENT', '') or 'agent').upper()
+    src = _pine_src(outs, title)
+    if request.args.get('raw'):
+        return Response(src, mimetype='text/plain')
+    body = ("<p class='mut'>Copy this &rarr; TradingView &rarr; <b>Pine Editor</b> &rarr; paste &rarr; <b>Add to chart</b> "
+            "(matching pair, any intraday timeframe). Your %d trades draw as boxes (entry&rarr;stop), an entry line, "
+            "a dotted 2R target, and a label. Green = win, red = loss, gray = break-even.</p>"
+            "<button onclick=\"navigator.clipboard.writeText(document.getElementById('psrc').value);this.textContent='Copied'\" "
+            "style='margin:6px 0;padding:8px 14px;background:#22d3ee;color:#04202a;border:0;border-radius:6px;font-weight:700;cursor:pointer'>Copy script</button>"
+            " <a href='/pine?raw=1' target='_blank' style='color:#22d3ee;margin-left:8px'>raw</a>"
+            "<textarea id='psrc' readonly style='width:100%%;height:60vh;background:#0d0d0d;color:#d6d6d6;"
+            "border:1px solid #222;border-radius:8px;padding:10px;font:12px/1.45 monospace;box-sizing:border-box'>%s</textarea>"
+            ) % (len(outs), _html.escape(src))
+    return _page('Pine script - %d trades' % len(outs), body)
+
+
 @app.route('/lastalert')
 def lastalert():
     import html as _h
