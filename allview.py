@@ -186,16 +186,19 @@ def _pine_lines(rec):
     if e is None or sl is None or not ts:
         return None
     pc = STRAT_COLORS.get(rec['strat'], ('color.gray', '#888'))[0]
-    top = max(e, sl); bot = min(e, sl); tp = e + 2.0 * (e - sl)
+    tp = e + 2.0 * (e - sl)
+    hi = max(e, sl, tp)
     side = 'LONG' if e > sl else 'SHORT'
     rr = rec.get('r')
     rtxt = ('%+.0fR' % rr) if isinstance(rr, (int, float)) else str(rec.get('status', ''))
     txt = ('%s %s %s %s' % (rec['strat'], rec.get('cat', ''), side, rtxt)).replace('"', '').strip()
     right = ts + 90 * 60 * 1000                        # draw ~90min wide so it's visible
-    return ['    box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=%s, bgcolor=color.new(%s, 88))' % (ts, top, right, bot, pc, pc),
-            '    line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=%s, width=2)' % (ts, e, right, e, pc),
-            '    line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.new(color.teal, 0), style=line.style_dotted)' % (ts, tp, right, tp),
-            '    label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=%s, textcolor=color.white, size=size.small)' % (ts, top, txt, pc)]
+    return ['    box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=color.new(color.red, 70), bgcolor=color.new(color.red, 85))' % (ts, max(e, sl), right, min(e, sl)),
+            '    box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=color.new(color.green, 70), bgcolor=color.new(color.green, 85))' % (ts, max(e, tp), right, min(e, tp)),
+            '    line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=%s, width=1, style=line.style_dashed)' % (ts, e, right, e, pc),
+            '    line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.red, width=2)' % (ts, sl, right, sl),
+            '    line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.green, width=2)' % (ts, tp, right, tp),
+            '    label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=%s, textcolor=color.white, size=size.small)' % (ts, hi, txt, pc)]
 
 
 def _pine_wrap(bodylines, title):
@@ -247,17 +250,28 @@ def _num(x):
     return ('%.2f' % x) if isinstance(x, (int, float)) else (x if x not in (None, '') else '—')
 
 
+def _strat_filter_bar(present):
+    """Checkbox row (one per strategy present) that filters the table + the day Pine."""
+    order = [s for s in ('AB', 'C', 'F', 'ORB') if s in present]
+    boxes = ''.join(
+        "<label style='display:inline-flex;align-items:center;gap:5px'>"
+        "<input type='checkbox' class='fstrat' value='%s' checked onchange='rebuild()'>%s</label>"
+        % (s, _chip(s)) for s in order)
+    return ("<div class='bar'><b>Strategy:</b>" + boxes +
+            "<a href='#' onclick=\"document.querySelectorAll('.fstrat').forEach(c=>c.checked=true);rebuild();return false\">all</a>"
+            "<a href='#' onclick=\"document.querySelectorAll('.fstrat').forEach(c=>c.checked=false);rebuild();return false\">none</a></div>")
+
+
 def render_trades():
     import html as _h
     rows = _all_trades()
-    # per-day pine, embedded hidden so the day <select> can reveal + copy without reload
+    present = {r['strat'] for r in rows}
     days = sorted({r['day'] for r in rows if r['day']}, reverse=True)
-    day_scripts = {}
-    for d in days:
-        day_scripts[d] = _pine_for([r for r in rows if r['day'] == d], 'All trades ' + d)
     opts = ''.join("<option value='%s'>%s</option>" % (d, d) for d in days) or "<option>—</option>"
-    hidden = ''.join("<textarea id='ps_%s' style='display:none'>%s</textarea>" % (d, _h.escape(s))
-                     for d, s in day_scripts.items())
+
+    # per-trade Pine body embedded as JS so the day script rebuilds live from the strategy filter
+    js_trades = [dict(strat=r['strat'], day=r['day'], body='\n'.join(_pine_lines(r) or []))
+                 for r in rows if _pine_lines(r)]
 
     trs = ''
     for i, r in enumerate(rows):
@@ -267,26 +281,33 @@ def render_trades():
         pine = ("<button class='copy' style='padding:3px 9px' "
                 "onclick=\"navigator.clipboard.writeText(document.getElementById('one_%d').value);this.textContent='copied'\">Pine</button>"
                 "<textarea id='one_%d' style='display:none'>%s</textarea>") % (i, i, one)
-        trs += ("<tr><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td></tr>") % (
-            r['day'], r['time'], _chip(r['strat']), r['dir'], r['cat'], _num(r['entry']), _num(r['sl']),
+        trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td></tr>") % (
+            r['strat'], r['day'], r['time'], _chip(r['strat']), r['dir'], r['cat'], _num(r['entry']), _num(r['sl']),
             _rcell(r['r']), chart, pine)
 
-    reach = _reach_note()
     body = (CSS +
             "<h1>All trades — A/B · C · F · ORB</h1>"
-            "<div class='sub'>modeled outcomes across every strategy · read-only · " + reach + "</div>"
+            "<div class='sub'>modeled outcomes across every strategy · read-only · " + _reach_note() + "</div>"
+            + _strat_filter_bar(present) +
             "<div class='bar'><b>Per-day Pine for TradingView:</b>"
-            "<select id='daysel' onchange=\"document.getElementById('psbox').value="
-            "(document.getElementById('ps_'+this.value)||{value:''}).value\">" + opts + "</select>"
+            "<select id='daysel' onchange='rebuild()'>" + opts + "</select>"
             "<button class='copy' onclick=\"navigator.clipboard.writeText(document.getElementById('psbox').value);"
             "this.textContent='Copied ✓';setTimeout(()=>this.textContent='Copy day script',1200)\">Copy day script</button>"
-            "<span class='mut'>pick a day → copy → TradingView → Pine Editor → paste → Add to chart</span></div>"
-            "<textarea id='psbox' readonly></textarea>" + hidden +
+            "<span class='mut'>obeys the strategy filter · pick a day → copy → TradingView → Pine Editor → paste → Add to chart</span></div>"
+            "<textarea id='psbox' readonly></textarea>"
             "<table><thead><tr><th>When (UTC)</th><th>Strat</th><th>Dir</th><th>Cat</th><th>Entry</th><th>SL</th>"
             "<th>Result</th><th>Chart</th><th>Pine</th></tr></thead><tbody>" + (trs or
             "<tr><td colspan=9 class='mut'>no trades yet (or no service URLs set)</td></tr>") + "</tbody></table>"
-            "<script>var s=document.getElementById('daysel');if(s&&s.value){var t=document.getElementById('ps_'+s.value);"
-            "if(t)document.getElementById('psbox').value=t.value;}</script>")
+            "<script>var TRADES=" + json.dumps(js_trades) + ";"
+            "function selStrats(){return Array.from(document.querySelectorAll('.fstrat:checked')).map(c=>c.value);}"
+            "function applyRows(){var ss=selStrats();document.querySelectorAll('tr[data-strat]').forEach(function(tr){"
+            "tr.style.display=ss.indexOf(tr.getAttribute('data-strat'))>=0?'':'none';});}"
+            "function buildDay(){var sel=document.getElementById('daysel');if(!sel)return;var d=sel.value,ss=selStrats();"
+            "var head='//@version=5\\nindicator(\"All trades '+d+'\", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)\\nif barstate.islast';"
+            "var b=TRADES.filter(function(t){return t.day===d&&ss.indexOf(t.strat)>=0;}).map(function(t){return t.body;});"
+            "var body=b.length?b.join('\\n'):'    label.new(bar_index, high, \"no trades\", style=label.style_label_down)';"
+            "document.getElementById('psbox').value=head+'\\n'+body;}"
+            "function rebuild(){applyRows();buildDay();}rebuild();</script>")
     return body
 
 
@@ -337,16 +358,21 @@ def render_candidates():
             rows += fn()
         except Exception:
             pass
+    present = {x['strat'] for x in rows}
     trs = ''
     for x in rows:
-        trs += "<tr><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td class='mut'>%s</td></tr>" % (
-            x.get('day', ''), x.get('time', ''), _chip(x['strat']), x.get('dir', ''), x.get('stage', ''), x.get('note', ''))
+        trs += "<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td class='mut'>%s</td></tr>" % (
+            x['strat'], x.get('day', ''), x.get('time', ''), _chip(x['strat']), x.get('dir', ''), x.get('stage', ''), x.get('note', ''))
     body = (CSS + "<h1>All candidates — live funnel</h1>"
             "<div class='sub'>who is armed / displaced / waiting on BOS, across strategies · " + _reach_note() + "</div>"
+            + _strat_filter_bar(present) +
             "<div class='mut' style='margin-bottom:8px'>Candidates are pre-trade — most have no chart/Pine yet; they appear in <b>All trades</b> once they resolve.</div>"
             "<table><thead><tr><th>When</th><th>Strat</th><th>Dir</th><th>Stage</th><th>Note</th></tr></thead><tbody>" +
             (trs or "<tr><td colspan=5 class='mut'>no live candidates (or no service URLs set)</td></tr>") +
-            "</tbody></table>")
+            "</tbody></table>"
+            "<script>function selStrats(){return Array.from(document.querySelectorAll('.fstrat:checked')).map(c=>c.value);}"
+            "function rebuild(){var ss=selStrats();document.querySelectorAll('tr[data-strat]').forEach(function(tr){"
+            "tr.style.display=ss.indexOf(tr.getAttribute('data-strat'))>=0?'':'none';});}rebuild();</script>")
     return body
 
 
