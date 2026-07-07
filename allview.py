@@ -358,6 +358,7 @@ def render_candidates():
             rows += fn()
         except Exception:
             pass
+    rows.sort(key=lambda x: (x.get('day', ''), x.get('time', '')), reverse=True)   # newest candidates on top
     present = {x['strat'] for x in rows}
     trs = ''
     for x in rows:

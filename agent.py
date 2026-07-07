@@ -690,7 +690,7 @@ def candidates():
     except Exception: tr=[]
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
     rec=[r for r in tr if r.get('trig_ms',0)>=cut]
-    rec.sort(key=lambda r:r.get('trig_ms',0))
+    rec.sort(key=lambda r:r.get('trig_ms',0), reverse=True)   # newest first
     if _wants_html():
         _summ=' · '.join("%s: %s"%(k,v) for k,v in Counter(r['stage'] for r in rec).items())
         return _page('Candidates (%gh)'%hours, "<div class='sum'>etapy: %s</div>"%_summ + _table(rec))
