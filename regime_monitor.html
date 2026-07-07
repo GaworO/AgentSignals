@@ -129,6 +129,16 @@ svg{display:block;width:100%;height:auto;overflow:visible}
   </div>
 </div>
 
+<!-- JAK TO DZIAŁA -->
+<div class="panel">
+  <h3>Jak to działa — z przykładem</h3>
+  <div class="cap">Monitor bierze ostatnie ~20 setupów z <b>Twojego detektora</b> na świeżej cenie i <b>modeluje</b> każdy: −1R (stop), 0 (BE) albo +2R (cel). To sygnały, nie Twoje realne trady — idealne fille, bez kosztów. Z tego liczy PF (profit factor) i EV (przewaga na trade), a z nich światło poniżej.</div>
+  <div class="rule"><span class="pill g">Przykład · Graj</span><span>Ostatnie 20 setupów: 12&times; wygrana (+2R), 8&times; strata (&minus;1R). PF = 24 / 8 = <b>3,0</b>, EV = (24&minus;8)/20 = <b>+0,8R</b>, wąskie stopy (~18 pkt) &rarr; <b>zielone / trend</b> &rarr; czyste wybicia, pełny rozmiar.</span></div>
+  <div class="rule"><span class="pill r">Przykład · Stop</span><span>Setupy są, ale stopy szerokie (mediana ~40 pkt) i PF ~0,9 &rarr; <b>czerwone / choppy</b> &rarr; edge śpi. Filtr EOD włącza się sam i tnie stare sygnały sesyjne. Paper albo minimalny rozmiar.</span></div>
+  <div class="rule"><span class="pill a">Przykład · Ostrożnie</span><span>Mniej niż 5 rozstrzygniętych setupów albo PF 1,2&ndash;1,6 &rarr; za mało / niejasno &rarr; połowiczny rozmiar, tylko A-setupy, czekaj na lepszy odczyt.</span></div>
+  <div class="cap" style="margin-top:8px">Uwaga: liczby są <b>modelowe i bez kosztów</b>, więc mogą świecić bardziej na zielono niż rzeczywistość. To miernik, czy silnik sygnałów działa na świeżej cenie &mdash; <b>nie</b> jest to Twój realny P&amp;L (ten jest w <code>/pnl</code>).</div>
+</div>
+
 <div class="foot">
   Dane poglądowe = nasz backtest Databento (cze 2025 – maj 2026). Wersja live liczy te same metryki z dziennika agenta:
   <code>…/journal</code> → rolling PF/EV na ostatnich ~20 tradach + szerokość SL z <code>…/candidates</code>.
