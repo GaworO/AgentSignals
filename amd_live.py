@@ -76,6 +76,7 @@ TIME_STOP    = CFG["exit"]["time_stop_min"]                 # 240 min
 from zoneinfo import ZoneInfo
 AMD_COLS     = ["ts_event", "open", "high", "low", "close", "volume"]
 _state = {"version": "AMD-v1", "last_alert": None, "alerts": 0, "bars": 0, "last_poll": None}
+_CACHE = {"cands": []}   # funnel cached by the per-bar poll so page loads never rebuild the engine
 
 
 # ───────────────────────── data → MarketData (no feather cache; live buffer) ─────────────────────────
@@ -396,6 +397,10 @@ def process_amd(buf=AMD_BUF, now_ms=None):
         sigs = amd_detect(buf)
     except Exception as ex:
         print("AMD detect err", ex, flush=True); return {"error": str(ex)}
+    try:
+        _CACHE["cands"] = amd_candidates(buf)     # refresh the funnel cache once per bar
+    except Exception:
+        pass
     state = _load(SENT_AMD); fired = 0
     fresh_ms = FRESH_MIN * 60 * 1000
     enabled = os.environ.get("STRAT_AMD_ENABLED") == "1"
@@ -452,10 +457,7 @@ def register_routes(app, prefix="/amd"):
             f"<tr><td>{t.get('alert_ts','')[:16]}</td><td>{t['dir']}</td><td>{t.get('entry')}</td>"
             f"<td>{t.get('SL')}</td><td>{t.get('TP')}</td><td>{t['status']}</td>"
             f"<td>{t.get('R','')}</td></tr>" for t in st["trades"])
-        try:
-            cands = amd_candidates()
-        except Exception:
-            cands = []
+        cands = _CACHE["cands"]                   # served from cache — no per-request engine rebuild
         crows = "".join(
             f"<tr><td>{c['time']}</td><td>{c['stage']}</td><td>{c['dir']}</td><td>{c['note']}</td></tr>"
             for c in cands) or "<tr><td colspan=4 style='color:#888'>no live funnel (outside NY-PM or non-accumulation day)</td></tr>"
@@ -490,10 +492,7 @@ table{{border-collapse:collapse;width:100%;font-size:13px}}td,th{{border-bottom:
 
     @app.route("/candidates", methods=["GET"])
     def _cands():
-        try:
-            return jsonify(candidates=amd_candidates())
-        except Exception as ex:
-            return jsonify(candidates=[], error=str(ex))
+        return jsonify(candidates=_CACHE["cands"])   # cached; refreshed each bar poll
 
     @app.route("/poll", methods=["GET", "POST"])
     def _poll():
