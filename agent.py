@@ -370,6 +370,11 @@ def bars():
     if _curl and requests is not None:
         try: requests.post(_curl, json=b, timeout=3)
         except Exception: pass
+    # --- Strategy AMD: DOKŁADNIE jak F/C — przekaz bar do serwisu AMD (fire-and-forget; NIE wplywa na A/B) ---
+    _amdurl = os.environ.get('STRAT_AMD_FORWARD_URL', '')
+    if _amdurl and requests is not None:
+        try: requests.post(_amdurl, json=b, timeout=3)
+        except Exception: pass
     return jsonify(ok=True, **res)
 
 def _wants_html():

@@ -18,6 +18,7 @@ import os
 
 _F   = os.environ.get('STRAT_F_URL',  'https://strategy-f-production.up.railway.app').rstrip('/')
 _ORB = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
+_AMD = os.environ.get('STRAT_AMD_URL', 'https://strategy-amd-production.up.railway.app').rstrip('/')
 # --- Forex observe-only services (public URLs of forex-eur / forex-jpy) ---
 _EUR = os.environ.get('FX_EUR_URL', 'https://forex-eur-production.up.railway.app').rstrip('/')
 _JPY = os.environ.get('FX_JPY_URL', 'https://forex-jpy-production.up.railway.app').rstrip('/')
@@ -79,7 +80,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
 function toggleMenu(){document.body.classList.toggle('nomenu');try{localStorage.setItem('deskmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}
 try{if(localStorage.getItem('deskmenu')==='0')document.body.classList.add('nomenu');}catch(e){}
-var F="__F__", ORB="__ORB__", EUR="__EUR__", JPY="__JPY__";
+var F="__F__", ORB="__ORB__", EUR="__EUR__", JPY="__JPY__", AMD="__AMD__";
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
  pnl:'<svg '+S+'><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
@@ -91,6 +92,7 @@ var ICONS={
  c:'<svg '+S+'><path d="M4 20h4v-4h4v-4h4V8h4"/></svg>',
  f:'<svg '+S+'><path d="M3 17l6-6 4 4 8-8"/></svg>',
  orb:'<svg '+S+'><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
+ amd:'<svg '+S+'><circle cx="12" cy="12" r="9"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>',
  list:'<svg '+S+'><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
  book:'<svg '+S+'><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
  help:'<svg '+S+'><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
@@ -108,6 +110,26 @@ var F_HOW='<h2>Strategy F - first-presentation FVG</h2>'+
  '<li><b>Order.</b> Limit at the gap, fixed R target.</li></ol></div>'+
  '<div class="card mut">Honest note (from the F audit): the FVG mechanics are right but F lacks bias / draw-on-liquidity / premium-discount - its edge is <b>momentum continuation, not textbook ICT</b>. Realistic additive &asymp; +0.045R. Its own service has the live candidates / log / performance.</div>';
 
+var AMD_HOW='<h2>Strategy AMD - Accumulation → Manipulation → Distribution</h2>'+
+ '<div class="card mut">NY-PM short only, on days whose morning was a genuine accumulation.<ol>'+
+ '<li><b>Accumulation.</b> Morning (08:00-12:00 ET) range &le; 1.2&times; its own 20-day average.</li>'+
+ '<li><b>Manipulation.</b> In NY-PM, a sweep of a significant-swing / session high (equal-highs excluded).</li>'+
+ '<li><b>Distribution.</b> Aligned HTF FVG &rarr; 1m IFVG &rarr; CISD &rarr; SHORT. 2R target, BE@1R.</li></ol></div>'+
+ '<div class="card mut">Backtest 4yr: <b>+0.44R, PF 2.39, t=3.21, ~21 trades/yr, 5/5 positive years</b>, maxDD -5.2R. A reversal engine that only works in a reversal session - NY-AM / London ports were tested and dead. Own service = live candidates / journal / Gate-0.</div>';
+
+var COMPARE_HTML='<h2>Strategy scorecard - timing, win rate &amp; frequency</h2>'+
+ '<div class="card mut">Real trade logs, 4yr MNQ. Your strategies <b>tile the trading day</b>; AMD owns the NY-PM slot with the #2 per-trade edge. Sorted by expectancy. (A/B: log=6,569 signals, ~1,181 finals/yr traded.)</div>'+
+ '<div class="card"><table>'+
+ '<tr><th>Strategy</th><th>When / session</th><th>Win%</th><th>Exp R</th><th>PF</th><th>/yr</th><th>/mo</th><th>/wk</th></tr>'+
+ '<tr><td><b>Model C</b></td><td>NY-AM + PREM</td><td>50%</td><td><b>+0.68</b></td><td>3.30</td><td>14</td><td>1.2</td><td>0.27</td></tr>'+
+ '<tr><td><b>AMD</b></td><td>NY-PM 13:30-16:00</td><td>47%</td><td><b>+0.44</b></td><td>2.39</td><td>20</td><td>1.7</td><td>0.39</td></tr>'+
+ '<tr><td>S2 Up-Gap Fade</td><td>Gap days (RTH open)</td><td>54%</td><td>+0.32</td><td>2.58</td><td>9</td><td>0.7</td><td>0.17</td></tr>'+
+ '<tr><td>ORB</td><td>RTH open 09:30</td><td>46%</td><td>+0.23</td><td>1.46</td><td>122</td><td>10.2</td><td>2.34</td></tr>'+
+ '<tr><td>S1 Monday-Rebuy</td><td>Mondays (RTH)</td><td>62%</td><td>+0.22</td><td>2.68</td><td>16</td><td>1.3</td><td>0.31</td></tr>'+
+ '<tr><td>A/B</td><td>All sessions</td><td>31%</td><td>+0.20</td><td>1.50</td><td>293</td><td>24.4</td><td>5.64</td></tr>'+
+ '</table></div>'+
+ '<div class="card mut"><b>Best session per strategy:</b> Model C &rarr; NY-AM (+0.84) &middot; A/B &rarr; London (+0.28) / PREM (+0.25) &middot; AMD &rarr; NY-PM (+0.44) &middot; ORB/S2 &rarr; the open &middot; S1 &rarr; Mondays.</div>';
+
 var SETTINGS_AB='<h2>A/B settings (Railway env)</h2><div class="card"><table>'+
  [['DISPWIN','30','bars to find the impulse'],['MODE','confirm','confirm | sweep'],['DISP_MODE','chain','chain (&ge;3) | orig (1-3)'],['ALLOW_SINGLE','off','single big candle (tested = wash)'],['MAX_STOP_R','40','drop wider stops (pts)'],['NO_TRADE_SUPPRESS','1','mute &plusmn;30min around high-impact news (ON)']]
  .map(function(r){return '<tr><td><span class="pill">'+r[0]+'</span></td><td>'+r[1]+'</td><td class="mut">'+r[2]+'</td></tr>';}).join('')+'</table></div>';
@@ -116,7 +138,8 @@ var GEN={
  'alltrades':{t:'All trades',frame:'/all/trades'}, 'allcands':{t:'All candidates',frame:'/all/candidates'},
  'pnl':{t:'P&L',frame:'/pnl'}, 'regime':{t:'Regime',frame:'/regime'}, 'monitor':{t:'Monitor',frame:'/monitor'},
  'news':{t:'News',html:'<h2>News &amp; high-impact suppression</h2><div class="card mut">The agent pulls the ForexFactory high-impact calendar (CPI, NFP, FOMC, PCE, ISM, PPI, GDP, Powell). Trades within &plusmn;30 min are flagged. <b>NO_TRADE_SUPPRESS=1</b> mutes them entirely - ON for funded accounts.</div>'},
- 'income':{t:'Income',html:'<h2>Income &amp; scaling</h2><div class="card mut">Funded-account scaling toward the weekly target across multi-firm accounts. <b>Gate 0 for every strategy: prove &ge; +0.15R over 30-50 live trades before sizing up.</b></div>'}
+ 'income':{t:'Income',html:'<h2>Income &amp; scaling</h2><div class="card mut">Funded-account scaling toward the weekly target across multi-firm accounts. <b>Gate 0 for every strategy: prove &ge; +0.15R over 30-50 live trades before sizing up.</b></div>'},
+ 'compare':{t:'Compare',html:COMPARE_HTML}
 };
 var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut">Same detector as A/B (displacement &rarr; FVG &rarr; 50% hold &rarr; BOS), volatility-recalibrated per instrument. <b>Alert-only</b> - no execution, no contact with the MNQ agent. Fed live 1-min bars from TradingView.</div>'+
@@ -127,12 +150,13 @@ var STRAT={
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
  orb:{name:'ORB',sub:'Opening-range breakout · momentum',ext:ORB,tabs:[['how','How it works',ORB+'/how','help'],['dash','Dashboard',ORB+'/','grid']]},
+ amd:{name:'AMD',sub:'Accumulation → Manipulation → Distribution · NY-PM short',ext:AMD,tabs:[['how','How it works',{html:AMD_HOW},'help'],['dash','Dashboard',AMD+'/','grid'],['stats','Gate 0',AMD+'/stats','chart']]},
  eur:{name:'EUR/USD',sub:'Forex · observe only · EURUSD-calibrated',ext:EUR,tabs:[['sum','Summary',EUR+'/performance','chart'],['trades','Trades',EUR+'/outcomes','book'],['pine','Pine for TV',EUR+'/pine','file'],['cand','Candidates & setups',EUR+'/candidates','list'],['status','Status',EUR+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  jpy:{name:'USD/JPY',sub:'Forex · observe only · JPY-calibrated (×100)',ext:JPY,tabs:[['sum','Summary',JPY+'/performance','chart'],['trades','Trades',JPY+'/outcomes','book'],['pine','Pine for TV',JPY+'/pine','file'],['cand','Candidates & setups',JPY+'/candidates','list'],['status','Status',JPY+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]}
 };
-var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],['gen/news','News','news'],['gen/income','Income','income']]],
-         ['Strategies',[['ab','A/B','ab'],['c','C','c'],['f','F','f'],['orb','ORB','orb']]],
+var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],['gen/news','News','news'],['gen/income','Income','income'],['gen/compare','Compare','chart']]],
+         ['Strategies',[['ab','A/B','ab'],['c','C','c'],['f','F','f'],['orb','ORB','orb'],['amd','AMD','amd']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),
@@ -168,7 +192,7 @@ buildNav(); window.addEventListener('hashchange',render); render();
 
 def render_home():
     return (PAGE.replace('__F__', _F).replace('__ORB__', _ORB)
-                .replace('__EUR__', _EUR).replace('__JPY__', _JPY))
+                .replace('__EUR__', _EUR).replace('__JPY__', _JPY).replace('__AMD__', _AMD))
 
 
 def register(app, path='/'):

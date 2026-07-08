@@ -40,6 +40,7 @@ STRAT_COLORS = {
     'C':   ('color.lime',    '#4ade80'),
     'F':   ('color.orange',  '#f59e0b'),
     'ORB': ('color.fuchsia', '#c084fc'),
+    'AMD': ('color.red',     '#ef4444'),
 }
 
 
@@ -169,9 +170,23 @@ def _orb_trades():
     return res
 
 
+def _amd_trades():
+    j = _get(os.environ.get('STRAT_AMD_URL', ''), '/stats')
+    if not isinstance(j, dict):
+        return []
+    res = []
+    for t in j.get('trades', []) or []:
+        e = _f(t.get('entry')); sl = _f(t.get('SL', t.get('sl')))
+        if e is None or sl is None:
+            continue
+        ts = t.get('bar_ms') or _iso_ms(t.get('alert_ts'))
+        res.append(_norm('AMD', ts, t.get('dir'), 'AMD', e, sl, t.get('R'), t.get('status')))
+    return res
+
+
 def _all_trades():
     out = []
-    for fn in (_ab_trades, _c_trades, _f_trades, _orb_trades):
+    for fn in (_ab_trades, _c_trades, _f_trades, _orb_trades, _amd_trades):
         try:
             out += fn()
         except Exception:
@@ -313,7 +328,7 @@ def render_trades():
 
 def _reach_note():
     have = ['A/B(local)']
-    for lbl, env in (('C', 'STRAT_C_URL'), ('F', 'STRAT_F_URL'), ('ORB', 'STRAT_ORB_URL')):
+    for lbl, env in (('C', 'STRAT_C_URL'), ('F', 'STRAT_F_URL'), ('ORB', 'STRAT_ORB_URL'), ('AMD', 'STRAT_AMD_URL')):
         have.append(lbl + ('✓' if os.environ.get(env) else '✗'))
     return ' '.join(have)
 
@@ -351,9 +366,21 @@ def _f_candidates():
     return res
 
 
+def _amd_candidates():
+    j = _get(os.environ.get('STRAT_AMD_URL', ''), '/candidates')
+    if not isinstance(j, dict):
+        return []
+    res = []
+    arr = (j.get('candidates') if isinstance(j, dict) else j) or []
+    for x in arr:
+        res.append(dict(strat='AMD', day=x.get('day', ''), time=x.get('time', ''),
+                        dir=x.get('dir', ''), stage=x.get('stage', ''), note=x.get('note', '')))
+    return res
+
+
 def render_candidates():
     rows = []
-    for fn in (_ab_candidates, _c_candidates, _f_candidates):
+    for fn in (_ab_candidates, _c_candidates, _f_candidates, _amd_candidates):
         try:
             rows += fn()
         except Exception:

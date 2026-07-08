@@ -1,0 +1,135 @@
+data:
+  csv_path: data/MNQ_databento_2022_1m.csv
+  tz: America/New_York
+  tick_size: 0.25
+  point_value: 2.0
+  trading_day_roll_hour: 18
+costs:
+  slippage_ticks_per_side: 1
+  commission_usd_per_side: 0.62
+  limit_fill_rule: trade_through
+sessions:
+  asia:
+  - '18:00'
+  - 02:00
+  london:
+  - 02:00
+  - 08:00
+  ny_am:
+  - 08:00
+  - '12:00'
+  lunch:
+  - '12:00'
+  - '13:30'
+  ny_pm:
+  - '13:30'
+  - '16:00'
+  allowed:
+  - ny_pm
+  no_new_entries_after: '16:30'
+  flatten_at: '16:55'
+liquidity:
+  swing_k: 5
+  significant_swing_k: 15
+  equal_level_tol_ticks: 6
+  equal_level_min_touches: 2
+  pool_types:
+  - significant_swing
+  - session
+  - prev_day
+  level_max_age_min: 1440
+  sweep:
+    min_penetration_ticks: 2
+    max_penetration_ticks: 200
+    require_close_back: true
+    close_back_window_bars: 3
+    min_wick_ticks: 0
+    displacement_after: false
+    displacement_atr_mult: 1.0
+    volume_filter: false
+    volume_mult: 1.5
+    atr_filter: false
+    atr_min_percentile: 20
+    time_filter: []
+htf_fvg:
+  timeframes:
+  - 15min
+  - 1h
+  min_size_ticks: 8
+  min_size_atr_frac: 0.0
+  max_age_bars: 96
+  max_filled_pct: 85
+  entry_zone: full
+  ce_tolerance_ticks: 6
+  react_window_min: 45
+  require_alignment: true
+ifvg:
+  min_size_ticks: 4
+  inversion_method: close_through
+  confirm_closes: 1
+  max_age_min: 120
+  invalidation: full_reclaim
+  min_strength: 0.0
+  search_window_min: 60
+cisd:
+  definition: A
+  a_min_seq_candles: 1
+  b_swing_k: 3
+  c_swing_k: 5
+  c_lookback_min: 45
+  d_atr_mult: 1.5
+  d_structure: last_minor_swing
+  window_min: 45
+  require_after_ifvg: true
+entry:
+  mode: market
+  limit_ttl_bars: 15
+  one_setup_at_a_time: true
+  direction_filter: short
+stop:
+  model: sweep
+  buffer_ticks: 8
+  atr_mult: 1.5
+  max_stop_points: 60
+  min_stop_points: 5
+exit:
+  model: fixed_r
+  fixed_r: 2.0
+  breakeven:
+    enabled: true
+    trigger_r: 1.0
+    offset_ticks: 0
+  trailing:
+    enabled: false
+    atr_mult: 2.0
+  partials:
+    enabled: false
+    levels:
+    - - 1.0
+      - 0.5
+  time_stop_min: 240
+risk:
+  sizing: fixed_risk_usd
+  fixed_contracts: 1
+  risk_usd: 300
+  account_size: 60000
+  risk_pct: 0.5
+  max_daily_loss_r: 3.0
+  max_consecutive_losses: 4
+  max_daily_trades: 6
+  kill_switch_dd_r: 25
+  news_filter: []
+engine:
+  warmup_days: 30
+  log_level: INFO
+  decision_log: true
+  seed: 42
+accumulation:
+  enabled: true
+  window:
+  - 08:00
+  - '12:00'
+  metric: range_ratio
+  max_ratio: 1.2
+  lookback_days: 20
+  min_am_bars: 120
