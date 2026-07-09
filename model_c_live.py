@@ -64,8 +64,13 @@ SESSIONS=tuple(s for s in os.environ.get('C_SESSIONS','NYAM,PREM').split(',') if
 SKIP_CB=os.environ.get('C_SKIP_COUNTERBIAS','1')=='1'
 TOUCH_TOL=float(os.environ.get('C_TOUCH_TOL','0'))   # FVG-touch tolerance in POINTS (0=exact=current; ~2 tested best). FVG=zone: price may miss the gap edge by <=tol & still be a valid rejection.
 RR=2.0; MAXR=40.0
+# ── BOS MODE: run STRICT (whole-leg high), LOCAL (last-step swing), or BOTH (default). Each trade tagged bos_mode. ──
+_C_BOS=os.environ.get('C_BOS_MODE','both')                       # 'both' | 'strict' | 'local'
+BOS_STRICT=_C_BOS in ('both','strict'); BOS_LOCAL=_C_BOS in ('both','local')
+HOLD_LOCAL=float(os.environ.get('C_HOLD','0.25'))               # deep-FVG body-hold frac (0.25) for the LOCAL variant
+BOS_LOCAL_SESSIONS=tuple(s for s in os.environ.get('C_BOS_LOCAL_SESSIONS','').split(',') if s)  # optional: restrict LOCAL to e.g. NYPM,PM_AH (backtest: local only +EV there); empty=all sessions
 
-def key_c(x): return f"C|{x['date']}|{x['dir']}|{x['bos']}|{round(x['entry'],2)}"   # own namespace -> never merges with A/B
+def key_c(x): return f"C|{x['date']}|{x['dir']}|{x['bos']}|{round(x['entry'],2)}|{x.get('bos_mode','strict')}"   # own namespace + bos_mode -> strict & local never merge
 
 def _long_disp(ctx,s,dr):
     o,hi,lo,cl,ATR,n=ctx.o,ctx.hi,ctx.lo,ctx.cl,ctx.ATR,ctx.n; bull=dr=='LONG'
@@ -126,8 +131,28 @@ def find_setup_tol(ctx,disp,dr,tol):
         level=max(level,hi[j]) if bull else min(level,lo[j])
     return None
 
+def setup_clean_local(ctx,d,f):
+    """LOCAL BOS (Model C's own 'setup_clean'): staircase deep-FVG hold (CE/25%) then close-break of the
+    LAST STEP's swing (max high of the 5 bars before the hold) — NOT the whole displacement-leg high.
+    Returns the same dict shape as find_setup_v10 so get_entry_v10 consumes it unchanged."""
+    hi,lo,cl,n=ctx.hi,ctx.lo,ctx.cl,ctx.n; RETWIN=ctx.cfg.retwin; BOSWIN=ctx.cfg.boswin
+    dr=d['dir']; bull=dr=='LONG'; fl,fh=f[0],f[1]; s=int(d['s']); u=int(d['u'])
+    thr=fl+HOLD_LOCAL*(fh-fl) if bull else fh-HOLD_LOCAL*(fh-fl); hold=None
+    for j in range(u+1,min(u+1+RETWIN,n)):
+        if (cl[j]<fl) if bull else (cl[j]>fh): break
+        if ((lo[j]<=fh) if bull else (hi[j]>=fl)) and ((cl[j]>=thr) if bull else (cl[j]<=thr)): hold=j; break
+    if hold is None: return None
+    struct=float(max(hi[max(s,hold-5):hold+1])) if bull else float(min(lo[max(s,hold-5):hold+1]))
+    for j in range(hold+1,min(hold+1+BOSWIN,n)):
+        if (cl[j]<fl) if bull else (cl[j]>fh): return None
+        if (cl[j]>struct) if bull else (cl[j]<struct):
+            return dict(dr=dr,origin=round(float(lo[hold]) if bull else float(hi[hold]),2),origin_bar=hold,
+                        end=round(float(max(hi[hold:j+1])) if bull else float(min(lo[hold:j+1])),2),
+                        bos_bar=j,ce=round((fl+fh)/2,2),fvg=(float(fl),float(fh)),fvg_bar=int(f[2]),s=s,u=u)
+    return None
+
 def c_signals(buf=BUF):
-    """Fresh Strategy-C setups on the buffer (causal; additive to A/B)."""
+    """Fresh Strategy-C setups on the buffer (causal; additive to A/B). Runs STRICT and/or LOCAL BOS per C_BOS_MODE."""
     cfg=Config(disp_mode='chain',dispwin=30,minimp=3,cutoff='',data_csv=buf,max_stop_r=40.0)
     finals,ded,ctx=detect(cfg)
     ab=set((f['dir'],int(f['entry_bar'])) for f in finals)
@@ -150,38 +175,45 @@ def c_signals(buf=BUF):
             fmid=(f[0]+f[1])/2; depth=(d['swhi']-fmid)/leg if bull else (fmid-d['swlo'])/leg
             if depth<DEPTH_MIN: continue
             disp_c=dict(fvg=(float(f[0]),float(f[1])),fvg_bar=max(int(f[2]),int(d['u'])),s=int(d['s']),u=int(d['u']))  # CAUSAL
-            try: su=find_setup_tol(ctx,disp_c,dr,TOUCH_TOL)   # C_TOUCH_TOL=0 -> identical to find_setup_v10
-            except Exception: su=None
-            if su is None: continue
-            try: e=get_entry_v10(ctx,su)
-            except Exception: e=None
-            if e is None: continue
-            eb=int(e['start_bar'])
-            if any((dr,db) in ab for db in range(eb-3,eb+4)): continue     # additive
-            try: b,_=bias_for(ctx,int(su['bos_bar']))
-            except Exception: b='niejasny'
-            align='Y' if b.replace('?','')==dr else ('?' if ('?' in b or b=='niejasny') else 'N')
-            if SKIP_CB and align=='N': continue
-            entry=round(float(e['entry']),2); sl=round(float(e['sl']),2); risk=abs(entry-sl)
-            if not (0<risk<=MAXR): continue
-            tp=round(entry+RR*risk if bull else entry-RR*risk,2)
-            bos_ts=dtc.iloc[int(su['bos_bar'])]; bos_ms=int(bos_ts.timestamp()*1000)
-            if (last_ms-bos_ms) > FRESH_MIN*60*1000: continue              # only FRESH confirmations
-            atr=ATR[d['u']] if ATR[d['u']]>0 else 1e9
-            k="C|%s|%.2f|%s"%(dr,entry,bos_ts.strftime('%Y%m%dT%H%M'))
-            if k in seenk: continue
-            seenk.add(k)
-            out.append(dict(date=str(dates[int(su['bos_bar'])]),dir=dr,sess=str(S[eb]),entry=entry,SL=sl,TP=tp,
-                risk=round(risk,2),depth=round(depth,2),disp_pts=round(float(d['run']),1),run_atr=round(float(d['run'])/atr,2),
-                fvg_lo=round(float(f[0]),2),fvg_hi=round(float(f[1]),2),ce=round(fmid,2),bias=b,bias_align=align,
-                bos=bos_ts.strftime('%H:%M'),bos_ms=bos_ms,disp_end=dtc.iloc[int(d['u'])].strftime('%H:%M'),
-                disp_end_ms=int(dtc.iloc[int(d['u'])].timestamp()*1000),status='live',strategy='C'))
+            _methods=[]                                                    # run STRICT and/or LOCAL BOS on this drive-FVG
+            if BOS_STRICT:
+                try: _methods.append(('strict',find_setup_tol(ctx,disp_c,dr,TOUCH_TOL)))
+                except Exception: _methods.append(('strict',None))
+            if BOS_LOCAL and ((not BOS_LOCAL_SESSIONS) or (str(S[int(d['u'])]) in BOS_LOCAL_SESSIONS)):
+                try: _methods.append(('local',setup_clean_local(ctx,d,f)))
+                except Exception: _methods.append(('local',None))
+            for _bm,su in _methods:
+                if su is None: continue
+                try: e=get_entry_v10(ctx,su)
+                except Exception: e=None
+                if e is None: continue
+                eb=int(e['start_bar'])
+                if any((dr,db) in ab for db in range(eb-3,eb+4)): continue     # additive
+                try: b,_=bias_for(ctx,int(su['bos_bar']))
+                except Exception: b='niejasny'
+                align='Y' if b.replace('?','')==dr else ('?' if ('?' in b or b=='niejasny') else 'N')
+                if SKIP_CB and align=='N': continue
+                entry=round(float(e['entry']),2); sl=round(float(e['sl']),2); risk=abs(entry-sl)
+                if not (0<risk<=MAXR): continue
+                tp=round(entry+RR*risk if bull else entry-RR*risk,2)
+                bos_ts=dtc.iloc[int(su['bos_bar'])]; bos_ms=int(bos_ts.timestamp()*1000)
+                if (last_ms-bos_ms) > FRESH_MIN*60*1000: continue              # only FRESH confirmations
+                atr=ATR[d['u']] if ATR[d['u']]>0 else 1e9
+                k="C|%s|%.2f|%s|%s"%(dr,entry,bos_ts.strftime('%Y%m%dT%H%M'),_bm)   # dedup key includes bos_mode
+                if k in seenk: continue
+                seenk.add(k)
+                out.append(dict(date=str(dates[int(su['bos_bar'])]),dir=dr,sess=str(S[eb]),entry=entry,SL=sl,TP=tp,
+                    risk=round(risk,2),depth=round(depth,2),disp_pts=round(float(d['run']),1),run_atr=round(float(d['run'])/atr,2),
+                    fvg_lo=round(float(f[0]),2),fvg_hi=round(float(f[1]),2),ce=round(fmid,2),bias=b,bias_align=align,
+                    bos=bos_ts.strftime('%H:%M'),bos_ms=bos_ms,disp_end=dtc.iloc[int(d['u'])].strftime('%H:%M'),
+                    disp_end_ms=int(dtc.iloc[int(d['u'])].timestamp()*1000),status='live',strategy='C',bos_mode=_bm))
     return out
 
 def to_alert_c(x):
     isL=x['dir']=='LONG'; side='BUY' if isL else 'SELL'; emoji='🟢' if isL else '🔴'; rp=round(x['risk'],1)
     be_line = "" if NOBE else f" · BE po +{rp} (1R)"
-    base=(f"🅲 STRATEGY C · staircase displacement (schodkowy) · {emoji} {x['dir']} · {x['sess']}"
+    _bmtag='LOCAL-BOS' if x.get('bos_mode')=='local' else 'STRICT-BOS'
+    base=(f"🅲 STRATEGY C [{_bmtag}] · staircase displacement (schodkowy) · {emoji} {x['dir']} · {x['sess']}"
           f"\n📋 {side} LIMIT {round(x['entry']+OFFSET,1)} — POSTAW TERAZ (fill na dotknięciu wejścia)"
           f"\n🛑 SL {round(x['SL']+OFFSET,1)} · ryzyko {rp} pkt ({rp*4:.0f} ticks){be_line}"
           f"\n🎯 TP {round(x['TP']+OFFSET,1)} · +{round(2*x['risk'],1)} pkt (2R)"
@@ -206,7 +238,7 @@ def _td_payload(x, action='enter'):
             "orderType":"limit","limitPrice":round(e+OFFSET,2),"quantity":qty,
             "takeProfit":{"limitPrice":round(tp+OFFSET,2)},
             "stopLoss":{"type":"stop","stopPrice":round(sl+OFFSET,2)},
-            "timeInForce":"gtc","strategy":"STRATEGY_C"}
+            "timeInForce":"gtc","strategy":("STRATEGY_C_LOCAL" if x.get('bos_mode')=='local' else "STRATEGY_C")}
 
 def exec_c(x, text=None, action='enter'):
     if not EXEC_C or requests is None: return 'no-exec'
