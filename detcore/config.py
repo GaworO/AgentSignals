@@ -54,6 +54,7 @@ class Config:
             maxext=int(e.get('MAXEXT', '40')),
             dispwin=int(e.get('DISPWIN', '10')),
             rej_frac=float(e.get('REJ_FRAC', '0.5')),
+            atrmult=float(e.get('ATRMULT', '1.5')),   # displacement-strength gate; 1.0 = ~+65% more setups (WF-validated), 1.5 = current
             max_stop_r=float(e.get('MAX_STOP_R', '40')),
             entry_primary=e.get('ENTRY_PRIMARY', 'fvg'),
             cutoff=e.get('CUTOFF', '2026-05-17'),
