@@ -69,10 +69,14 @@ _C_BOS=os.environ.get('C_BOS_MODE','both')                       # 'both' | 'str
 BOS_STRICT=_C_BOS in ('both','strict'); BOS_LOCAL=_C_BOS in ('both','local')
 HOLD_LOCAL=float(os.environ.get('C_HOLD','0.25'))               # deep-FVG body-hold frac (0.25) for the LOCAL variant
 BOS_LOCAL_SESSIONS=tuple(s for s in os.environ.get('C_BOS_LOCAL_SESSIONS','').split(',') if s)  # optional: restrict LOCAL to e.g. NYPM,PM_AH (backtest: local only +EV there); empty=all sessions
+# ── EXTRA-ENTRY LOOSE STREAM: also run a LOOSER staircase (bridges deeper pullbacks + shorter) as an ADDITIVE, tagged (disp_mode='loose') stream. OFF by default -> your current tight Model C is untouched until you set C_DISP_LOOSE=1. ──
+DISP_LOOSE=os.environ.get('C_DISP_LOOSE','')=='1'
+RETR_LOOSE=float(os.environ.get('C_RETR_LOOSE','0.75')); MINLEN_LOOSE=int(os.environ.get('C_MINLEN_LOOSE','6'))
 
 def key_c(x): return f"C|{x['date']}|{x['dir']}|{x['bos']}|{round(x['entry'],2)}|{x.get('bos_mode','strict')}"   # own namespace + bos_mode -> strict & local never merge
 
-def _long_disp(ctx,s,dr):
+def _long_disp(ctx,s,dr,retr=None,minlen=None):
+    _R=RETR if retr is None else retr; _ML=MINLEN if minlen is None else minlen   # allow per-call override (loose stream)
     o,hi,lo,cl,ATR,n=ctx.o,ctx.hi,ctx.lo,ctx.cl,ctx.ATR,ctx.n; bull=dr=='LONG'
     if not ((cl[s]>=o[s]) if bull else (cl[s]<=o[s])): return None
     base=float(lo[s]) if bull else float(hi[s]); ext=float(hi[s]) if bull else float(lo[s]); eb=s; j=s
@@ -81,15 +85,15 @@ def _long_disp(ctx,s,dr):
         if bull:
             if hi[j]>ext: ext=float(hi[j]); eb=j
             run=ext-base
-            if run>0 and j>eb and (ext-lo[j])>RETR*run: break
+            if run>0 and j>eb and (ext-lo[j])>_R*run: break
             if cl[j]<base: break
         else:
             if lo[j]<ext: ext=float(lo[j]); eb=j
             run=base-ext
-            if run>0 and j>eb and (hi[j]-ext)>RETR*run: break
+            if run>0 and j>eb and (hi[j]-ext)>_R*run: break
             if cl[j]>base: break
     u=eb
-    if (u-s+1)<MINLEN: return None
+    if (u-s+1)<_ML: return None
     run=(ext-base) if bull else (base-ext)
     if run<=0: return None
     atr5=float(ATR[u]) if ATR[u]>0 else 1e9
@@ -159,14 +163,18 @@ def c_signals(buf=BUF):
     o,hi,lo,cl,n,S,ATR,dtc,dates=ctx.o,ctx.hi,ctx.lo,ctx.cl,ctx.n,ctx.S,ctx.ATR,ctx.df.dt,ctx.dates
     last_ms=int(dtc.iloc[n-1].timestamp()*1000)
     drives=[]; seen=set()
-    for s in range(1,n-MINLEN):
-        if S[s] not in SESSIONS: continue
-        for dr in ('LONG','SHORT'):
-            d=_long_disp(ctx,s,dr)
-            if d is None: continue
-            k=(dr,d['u']//20)
-            if k in seen: continue
-            seen.add(k); d['dir']=dr; drives.append(d)
+    _dcfgs=[('tight',None,None)]                                    # tight = your frozen params (unchanged)
+    if DISP_LOOSE: _dcfgs.append(('loose',RETR_LOOSE,MINLEN_LOOSE)) # + additive looser stream (extra entry)
+    for _dm,_rt,_ml in _dcfgs:
+        mlmin=_ml if _ml is not None else MINLEN
+        for s in range(1,n-mlmin):
+            if S[s] not in SESSIONS: continue
+            for dr in ('LONG','SHORT'):
+                d=_long_disp(ctx,s,dr,retr=_rt,minlen=_ml)
+                if d is None: continue
+                k=(_dm,dr,d['u']//20)
+                if k in seen: continue
+                seen.add(k); d['dir']=dr; d['disp_mode']=_dm; drives.append(d)
     out=[]; seenk=set()
     for d in drives:
         dr=d['dir']; bull=dr=='LONG'; leg=d['swhi']-d['swlo']
@@ -199,21 +207,23 @@ def c_signals(buf=BUF):
                 bos_ts=dtc.iloc[int(su['bos_bar'])]; bos_ms=int(bos_ts.timestamp()*1000)
                 if (last_ms-bos_ms) > FRESH_MIN*60*1000: continue              # only FRESH confirmations
                 atr=ATR[d['u']] if ATR[d['u']]>0 else 1e9
-                k="C|%s|%.2f|%s|%s"%(dr,entry,bos_ts.strftime('%Y%m%dT%H%M'),_bm)   # dedup key includes bos_mode
+                _dm=d.get('disp_mode','tight')
+                k="C|%s|%.2f|%s|%s|%s"%(dr,entry,bos_ts.strftime('%Y%m%dT%H%M'),_bm,_dm)   # dedup key includes bos_mode + disp_mode
                 if k in seenk: continue
                 seenk.add(k)
                 out.append(dict(date=str(dates[int(su['bos_bar'])]),dir=dr,sess=str(S[eb]),entry=entry,SL=sl,TP=tp,
                     risk=round(risk,2),depth=round(depth,2),disp_pts=round(float(d['run']),1),run_atr=round(float(d['run'])/atr,2),
                     fvg_lo=round(float(f[0]),2),fvg_hi=round(float(f[1]),2),ce=round(fmid,2),bias=b,bias_align=align,
                     bos=bos_ts.strftime('%H:%M'),bos_ms=bos_ms,disp_end=dtc.iloc[int(d['u'])].strftime('%H:%M'),
-                    disp_end_ms=int(dtc.iloc[int(d['u'])].timestamp()*1000),status='live',strategy='C',bos_mode=_bm))
+                    disp_end_ms=int(dtc.iloc[int(d['u'])].timestamp()*1000),status='live',strategy='C',bos_mode=_bm,disp_mode=_dm))
     return out
 
 def to_alert_c(x):
     isL=x['dir']=='LONG'; side='BUY' if isL else 'SELL'; emoji='🟢' if isL else '🔴'; rp=round(x['risk'],1)
     be_line = "" if NOBE else f" · BE po +{rp} (1R)"
     _bmtag='LOCAL-BOS' if x.get('bos_mode')=='local' else 'STRICT-BOS'
-    base=(f"🅲 STRATEGY C [{_bmtag}] · staircase displacement (schodkowy) · {emoji} {x['dir']} · {x['sess']}"
+    _dtag=' ·LOOSE' if x.get('disp_mode')=='loose' else ''
+    base=(f"🅲 STRATEGY C [{_bmtag}{_dtag}] · staircase displacement (schodkowy) · {emoji} {x['dir']} · {x['sess']}"
           f"\n📋 {side} LIMIT {round(x['entry']+OFFSET,1)} — POSTAW TERAZ (fill na dotknięciu wejścia)"
           f"\n🛑 SL {round(x['SL']+OFFSET,1)} · ryzyko {rp} pkt ({rp*4:.0f} ticks){be_line}"
           f"\n🎯 TP {round(x['TP']+OFFSET,1)} · +{round(2*x['risk'],1)} pkt (2R)"
@@ -238,7 +248,7 @@ def _td_payload(x, action='enter'):
             "orderType":"limit","limitPrice":round(e+OFFSET,2),"quantity":qty,
             "takeProfit":{"limitPrice":round(tp+OFFSET,2)},
             "stopLoss":{"type":"stop","stopPrice":round(sl+OFFSET,2)},
-            "timeInForce":"gtc","strategy":("STRATEGY_C_LOCAL" if x.get('bos_mode')=='local' else "STRATEGY_C")}
+            "timeInForce":"gtc","strategy":("STRATEGY_C_LOOSE" if x.get('disp_mode')=='loose' else ("STRATEGY_C_LOCAL" if x.get('bos_mode')=='local' else "STRATEGY_C"))}
 
 def exec_c(x, text=None, action='enter'):
     if not EXEC_C or requests is None: return 'no-exec'
@@ -616,7 +626,26 @@ def register_routes(app, prefix='/c'):
     def _home(): return DASH_HTML
     def _h(): return jsonify(ok=True,mode='TEST' if TEST else 'LIVE',enabled=ENABLED,touch_tol=TOUCH_TOL)
     def _perf(): return jsonify(_stats_from_journal(_ld(C_TRADES)))
-    def _cand(): return jsonify(_ld(C_CAND) or {'cands':[],'counts':{}})
+    def _cand():
+        from flask import request as _rq
+        d=_ld(C_CAND) or {'cands':[],'counts':{}}
+        if not d.get('cands'):                                   # no log yet -> compute fresh (like A/B /candidates)
+            try:
+                cands,_=c_candidates(); d={'ts':dt.datetime.utcnow().isoformat(timespec='seconds'),
+                    'counts':{k:sum(1 for x in cands if x['step']==k) for k in set(x['step'] for x in cands)},'cands':cands}
+            except Exception as ex: print('cand live err',ex,flush=True)
+        if 'text/html' not in _rq.headers.get('Accept',''): return jsonify(d)
+        cands=d.get('cands',[]); counts=d.get('counts',{})
+        funnel=" · ".join(f"<b>{k}</b>: {counts[k]}" for k in sorted(counts,key=lambda z:STEP_RANK.get(z,9)))
+        rows="".join("<tr><td>%s %s</td><td>%s→%s</td><td>%.0fpt</td><td>%s–%s</td><td style='font-weight:600'>%s</td><td>%s</td><td>%s</td></tr>"%(
+            '🟢' if c['dir']=='LONG' else '🔴',c['dir'],c.get('disp_start',''),c.get('disp_end',''),c.get('disp_pts',0),
+            c.get('fvg_lo',''),c.get('fvg_hi',''),c.get('step',''),c.get('entry','') or '',c.get('note','')) for c in cands) or "<tr><td colspan=7>— brak aktywnych kandydatów —</td></tr>"
+        return ("<!doctype html><meta charset=utf-8><meta http-equiv=refresh content=60><title>C candidates</title>"
+                "<style>body{font-family:system-ui;margin:20px;color:#111}table{border-collapse:collapse;margin-top:10px}"
+                "td,th{border:1px solid #ccc;padding:4px 9px;font-size:14px}th{background:#f3f3f3}.f{font-size:15px;margin:6px 0}</style>"
+                "<h2>🅲 Strategy C — kandydaci (na jakim są STEPIE)</h2>"
+                "<div class=f>steps: displacement → rejection → bos → (fill) &nbsp;|&nbsp; %s</div><div style='color:#888;font-size:12px'>updated %s</div>"
+                "<table><tr><th>dir</th><th>displacement</th><th>run</th><th>FVG</th><th>STEP</th><th>entry</th><th>note</th></tr>%s</table>"%(funnel or '—',d.get('ts',''),rows))
     def _jr(): return jsonify(_ld(C_TRADES))
     def _how(): return HOW_HTML
     def _bars():                                     # F-style intake: agent forwards each bar here
