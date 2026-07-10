@@ -1,0 +1,96 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Shadow executor</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0e14;color:#e6e9ef;font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;padding:14px}
+h2{margin:0 0 3px}.mut{color:#828a99}.sub{color:#828a99;font-size:12.5px;margin-bottom:12px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.kpi{background:#141a28;border:1px solid #1b2230;border-radius:10px;padding:11px 15px;min-width:150px}
+.kl{color:#828a99;font-size:12px;margin-bottom:3px}.kv{font-size:21px;font-weight:700}
+.kv.up{color:#4ade80}.kv.down{color:#f87171}
+.bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#141a28;border:1px solid #1b2230;border-radius:10px;padding:10px 13px;margin-bottom:12px}
+.bar .grp{display:flex;gap:9px;align-items:center}.bar b{font-size:12px;color:#9aa3b5;margin-right:2px}
+label.cb{display:inline-flex;gap:5px;align-items:center;cursor:pointer;padding:4px 9px;border:1px solid #2a3550;border-radius:7px;font-size:13px}
+label.cb input{accent-color:#4ade80}
+select{background:#0b0e14;color:#e6e9ef;border:1px solid #2a3550;border-radius:7px;padding:6px 9px;font-size:13px}
+button{background:#13251b;color:#4ade80;border:1px solid #1f7a41;border-radius:7px;padding:7px 13px;font-size:13px;cursor:pointer;font-weight:600}
+button:hover{background:#173021}#cpstat{color:#4ade80;font-size:12.5px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+td,th{text-align:left;padding:5px 8px;border-bottom:1px solid #1b2230;white-space:nowrap}
+th{color:#828a99;font-weight:600;position:sticky;top:0;background:#0b0e14}
+.win{color:#4ade80}.loss{color:#f87171}.sAB{color:#60a5fa}.sC{color:#fb923c}.sF{color:#4ade80}
+.wrap{max-height:52vh;overflow:auto;border:1px solid #1b2230;border-radius:10px}
+.note{background:#141a28;border:1px solid #1b2230;border-left:3px solid #f59e0b;border-radius:8px;padding:9px 12px;color:#9aa3b5;font-size:12.5px;margin-bottom:12px}
+</style></head><body>
+<h2>Shadow executor <span class="mut" style="font-size:14px">&middot; no money, proving the edge</span></h2>
+<div class="sub">Every fresh signal logged <b>live</b>, hands-off, no money &middot; $100,000 @ 0.5% ($500 = 1R) &middot; all sessions except London &amp; Asia, all weekdays, resting limits, fixed 2R stop.</div>
+<div class="note"><b>Live log &mdash; starts empty, fills itself as signals fire.</b> Each fresh signal is recorded hands-off and its outcome resolved from your live bars (resting limit, 1-tick slippage). This is your <b>Gate-0 evidence</b>: prove &ge; +0.15R over 30-50 logged fills before real size. London &amp; Asia excluded.</div>
+<div class="kpis" id="sum"></div>
+<div class="bar">
+  <div class="grp"><b>strategies</b>
+    <label class="cb"><input type="checkbox" class="stratcb" value="A/B" checked> A/B</label>
+    <label class="cb"><input type="checkbox" class="stratcb" value="C" checked> C</label>
+    <label class="cb"><input type="checkbox" class="stratcb" value="F" checked> F</label>
+  </div>
+  <div class="grp"><b>week</b><select id="wk"></select></div>
+  <div class="grp"><button id="cp">Copy Pine for selection</button><span id="cpstat"></span></div>
+</div>
+<div class="wrap"><table id="tbl"></table></div>
+<script>
+var DATA = [];
+function selStrats(){return Array.prototype.slice.call(document.querySelectorAll('.stratcb:checked')).map(function(c){return c.value;});}
+function curWeek(){return document.getElementById('wk').value;}
+function filt(){var ss=selStrats(),wk=curWeek();return DATA.filter(function(t){return ss.indexOf(t.strategy)>=0&&(wk==='all'||t.week===wk);});}
+function money(v){return (v<0?'-$':'+$')+Math.abs(Math.round(v)).toLocaleString();}
+function card(l,v,c){return '<div class="kpi"><div class="kl">'+l+'</div><div class="kv '+c+'">'+v+'</div></div>';}
+function render(){
+ var d=filt(),w=d.filter(function(t){return t.outcome==='win';}).length,l=d.length-w;
+ var net=d.reduce(function(a,t){return a+t.net;},0);
+ var expR=d.length?d.reduce(function(a,t){return a+t.R;},0)/d.length:0;
+ var wks={};d.forEach(function(t){wks[t.week]=1;});var nw=Object.keys(wks).length;
+ document.getElementById('sum').innerHTML=
+   card('Net P&amp;L (on $100k)',money(net),net>=0?'up':'down')+
+   card('Win rate',d.length?Math.round(w/d.length*100)+'%':'—','')+
+   card('Trades',d.length+'  ('+w+'W / '+l+'L)','')+
+   card('Exp / trade',(expR>=0?'+':'')+expR.toFixed(2)+'R',expR>=0.15?'up':'down')+
+   card('Per week',nw?(d.length/nw).toFixed(1):'—','');
+ var rows=d.slice().reverse().map(function(t){var sc='s'+t.strategy.replace('/','');
+  return '<tr><td>'+t.et+'</td><td>'+t.dow+'</td><td class="'+sc+'"><b>'+t.strategy+'</b></td><td>'+(t.dir==='LONG'?'&#9650;':'&#9660;')+'</td><td class=mut>'+t.sess+'</td><td>'+t.entry+'</td><td>'+t.sl+'</td><td>'+t.tp+'</td><td class="'+(t.outcome==='win'?'win':'loss')+'">'+t.outcome.toUpperCase()+'</td><td>'+(t.R>=0?'+':'')+t.R+'R</td><td class="'+(t.net>=0?'win':'loss')+'">'+money(t.net)+'</td></tr>';}).join('');
+ if(!d.length){rows='<tr><td colspan="11" class="mut" style="padding:18px">No shadow trades logged yet &mdash; they appear here automatically as signals fire (London &amp; Asia excluded).</td></tr>';}
+ document.getElementById('tbl').innerHTML='<tr><th>time (ET)</th><th>day</th><th>strat</th><th>dir</th><th>session</th><th>entry</th><th>SL</th><th>TP</th><th>result</th><th>R</th><th>$</th></tr>'+rows;
+}
+function initWeeks(){var wks={};DATA.forEach(function(t){wks[t.week]=1;});var arr=Object.keys(wks).sort();
+ document.getElementById('wk').innerHTML='<option value="all">All weeks ('+arr.length+')</option>'+arr.map(function(w){return '<option value="'+w+'">week of '+w+'</option>';}).join('');}
+function copyPine(){var d=filt();if(!d.length){document.getElementById('cpstat').textContent='nothing selected';return;}
+ var SC={'A/B':0,'C':1,'F':2};var wk=curWeek();
+ function A(f){return 'array.from('+d.map(f).join(',')+')';}
+ var pine='//@version=5\n'+
+  'indicator("Shadow '+(wk==='all'?'all weeks':'week '+wk)+' ('+d.length+' trades)", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)\n'+
+  '// Entry line: A/B blue / C orange / F green. Red box=risk, green box=reward (2R). $100k@0.5%.\n'+
+  'var int[]   T  = '+A(function(t){return t.ms;})+'\n'+
+  'var bool[]  L  = '+A(function(t){return t.dir==="LONG"?"true":"false";})+'\n'+
+  'var float[] EN = '+A(function(t){return t.entry;})+'\n'+
+  'var float[] SLA= '+A(function(t){return t.sl;})+'\n'+
+  'var float[] TPA= '+A(function(t){return t.tp;})+'\n'+
+  'var int[]   STR= '+A(function(t){return SC[t.strategy];})+'\n'+
+  'var int[]   W  = '+A(function(t){return t.outcome==="win"?1:0;})+'\n'+
+  'ext=input.int(10,"bracket bars")\n'+
+  'f_col(si)=> si==0?color.blue: si==1?color.orange: color.green\n'+
+  'f_nm(si)=> si==0?"A/B": si==1?"C":"F"\n'+
+  'for i=0 to array.size(T)-1\n'+
+  '    if time==array.get(T,i)\n'+
+  '        e=array.get(EN,i), s=array.get(SLA,i), t=array.get(TPA,i)\n'+
+  '        lng=array.get(L,i), w=array.get(W,i), si=array.get(STR,i)\n'+
+  '        box.new(bar_index,math.max(e,s),bar_index+ext,math.min(e,s),border_color=color.new(color.red,70),bgcolor=color.new(color.red,90))\n'+
+  '        box.new(bar_index,math.max(e,t),bar_index+ext,math.min(e,t),border_color=color.new(color.green,70),bgcolor=color.new(color.green,90))\n'+
+  '        line.new(bar_index,e,bar_index+ext,e,color=f_col(si),width=2)\n'+
+  '        label.new(bar_index,e,f_nm(si)+(lng?" up ":" dn ")+(w==1?"WIN":"LOSS"),style=lng?label.style_label_up:label.style_label_down,color=color.new(f_col(si),20),textcolor=color.white,size=size.tiny)\n';
+ function done(){document.getElementById('cpstat').textContent='copied '+d.length+' trades - paste into TradingView Pine editor';}
+ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(pine).then(done).catch(function(){fb();});}else{fb();}
+ function fb(){var ta=document.createElement('textarea');ta.value=pine;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}ta.remove();done();}
+}
+Array.prototype.slice.call(document.querySelectorAll('.stratcb')).forEach(function(c){c.onchange=render;});
+document.getElementById('wk').onchange=render;
+document.getElementById('cp').onclick=copyPine;
+function load(){fetch('/shadow/data').then(function(r){return r.json();}).then(function(d){DATA=d||[];initWeeks();render();}).catch(function(){DATA=[];initWeeks();render();});}
+load();
+</script></body></html>
