@@ -22,6 +22,7 @@ import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + tr
 import how_ab      # A/B "how it works" page at /how — izolowany dodatek (ORB /how style), nie rusza detektora
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
+import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 
@@ -329,6 +330,8 @@ def _process_new(now_ms=None):
         _save_db(repx, txt, code)
         try: manage.register(repx, TRADES)
         except Exception as e: print('manage.register err', e, flush=True)
+        try: shadow.record('A/B', repx.get('dir'), repx.get('entry'), repx.get('SL'), repx.get('TP'), repx.get('bos_ms'))  # LIVE shadow log (hands-off, no money)
+        except Exception as e: print('shadow.record err', e, flush=True)
         if code=='exec' or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)
         nfired+=1
@@ -790,6 +793,7 @@ _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 how_ab.register(app)                        # /how — A/B explainer page (ORB /how style, isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
+shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
 if HEARTBEAT:
