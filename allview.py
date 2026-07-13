@@ -18,7 +18,7 @@ Any URL left unset is skipped — the view degrades gracefully to whatever is re
 Wire into agent.py (next to the other registers):
     import allview ; allview.register(app)
 """
-import os, json, datetime as dt
+import os, json, datetime as dt, sqlite3
 
 try:
     import requests
@@ -33,15 +33,37 @@ except Exception:
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
 _OUTCOMES = os.path.join(_DATA_DIR, 'outcomes.json')
-_ANNOT = os.path.join(_DATA_DIR, 'all_annotations.json')   # user marks: took? + comment (isolated side-store)
+_ANNOT_DB = os.path.join(_DATA_DIR, 'all_annotations.db')   # user marks: took? + comment (own SQLite table, isolated)
+def _annot_conn():
+    con = sqlite3.connect(_ANNOT_DB)
+    con.execute('CREATE TABLE IF NOT EXISTS annotations (uid TEXT PRIMARY KEY, taken INTEGER DEFAULT 0, comment TEXT DEFAULT "", updated_at TEXT)')
+    return con
 def _load_annot():
-    try: return json.load(open(_ANNOT))
-    except Exception: return {}
-def _save_annot(d):
-    try: json.dump(d, open(_ANNOT, 'w'))
-    except Exception as _e: print('annot save err', _e, flush=True)
+    try:
+        con = _annot_conn(); rows = con.execute('SELECT uid, taken, comment FROM annotations').fetchall(); con.close()
+        return {u: {'taken': bool(t), 'comment': c or ''} for (u, t, c) in rows}
+    except Exception as _e:
+        print('annot load err', _e, flush=True); return {}
 def _uid(t):
     return t.get('key') or ('%s|%s|%s|%s' % (t.get('strat',''), t.get('ts_ms',0), t.get('dir',''), t.get('entry','')))
+def _migrate_json_once():
+    """One-time: import any pre-existing all_annotations.json into the SQLite table (no overwrite), then park the file."""
+    old = os.path.join(_DATA_DIR, 'all_annotations.json')
+    if not os.path.exists(old): return
+    try:
+        data = json.load(open(old)) or {}
+        con = _annot_conn(); nins = 0
+        for uid, a in data.items():
+            if not uid: continue
+            con.execute('INSERT OR IGNORE INTO annotations(uid, taken, comment, updated_at) VALUES(?,?,?,?)',
+                        (uid, 1 if a.get('taken') else 0, (a.get('comment') or ''),
+                         a.get('ts') or dt.datetime.utcnow().isoformat(timespec='seconds')))
+            nins += con.total_changes and 1 or 0
+        con.commit(); con.close()
+        os.rename(old, old + '.migrated')
+        print('annot: migrated %d json rows -> sqlite (%s parked)' % (len(data), os.path.basename(old)), flush=True)
+    except Exception as _e:
+        print('annot migrate err', _e, flush=True)
 
 # strategy -> (Pine color, HTML chip color)
 STRAT_COLORS = {
@@ -306,14 +328,15 @@ def render_trades():
         pine = ("<button class='copy' style='padding:3px 9px' "
                 "onclick=\"navigator.clipboard.writeText(document.getElementById('one_%d').value);this.textContent='copied'\">Pine</button>"
                 "<textarea id='one_%d' style='display:none'>%s</textarea>") % (i, i, one)
-        _u = _h.escape(_uid(r)); _a = ann.get(_uid(r), {})
-        took = ("<td style='text-align:center'><input type='checkbox' class='ann-took' data-uid=\"%s\" %s onchange='saveAnn(this)'></td>") % (_u, ('checked' if _a.get('taken') else ''))
-        note = ("<td><input type='text' class='ann-note' data-uid=\"%s\" value=\"%s\" placeholder='note...' style='width:150px' onchange='saveAnn(this)'></td>") % (_u, _h.escape(_a.get('comment','') or ''))
+        _u = _h.escape(_uid(r)); _a = ann.get(_uid(r), {}); _cm = _a.get('comment', '') or ''; _ce = _h.escape(_cm)
+        took = ("<td style='text-align:center'><input type='checkbox' class='ann-took' data-uid=\"%s\" %s onchange='saveTook(this)'></td>") % (_u, ('checked' if _a.get('taken') else ''))
+        cbtn = ("<td style='text-align:center'><button type='button' class='cbtn%s' data-uid=\"%s\" data-comment=\"%s\" title=\"%s\" onclick='openComment(this)'>%s</button></td>") % (
+            (' has' if _cm else ''), _u, _ce, _ce, ('\U0001F4DD' if _cm else '\U0001F4AC'))
         trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td>%s%s</tr>") % (
             r['strat'], r['day'], r['time'], _chip(r['strat']), r['dir'], r['cat'], _num(r['entry']), _num(r['sl']),
-            _rcell(r['r']), chart, pine, took, note)
+            _rcell(r['r']), chart, pine, took, cbtn)
 
-    body = (CSS +
+    body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
             "<h1>All trades — A/B · C · F · ORB</h1>"
             "<div class='sub'>modeled outcomes across every strategy · read-only · " + _reach_note() + "</div>"
             + _strat_filter_bar(present) +
@@ -326,7 +349,7 @@ def render_trades():
             "<table><thead><tr><th>When (UTC)</th><th>Strat</th><th>Dir</th><th>Cat</th><th>Entry</th><th>SL</th>"
             "<th>Result</th><th>Chart</th><th>Pine</th><th>Took?</th><th>Comment</th></tr></thead><tbody>" + (trs or
             "<tr><td colspan=11 class='mut'>no trades yet (or no service URLs set)</td></tr>") + "</tbody></table>"
-            "<script>var TRADES=" + json.dumps(js_trades) + ";"
+            "<div id='cmodal' style='display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:9999' onclick='if(event.target.id==&quot;cmodal&quot;)closeComment()'>""<div style='background:#fff;max-width:440px;margin:9% auto;padding:18px 20px;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)'>""<div style='font-weight:700;font-size:15px;margin-bottom:4px'>Trade comment</div>""<div id='cmeta' class='mut' style='font-size:11px;margin-bottom:8px;word-break:break-all'></div>""<textarea id='ctext' style='width:100%;height:110px;box-sizing:border-box;font:inherit;padding:8px'></textarea>""<div style='margin-top:12px;text-align:right'>""<button onclick='closeComment()' style='padding:6px 14px;margin-right:8px'>Cancel</button>""<button onclick='saveComment()' style='padding:6px 16px;font-weight:700;background:#1565c0;color:#fff;border:0;border-radius:5px;cursor:pointer'>Save</button>""</div></div></div>""<script>var _curBtn=null;""function openComment(b){_curBtn=b;document.getElementById('ctext').value=b.getAttribute('data-comment')||'';document.getElementById('cmeta').textContent=b.getAttribute('data-uid');document.getElementById('cmodal').style.display='block';document.getElementById('ctext').focus();}""function closeComment(){document.getElementById('cmodal').style.display='none';_curBtn=null;}""function saveComment(){if(!_curBtn)return;var cm=document.getElementById('ctext').value,uid=_curBtn.getAttribute('data-uid');""fetch('/all/annotate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:uid,comment:cm})}).then(function(r){return r.json();}).then(function(j){var h=!!cm.trim();_curBtn.setAttribute('data-comment',cm);_curBtn.title=cm;_curBtn.classList.toggle('has',h);_curBtn.textContent=h?String.fromCodePoint(0x1F4DD):String.fromCodePoint(0x1F4AC);closeComment();}).catch(function(e){alert('save failed');});}""function saveTook(el){fetch('/all/annotate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:el.getAttribute('data-uid'),taken:el.checked})}).catch(function(e){});}""var TRADES=" + json.dumps(js_trades) + ";"
             "function selStrats(){return Array.from(document.querySelectorAll('.fstrat:checked')).map(c=>c.value);}"
             "function applyRows(){var ss=selStrats();document.querySelectorAll('tr[data-strat]').forEach(function(tr){"
             "tr.style.display=ss.indexOf(tr.getAttribute('data-strat'))>=0?'':'none';});}"
@@ -335,7 +358,7 @@ def render_trades():
             "var b=TRADES.filter(function(t){return t.day===d&&ss.indexOf(t.strat)>=0;}).map(function(t){return t.body;});"
             "var body=b.length?b.join('\\n'):'    label.new(bar_index, high, \"no trades\", style=label.style_label_down)';"
             "document.getElementById('psbox').value=head+'\\n'+body;}"
-            "function saveAnn(el){var tr=el.closest('tr');var uid=el.getAttribute('data-uid');""var took=tr.querySelector('.ann-took').checked;var cm=tr.querySelector('.ann-note').value;""var note=tr.querySelector('.ann-note');note.style.background='#fff3cd';""fetch('/all/annotate',{method:'POST',headers:{'Content-Type':'application/json'},""body:JSON.stringify({uid:uid,taken:took,comment:cm})}).then(function(r){""note.style.background=r.ok?'#d4edda':'#f8d7da';setTimeout(function(){note.style.background='';},900);""}).catch(function(e){note.style.background='#f8d7da';});}""function rebuild(){applyRows();buildDay();}rebuild();</script>")
+            "function rebuild(){applyRows();buildDay();}rebuild();</script>")
     return body
 
 
@@ -418,11 +441,154 @@ def render_candidates():
 
 
 # ───────────────────────────── register ─────────────────────────────
+
+# ───────── broker reconciliation: signals x Took? marks x real broker fills (isolated, read-only) ─────────
+_BROKER_CSV   = os.path.join(_DATA_DIR, 'broker_perf.csv')
+_RECON_WIN_MIN = int(os.environ.get('RECON_WINDOW_MIN', '180'))     # match fill<->signal within this many minutes
+_RECON_TZ_OFF  = int(os.environ.get('RECON_TZ_OFFSET_MIN', '0'))   # minutes added to broker time to reach UTC
+
+def _bt_ms(x):
+    x = (x or '').strip()
+    if not x: return None
+    for f in ('%m/%d/%Y %H:%M:%S', '%m/%d/%Y %H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M'):
+        try: return int(dt.datetime.strptime(x, f).timestamp()*1000) + _RECON_TZ_OFF*60000
+        except Exception: pass
+    return None
+
+def _parse_broker(text):
+    """Tradovate 'Performance' export -> fills [{ts_ms, side, entry, exit, size, pnl}]. Falls back to a generic map."""
+    import csv, io
+    rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+    if not rows: return []
+    hl = [h.strip().lower() for h in rows[0]]; idx = {h: i for i, h in enumerate(hl)}
+    def g(raw, k): return raw[idx[k]] if (k in idx and idx[k] < len(raw)) else ''
+    perf = ('buyprice' in idx and 'sellprice' in idx and 'boughttimestamp' in idx)
+    out = []
+    for raw in rows[1:]:
+        if perf:
+            bp = _f(g(raw,'buyprice')); sp = _f(g(raw,'sellprice'))
+            tb = _bt_ms(g(raw,'boughttimestamp')); td = _bt_ms(g(raw,'soldtimestamp'))
+            side = ('LONG' if tb <= td else 'SHORT') if (tb is not None and td is not None) else ''
+            if side == 'SHORT': entry, exit_, ems = sp, bp, td
+            else:               entry, exit_, ems = bp, sp, tb
+            out.append(dict(ts_ms=ems or 0, side=side, entry=entry, exit=exit_, size=_f(g(raw,'qty')), pnl=_f(g(raw,'pnl'))))
+        else:
+            sd = (g(raw,'side') or g(raw,'action') or '').upper()
+            side = 'LONG' if ('BUY' in sd or 'LONG' in sd) else ('SHORT' if ('SELL' in sd or 'SHORT' in sd) else '')
+            ts = g(raw,'timestamp') or g(raw,'time') or g(raw,'date')
+            out.append(dict(ts_ms=_bt_ms(ts) or 0, side=side, entry=_f(g(raw,'price') or g(raw,'entry')),
+                            exit=_f(g(raw,'exit')), size=_f(g(raw,'qty') or g(raw,'quantity')), pnl=_f(g(raw,'pnl') or g(raw,'p/l'))))
+    return out
+
+def _load_broker():
+    try:
+        if os.path.exists(_BROKER_CSV):
+            return _parse_broker(open(_BROKER_CSV, encoding='utf-8-sig').read())
+    except Exception as _e:
+        print('broker parse err', _e, flush=True)
+    return []
+
+def _reconcile_data():
+    sigs = _all_trades(); ann = _load_annot(); fills = _load_broker()
+    for s in sigs:
+        a = ann.get(_uid(s), {}); s['_taken'] = bool(a.get('taken')); s['_comment'] = a.get('comment','')
+    used = [False]*len(fills)
+    def match(pool):
+        res = []
+        for s in pool:
+            best = -1; bd = None
+            for i, fx in enumerate(fills):
+                if used[i]: continue
+                if fx['side'] and s.get('dir') and fx['side'] != s['dir']: continue
+                if not fx['ts_ms'] or not s.get('ts_ms'): continue
+                dd = abs(fx['ts_ms'] - s['ts_ms'])
+                if dd <= _RECON_WIN_MIN*60000 and (bd is None or dd < bd): bd = dd; best = i
+            if best >= 0: used[best] = True; res.append((s, fills[best]))
+            else: res.append((s, None))
+        return res
+    taken = [s for s in sigs if s['_taken']]
+    mt = match(taken)
+    matched       = [(s, fx) for (s, fx) in mt if fx]
+    taken_no_fill = [s for (s, fx) in mt if not fx]
+    filled_unmarked = [(s, fx) for (s, fx) in match([s for s in sigs if not s['_taken']]) if fx]
+    no_signal = [fills[i] for i in range(len(fills)) if not used[i]]
+    return dict(sigs=sigs, taken=taken, matched=matched, taken_no_fill=taken_no_fill,
+                filled_unmarked=filled_unmarked, no_signal=no_signal, fills=fills)
+
+def _slip(s, fx):
+    if s.get('entry') is None or fx.get('entry') is None or not s.get('dir'): return None
+    return (fx['entry'] - s['entry']) if s['dir'] == 'LONG' else (s['entry'] - fx['entry'])   # + = worse than intended
+
+def render_reconcile():
+    import html as _h
+    d = _reconcile_data()
+    n_sig, n_tk, n_mt = len(d['sigs']), len(d['taken']), len(d['matched'])
+    rate = (100.0*n_mt/n_tk) if n_tk else 0.0
+    slips = [ _slip(s, fx) for (s, fx) in d['matched'] ]; slips = [x for x in slips if x is not None]
+    avg_slip = (sum(slips)/len(slips)) if slips else 0.0
+    pnl_mt = sum((fx.get('pnl') or 0) for (s, fx) in d['matched'])
+    pnl_ns = sum((fx.get('pnl') or 0) for fx in d['no_signal'])
+    upl = ("<form method='post' action='/all/reconcile/upload' enctype='multipart/form-data' style='margin:8px 0 14px'>"
+           "<input type='file' name='csv' accept='.csv'> "
+           "<button class='copy' type='submit'>Upload broker CSV (Tradovate Performance)</button>"
+           "<span class='mut'> &middot; match window %d min &middot; tz offset %d min (set RECON_WINDOW_MIN / RECON_TZ_OFFSET_MIN)</span></form>") % (_RECON_WIN_MIN, _RECON_TZ_OFF)
+    if not d['fills']:
+        body = (CSS + "<h1>Reconciliation - signals vs broker fills</h1>"
+                "<div class='sub'>Did the trades you marked Took? actually fill, at what price, for real P&amp;L. read-only</div>"
+                + upl + "<div class='bar mut'>No broker CSV loaded yet. Upload a Tradovate <b>Performance</b> export above.</div>")
+        return body
+    card = ("<div class='bar' style='display:flex;gap:26px;flex-wrap:wrap'>"
+            "<div><div class='mut'>signals</div><b style='font-size:19px'>%d</b></div>"
+            "<div><div class='mut'>marked taken</div><b style='font-size:19px'>%d</b></div>"
+            "<div><div class='mut'>executed (matched)</div><b style='font-size:19px'>%d</b></div>"
+            "<div><div class='mut'>execution rate</div><b style='font-size:19px'>%.0f%%</b></div>"
+            "<div><div class='mut'>avg entry slippage</div><b style='font-size:19px'>%+.1f pt</b></div>"
+            "<div><div class='mut'>broker P&amp;L (matched)</div><b style='font-size:19px'>%s</b></div>"
+            "</div>") % (n_sig, n_tk, n_mt, rate, avg_slip, _num(round(pnl_mt,2)))
+    def tbl(title, head, rows_html):
+        return ("<h3>%s</h3><table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>"
+                % (title, ''.join('<th>%s</th>' % h for h in head),
+                   rows_html or ("<tr><td colspan=%d class='mut'>none</td></tr>" % len(head))))
+    # matched
+    r1 = ''
+    for (s, fx) in d['matched']:
+        sp = _slip(s, fx)
+        r1 += ("<tr><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+               % (s.get('day',''), s.get('time',''), _chip(s.get('strat','')), s.get('dir',''),
+                  _num(s.get('entry')), _num(fx.get('entry')),
+                  ('%+.1f' % sp) if sp is not None else '-', _num(round(fx.get('pnl') or 0, 2))))
+    # taken no fill
+    r2 = ''.join("<tr><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td class='mut'>%s</td></tr>"
+                 % (s.get('day',''), s.get('time',''), _chip(s.get('strat','')), s.get('dir',''), _num(s.get('entry')), _h.escape(s.get('_comment','') or ''))
+                 for s in d['taken_no_fill'])
+    # broker fills with no signal
+    r3 = ''.join("<tr><td class='mut'>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                 % (dt.datetime.utcfromtimestamp(fx['ts_ms']/1000).strftime('%Y-%m-%d %H:%M') if fx['ts_ms'] else '-',
+                    fx.get('side',''), _num(fx.get('entry')), _num(round(fx.get('pnl') or 0, 2)))
+                 for fx in d['no_signal'])
+    # filled but not marked taken
+    r4 = ''.join("<tr><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+                 % (s.get('day',''), s.get('time',''), _chip(s.get('strat','')), s.get('dir',''), _num(fx.get('entry')))
+                 for (s, fx) in d['filled_unmarked'])
+    body = (CSS + "<h1>Reconciliation - signals vs broker fills</h1>"
+            "<div class='sub'>read-only &middot; matches your Took? marks against real broker fills</div>" + upl + card
+            + tbl("Executed - signal matched to a real fill (entry slippage &amp; broker P&amp;L)",
+                  ['When (UTC)','Strat','Dir','Sig entry','Fill entry','Slip pt','Broker $'], r1)
+            + tbl("Marked taken - but NO broker fill found (missed / never filled)",
+                  ['When','Strat','Dir','Entry','Your note'], r2)
+            + tbl("Broker fill - NO matching signal (manual / rogue / dropped)",
+                  ['When (UTC)','Dir','Entry','$'], r3)
+            + tbl("Filled but NOT marked taken (marking gap)",
+                  ['When','Strat','Dir','Fill entry'], r4))
+    return body
+
+
 def register(app):
     try:
         from flask import Response, request
     except Exception:
         return app
+    _migrate_json_once()   # bring old JSON annotations into the DB
 
     def _trades():
         if request.args.get('format') == 'json':
@@ -440,17 +606,39 @@ def register(app):
         uid = (d.get('uid') or '').strip()
         if not uid:
             return jsonify(ok=False, err='no uid'), 400
-        a = _load_annot()
-        a[uid] = dict(taken=bool(d.get('taken')), comment=(d.get('comment') or '').strip(),
-                      ts=dt.datetime.utcnow().isoformat(timespec='seconds'))
-        _save_annot(a)
-        return jsonify(ok=True)
+        try:
+            con = _annot_conn()
+            cur = con.execute('SELECT taken, comment FROM annotations WHERE uid=?', (uid,)).fetchone()
+            taken = cur[0] if cur else 0
+            comment = cur[1] if cur else ''
+            if 'taken' in d: taken = 1 if d.get('taken') else 0
+            if 'comment' in d: comment = (d.get('comment') or '').strip()
+            con.execute('INSERT OR REPLACE INTO annotations(uid, taken, comment, updated_at) VALUES(?,?,?,?)',
+                        (uid, taken, comment, dt.datetime.utcnow().isoformat(timespec='seconds')))
+            con.commit(); con.close()
+            return jsonify(ok=True, taken=bool(taken), comment=comment)
+        except Exception as _e:
+            print('annotate err', _e, flush=True); return jsonify(ok=False, err=str(_e)), 500
 
     def _cands():
         return Response(render_candidates(), mimetype='text/html')
 
     app.add_url_rule('/all/trades', 'all_trades', _trades)
     app.add_url_rule('/all/annotate', 'all_annotate', _annotate, methods=['POST'])
+
+    def _reconcile_page():
+        return Response(render_reconcile(), mimetype='text/html')
+
+    def _reconcile_upload():
+        from flask import redirect
+        f = request.files.get('csv')
+        if f is not None:
+            try: f.save(_BROKER_CSV)
+            except Exception as _e: print('broker save err', _e, flush=True)
+        return redirect('/all/reconcile')
+
+    app.add_url_rule('/all/reconcile', 'all_reconcile', _reconcile_page)
+    app.add_url_rule('/all/reconcile/upload', 'all_reconcile_upload', _reconcile_upload, methods=['POST'])
     app.add_url_rule('/all/candidates', 'all_candidates', _cands)
     return app
 
