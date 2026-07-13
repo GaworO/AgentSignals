@@ -236,18 +236,27 @@ function filt(){var ss=selStrats(),wk=curWeek();return DATA.filter(function(t){r
 function money(v){return (v<0?'-$':'+$')+Math.abs(Math.round(v)).toLocaleString();}
 function card(l,v,c){return '<div class="kpi"><div class="kl">'+l+'</div><div class="kv '+c+'">'+v+'</div></div>';}
 function render(){
- var d=filt(),w=d.filter(function(t){return t.outcome==='win';}).length,l=d.length-w;
- var net=d.reduce(function(a,t){return a+t.net;},0);
- var expR=d.length?d.reduce(function(a,t){return a+t.R;},0)/d.length:0;
+ var d=filt();
+ var res=d.filter(function(t){return t.outcome==='win'||t.outcome==='loss'||t.outcome==='timeout';});
+ var w=res.filter(function(t){return t.outcome==='win';}).length;
+ var l=res.filter(function(t){return t.outcome==='loss';}).length;
+ var to=res.filter(function(t){return t.outcome==='timeout';}).length;
+ var op=d.length-res.length;
+ var net=res.reduce(function(a,t){return a+(t.net||0);},0);
+ var expR=res.length?res.reduce(function(a,t){return a+(t.R||0);},0)/res.length:0;
  var wks={};d.forEach(function(t){wks[t.week]=1;});var nw=Object.keys(wks).length;
  document.getElementById('sum').innerHTML=
    card('Net P&amp;L (on $100k)',money(net),net>=0?'up':'down')+
-   card('Win rate',d.length?Math.round(w/d.length*100)+'%':'—','')+
-   card('Trades',d.length+'  ('+w+'W / '+l+'L)','')+
-   card('Exp / trade',(expR>=0?'+':'')+expR.toFixed(2)+'R',expR>=0.15?'up':'down')+
+   card('Win rate',(w+l)?Math.round(w/(w+l)*100)+'%':'—','')+
+   card('Trades',res.length+'  ('+w+'W / '+l+'L'+(to?(' / '+to+'S'):'')+')'+(op?('  &middot;  '+op+' open'):''),'')+
+   card('Exp / trade',res.length?((expR>=0?'+':'')+expR.toFixed(2)+'R'):'—',expR>=0.15?'up':'down')+
    card('Per week',nw?(d.length/nw).toFixed(1):'—','');
  var rows=d.slice().reverse().map(function(t){var sc='s'+t.strategy.replace('/','');
-  return '<tr><td>'+t.et+'</td><td>'+t.dow+'</td><td class="'+sc+'"><b>'+t.strategy+'</b></td><td>'+(t.dir==='LONG'?'&#9650;':'&#9660;')+'</td><td class=mut>'+t.sess+'</td><td>'+t.entry+'</td><td>'+t.sl+'</td><td>'+t.tp+'</td><td class="'+(t.outcome==='win'?'win':'loss')+'">'+t.outcome.toUpperCase()+'</td><td>'+(t.R>=0?'+':'')+t.R+'R</td><td class="'+(t.net>=0?'win':'loss')+'">'+money(t.net)+'</td></tr>';}).join('');
+  var rescls=t.outcome==='win'?'win':(t.outcome==='loss'?'loss':'mut');
+  var reslbl=t.outcome==='timeout'?'SCRATCH':t.outcome.toUpperCase();
+  var Rc=(t.R===null||t.R===undefined)?'&mdash;':((t.R>=0?'+':'')+t.R+'R');
+  var Nc=(t.net===null||t.net===undefined)?'<span class=mut>&mdash;</span>':('<span class="'+(t.net>=0?'win':'loss')+'">'+money(t.net)+'</span>');
+  return '<tr><td>'+t.et+'</td><td>'+t.dow+'</td><td class="'+sc+'"><b>'+t.strategy+'</b></td><td>'+(t.dir==='LONG'?'&#9650;':'&#9660;')+'</td><td class=mut>'+t.sess+'</td><td>'+t.entry+'</td><td>'+t.sl+'</td><td>'+t.tp+'</td><td class="'+rescls+'">'+reslbl+'</td><td>'+Rc+'</td><td>'+Nc+'</td></tr>';}).join('');
  if(!d.length){rows='<tr><td colspan="11" class="mut" style="padding:18px">No shadow trades logged yet &mdash; they appear here automatically as signals fire (London &amp; Asia excluded).</td></tr>';}
  document.getElementById('tbl').innerHTML='<tr><th>time (ET)</th><th>day</th><th>strat</th><th>dir</th><th>session</th><th>entry</th><th>SL</th><th>TP</th><th>result</th><th>R</th><th>$</th></tr>'+rows;
 }
