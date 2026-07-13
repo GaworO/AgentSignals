@@ -78,6 +78,8 @@ def _bars():
     import pandas as pd, numpy as np
     path = SHADOW_BUF if os.path.exists(SHADOW_BUF) else os.path.join(DATA_DIR, 'buffer.csv')
     df = pd.read_csv(path)
+    _tail = int(os.environ.get('SHADOW_TAIL', '8000'))
+    if len(df) > _tail: df = df.tail(_tail).reset_index(drop=True)
     tcol = df.columns[0]
     ms = (pd.to_datetime(df[tcol], utc=True).astype('int64') // 10**6).to_numpy()
     low = {c.lower(): c for c in df.columns}
@@ -91,7 +93,8 @@ def refresh():
     log = _load()
     if not any(t.get('outcome') == 'open' for t in log): return log
     try: MS, HI, LO = _bars()
-    except Exception: return log
+    except Exception as _e:
+        print('[shadow] _bars err - open trades stay open:', _e, flush=True); return log
     N = len(MS); changed = False
     for t in log:
         if t.get('outcome') != 'open': continue
@@ -111,7 +114,10 @@ def refresh():
             htp = (HI[i] >= tp) if bull else (LO[i] <= tp)
             if hsl: win = False; break
             if htp: win = True;  break
-        if win is None: continue                          # still running
+        if win is None:
+            if N >= fb + 2880:                            # full 2-day window elapsed, chopped -> scratch (don't hang open forever)
+                t['outcome'] = 'timeout'; t['R'] = 0.0; t['net'] = 0; changed = True
+            continue                                      # else still genuinely running
         ct = max(1, round(RISK / (R * PV))); cost = ct * (COMM * 2 + 0.25 * PV + 0.25 * PV)
         net = (2.0 if win else -1.0) * RISK - cost
         t['outcome'] = 'win' if win else 'loss'; t['R'] = round(net / RISK, 3); t['net'] = round(net)
@@ -125,13 +131,23 @@ def register(app):
     except Exception: return app
     def _data():
         log = refresh()
-        out = [t for t in log if t.get('outcome') in ('win', 'loss', 'open')]  # filled + still-open; hide missed/no_fill
+        out = [t for t in log if t.get('outcome') in ('win', 'loss', 'open', 'timeout')]  # filled + still-open; hide missed/no_fill
         return jsonify(out)
     def _post():
         d = request.get_json(force=True, silent=True) or {}
         ok = record(d.get('strategy'), d.get('dir'), d.get('entry'), d.get('sl'),
                     d.get('tp'), d.get('ms'), d.get('sess'))
         return jsonify(ok=bool(ok))
+    def _health():
+        import collections
+        log = _load(); cc = collections.Counter(t.get('outcome') for t in log)
+        ap = SHADOW_BUF if os.path.exists(SHADOW_BUF) else os.path.join(DATA_DIR, 'buffer.csv')
+        nb = -1
+        try:
+            import pandas as pd; nb = int(len(pd.read_csv(ap)))
+        except Exception: pass
+        return jsonify(total=len(log), counts=dict(cc), archive=ap, archive_exists=os.path.exists(ap), archive_bars=nb)
+    app.add_url_rule('/shadow/health', 'shadow_health', _health)
     app.add_url_rule('/shadow/data', 'shadow_data', _data)
     app.add_url_rule('/shadow/log', 'shadow_log', _post, methods=['POST'])
     return app

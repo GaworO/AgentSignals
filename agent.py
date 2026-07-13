@@ -358,6 +358,8 @@ def bars():
             manage.check(_hi, _lo, now_ms, _msend, TRADES, outcomes_path=OUTCOMES)
         except Exception as e:
             print('manage.check err', e, flush=True)
+        try: shadow.refresh()                       # resolve shadow trades on every bar (not only when tab open)
+        except Exception as e: print('shadow.refresh err', e, flush=True)
         nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
         _last.update(last_bar=str(b.get('ts_event')), bars_in_buffer=nb,
                      setups_seen=res.get('nowe', res.get('primed')),
