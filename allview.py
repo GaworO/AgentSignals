@@ -308,6 +308,13 @@ def _strat_filter_bar(present):
             "<a href='#' onclick=\"document.querySelectorAll('.fstrat').forEach(c=>c.checked=false);rebuild();return false\">none</a></div>")
 
 
+_NAV = ("<div style='font:12px system-ui,sans-serif;margin:0 0 14px'>"
+        "<a href='/all/trades' style='color:#22d3ee;margin-right:16px;text-decoration:none'>all trades</a>"
+        "<a href='/all/candidates' style='color:#22d3ee;margin-right:16px;text-decoration:none'>candidates</a>"
+        "<a href='/all/reconcile' style='color:#22d3ee;margin-right:16px;text-decoration:none'>reconcile</a>"
+        "<a href='/' style='color:#888;text-decoration:none'>&larr; home</a></div>")
+
+
 def render_trades():
     import html as _h
     rows = _all_trades()
@@ -337,7 +344,7 @@ def render_trades():
             _rcell(r['r']), chart, pine, took, cbtn)
 
     body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
-            "<h1>All trades — A/B · C · F · ORB</h1>"
+            _NAV + "<h1>All trades — A/B · C · F · ORB</h1>"
             "<div class='sub'>modeled outcomes across every strategy · read-only · " + _reach_note() + "</div>"
             + _strat_filter_bar(present) +
             "<div class='bar'><b>Per-day Pine for TradingView:</b>"
@@ -427,7 +434,7 @@ def render_candidates():
     for x in rows:
         trs += "<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td class='mut'>%s</td></tr>" % (
             x['strat'], x.get('day', ''), x.get('time', ''), _chip(x['strat']), x.get('dir', ''), x.get('stage', ''), x.get('note', ''))
-    body = (CSS + "<h1>All candidates — live funnel</h1>"
+    body = (CSS + _NAV + "<h1>All candidates — live funnel</h1>"
             "<div class='sub'>who is armed / displaced / waiting on BOS, across strategies · " + _reach_note() + "</div>"
             + _strat_filter_bar(present) +
             "<div class='mut' style='margin-bottom:8px'>Candidates are pre-trade — most have no chart/Pine yet; they appear in <b>All trades</b> once they resolve.</div>"
@@ -533,7 +540,7 @@ def render_reconcile():
            "<button class='copy' type='submit'>Upload broker CSV (Tradovate Performance)</button>"
            "<span class='mut'> &middot; match window %d min &middot; tz offset %d min (set RECON_WINDOW_MIN / RECON_TZ_OFFSET_MIN)</span></form>") % (_RECON_WIN_MIN, _RECON_TZ_OFF)
     if not d['fills']:
-        body = (CSS + "<h1>Reconciliation - signals vs broker fills</h1>"
+        body = (CSS + _NAV + "<h1>Reconciliation - signals vs broker fills</h1>"
                 "<div class='sub'>Did the trades you marked Took? actually fill, at what price, for real P&amp;L. read-only</div>"
                 + upl + "<div class='bar mut'>No broker CSV loaded yet. Upload a Tradovate <b>Performance</b> export above.</div>")
         return body
@@ -570,7 +577,7 @@ def render_reconcile():
     r4 = ''.join("<tr><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
                  % (s.get('day',''), s.get('time',''), _chip(s.get('strat','')), s.get('dir',''), _num(fx.get('entry')))
                  for (s, fx) in d['filled_unmarked'])
-    body = (CSS + "<h1>Reconciliation - signals vs broker fills</h1>"
+    body = (CSS + _NAV + "<h1>Reconciliation - signals vs broker fills</h1>"
             "<div class='sub'>read-only &middot; matches your Took? marks against real broker fills</div>" + upl + card
             + tbl("Executed - signal matched to a real fill (entry slippage &amp; broker P&amp;L)",
                   ['When (UTC)','Strat','Dir','Sig entry','Fill entry','Slip pt','Broker $'], r1)
