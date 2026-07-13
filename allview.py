@@ -33,6 +33,15 @@ except Exception:
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
 _OUTCOMES = os.path.join(_DATA_DIR, 'outcomes.json')
+_ANNOT = os.path.join(_DATA_DIR, 'all_annotations.json')   # user marks: took? + comment (isolated side-store)
+def _load_annot():
+    try: return json.load(open(_ANNOT))
+    except Exception: return {}
+def _save_annot(d):
+    try: json.dump(d, open(_ANNOT, 'w'))
+    except Exception as _e: print('annot save err', _e, flush=True)
+def _uid(t):
+    return t.get('key') or ('%s|%s|%s|%s' % (t.get('strat',''), t.get('ts_ms',0), t.get('dir',''), t.get('entry','')))
 
 # strategy -> (Pine color, HTML chip color)
 STRAT_COLORS = {
@@ -280,6 +289,7 @@ def _strat_filter_bar(present):
 def render_trades():
     import html as _h
     rows = _all_trades()
+    ann = _load_annot()
     present = {r['strat'] for r in rows}
     days = sorted({r['day'] for r in rows if r['day']}, reverse=True)
     opts = ''.join("<option value='%s'>%s</option>" % (d, d) for d in days) or "<option>—</option>"
@@ -296,9 +306,12 @@ def render_trades():
         pine = ("<button class='copy' style='padding:3px 9px' "
                 "onclick=\"navigator.clipboard.writeText(document.getElementById('one_%d').value);this.textContent='copied'\">Pine</button>"
                 "<textarea id='one_%d' style='display:none'>%s</textarea>") % (i, i, one)
-        trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td></tr>") % (
+        _u = _h.escape(_uid(r)); _a = ann.get(_uid(r), {})
+        took = ("<td style='text-align:center'><input type='checkbox' class='ann-took' data-uid=\"%s\" %s onchange='saveAnn(this)'></td>") % (_u, ('checked' if _a.get('taken') else ''))
+        note = ("<td><input type='text' class='ann-note' data-uid=\"%s\" value=\"%s\" placeholder='note...' style='width:150px' onchange='saveAnn(this)'></td>") % (_u, _h.escape(_a.get('comment','') or ''))
+        trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td>%s%s</tr>") % (
             r['strat'], r['day'], r['time'], _chip(r['strat']), r['dir'], r['cat'], _num(r['entry']), _num(r['sl']),
-            _rcell(r['r']), chart, pine)
+            _rcell(r['r']), chart, pine, took, note)
 
     body = (CSS +
             "<h1>All trades — A/B · C · F · ORB</h1>"
@@ -311,8 +324,8 @@ def render_trades():
             "<span class='mut'>obeys the strategy filter · pick a day → copy → TradingView → Pine Editor → paste → Add to chart</span></div>"
             "<textarea id='psbox' readonly></textarea>"
             "<table><thead><tr><th>When (UTC)</th><th>Strat</th><th>Dir</th><th>Cat</th><th>Entry</th><th>SL</th>"
-            "<th>Result</th><th>Chart</th><th>Pine</th></tr></thead><tbody>" + (trs or
-            "<tr><td colspan=9 class='mut'>no trades yet (or no service URLs set)</td></tr>") + "</tbody></table>"
+            "<th>Result</th><th>Chart</th><th>Pine</th><th>Took?</th><th>Comment</th></tr></thead><tbody>" + (trs or
+            "<tr><td colspan=11 class='mut'>no trades yet (or no service URLs set)</td></tr>") + "</tbody></table>"
             "<script>var TRADES=" + json.dumps(js_trades) + ";"
             "function selStrats(){return Array.from(document.querySelectorAll('.fstrat:checked')).map(c=>c.value);}"
             "function applyRows(){var ss=selStrats();document.querySelectorAll('tr[data-strat]').forEach(function(tr){"
@@ -322,7 +335,7 @@ def render_trades():
             "var b=TRADES.filter(function(t){return t.day===d&&ss.indexOf(t.strat)>=0;}).map(function(t){return t.body;});"
             "var body=b.length?b.join('\\n'):'    label.new(bar_index, high, \"no trades\", style=label.style_label_down)';"
             "document.getElementById('psbox').value=head+'\\n'+body;}"
-            "function rebuild(){applyRows();buildDay();}rebuild();</script>")
+            "function saveAnn(el){var tr=el.closest('tr');var uid=el.getAttribute('data-uid');""var took=tr.querySelector('.ann-took').checked;var cm=tr.querySelector('.ann-note').value;""var note=tr.querySelector('.ann-note');note.style.background='#fff3cd';""fetch('/all/annotate',{method:'POST',headers:{'Content-Type':'application/json'},""body:JSON.stringify({uid:uid,taken:took,comment:cm})}).then(function(r){""note.style.background=r.ok?'#d4edda':'#f8d7da';setTimeout(function(){note.style.background='';},900);""}).catch(function(e){note.style.background='#f8d7da';});}""function rebuild(){applyRows();buildDay();}rebuild();</script>")
     return body
 
 
@@ -414,13 +427,30 @@ def register(app):
     def _trades():
         if request.args.get('format') == 'json':
             from flask import jsonify
-            return jsonify(trades=_all_trades())
+            _tr = _all_trades(); _an = _load_annot()
+            for _t in _tr:
+                _aa = _an.get(_uid(_t), {})
+                _t['taken'] = bool(_aa.get('taken')); _t['comment'] = _aa.get('comment', '')
+            return jsonify(trades=_tr)
         return Response(render_trades(), mimetype='text/html')
+
+    def _annotate():
+        from flask import jsonify
+        d = request.get_json(force=True, silent=True) or {}
+        uid = (d.get('uid') or '').strip()
+        if not uid:
+            return jsonify(ok=False, err='no uid'), 400
+        a = _load_annot()
+        a[uid] = dict(taken=bool(d.get('taken')), comment=(d.get('comment') or '').strip(),
+                      ts=dt.datetime.utcnow().isoformat(timespec='seconds'))
+        _save_annot(a)
+        return jsonify(ok=True)
 
     def _cands():
         return Response(render_candidates(), mimetype='text/html')
 
     app.add_url_rule('/all/trades', 'all_trades', _trades)
+    app.add_url_rule('/all/annotate', 'all_annotate', _annotate, methods=['POST'])
     app.add_url_rule('/all/candidates', 'all_candidates', _cands)
     return app
 
