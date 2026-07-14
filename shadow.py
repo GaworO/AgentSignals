@@ -119,8 +119,8 @@ def _bars(since_ms=None):
         _tail = int(os.environ.get('SHADOW_TAIL', '20000'))
         if len(df) > _tail: df = df.tail(_tail).reset_index(drop=True); ms = ms[-_tail:]
     low = {c.lower(): c for c in df.columns}
-    hi = df[low.get('high', 'high')].to_numpy(float)
-    lo = df[low.get('low', 'low')].to_numpy(float)
+    hi = pd.to_numeric(df[low.get('high', 'high')], errors='coerce').to_numpy(float)  # a non-numeric OHLC cell -> NaN, never a crash
+    lo = pd.to_numeric(df[low.get('low', 'low')], errors='coerce').to_numpy(float)
     return ms, hi, lo
 
 # ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ def refresh():
     import time as _time
     log = _load()
     open_ms = [int(t['ms']) for t in log
-               if t.get('outcome') == 'open' and t.get('src') != 'backfill' and isinstance(t.get('ms'), (int, float))]
+               if t.get('outcome') == 'open' and t.get('src') in (None, 'live') and isinstance(t.get('ms'), (int, float))]
     if not open_ms: return log
     try: MS, HI, LO = _bars(since_ms=min(open_ms))    # anchor read on the oldest open trade -> always covered
     except Exception as _e:
@@ -197,7 +197,7 @@ def refresh():
     now_ms = int(_time.time() * 1000)
     STALE_MS = int(os.environ.get('SHADOW_STALE_DAYS', '3')) * 86400000
     for t in log:
-        if t.get('outcome') != 'open' or t.get('src') == 'backfill': continue
+        if t.get('outcome') != 'open' or t.get('src') not in (None, 'live'): continue   # history (backtest/live-hist) is pre-scored
         stale = (now_ms - int(t['ms'])) > STALE_MS
         res = score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO)
         oc = res.get('outcome')
@@ -222,7 +222,7 @@ def _backfill_seed():
         log = _load(); have = {t.get('key') for t in log}
         add = [s for s in seed if s.get('key') not in have]
         if not add: return
-        for s in add: s['src'] = 'backfill'
+        for s in add: s.setdefault('src', 'backtest')   # preserve backtest / live-hist tags from the seed
         _save(log + add)
         print('[shadow] backfilled %d historical trades' % len(add), flush=True)
     except Exception as e:
