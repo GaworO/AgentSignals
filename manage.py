@@ -3,7 +3,19 @@
 # Wyjscia: SL (-1R), BE (0R po uzbrojeniu), TP 2R (+2R), albo wygasniecie po 8h.
 # Rdzen (det_v10) zamrozony. Wywolywane z agent.py: register() po potwierdzonym alercie,
 # check() na kazdym nowym barze. Opakowane try/except po stronie agenta — nie moze ruszyc intake'u.
-import json
+import json, os
+
+def _dec_for(price):
+    """Decimal precision for stored SL/TP. Index futures (MNQ, price>=1000) -> 1 (UNCHANGED).
+    Forex was silently broken: round(1.1434,1)=1.1 collapsed every FX stop -> fake outcomes.
+    PRICE_ROUND env overrides; else auto by magnitude (JPY ~150 -> 3, EUR/GBP ~1.1 -> 5)."""
+    env = os.environ.get('PRICE_ROUND', '').strip()
+    if env.lstrip('-').isdigit():
+        return int(env)
+    a = abs(float(price))
+    if a >= 1000: return 1        # MNQ / index — identical to the old behaviour
+    if a >= 10:   return 3        # USD/JPY
+    return 5                      # EUR/USD, GBP/USD
 
 def _load(path):
     try:
@@ -38,8 +50,9 @@ def register(x, path):
     key = f"{x['date']}|{x['model']}|{x['cat']}|{x['dir']}|{x['bos']}"
     lst = _load(path)
     if any(t.get('key') == key for t in lst): return
-    lst.append(dict(key=key, dir=x['dir'], cat=x['cat'], entry=e, sl=round(sl,1),
-                    r1=round(r1,1), r2=round(r2,1), bos_ms=int(x.get('bos_ms', 0)),
+    _dec = _dec_for(e)                                    # FX-safe precision (MNQ stays at 1); entry kept RAW as before
+    lst.append(dict(key=key, dir=x['dir'], cat=x['cat'], entry=e, sl=round(sl,_dec),
+                    r1=round(r1,_dec), r2=round(r2,_dec), bos_ms=int(x.get('bos_ms', 0)),
                     filled=False, done1=False))
     _save(path, lst[-50:])   # trzymaj ostatnie 50
 
