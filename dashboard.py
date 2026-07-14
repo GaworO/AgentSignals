@@ -210,13 +210,14 @@ button:hover{background:#173021}#cpstat{color:#4ade80;font-size:12.5px}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 td,th{text-align:left;padding:5px 8px;border-bottom:1px solid #1b2230;white-space:nowrap}
 th{color:#828a99;font-weight:600;position:sticky;top:0;background:#0b0e14}
-.win{color:#4ade80}.loss{color:#f87171}.sAB{color:#60a5fa}.sC{color:#fb923c}.sF{color:#4ade80}
+.win{color:#4ade80}.loss{color:#f87171}.be{color:#fbbf24}.sAB{color:#60a5fa}.sC{color:#fb923c}.sF{color:#4ade80}
+tr.seed td{opacity:.60}.tag{font-size:10px;color:#6b7280;border:1px solid #2a3550;border-radius:4px;padding:0 5px}
 .wrap{max-height:52vh;overflow:auto;border:1px solid #1b2230;border-radius:10px}
 .note{background:#141a28;border:1px solid #1b2230;border-left:3px solid #f59e0b;border-radius:8px;padding:9px 12px;color:#9aa3b5;font-size:12.5px;margin-bottom:12px}
 </style></head><body>
 <h2>Shadow executor <span class="mut" style="font-size:14px">&middot; no money, proving the edge</span></h2>
-<div class="sub">Every fresh signal logged <b>live</b>, hands-off, no money &middot; $100,000 @ 0.5% ($500 = 1R) &middot; all sessions except London &amp; Asia, all weekdays, resting limits, fixed 2R stop.</div>
-<div class="note"><b>Live log &mdash; starts empty, fills itself as signals fire.</b> Each fresh signal is recorded hands-off and its outcome resolved from your live bars (resting limit, 1-tick slippage). This is your <b>Gate-0 evidence</b>: prove &ge; +0.15R over 30-50 logged fills before real size. London &amp; Asia excluded.</div>
+<div class="sub">Every fresh signal logged <b>live</b>, hands-off, no money &middot; $100,000 @ 0.5% ($500 = 1R) &middot; all sessions except London &amp; Asia, all weekdays, resting limits.</div>
+<div class="note"><b>Two exits scored per trade.</b> <b>Fixed</b> = stop stays at SL, target 2R &mdash; the <b>validated Gate-0 edge</b> (+0.30R in 4yr backtest) and the number the "fixed" KPI reports. <b>BE</b> = stop moves to break-even after +1R (WIN 2R / BE 0R / LOSS &minus;1R) &mdash; shown per trade for context; it nets less (+0.15R backtest). Prove &ge; +0.15R over 30-50 <b>live</b> fills before real size. Rows tagged <span class="tag">seed</span> are modeled history (idealized fills) &mdash; use <b>Live only</b> for the clean Gate-0 view. London &amp; Asia excluded.</div>
 <div class="kpis" id="sum"></div>
 <div class="bar">
   <div class="grp"><b>strategies</b>
@@ -225,6 +226,7 @@ th{color:#828a99;font-weight:600;position:sticky;top:0;background:#0b0e14}
     <label class="cb"><input type="checkbox" class="stratcb" value="F" checked> F</label>
   </div>
   <div class="grp"><b>week</b><select id="wk"></select></div>
+  <div class="grp"><label class="cb"><input type="checkbox" id="liveonly"> Live only</label></div>
   <div class="grp"><button id="cp">Copy Pine for selection</button><span id="cpstat"></span></div>
 </div>
 <div class="wrap"><table id="tbl"></table></div>
@@ -232,33 +234,46 @@ th{color:#828a99;font-weight:600;position:sticky;top:0;background:#0b0e14}
 var DATA = [];
 function selStrats(){return Array.prototype.slice.call(document.querySelectorAll('.stratcb:checked')).map(function(c){return c.value;});}
 function curWeek(){return document.getElementById('wk').value;}
-function filt(){var ss=selStrats(),wk=curWeek();return DATA.filter(function(t){return ss.indexOf(t.strategy)>=0&&(wk==='all'||t.week===wk);});}
+function filt(){var ss=selStrats(),wk=curWeek(),lo=document.getElementById('liveonly').checked;
+ return DATA.filter(function(t){return ss.indexOf(t.strategy)>=0&&(wk==='all'||t.week===wk)&&(!lo||t.src!=='backfill');});}
 function money(v){return (v<0?'-$':'+$')+Math.abs(Math.round(v)).toLocaleString();}
-function card(l,v,c){return '<div class="kpi"><div class="kl">'+l+'</div><div class="kv '+c+'">'+v+'</div></div>';}
+function card(l,v,c,s){return '<div class="kpi"><div class="kl">'+l+'</div><div class="kv '+(c||'')+'">'+v+'</div>'+(s?('<div class="kl" style="margin:3px 0 0">'+s+'</div>'):'')+'</div>';}
+function meanR(a,f){return a.length?a.reduce(function(s,t){return s+(f(t)||0);},0)/a.length:0;}
+function sgn(x){return (x>=0?'+':'')+x.toFixed(2)+'R';}
 function render(){
  var d=filt();
- var res=d.filter(function(t){return t.outcome==='win'||t.outcome==='loss'||t.outcome==='timeout';});
- var w=res.filter(function(t){return t.outcome==='win';}).length;
- var l=res.filter(function(t){return t.outcome==='loss';}).length;
- var to=res.filter(function(t){return t.outcome==='timeout';}).length;
- var op=d.length-res.length;
- var net=res.reduce(function(a,t){return a+(t.net||0);},0);
- var expR=res.length?res.reduce(function(a,t){return a+(t.R||0);},0)/res.length:0;
- var wks={};d.forEach(function(t){wks[t.week]=1;});var nw=Object.keys(wks).length;
+ var FILLED={win:1,loss:1,be:1,timeout:1};              // filled & resolved (has both R sets)
+ var res=d.filter(function(t){return FILLED[t.outcome];});
+ var wf=res.filter(function(t){return t.outcome_fixed==='win';}).length;   // win-rate on the validated (fixed) bracket
+ var lf=res.filter(function(t){return t.outcome_fixed==='loss';}).length;
+ var be=res.filter(function(t){return t.outcome==='be';}).length;
+ var nf=d.filter(function(t){return t.outcome==='no_fill'||t.outcome==='missed';}).length;
+ var op=d.filter(function(t){return t.outcome==='open';}).length;
+ var expFx=meanR(res,function(t){return t.R_fixed;});
+ var expBe=meanR(res,function(t){return t.R;});
+ var netFx=res.reduce(function(a,t){return a+(t.net_fixed||0);},0);
+ var nlive=d.filter(function(t){return t.src!=='backfill';}).length;
+ var nseed=d.length-nlive;
+ var liveRes=res.filter(function(t){return t.src!=='backfill';});
  document.getElementById('sum').innerHTML=
-   card('Net P&amp;L (on $100k)',money(net),net>=0?'up':'down')+
-   card('Win rate',(w+l)?Math.round(w/(w+l)*100)+'%':'—','')+
-   card('Trades',res.length+'  ('+w+'W / '+l+'L'+(to?(' / '+to+'S'):'')+')'+(op?('  &middot;  '+op+' open'):''),'')+
-   card('Exp / trade',res.length?((expR>=0?'+':'')+expR.toFixed(2)+'R'):'—',expR>=0.15?'up':'down')+
-   card('Per week',nw?(d.length/nw).toFixed(1):'—','');
+   card('Exp / trade &middot; FIXED',res.length?sgn(expFx):'&mdash;',expFx>=0.15?'up':'down','validated Gate-0 metric')+
+   card('Exp / trade &middot; BE',res.length?sgn(expBe):'&mdash;',expBe>=0.15?'up':'down','break-even @ 1R')+
+   card('Win rate (fixed)',(wf+lf)?Math.round(wf/(wf+lf)*100)+'%':'&mdash;','',wf+'W / '+lf+'L'+(be?(' / '+be+' BE'):''))+
+   card('Net P&amp;L fixed',money(netFx),netFx>=0?'up':'down','on $100k @ 0.5%')+
+   card('Trades',res.length,'',nlive+' live &middot; '+nseed+' seed'+(op?(' &middot; '+op+' open'):'')+(nf?(' &middot; '+nf+' no-fill'):''))+
+   card('LIVE exp (fixed)',liveRes.length?sgn(meanR(liveRes,function(t){return t.R_fixed;})):'&mdash;',meanR(liveRes,function(t){return t.R_fixed;})>=0.15?'up':'down',liveRes.length+' live fills / 30-50');
+ var LBL={win:'WIN',loss:'LOSS',be:'BE',timeout:'SCRATCH',no_fill:'NO-FILL',missed:'MISSED',expired:'EXPIRED',open:'OPEN',out_of_range:'&mdash;'};
+ var CLS={win:'win',loss:'loss',be:'be'};
  var rows=d.slice().reverse().map(function(t){var sc='s'+t.strategy.replace('/','');
-  var rescls=t.outcome==='win'?'win':(t.outcome==='loss'?'loss':'mut');
-  var reslbl=t.outcome==='timeout'?'SCRATCH':t.outcome.toUpperCase();
-  var Rc=(t.R===null||t.R===undefined)?'&mdash;':((t.R>=0?'+':'')+t.R+'R');
+  var rescls=CLS[t.outcome]||'mut';
+  var reslbl=LBL[t.outcome]||(t.outcome||'').toUpperCase();
+  var Rbe=(t.R===null||t.R===undefined)?'<span class=mut>&mdash;</span>':('<span class="'+rescls+'">'+(t.R>=0?'+':'')+t.R+'R</span>');
+  var Rfx=(t.R_fixed===null||t.R_fixed===undefined)?'<span class=mut>&mdash;</span>':('<span class="'+(t.R_fixed>=0?'win':'loss')+'">'+(t.R_fixed>=0?'+':'')+t.R_fixed+'R</span>');
   var Nc=(t.net===null||t.net===undefined)?'<span class=mut>&mdash;</span>':('<span class="'+(t.net>=0?'win':'loss')+'">'+money(t.net)+'</span>');
-  return '<tr><td>'+t.et+'</td><td>'+t.dow+'</td><td class="'+sc+'"><b>'+t.strategy+'</b></td><td>'+(t.dir==='LONG'?'&#9650;':'&#9660;')+'</td><td class=mut>'+t.sess+'</td><td>'+t.entry+'</td><td>'+t.sl+'</td><td>'+t.tp+'</td><td class="'+rescls+'">'+reslbl+'</td><td>'+Rc+'</td><td>'+Nc+'</td></tr>';}).join('');
- if(!d.length){rows='<tr><td colspan="11" class="mut" style="padding:18px">No shadow trades logged yet &mdash; they appear here automatically as signals fire (London &amp; Asia excluded).</td></tr>';}
- document.getElementById('tbl').innerHTML='<tr><th>time (ET)</th><th>day</th><th>strat</th><th>dir</th><th>session</th><th>entry</th><th>SL</th><th>TP</th><th>result</th><th>R</th><th>$</th></tr>'+rows;
+  var src=t.src==='backfill'?'<span class="tag">seed</span>':'<span class="mut" style="font-size:11px">live</span>';
+  return '<tr'+(t.src==='backfill'?' class="seed"':'')+'><td>'+t.et+'</td><td>'+t.dow+'</td><td class="'+sc+'"><b>'+t.strategy+'</b></td><td>'+(t.dir==='LONG'?'&#9650;':'&#9660;')+'</td><td class=mut>'+t.sess+'</td><td>'+t.entry+'</td><td>'+t.sl+'</td><td>'+t.tp+'</td><td class="'+rescls+'">'+reslbl+'</td><td>'+Rbe+'</td><td>'+Rfx+'</td><td>'+Nc+'</td><td>'+src+'</td></tr>';}).join('');
+ if(!d.length){rows='<tr><td colspan="13" class="mut" style="padding:18px">No shadow trades logged yet &mdash; they appear here automatically as signals fire (London &amp; Asia excluded).</td></tr>';}
+ document.getElementById('tbl').innerHTML='<tr><th>time (ET)</th><th>day</th><th>strat</th><th>dir</th><th>session</th><th>entry</th><th>SL</th><th>TP</th><th>result (BE)</th><th>R BE</th><th>R fix</th><th>$ BE</th><th>src</th></tr>'+rows;
 }
 function initWeeks(){var wks={};DATA.forEach(function(t){wks[t.week]=1;});var arr=Object.keys(wks).sort();
  document.getElementById('wk').innerHTML='<option value="all">All weeks ('+arr.length+')</option>'+arr.map(function(w){return '<option value="'+w+'">week of '+w+'</option>';}).join('');}
@@ -274,7 +289,7 @@ function copyPine(){var d=filt();if(!d.length){document.getElementById('cpstat')
   'var float[] SLA= '+A(function(t){return t.sl;})+'\n'+
   'var float[] TPA= '+A(function(t){return t.tp;})+'\n'+
   'var int[]   STR= '+A(function(t){return SC[t.strategy];})+'\n'+
-  'var int[]   W  = '+A(function(t){return t.outcome==="win"?1:0;})+'\n'+
+  'var int[]   W  = '+A(function(t){return t.outcome_fixed==="win"?1:0;})+'\n'+
   'ext=input.int(10,"bracket bars")\n'+
   'f_col(si)=> si==0?color.blue: si==1?color.orange: color.green\n'+
   'f_nm(si)=> si==0?"A/B": si==1?"C":"F"\n'+
@@ -292,6 +307,7 @@ function copyPine(){var d=filt();if(!d.length){document.getElementById('cpstat')
 }
 Array.prototype.slice.call(document.querySelectorAll('.stratcb')).forEach(function(c){c.onchange=render;});
 document.getElementById('wk').onchange=render;
+document.getElementById('liveonly').onchange=render;
 document.getElementById('cp').onclick=copyPine;
 function load(){fetch('/shadow/data').then(function(r){return r.json();}).then(function(d){DATA=d||[];initWeeks();render();}).catch(function(){DATA=[];initWeeks();render();});}
 load();
