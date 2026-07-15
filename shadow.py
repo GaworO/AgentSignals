@@ -2,15 +2,14 @@
 """
 shadow.py - LIVE shadow-executor log (isolated add-on, same pattern as pnl.py / dashboard.py).
 
-Records EVERY fresh signal hands-off (no money, no order), then resolves its outcome from the live
-bar buffer - resting limit, 240-bar fill window, 1-tick slippage. This is the Gate-0 evidence
-dataset: prove >= +0.15R over 30-50 logged fills before real size.
+Works exactly like the Forex book (manage.py -> /outcomes): every fired signal is logged hands-off
+(no money, no order) and resolved LIVE against the agent's bars under ONE model - BE@1R:
 
-Each filled trade is scored under BOTH exit rules in one bar pass:
-  * FIXED  : stop stays at SL, target 2R           -> R_fixed / outcome_fixed   (the VALIDATED edge,
-             4yr backtest +0.298R; this is what the Gate-0 KPI reports)
-  * BE@1R  : after +1R the stop moves to entry      -> R / outcome (the per-trade view Aleks asked
-             for: WIN 2R / BE 0R / LOSS -1R, mirrors forex manage.py; 4yr +0.146R, shown for context)
+    fill the resting limit -> after +1R the stop moves to break-even ->
+    WIN  = +2R (target)   BE = 0R (came back to entry after arming)   LOSS = -1R (stop before 1R)
+
+Starts EMPTY and fills forward as signals fire. No backtest, no backfill, no seed - this is the
+Gate-0 evidence dataset: prove >= +0.15R over 30-50 logged fills before real size.
 
 Excludes London + Asia by ET clock (asleep / failed the 3-yr regime test). Keeps all weekdays.
 $100k @ 0.5% => $500 = 1R.
@@ -19,11 +18,8 @@ Wire into agent.py (next to dashboard.register):   import shadow ; shadow.regist
 Then log A/B signals:   shadow.record('A/B', x['dir'], x['entry'], x['SL'], x['TP'], x['bos_ms'])
 Model C / Strategy F services POST to /shadow/log (set SHADOW_URL on those services).
 
-Backfill: a bundled shadow_seed.json (historical A/B, pre-scored) is merged into the live log once on
-startup, tagged src='backfill' so it is visibly distinct from live-recorded fills and never re-resolved.
-
 Env: DATA_DIR (persist dir, def '.'), SHADOW_BUF or BUF (live bar CSV for outcome resolution),
-     SHADOW_SEED (backfill file, def <module dir>/shadow_seed.json), SHADOW_STALE_DAYS (def 3).
+     SHADOW_STALE_DAYS (def 3).
 """
 import os, json, datetime as dt
 try:
@@ -35,7 +31,6 @@ HERE       = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR   = os.environ.get('DATA_DIR', '.')
 LOG        = os.path.join(DATA_DIR, 'shadow_log.json')
 SHADOW_BUF = os.environ.get('SHADOW_BUF') or os.environ.get('BUF') or os.path.join(DATA_DIR, 'archive.csv')  # agent's full bar history (never trimmed); falls back to buffer.csv
-SEED_FILE  = os.environ.get('SHADOW_SEED', os.path.join(HERE, 'shadow_seed.json'))
 RISK, PV, COMM = 500.0, 2.0, 0.62
 EXCLUDE = {'ASIA', 'LO'}          # London + Asia never logged
 
@@ -88,16 +83,14 @@ def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None):
         wk = (et - dt.timedelta(days=et.weekday())).strftime('%Y-%m-%d')
         log.append(dict(key=k, strategy=strategy, dir=dirn, sess=s, week=wk, dow=et.strftime('%a'),
                         et=et.strftime('%Y-%m-%d %H:%M'), date=et.strftime('%Y-%m-%d'),
-                        entry=entry, sl=sl, tp=tp, ms=ms, src='live',
-                        outcome='open', R=None, net=None, outcome_fixed='open', R_fixed=None, net_fixed=None))
+                        entry=entry, sl=sl, tp=tp, ms=ms, outcome='open', R=None, net=None))
         _save(log); return True
     except Exception as e:
         print('[shadow] record err', e, flush=True); return False
 
 def _bars(since_ms=None):
     """Return (ms, high, low) arrays from the archive. If since_ms is given, slice the
-    archive from just before that timestamp so EVERY open trade is fully covered - a blind
-    tail(N) could stop short of an older open trade and leave it unresolvable (hung 'open').
+    archive from just before that timestamp so EVERY open trade is fully covered.
 
     Robust parse: a stray duplicate header row or a blank/partial bar (both happen on the live
     /data archive across redeploys/feed gaps) used to make pd.to_datetime raise -> refresh()
@@ -115,23 +108,18 @@ def _bars(since_ms=None):
     if since_ms is not None and len(ms):
         start = max(0, int(np.searchsorted(ms, int(since_ms), side='left')) - 5)  # tiny pad before oldest open trade
         df = df.iloc[start:].reset_index(drop=True); ms = ms[start:]
-    else:                                          # no open trades to anchor on -> keep a generous tail
+    else:
         _tail = int(os.environ.get('SHADOW_TAIL', '20000'))
         if len(df) > _tail: df = df.tail(_tail).reset_index(drop=True); ms = ms[-_tail:]
     low = {c.lower(): c for c in df.columns}
-    hi = pd.to_numeric(df[low.get('high', 'high')], errors='coerce').to_numpy(float)  # a non-numeric OHLC cell -> NaN, never a crash
+    hi = pd.to_numeric(df[low.get('high', 'high')], errors='coerce').to_numpy(float)  # non-numeric cell -> NaN, never a crash
     lo = pd.to_numeric(df[low.get('low', 'low')], errors='coerce').to_numpy(float)
     return ms, hi, lo
 
-# ---------------------------------------------------------------------------
-# Shared scorer - used by BOTH live refresh() and the backfill builder, so a
-# live trade and a historical one are scored by identical rules.
-# ---------------------------------------------------------------------------
 def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
-    """Resolve one trade against bar arrays under FIXED and BE@1R in a single pass.
-
-    Returns a dict of outcome/R fields, or {'outcome':'open'/'no_fill'/'missed'} when unresolved.
-    Adverse-first within every bar (conservative), mirroring forex manage.py."""
+    """Resolve one trade BE@1R against bar arrays, mirroring forex manage.py (adverse-first):
+       fill -> SL before 1R = LOSS -1R ; else 1R arms BE ; then entry = BE 0R, else 2R = WIN.
+       Returns {'outcome': win/be/loss} + R/net, or open/no_fill/missed/out_of_range when unresolved."""
     import numpy as np
     bull = dirn == 'LONG'; e = float(entry); sl = float(sl); tp = float(tp); R = abs(e - sl)
     N = len(MS)
@@ -140,7 +128,6 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
     if int(ms) < int(MS[0]) - 60000 or int(ms) > int(MS[-1]):
         return {'outcome': 'out_of_range'}
     sb = max(0, int(np.searchsorted(MS, int(ms), side='right')) - 1)   # include the bar the signal fired in
-    # ---- FILL GATE: resting limit at entry within fill_bars ----
     fb = None
     for i in range(sb, min(sb + fill_bars, N)):
         if LO[i] <= e <= HI[i]: fb = i; break
@@ -148,47 +135,31 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
         return {'outcome': 'no_fill'} if N > sb + fill_bars else {'outcome': 'open'}
     if (HI[fb] - LO[fb]) > 20:                        # fast bar -> resting limit missed
         return {'outcome': 'missed'}
-    r1 = e + R if bull else e - R                     # +1R level (arms BE)
-    fixed = None; be = None; armed = False
+    r1 = e + R if bull else e - R                     # +1R arms break-even
+    armed = False; res = None
     for i in range(fb, min(fb + hold_bars, N)):
         h = HI[i]; l = LO[i]
         hit_sl = (l <= sl) if bull else (h >= sl)
         hit_tp = (h >= tp) if bull else (l <= tp)
         hit_1r = (h >= r1) if bull else (l <= r1)
         hit_e  = (l <= e)  if bull else (h >= e)
-        # FIXED bracket (adverse-first)
-        if fixed is None:
-            if hit_sl:   fixed = -1.0
-            elif hit_tp: fixed = 2.0
-        # BE bracket (adverse-first; SL until armed, then entry-stop)
-        if be is None:
-            if not armed:
-                if hit_sl:   be = -1.0
-                elif hit_1r: armed = True            # move stop to BE; targets checked next bars
-            else:
-                if hit_e:    be = 0.0                # returned to entry after arming -> break-even
-                elif hit_tp: be = 2.0
-        if fixed is not None and be is not None: break
-    if fixed is None and be is None:
+        if not armed:
+            if hit_sl:   res = ('loss', -1.0); break
+            elif hit_1r: armed = True                 # stop -> break-even (targets still checked this bar)
+        if armed:
+            if hit_e:    res = ('be', 0.0); break     # returned to entry after arming
+            elif hit_tp: res = ('win', 2.0); break
+    if res is None:
         return {'outcome': 'open'}                    # still running / not enough bars
-    # If one leg resolved but the other ran out of bars, fall back to timeout(0) for the open leg.
-    if fixed is None: fixed = 0.0
-    if be is None:    be = 0.0
-    ct, net_fx, Rn_fx = _costed(R, fixed)
-    _,  net_be, Rn_be = _costed(R, be)
-    oc_fx = 'win' if fixed > 0 else ('loss' if fixed < 0 else 'timeout')
-    oc_be = 'win' if be > 1.5 else ('loss' if be < -0.5 else ('be' if abs(be) < 0.5 else 'timeout'))
-    return {'ct': ct,
-            'outcome_fixed': oc_fx, 'R_fixed': Rn_fx, 'net_fixed': net_fx,
-            'outcome': oc_be, 'R': Rn_be, 'net': net_be}
+    oc, gross = res
+    ct, net, Rn = _costed(R, gross)
+    return {'ct': ct, 'outcome': oc, 'R': Rn, 'net': net}
 
 def refresh():
-    """Resolve open shadow trades against the live bar buffer. Safe if buffer missing (stays open).
-    Backfilled rows (src='backfill') are already scored offline and are never touched here."""
+    """Resolve open shadow trades against the live bar buffer. Safe if buffer missing (stays open)."""
     import time as _time
     log = _load()
-    open_ms = [int(t['ms']) for t in log
-               if t.get('outcome') == 'open' and t.get('src') in (None, 'live') and isinstance(t.get('ms'), (int, float))]
+    open_ms = [int(t['ms']) for t in log if t.get('outcome') == 'open' and isinstance(t.get('ms'), (int, float))]
     if not open_ms: return log
     try: MS, HI, LO = _bars(since_ms=min(open_ms))    # anchor read on the oldest open trade -> always covered
     except Exception as _e:
@@ -197,48 +168,26 @@ def refresh():
     now_ms = int(_time.time() * 1000)
     STALE_MS = int(os.environ.get('SHADOW_STALE_DAYS', '3')) * 86400000
     for t in log:
-        if t.get('outcome') != 'open' or t.get('src') not in (None, 'live'): continue   # history (backtest/live-hist) is pre-scored
+        if t.get('outcome') != 'open': continue
         stale = (now_ms - int(t['ms'])) > STALE_MS
         res = score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO)
         oc = res.get('outcome')
-        if oc == 'open':
-            if stale: t['outcome'] = 'expired'; changed = True   # bars never arrived / not enough -> don't hang forever
-            continue
-        if oc == 'out_of_range':
-            if stale: t['outcome'] = 'expired'; changed = True   # archive doesn't span this signal
+        if oc in ('open', 'out_of_range'):
+            if stale: t['outcome'] = 'expired'; changed = True   # bars never arrived / signal outside archive -> don't hang forever
             continue
         if oc in ('no_fill', 'missed'):
             t['outcome'] = oc; changed = True; continue
-        t.update(res); changed = True                            # win / be / loss / timeout -> both R sets stored
+        t.update(res); changed = True                            # win / be / loss
     if changed: _save(log)
     return log
 
-def _backfill_seed():
-    """Merge the bundled historical seed into the live log ONCE (idempotent by key).
-    Tagged src='backfill' so the dashboard shows it distinctly and refresh() never re-scores it."""
-    try:
-        if not os.path.exists(SEED_FILE): return
-        seed = json.load(open(SEED_FILE))
-        log = _load(); have = {t.get('key') for t in log}
-        add = [s for s in seed if s.get('key') not in have]
-        if not add: return
-        for s in add: s.setdefault('src', 'backtest')   # preserve backtest / live-hist tags from the seed
-        _save(log + add)
-        print('[shadow] backfilled %d historical trades' % len(add), flush=True)
-    except Exception as e:
-        print('[shadow] backfill err', e, flush=True)
-
 def register(app):
     """Adds /shadow/data (GET, live log JSON), /shadow/log (POST, ingest), /shadow/health (GET)."""
-    _backfill_seed()
     try: from flask import request, jsonify
     except Exception: return app
     def _data():
         log = refresh()
-        # Show EVERYTHING with a key (incl. no_fill / missed / expired, greyed by the UI) so trades
-        # never silently vanish - the old filter hid them and made the tab look empty.
-        out = [t for t in log if t.get('key')]
-        return jsonify(out)
+        return jsonify([t for t in log if t.get('key')])   # show everything (no_fill/missed greyed by the UI)
     def _post():
         d = request.get_json(force=True, silent=True) or {}
         ok = record(d.get('strategy'), d.get('dir'), d.get('entry'), d.get('sl'),
@@ -246,16 +195,14 @@ def register(app):
         return jsonify(ok=bool(ok))
     def _health():
         import collections
-        log = _load()
-        cc = collections.Counter(t.get('outcome') for t in log)
-        sc = collections.Counter(t.get('src', 'live') for t in log)
+        log = _load(); cc = collections.Counter(t.get('outcome') for t in log)
         ap = SHADOW_BUF if os.path.exists(SHADOW_BUF) else os.path.join(DATA_DIR, 'buffer.csv')
         nb = -1
         try:
             import pandas as pd; nb = int(len(pd.read_csv(ap)))
         except Exception: pass
-        return jsonify(total=len(log), counts=dict(cc), by_src=dict(sc),
-                       archive=ap, archive_exists=os.path.exists(ap), archive_bars=nb)
+        return jsonify(total=len(log), counts=dict(cc), archive=ap,
+                       archive_exists=os.path.exists(ap), archive_bars=nb)
     app.add_url_rule('/shadow/health', 'shadow_health', _health)
     app.add_url_rule('/shadow/data', 'shadow_data', _data)
     app.add_url_rule('/shadow/log', 'shadow_log', _post, methods=['POST'])
