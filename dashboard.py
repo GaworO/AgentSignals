@@ -217,8 +217,11 @@ tr.seed td{opacity:.60}.tag{font-size:10px;color:#6b7280;border:1px solid #2a355
 .note{background:#141a28;border:1px solid #1b2230;border-left:3px solid #f59e0b;border-radius:8px;padding:9px 12px;color:#9aa3b5;font-size:12.5px;margin-bottom:12px}
 </style></head><body>
 <h2>Shadow executor <span class="mut" style="font-size:14px">&middot; no money, proving the edge</span></h2>
-<div class="sub">Every fired signal logged <b>hands-off</b>, no money &middot; $100,000 @ 0.5% ($500 = 1R) &middot; resting limits, <b>BE@1R</b> &middot; London &amp; Asia excluded.</div>
-<div class="note"><b>Works like the Forex book.</b> Each fired signal is logged the instant it fires and resolved on your live bars: fill the resting limit &rarr; after <b>+1R the stop moves to break-even</b> &rarr; <b>WIN +2R</b> / <b>BE 0R</b> / <b>LOSS &minus;1R</b>. Starts <b>empty</b> and fills forward as signals fire &mdash; no backtest, no backfill. This is your <b>Gate-0 evidence</b>: prove &ge; +0.15R over 30-50 fills before real size.</div>
+<div class="sub">Every fired signal logged <b>hands-off</b>, no money &middot; $100,000 @ 0.5% ($500 = 1R) &middot; resting limits, <b>fixed stop, target 2R</b> &middot; London &amp; Asia excluded.</div>
+<div class="note"><b>The automation test.</b> Every A/B signal is logged the instant it fires &mdash; <b>whether or not you take it</b> &mdash; and resolved on your live bars: fill the resting limit &rarr; <b>fixed stop at SL / target 2R</b> &rarr; <b>WIN +2R</b> / <b>LOSS &minus;1R</b>. Starts empty, fills forward. The <b>Auto vs You</b> panel compares taking <i>every</i> signal hands-off against the trades you <i>actually</i> took &mdash; the answer to "would full-auto beat my manual trading?". Gate-0: prove &ge; +0.15R over 30-50 fills before real size.</div>
+<div style="font-size:12.5px;color:#9aa3b5;margin:2px 0 6px"><b>Auto vs You</b> &mdash; taking every signal hands-off (fixed 2R) vs the trades you actually took (from /pnl):</div>
+<div class="kpis" id="cmp"></div>
+<div style="font-size:12.5px;color:#9aa3b5;margin:10px 0 6px"><b>Auto book</b> &mdash; the shadow log (all signals, hands-off):</div>
 <div class="kpis" id="sum"></div>
 <div class="bar">
   <div class="grp"><b>strategies</b>
@@ -232,7 +235,7 @@ tr.seed td{opacity:.60}.tag{font-size:10px;color:#6b7280;border:1px solid #2a355
 </div>
 <div class="wrap"><table id="tbl"></table></div>
 <script>
-var DATA = [];
+var DATA = []; var PNL = null;
 function selStrats(){return Array.prototype.slice.call(document.querySelectorAll('.stratcb:checked')).map(function(c){return c.value;});}
 function curWeek(){return document.getElementById('wk').value;}
 function filt(){var ss=selStrats(),wk=curWeek();
@@ -245,11 +248,11 @@ function meanR(a,f){var v=a.map(f).filter(function(x){return x!==null&&x!==undef
 function sgn(x){return x===null?'&mdash;':((x>=0?'+':'')+x.toFixed(2)+'R');}
 function render(){
  var d=filt();
- var FILLED={win:1,loss:1,be:1};                        // filled & resolved
+ var FILLED={win:1,loss:1,timeout:1};                   // filled & resolved
  var res=d.filter(function(t){return FILLED[t.outcome];});
  var w=res.filter(function(t){return t.outcome==='win';}).length;
  var l=res.filter(function(t){return t.outcome==='loss';}).length;
- var be=res.filter(function(t){return t.outcome==='be';}).length;
+ var scr=res.filter(function(t){return t.outcome==='timeout';}).length;
  var nf=d.filter(function(t){return t.outcome==='no_fill'||t.outcome==='missed';}).length;
  var op=d.filter(function(t){return t.outcome==='open';}).length;
  var net=res.reduce(function(a,t){return a+(t.net||0);},0);
@@ -257,12 +260,12 @@ function render(){
  var wks={};d.forEach(function(t){wks[t.week]=1;});var nw=Object.keys(wks).length;
  document.getElementById('sum').innerHTML=
    card('Net P&amp;L (on $100k)',money(net),net>=0?'up':'down','$500 = 1R')+
-   card('Win rate',(w+l)?Math.round(w/(w+l)*100)+'%':'&mdash;','',w+'W / '+l+'L'+(be?(' / '+be+' BE'):''))+
+   card('Win rate',(w+l)?Math.round(w/(w+l)*100)+'%':'&mdash;','',w+'W / '+l+'L'+(scr?(' / '+scr+' scratch'):''))+
    card('Trades',res.length,'',(op?(op+' open'):'')+((op&&nf)?' &middot; ':'')+(nf?(nf+' no-fill'):'')||'&nbsp;')+
    card('Exp / trade',sgn(expR),(expR!==null&&expR>=0.15)?'up':'down','Gate-0: &ge; +0.15R')+
    card('Per week',nw?(res.length/nw).toFixed(1):'&mdash;','');
- var LBL={win:'WIN',loss:'LOSS',be:'BE',no_fill:'NO-FILL',missed:'MISSED',expired:'EXPIRED',open:'OPEN',out_of_range:'&mdash;'};
- var CLS={win:'win',loss:'loss',be:'be'};
+ var LBL={win:'WIN',loss:'LOSS',timeout:'SCRATCH',no_fill:'NO-FILL',missed:'MISSED',expired:'EXPIRED',open:'OPEN',out_of_range:'&mdash;'};
+ var CLS={win:'win',loss:'loss'};
  var rows=d.slice().reverse().map(function(t){var sc='s'+t.strategy.replace('/','');
   var rescls=CLS[t.outcome]||'mut';
   var reslbl=LBL[t.outcome]||(t.outcome||'').toUpperCase();
@@ -271,6 +274,29 @@ function render(){
   return '<tr><td>'+t.et+'</td><td>'+t.dow+'</td><td class="'+sc+'"><b>'+t.strategy+'</b></td><td>'+(t.dir==='LONG'?'&#9650;':'&#9660;')+'</td><td class=mut>'+t.sess+'</td><td>'+t.entry+'</td><td>'+t.sl+'</td><td>'+t.tp+'</td><td class="'+rescls+'">'+reslbl+'</td><td>'+Rc+'</td><td>'+Nc+'</td></tr>';}).join('');
  if(!d.length){rows='<tr><td colspan="11" class="mut" style="padding:18px">No trades yet &mdash; they appear here automatically as signals fire (London &amp; Asia excluded).</td></tr>';}
  document.getElementById('tbl').innerHTML='<tr><th>time (ET)</th><th>day</th><th>strat</th><th>dir</th><th>session</th><th>entry</th><th>SL</th><th>TP</th><th>result</th><th>R</th><th>$</th></tr>'+rows;
+ renderCmp();
+}
+function renderCmp(){
+ var el=document.getElementById('cmp'); if(!el) return;
+ var ss=selStrats();
+ // AUTO = shadow book (selected strategies, resolved)
+ var a=DATA.filter(function(t){return ss.indexOf(t.strategy)>=0&&(t.outcome==='win'||t.outcome==='loss'||t.outcome==='timeout');});
+ var aw=a.filter(function(t){return t.outcome==='win';}).length,al=a.filter(function(t){return t.outcome==='loss';}).length;
+ var aExp=meanR(a,function(t){return t.R;}),aNet=a.reduce(function(s,t){return s+(t.net||0);},0);
+ // YOU = /pnl trades you actually took (selected strategies, resolved)
+ var yt=((PNL&&PNL.trades)||[]).filter(function(t){return t.taken&&ss.indexOf(t.strategy)>=0&&(t.result==='win'||t.result==='loss');});
+ var yw=yt.filter(function(t){return t.result==='win';}).length,yl=yt.filter(function(t){return t.result==='loss';}).length;
+ var yExp=meanR(yt,function(t){return t.pnl_r;}),yUsd=yt.reduce(function(s,t){return s+(t.pnl_usd||0);},0);
+ var ab=(PNL&&PNL.alerts_by_strategy)||{};var fired=0;ss.forEach(function(s){fired+=ab[s]||0;});
+ function pct(a,b){return (a+b)?Math.round(a/(a+b)*100)+'%':'&mdash;';}
+ function panel(title,n,wp,exp,net,note){return '<div class="kpi" style="min-width:200px"><div class="kl">'+title+'</div><div class="kv '+(exp===null?'':(exp>=0.15?'up':'down'))+'">'+sgn(exp)+'</div><div class="kl" style="margin-top:3px">'+n+' trades &middot; '+wp+' win &middot; '+net+'</div><div class="kl">'+(note||'&nbsp;')+'</div></div>';}
+ var html=
+   panel('AUTO &mdash; every signal',a.length,pct(aw,al),aExp,money(aNet),fired?('would take all '+fired+' fired'):'hands-off, fixed 2R')+
+   panel('YOU &mdash; actually took',yt.length,pct(yw,yl),yExp,money(yUsd),fired?(yt.length+' of '+fired+' fired taken ('+Math.round(yt.length/fired*100)+'%)'):'from /pnl');
+ if(aExp!==null&&yExp!==null){var dR=aExp-yExp;
+   html+='<div class="kpi" style="min-width:200px;border-color:'+(dR>=0?'#1f7a41':'#7a1f1f')+'"><div class="kl">Auto &minus; You</div><div class="kv '+(dR>=0?'up':'down')+'">'+(dR>=0?'+':'')+dR.toFixed(2)+'R</div><div class="kl" style="margin-top:3px">per trade edge from automating</div><div class="kl">'+(dR>=0?'auto ahead':'you ahead')+'</div></div>';}
+ else{html+='<div class="kpi" style="min-width:200px"><div class="kl">Auto &minus; You</div><div class="kv">&mdash;</div><div class="kl" style="margin-top:3px">fills in as the shadow book grows</div><div class="kl">&nbsp;</div></div>';}
+ el.innerHTML=html;
 }
 function initWeeks(){var wks={};DATA.forEach(function(t){wks[t.week]=1;});var arr=Object.keys(wks).sort();
  document.getElementById('wk').innerHTML='<option value="all">All weeks ('+arr.length+')</option>'+arr.map(function(w){return '<option value="'+w+'">week of '+w+'</option>';}).join('');}
@@ -308,7 +334,10 @@ document.getElementById('dfrom').onchange=render;
 document.getElementById('dto').onchange=render;
 document.getElementById('dclear').onclick=function(){document.getElementById('dfrom').value='';document.getElementById('dto').value='';render();};
 document.getElementById('cp').onclick=copyPine;
-function load(){fetch('/shadow/data').then(function(r){return r.json();}).then(function(d){DATA=d||[];initWeeks();render();}).catch(function(){DATA=[];initWeeks();render();});}
+function load(){
+ function shadow(){fetch('/shadow/data?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){DATA=d||[];initWeeks();render();}).catch(function(){DATA=[];initWeeks();render();});}
+ fetch('/pnl?t='+Date.now(),{cache:'no-store',headers:{'Accept':'application/json'}}).then(function(r){return r.json();}).then(function(p){PNL=p;}).catch(function(){}).then(shadow);
+}
 load();
 </script></body></html>"""
 

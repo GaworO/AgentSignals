@@ -2,14 +2,15 @@
 """
 shadow.py - LIVE shadow-executor log (isolated add-on, same pattern as pnl.py / dashboard.py).
 
-Works exactly like the Forex book (manage.py -> /outcomes): every fired signal is logged hands-off
-(no money, no order) and resolved LIVE against the agent's bars under ONE model - BE@1R:
+The automation test: every fired A/B signal is logged hands-off (no money, no order) - whether or
+not she takes it - and resolved LIVE against the agent's bars under FIXED-stop (what full-auto and
+her live TradersPost bracket really do):
 
-    fill the resting limit -> after +1R the stop moves to break-even ->
-    WIN  = +2R (target)   BE = 0R (came back to entry after arming)   LOSS = -1R (stop before 1R)
+    fill the resting limit -> stop at SL / target 2R ->  WIN = +2R   LOSS = -1R   SCRATCH = 0R (chopped)
 
-Starts EMPTY and fills forward as signals fire. No backtest, no backfill, no seed - this is the
-Gate-0 evidence dataset: prove >= +0.15R over 30-50 logged fills before real size.
+Starts EMPTY and fills forward as signals fire. No backtest, no backfill, no seed. The dashboard
+compares this AUTO book against the trades she ACTUALLY took (/pnl) - the answer to "would full-auto
+beat manual". Gate-0: prove >= +0.15R over 30-50 logged fills before real size.
 
 Excludes London + Asia by ET clock (asleep / failed the 3-yr regime test). Keeps all weekdays.
 $100k @ 0.5% => $500 = 1R.
@@ -117,9 +118,10 @@ def _bars(since_ms=None):
     return ms, hi, lo
 
 def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
-    """Resolve one trade BE@1R against bar arrays, mirroring forex manage.py (adverse-first):
-       fill -> SL before 1R = LOSS -1R ; else 1R arms BE ; then entry = BE 0R, else 2R = WIN.
-       Returns {'outcome': win/be/loss} + R/net, or open/no_fill/missed/out_of_range when unresolved."""
+    """Resolve one trade FIXED-stop against bar arrays - the model full-auto would really run
+       (and what your live TradersPost bracket does): fill the resting limit -> SL = LOSS -1R ;
+       2R target = WIN +2R ; chopped the whole window = SCRATCH 0R. Adverse-first (conservative).
+       Returns {'outcome': win/loss/timeout} + R/net, or open/no_fill/missed/out_of_range if unresolved."""
     import numpy as np
     bull = dirn == 'LONG'; e = float(entry); sl = float(sl); tp = float(tp); R = abs(e - sl)
     N = len(MS)
@@ -135,22 +137,15 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
         return {'outcome': 'no_fill'} if N > sb + fill_bars else {'outcome': 'open'}
     if (HI[fb] - LO[fb]) > 20:                        # fast bar -> resting limit missed
         return {'outcome': 'missed'}
-    r1 = e + R if bull else e - R                     # +1R arms break-even
-    armed = False; res = None
+    res = None
     for i in range(fb, min(fb + hold_bars, N)):
-        h = HI[i]; l = LO[i]
-        hit_sl = (l <= sl) if bull else (h >= sl)
-        hit_tp = (h >= tp) if bull else (l <= tp)
-        hit_1r = (h >= r1) if bull else (l <= r1)
-        hit_e  = (l <= e)  if bull else (h >= e)
-        if not armed:
-            if hit_sl:   res = ('loss', -1.0); break
-            elif hit_1r: armed = True                 # stop -> break-even (targets still checked this bar)
-        if armed:
-            if hit_e:    res = ('be', 0.0); break     # returned to entry after arming
-            elif hit_tp: res = ('win', 2.0); break
+        hit_sl = (LO[i] <= sl) if bull else (HI[i] >= sl)
+        hit_tp = (HI[i] >= tp) if bull else (LO[i] <= tp)
+        if hit_sl:   res = ('loss', -1.0); break      # adverse-first
+        elif hit_tp: res = ('win', 2.0); break
     if res is None:
-        return {'outcome': 'open'}                    # still running / not enough bars
+        if N >= fb + hold_bars: res = ('timeout', 0.0)   # filled, chopped the full window -> scratch
+        else: return {'outcome': 'open'}                 # still running / not enough bars
     oc, gross = res
     ct, net, Rn = _costed(R, gross)
     return {'ct': ct, 'outcome': oc, 'R': Rn, 'net': net}
@@ -181,13 +176,26 @@ def refresh():
     if changed: _save(log)
     return log
 
+def _purge_seed():
+    """One-time cleanup: drop any backfilled/seed rows left in the live log by earlier deploys.
+    Forex-style shadow is forward-only - only genuine live-recorded signals belong."""
+    try:
+        log = _load(); keep = [t for t in log if t.get('src') not in ('backtest', 'live-hist', 'backfill')]
+        if len(keep) != len(log):
+            _save(keep); print('[shadow] purged %d seed rows' % (len(log) - len(keep)), flush=True)
+    except Exception as e:
+        print('[shadow] purge err', e, flush=True)
+
 def register(app):
     """Adds /shadow/data (GET, live log JSON), /shadow/log (POST, ingest), /shadow/health (GET)."""
+    _purge_seed()
     try: from flask import request, jsonify
     except Exception: return app
     def _data():
         log = refresh()
-        return jsonify([t for t in log if t.get('key')])   # show everything (no_fill/missed greyed by the UI)
+        resp = jsonify([t for t in log if t.get('key')])   # show everything (no_fill/missed greyed by the UI)
+        resp.headers['Cache-Control'] = 'no-store, max-age=0'   # never serve a stale shadow book
+        return resp
     def _post():
         d = request.get_json(force=True, silent=True) or {}
         ok = record(d.get('strategy'), d.get('dir'), d.get('entry'), d.get('sl'),
