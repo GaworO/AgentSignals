@@ -9,6 +9,19 @@ from .primitives import fvgs, impulse_end_v10
 from .exits import take_profit
 
 
+def _cap_stop(ctx, entry, sl, risk, bull):
+    """v22 stop-cap re-anchor. If cfg.stop_cap > 0 and the structural (FVG-mid) risk exceeds
+    cfg.stop_cap_trigger (0 => use stop_cap, i.e. cap every trade), move the SL to stop_cap
+    points from entry. TP downstream uses the returned risk, so the 2R target follows automatically."""
+    cap = getattr(ctx.cfg, 'stop_cap', 0.0) or 0.0
+    if cap > 0:
+        trig = (getattr(ctx.cfg, 'stop_cap_trigger', 0.0) or 0.0) or cap
+        if risk > trig:
+            sl = round(entry - cap, 2) if bull else round(entry + cap, 2)
+            risk = cap
+    return sl, round(risk, 2)
+
+
 def find_entry_v10(ctx, su):
     bull = su['dr'] == 'LONG'; ob = su['origin_bar']; bb = su['bos_bar']
     sl = round((su['fvg'][0] + su['fvg'][1]) / 2, 2)
@@ -20,8 +33,9 @@ def find_entry_v10(ctx, su):
     fvg = fvl[-1]; entry = fvg[1] if bull else fvg[0]
     risk = (entry - sl) if bull else (sl - entry)
     if risk <= 0: return None
+    sl, risk = _cap_stop(ctx, entry, sl, risk, bull)   # v22 stop-cap re-anchor
     tp = take_profit(ctx, entry, risk, bull)
-    return dict(entry=round(entry, 2), sl=sl, tp=tp, risk=round(risk, 2), sfvg_bar=fvg[2])
+    return dict(entry=round(entry, 2), sl=sl, tp=tp, risk=risk, sfvg_bar=fvg[2])
 
 
 def find_entry_fibo_v10(ctx, su, ote=0.62):
@@ -30,8 +44,9 @@ def find_entry_fibo_v10(ctx, su, ote=0.62):
     hh, eb = impulse_end_v10(ctx, ob, bb, bull); hl = su['origin']
     entry = round(hh + ote * (hl - hh), 2); risk = (entry - sl) if bull else (sl - entry)
     if risk <= 0: return None
+    sl, risk = _cap_stop(ctx, entry, sl, risk, bull)   # v22 stop-cap re-anchor
     tp = take_profit(ctx, entry, risk, bull)
-    return dict(entry=entry, sl=sl, tp=tp, risk=round(risk, 2), hh_bar=eb, ote=ote)
+    return dict(entry=entry, sl=sl, tp=tp, risk=risk, hh_bar=eb, ote=ote)
 
 
 def _ent_fvg(ctx, su):

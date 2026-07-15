@@ -33,6 +33,10 @@ class Config:
     minimp: int = 3                       # V1: min candles to start the chain
     maxext: int = 40                      # V1: safety cap on chain length
     max_stop_r: float = 40.0              # risk cap in points
+    stop_cap: float = 0.0                 # v22: >0 => re-anchor a too-wide FVG-mid SL to this many
+                                          #      points (keep the trade instead of discarding it). 0 = off.
+    stop_cap_trigger: float = 0.0         # v22: re-anchor only when structural risk > this. 0 => use
+                                          #      stop_cap (cap EVERY trade). Set to 40 to rescue >40pt only.
     entry_primary: str = 'fvg'            # 'fvg' | 'fibo'
     cutoff: str = '2026-05-17'            # '' => no date filter (agent / backtest mode)
     data_csv: str = '/mnt/user-data/uploads/MNQ_databento_1m.csv'
@@ -56,6 +60,8 @@ class Config:
             rej_frac=float(e.get('REJ_FRAC', '0.5')),
             atrmult=float(e.get('ATRMULT', '1.5')),   # displacement-strength gate; 1.0 = ~+65% more setups (WF-validated), 1.5 = current
             max_stop_r=float(e.get('MAX_STOP_R', '40')),
+            stop_cap=float(e.get('STOP_CAP', '0')),
+            stop_cap_trigger=float(e.get('STOP_CAP_TRIGGER', '0')),
             entry_primary=e.get('ENTRY_PRIMARY', 'fvg'),
             cutoff=e.get('CUTOFF', '2026-05-17'),
             data_csv=e.get('DATA_CSV', '/mnt/user-data/uploads/MNQ_databento_1m.csv'),
