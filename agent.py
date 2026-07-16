@@ -105,6 +105,7 @@ def _exec_order(x, text=None):
                 _sf = live_emit.size_for(e, sl); qty = int(_sf[0]) if _sf else 1
             except Exception:
                 qty = 1
+        qty = int(round(qty * float(x.get('_size_mult', 1.0))))   # 🧲 magnet auto-size (magnet sets _size_mult; EXEC_MAX_QTY cap below still binds)
         _cap = os.environ.get('EXEC_MAX_QTY', '').strip()
         if _cap.isdigit() and int(_cap) > 0:
             qty = min(qty, int(_cap))
@@ -307,6 +308,13 @@ def _process_new(now_ms=None):
             _st=_sel.tagline(repx, members)
             if _st: txt=_st+txt
         except Exception as _se: print('select_tag err', _se, flush=True)
+        try:                                                                                # 🧲 magnet size-up tag (isolated, read-only — never changes entry/SL/TP/direction)
+            import magnet as _mag, sqlite3 as _sq3
+            _recent=[r[0] for r in _sq3.connect(DB).execute("SELECT dir FROM signals ORDER BY logged_at DESC LIMIT 5").fetchall()][::-1]
+            _mres=_mag.check(repx, *(_mag.load_buffer(BUF) or (None,None,None)), _recent)
+            if _mres['magnet']:
+                txt=_mres['tag']+'\n'+txt; repx['_size_mult']=_mres['size_mult']
+        except Exception as _me: print('magnet err', _me, flush=True)
         if len(members)>1:
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
@@ -409,7 +417,7 @@ _VIEW_NAV = ("<div class='nav'><a href='/'>home</a><a href='/pnl'>P&amp;L</a><a 
  "<span style='color:#444'>&nbsp;|&nbsp;C:</span>"
  "<a href='/c'>C·dashboard</a><a href='/c/candidates'>C·candidates</a><a href='/c/performance'>C·perf</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
-_PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','result','pnl','rr']
+_PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','magnet','result','pnl','rr']
 
 def _page(title, body):
     return ("<!DOCTYPE html><html lang='pl'><head><meta charset='utf-8'>"
@@ -708,6 +716,16 @@ def candidates():
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
     rec=[r for r in tr if r.get('trig_ms',0)>=cut]
     rec.sort(key=lambda r:r.get('trig_ms',0), reverse=True)   # newest first
+    try:                                                       # 🧲 magnet badge on confirmed candidates
+        import magnet as _mag, sqlite3 as _sq3
+        _mbuf=_mag.load_buffer(BUF)
+        _mrec=[r[0] for r in _sq3.connect(DB).execute("SELECT dir FROM signals ORDER BY logged_at DESC LIMIT 5").fetchall()][::-1]
+        if _mbuf:
+            for _cr in rec:
+                if _cr.get('stage')=='POTWIERDZONY':
+                    _cm=_mag.check(_cr, _mbuf[0], _mbuf[1], _mbuf[2], _mrec)
+                    if _cm['magnet']: _cr['magnet']=_cm['badge']
+    except Exception as _me: print('[candidates] magnet err', _me, flush=True)
     if _wants_html():
         _summ=' · '.join("%s: %s"%(k,v) for k,v in Counter(r['stage'] for r in rec).items())
         _legend=("<div style='font-size:12px;line-height:1.7;color:#9aa6b2;border:1px solid #334;"
