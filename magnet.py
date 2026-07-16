@@ -9,13 +9,16 @@
 # READ-ONLY: this only TAGS a setup and SUGGESTS a size multiple. It NEVER changes entry / SL / TP /
 #            direction / whether a trade fires. Safe to wire in and out. Fails closed (returns
 #            magnet=False) on any problem. Wiring at the bottom.
-import bisect
+import os, bisect
 
 MINFVG            = 3.0     # min gap size (points) to count an FVG
 LOOKBACK          = 120     # bars back to find a recent unfilled opposing FVG
 PREV5_OPP_PREMIUM = 3       # >= this many of the last 5 candidates opposite => PREMIUM tier
-SIZE_MAGNET       = 1.25    # size multiple for the broad tier   (set = SIZE_PREMIUM to size the whole 62/yr uniformly)
-SIZE_PREMIUM      = 1.50    # size multiple for the counter-trend tier
+# Size multiples — NOT required as Railway vars: the defaults below are baked in, it works on upload.
+# OPTIONAL: override from Railway without re-uploading by setting MAGNET_SIZE / MAGNET_SIZE_PREMIUM
+# (empty string or unset => the default). `or '...'` keeps an empty env from crashing float().
+SIZE_MAGNET       = float(os.environ.get('MAGNET_SIZE') or '1.25')          # broad tier (set = premium to size the whole 62/yr uniformly)
+SIZE_PREMIUM      = float(os.environ.get('MAGNET_SIZE_PREMIUM') or '1.50')  # counter-trend tier
 EXCLUDE_CATS      = ('F.P.FVG',)   # this catalyst's magnet is dead (+0.06R) — don't upsize it
 
 
