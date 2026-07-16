@@ -710,7 +710,15 @@ def candidates():
     rec.sort(key=lambda r:r.get('trig_ms',0), reverse=True)   # newest first
     if _wants_html():
         _summ=' · '.join("%s: %s"%(k,v) for k,v in Counter(r['stage'] for r in rec).items())
-        return _page('Candidates (%gh)'%hours, "<div class='sum'>etapy: %s</div>"%_summ + _table(rec))
+        _legend=("<div style='font-size:12px;line-height:1.7;color:#9aa6b2;border:1px solid #334;"
+                 "border-radius:8px;padding:9px 12px;margin:8px 0'>"
+                 "<b>Etapy — kolejność do wejścia (guide):</b><br>"
+                 "1. <b>displacement OK</b> — wykryto impuls + FVG (pierwszy filtr; jeszcze nie trade)<br>"
+                 "2. <b>brak setupu (odbicie/BOS)</b> — <span style='color:#c66'>UMARŁ tu</span>: brak odbicia od 50% FVG albo brak break-of-structure<br>"
+                 "3. <b>setup OK (BOS)</b> — odbicie utrzymane + BOS potwierdzony (setup gotowy)<br>"
+                 "4. <b style='color:#3cba7a'>POTWIERDZONY</b> — ⭐ <b>TO JEST TRADE</b>: entry / SL / TP policzone, alert wysłany. <b>Ostatni etap.</b>"
+                 "</div>")
+        return _page('Candidates (%gh)'%hours, _legend + "<div class='sum'>etapy: %s</div>"%_summ + _table(rec))
     return jsonify(hours=hours, liczba=len(rec),
                    podsumowanie=dict(Counter(r['stage'] for r in rec)), kandydaci=rec)
 
