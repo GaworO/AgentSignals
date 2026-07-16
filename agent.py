@@ -688,14 +688,21 @@ def candidates():
     import json as _json
     from collections import Counter
     hours=float(request.args.get('hours','12'))
-    tout=os.path.join(DATA_DIR,'trace.json')
+    tout='/tmp/cand_trace.json'   # v22-fix: /tmp is always writable — a stuck/locked /data file can no longer freeze this page
     gated = os.environ.get('REGIME_GATE','')=='1'
     det_file = os.environ.get('DET_FILE', 'det_v11.py')   # v20: v11 (detcore) = live detector; DET_FILE nadpisuje
-    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=os.path.join(DATA_DIR,'cand_out.pkl'),
+    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL='/tmp/cand_out.pkl',
              CUTOFF='', DEBUG_TRACE='1', TRACE_OUT=tout)
     if gated: env['EOD_INTRADAY']='1' if _eod_flag() else ''
     # /candidates = DIAGNOSTYKA: ten SAM detektor co live (det_v11 gdy REGIME_GATE=1), z DEBUG_TRACE. Nie dotyka alertow.
-    subprocess.run(['python3', os.path.join(HERE,det_file)], env=env, capture_output=True, timeout=180)
+    try:                                                   # v22-fix: bigger timeout + surface the error instead of swallowing it
+        _r = subprocess.run(['python3', os.path.join(HERE,det_file)], env=env, capture_output=True, timeout=600)
+        if _r.returncode != 0:
+            print('[candidates] det rc=%s STDERR:\n%s' % (_r.returncode, (_r.stderr or b'').decode('utf-8','replace')[-3000:]), flush=True)
+    except subprocess.TimeoutExpired:
+        print('[candidates] det TIMEOUT >600s — trace not refreshed', flush=True)
+    except Exception as _e:
+        print('[candidates] det EXC:', _e, flush=True)
     try: tr=_json.load(open(tout))
     except Exception: tr=[]
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
