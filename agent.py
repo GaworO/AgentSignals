@@ -44,7 +44,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v23'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy
+VERSION = 'v25'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy (v25: watch C/F down+disabled+starved)
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -61,6 +61,17 @@ _hb = {'alerted': False}
 HEARTBEAT       = os.environ.get('HEARTBEAT', '1') != '0'                 # default ON
 STALE_MIN       = float(os.environ.get('STALE_MIN', '20'))               # min w/o a new bar = stale (market hours)
 HEARTBEAT_EVERY = float(os.environ.get('HEARTBEAT_EVERY_SEC', '300'))    # how often to check (seconds)
+
+# ====== v25: PER-SATELLITE WATCH (C, F) — down + disabled + starved ======
+# C and F are SEPARATE Railway services. Two ways they silently break: (1) the service dies (crash/sleep/
+# redeploy) — A/B's own feed is fine so its heartbeat stays happy; (2) the service is UP but DISABLED
+# (enabled=false) — it still 200s on bars but produces ZERO signals (exactly the F config-drift on 07-17).
+# The heartbeat loop below therefore CACHE-BUSTS each satellite's /health and checks reachable + enabled,
+# plus uses the fanout timestamp (recorded here) to catch "up+enabled but A/B stopped forwarding" (starved).
+_sat = {'C': {'ok_at': None, 'alerted': False},
+        'F': {'ok_at': None, 'alerted': False}}
+SAT_STALE_MIN = float(os.environ.get('SAT_STALE_MIN', '20'))   # min without an accepted bar = satellite stale
+SAT_WATCH     = os.environ.get('SAT_WATCH', '1') != '0'        # default ON; SAT_WATCH=0 to silence C/F alerts
 
 def _init_db():
     c=sqlite3.connect(DB)
@@ -376,12 +387,16 @@ def bars():
     # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; POZA lockiem; NIE wplywa na A/B) ---
     _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
     if _furl and requests is not None:
-        try: requests.post(_furl, json=b, timeout=3)
+        try:
+            _rf = requests.post(_furl, json=b, timeout=3)
+            if getattr(_rf, 'status_code', 0) == 200: _sat['F']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = F health signal
         except Exception: pass
     # --- Strategy C: DOKŁADNIE jak F — przekaz bar do serwisu C (fire-and-forget; NIE wplywa na A/B) ---
     _curl = os.environ.get('STRAT_C_FORWARD_URL', '')
     if _curl and requests is not None:
-        try: requests.post(_curl, json=b, timeout=3)
+        try:
+            _rc = requests.post(_curl, json=b, timeout=3)
+            if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = C health signal
         except Exception: pass
     # --- Strategy AMD: DOKŁADNIE jak F/C — przekaz bar do serwisu AMD (fire-and-forget; NIE wplywa na A/B) ---
     _amdurl = os.environ.get('STRAT_AMD_FORWARD_URL', '')
@@ -821,6 +836,42 @@ def _heartbeat_loop():
                 except Exception as e: print('[heartbeat] post err', e, flush=True)
                 _hb['alerted'] = False
                 print('[heartbeat] RECOVERED', flush=True)
+            # v25: per-satellite watch (C, F). Three real failures, one latched alert each, market hours only:
+            #   (a) DOWN     — /health GET fails or non-200 (crashed / asleep / redeploy)
+            #   (b) DISABLED — /health 200 but enabled=false (F 07-17: 200s on bars, produces NOTHING)
+            #   (c) STARVED  — reachable+enabled but A/B's fanout stopped landing (ok_at stale => not fed)
+            # /health is CACHE-BUSTED (bare endpoints are edge-cached and lie). C via internal C_URL, F via _F_URL.
+            if SAT_WATCH and WEBHOOK_URL and requests is not None and _market_open_now():
+                _nowu = dt.datetime.utcnow()
+                _bases = {'C': os.environ.get('C_URL', '').rstrip('/'), 'F': _F_URL}
+                for _name in ('C', 'F'):
+                    _s = _sat[_name]; _base = _bases.get(_name) or ''
+                    if not _base: continue                               # can't watch without a URL
+                    _reason = None
+                    try:
+                        _hr = requests.get('%s/health?cb=%d' % (_base, int(_time.time())), timeout=5)
+                        if _hr.status_code != 200:
+                            _reason = 'serwis nie odpowiada (HTTP %s) — padł / redeploy' % _hr.status_code
+                        elif not (_hr.json() or {}).get('enabled', True):
+                            _reason = 'WYŁĄCZONY (enabled=false) — przyjmuje bary, ale sygnałów ZERO'
+                    except Exception:
+                        _reason = 'brak odpowiedzi (padł / śpi / redeploy)'
+                    if _reason is None and _s['ok_at'] is not None:
+                        _sage = (_nowu - _s['ok_at']).total_seconds() / 60.0
+                        if _sage > SAT_STALE_MIN:
+                            _reason = 'nie dostaje barów od %.0f min (A/B nie forwarduje)' % _sage
+                    if _reason and not _s['alerted']:
+                        _m = '⚠️ STRATEGY %s: %s' % (_name, _reason)
+                        if PUBLIC_URL: _m += '\n%s/status' % PUBLIC_URL
+                        try: live_emit.post_webhook(_m, WEBHOOK_URL)
+                        except Exception as e: print('[heartbeat] %s post err' % _name, e, flush=True)
+                        _s['alerted'] = True
+                        print('[heartbeat] SAT %s PROBLEM: %s' % (_name, _reason), flush=True)
+                    elif (_reason is None) and _s['alerted']:
+                        try: live_emit.post_webhook('✅ STRATEGY %s — znowu OK (feed + enabled).' % _name, WEBHOOK_URL)
+                        except Exception as e: print('[heartbeat] %s post err' % _name, e, flush=True)
+                        _s['alerted'] = False
+                        print('[heartbeat] SAT %s RECOVERED' % _name, flush=True)
         except Exception as e:
             print('[heartbeat] loop err', e, flush=True)   # never die
 
