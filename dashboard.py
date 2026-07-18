@@ -61,11 +61,21 @@ h2{font-size:15px;margin:2px 0 10px}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #1b2230}
 .pill{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600;background:#12294a;color:#8ab4f8}
 ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
+.autocard{display:block;margin:14px 8px 6px;padding:11px 12px;border-radius:10px;background:#0f1626;border:1px solid #1b2230;text-decoration:none;color:#e6e9ef}
+.autocard:hover{border-color:#2a3550}
+.autocard .ah{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;margin-bottom:7px}
+.autocard .dot{width:8px;height:8px;border-radius:50%}
+.autocard .mode{font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700;margin-left:auto}
+.autocard .track{height:7px;background:#1b2230;border-radius:4px;overflow:hidden;margin:5px 0 7px}
+.autocard .fill{height:100%;border-radius:4px}
+.autocard .kv{display:flex;justify-content:space-between;font-size:11px;color:#9aa3b5;margin:2px 0}
+.autocard .kv b{color:#e6e9ef;font-variant-numeric:tabular-nums}
 </style></head><body>
 <div class="app">
   <aside>
     <div class="brand"><span class="ic" id="brandic"></span> Trading desk</div>
     <div id="sidenav"></div>
+    <a id="autocard" class="autocard" href="#/gen/guard" title="Open the Auto-Executor guard"></a>
   </aside>
   <main>
     <header>
@@ -140,7 +150,7 @@ var GEN={
  'news':{t:'News',html:'<h2>News &amp; high-impact suppression</h2><div class="card mut">The agent pulls the ForexFactory high-impact calendar (CPI, NFP, FOMC, PCE, ISM, PPI, GDP, Powell). Trades within &plusmn;30 min are flagged. <b>NO_TRADE_SUPPRESS=1</b> mutes them entirely - ON for funded accounts.</div>'},
  'income':{t:'Income',html:'<h2>Income &amp; scaling</h2><div class="card mut">Funded-account scaling toward the weekly target across multi-firm accounts. <b>Gate 0 for every strategy: prove &ge; +0.15R over 30-50 live trades before sizing up.</b></div>'},
  'compare':{t:'Compare',html:COMPARE_HTML},
- 'shadow':{t:'Shadow Executor',frame:'/shadow'}
+ 'shadow':{t:'Shadow Executor',frame:'/shadow'}, 'guard':{t:'Auto-Executor Guard',frame:'/guard'}
 };
 var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut">Same detector as A/B (displacement &rarr; FVG &rarr; 50% hold &rarr; BOS), volatility-recalibrated per instrument. <b>Alert-only</b> - no execution, no contact with the MNQ agent. Fed live 1-min bars from TradingView.</div>'+
@@ -156,7 +166,7 @@ var STRAT={
  jpy:{name:'USD/JPY',sub:'Forex · observe only · JPY-calibrated (×100)',ext:JPY,tabs:[['sum','Summary',JPY+'/performance','chart'],['trades','Trades',JPY+'/outcomes','book'],['pine','Pine for TV',JPY+'/pine','file'],['cand','Candidates & setups',JPY+'/candidates','list'],['status','Status',JPY+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]}
 };
-var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],/* hidden: ['gen/news','News','news'],['gen/income','Income','income'], */['gen/compare','Compare','chart'],['gen/shadow','Shadow Executor','grid']]],
+var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],/* hidden: ['gen/news','News','news'],['gen/income','Income','income'], */['gen/guard','Auto-Executor','grid']]],
          ['Strategies',[['ab','A/B','ab'],['c','C','c'],['f','F','f'],['orb','ORB','orb'],['amd','AMD','amd']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
@@ -188,6 +198,21 @@ function render(){
  if(typeof target==='object'&&target.html) showHtml(target.html); else showFrame(target);
 }
 buildNav(); window.addEventListener('hashchange',render); render();
+(function(){
+  function col(m){return m=='auto'?'#4ade80':m=='manual'?'#7ab8f5':'#e0a93b';}
+  function loadAuto(){fetch('/guard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var e=d.eval||{},m=d.mode||'off',c=col(m),ac=document.getElementById('autocard');if(!ac)return;
+    var pct=Math.max(3,Math.min(100,e.pct||0)),bc=e.breached?'#f87171':e.passed?'#4ade80':((e.pnl||0)<0?'#e0a93b':'#7ab8f5');
+    var st=e.passed?'PASS ✓':e.breached?'BREACH ✕':(d.kill?'HALTED':'armed');
+    ac.innerHTML='<div class=ah><span class=dot style="background:'+c+'"></span>Auto-Executor'+
+      '<span class=mode style="background:'+c+'22;color:'+c+'">'+String(m).toUpperCase()+'</span></div>'+
+      '<div class=track><div class=fill style="width:'+pct+'%;background:'+bc+'"></div></div>'+
+      '<div class=kv><span>Eval &rarr; $106k</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
+      '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
+      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>';
+  }).catch(function(){});}
+  loadAuto(); setInterval(loadAuto,30000);
+})();
 </script></body></html>"""
 
 

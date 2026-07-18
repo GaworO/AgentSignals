@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""
+guardrails.py — MFF-eval-safe auto-execution gate (isolated add-on, same pattern as shadow.py).
+
+Sits BETWEEN detection and execution. It never touches the strategy; it only decides whether a
+fired A/B signal is allowed to be STAGED for auto-submit. Everything defaults conservative and the
+gate is FAIL-CLOSED: any internal error => block the order (miss a trade, never trade unguarded).
+
+Purpose (Aleks, Jul-2026): auto-execute the resting-limit edge WITHOUT breaking the live MFF Pro-100k
+evaluation. Current account $99,887 · $6,000 target ($106k) · $3,000 EOD-trailing max-loss · no MFF
+daily-loss limit (so OUR count-based stops are the only floor) · 50% consistency rule in eval ·
+min 2 trading days · own-account automation allowed.
+
+The eval-killer is the $3k trailing drawdown. Because the agent has NO broker fill-feedback, the
+hard protection is COUNT-BASED (one position, max trades/day, halt after N losses) — those bound the
+worst realistic day to ~-2R regardless of what equity the model thinks it has. The $-based
+DD-proximity guard runs on a MODELED equity that you keep honest with /guard/sync?equity=<real MFF
+balance> (5 seconds, do it after each session). Reuses shadow.py's resolver for outcomes so this and
+the shadow tab always agree.
+
+Wire (agent.py):  import guardrails  (top, next to `import shadow`)
+                  guardrails.register(app)  (bottom, next to `shadow.register(app)`)
+                  gate the _exec_order call — see GUARDRAILS_PATCH.md.
+
+Env (defaults tuned for the Pro-100k eval at $99,887):
+  AUTO_SUBMIT=0            master switch (agent checks it; 1 = actually stage)
+  AUTO_SESSIONS=NYAM,NYPM,PM_AH   only auto-fire these (his green sessions; London/Asia/PREM excluded)
+  MAX_TRADES_DAY=3        stop over-trading a chop day
+  DAY_LOSS_N=2           halt+latch after N losing SENT trades today  (primary floor guard)
+  DAY_LOSS_USD=1000      halt+latch after -$ modeled loss today       (secondary)
+  DAY_TARGET_USD=1500    profit-lock: stop for the day after +$ (keeps best day < 50% of $6k => consistency-safe)
+  DD_FLOOR=97000         MFF trailing max-loss level (READ IT off MFF; update as it trails up)
+  DD_BUFFER=800          halt+latch when modeled equity is within $ of the floor
+  RAMP_TRADES=3          first N SENT trades run at qty=1 (prove routing) then normal size
+  START_EQUITY=99887     modeled equity seed until first /guard/sync
+  STALE_MIN=20           block if the bar feed is older than this (market hours)
+  DATA_DIR=.             persist dir (shadow_log.json lives here too)
+"""
+import os, json, time, datetime as dt
+try:
+    import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
+except Exception:
+    shadow = None
+try:
+    import requests                                 # only for the optional health-transition alert POST
+except Exception:
+    requests = None
+try:
+    from zoneinfo import ZoneInfo; _NY = ZoneInfo('America/New_York')
+except Exception:
+    _NY = None
+
+DATA_DIR = os.environ.get('DATA_DIR', '.')
+GLOG     = os.path.join(DATA_DIR, 'guard_log.json')    # every decision (sent/blocked) — the /guard book
+GSTATE   = os.path.join(DATA_DIR, 'guard_state.json')  # kill-latch, ramp counter, synced equity
+RISK_DOLLAR = 500.0                                     # 1R at 0.5%/$100k (display only)
+
+def _env(k, d):        return os.environ.get(k, d)
+def _envf(k, d):       return float(os.environ.get(k, str(d)))
+def _envi(k, d):       return int(float(os.environ.get(k, str(d))))
+
+def _now_ms():         return int(time.time() * 1000)
+def _et(ms):
+    d = dt.datetime.fromtimestamp(ms/1000.0, tz=dt.timezone.utc)
+    return d.astimezone(_NY) if _NY else d
+def _today():          return _et(_now_ms()).strftime('%Y-%m-%d')
+
+def _sess_of(x):
+    s = x.get('sess')
+    if s in ('PREM','NYAM','NYL','NYPM','PM_AH','ASIA','LO'): return s
+    if shadow is not None:
+        try: return shadow._sess(_et(int(x.get('bos_ms') or _now_ms())))
+        except Exception: pass
+    return '?'
+
+def _load(p, d):
+    try: return json.load(open(p))
+    except Exception: return d
+def _save(p, x):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True); json.dump(x, open(p, 'w'))
+    except Exception as e:
+        print('[guard] save err', p, e, flush=True)
+
+def _skey(x):
+    """same identity shadow.py uses, so a guard row can be joined to its shadow outcome."""
+    try:
+        if shadow is not None:
+            return shadow._key('A/B', x.get('dir'), int(x.get('bos_ms') or _now_ms()),
+                               round(float(x.get('entry')), 2))
+    except Exception: pass
+    return "%s|%s|%s" % (x.get('dir'), x.get('entry'), x.get('bos_ms'))
+
+def _wd(x):
+    """weekday of the signal (0=Mon) by ET clock."""
+    try: return _et(int(x.get('bos_ms') or _now_ms())).weekday()
+    except Exception: return -1
+
+def is_duplicate(x):
+    """True if an order for the SAME setup (dir + entry, to 0.1) was already SENT/staged today.
+    Kills confluence re-emits, re-detection, and restart double-fires -> one setup = one order + one alert."""
+    try:
+        d = x.get('dir'); e = round(float(x.get('entry')), 1); day = _today()
+        for g in _load(GLOG, []):
+            if g.get('date') == day and g.get('decision') in ('sent', 'manual'):
+                if g.get('dir') == d and round(float(g.get('entry') or 0), 1) == e:
+                    return True
+    except Exception as ex:
+        print('[guard] is_duplicate err', ex, flush=True)
+    return False
+
+# ---------- state ----------
+def _state():
+    return _load(GSTATE, {'kill': False, 'kill_reason': '', 'kill_day': '', 'kill_hard': False,
+                          'sent_total': 0, 'equity': _envf('START_EQUITY', 99887.0), 'equity_ts': 0})
+def _set_state(s): _save(GSTATE, s)
+
+def _kill_active(s):
+    if not s.get('kill'): return False
+    if s.get('kill_hard'): return True                 # DD / manual: until /guard/kill?on=0
+    return s.get('kill_day') == _today()               # day-based: auto-clears next day
+
+def _latch(reason, hard=False):
+    s = _state(); s['kill'] = True; s['kill_reason'] = reason; s['kill_day'] = _today(); s['kill_hard'] = hard
+    _set_state(s); print('[guard] KILL LATCH', reason, 'hard=%s' % hard, flush=True)
+
+# ---------- mode (auto/manual/off) + stale-data abort ----------
+def stale_abort(feed_age_min):
+    """Abort the send when the bar feed is older than STALE_MIN (old data => garbage setup).
+    Non-latching: auto-resumes the moment fresh bars arrive. Unknown age => abort (fail-closed)."""
+    try:
+        if feed_age_min is None: return True                       # unknown age -> abort
+        return float(feed_age_min) > _envf('STALE_MIN', 20)
+    except Exception:
+        return True
+
+def exec_mode():
+    """'auto' = guarded full-auto · 'manual' = your tap-to-approve semi-auto · 'off' = alerts only.
+    Runtime state (flip via /guard/mode) beats EXEC_MODE env beats AUTO_SUBMIT."""
+    s = _state()
+    m = (s.get('mode') or os.environ.get('EXEC_MODE', '')).strip().lower()
+    if m in ('auto', 'manual', 'off'): return m
+    return 'auto' if os.environ.get('AUTO_SUBMIT', '0') == '1' else 'manual'
+
+def set_mode(m):
+    m = (m or '').strip().lower()
+    if m not in ('auto', 'manual', 'off'): return False
+    s = _state(); s['mode'] = m; _set_state(s); print('[guard] MODE ->', m, flush=True); return True
+
+def manual_ok(x, feed_age_min=None, market_open=None):
+    """Light gate for MANUAL mode: the non-negotiables (dup, Monday, stale, market, hard kill).
+    Trade selection is yours (approve buttons) — the count/loss/DD guards don't block here."""
+    try:
+        beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
+        s = _state()
+        if _kill_active(s) and s.get('kill_hard'): return (False, 'killed:' + (s.get('kill_reason') or '?'))
+        ep = eval_progress()
+        if ep['passed']:                           return (False, 'target_hit')
+        if ep['breached']:                         return (False, 'dd_breached')
+        if is_duplicate(x):                        return (False, 'duplicate')
+        mm = _env('MONDAY_MODE', 'nyam').lower()
+        if _wd(x) == 0:
+            if mm == 'skip':                       return (False, 'monday_skip')
+            if mm == 'nyam' and _sess_of(x) == 'PREM': return (False, 'monday_prem')
+            if mm == 'quarter': x['_mon_quarter'] = True
+        if market_open is False:                   return (False, 'market_closed')
+        if stale_abort(feed_age_min):              return (False, 'stale_data')
+        return (True, 'ok')
+    except Exception as e:
+        print('[guard] manual_ok EXC (fail-closed):', e, flush=True); return (False, 'guard_error')
+
+# ---------- eval progress counter (where the account stands) ----------
+def eval_progress():
+    """Where the MFF eval stands. Uses synced real equity + today's modeled net.
+    passed = hit the profit target (+6%); breached = broke the trailing drawdown floor."""
+    try:
+        s = _state(); d = _day_stats()
+        start  = _envf('START_BALANCE', 100000.0)                 # eval starting balance
+        target = _envf('TARGET_BALANCE', start + 6000.0)          # +$6,000 = +6%
+        floor  = _envf('DD_FLOOR', 97000.0)
+        eq     = float(s.get('equity', _envf('START_EQUITY', 99887.0))) + d['net']   # modeled; /guard/sync keeps it real
+        return dict(equity=round(eq), start=round(start), target=round(target), floor=round(floor),
+                    pnl=round(eq - start), to_target=round(target - eq), buffer=round(eq - floor),
+                    pct=round(100.0 * (eq - start) / 6000.0, 1),      # % of the $6k target reached
+                    passed=eq >= target, breached=eq <= floor)
+    except Exception as e:
+        print('[guard] eval_progress err', e, flush=True)
+        return dict(equity=0, start=100000, target=106000, floor=97000, pnl=0, to_target=6000,
+                    buffer=0, pct=0.0, passed=False, breached=False)
+
+# ---------- today's SENT book (from guard_log) + outcomes (from shadow) ----------
+def _shadow_by_key():
+    if shadow is None: return {}
+    try:
+        log = shadow.refresh()                          # resolve against live bars
+        return {t.get('key'): t for t in log if t.get('key')}
+    except Exception as e:
+        print('[guard] shadow.refresh err', e, flush=True); return {}
+
+def _today_sent():
+    glog = _load(GLOG, []); sm = _shadow_by_key(); day = _today(); out = []
+    for g in glog:
+        if g.get('decision') != 'sent' or g.get('date') != day: continue
+        sh = sm.get(g.get('key'), {})
+        out.append({**g, 'outcome': sh.get('outcome', 'open'), 'R': sh.get('R'), 'net': sh.get('net')})
+    return out
+
+def _day_stats():
+    sent = _today_sent()
+    losses = sum(1 for t in sent if t.get('outcome') == 'loss')
+    net = sum((t.get('net') or 0) for t in sent if t.get('outcome') in ('win', 'loss', 'timeout'))
+    openpos = any(t.get('outcome') == 'open' for t in sent)      # resting OR running -> a live commitment
+    return dict(sent=len(sent), losses=losses, net=net, openpos=openpos)
+
+# ---------- the gate ----------
+def guard_ok(x, feed_age_min=None, market_open=None):
+    """(True,'ok') to allow staging, else (False,'<reason>'). FAIL-CLOSED on any error."""
+    try:
+        beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
+        s = _state()
+        if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
+        if market_open is False:                return (False, 'market_closed')
+        if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
+        ep = eval_progress()                                          # eval over? stop trading it
+        if ep['passed']:   _latch('target_hit_6pct', hard=True);  return (False, 'target_hit')
+        if ep['breached']: _latch('dd_breached', hard=True);      return (False, 'dd_breached')
+        if is_duplicate(x):                     return (False, 'duplicate')   # one setup = one order (silent, no dup alert)
+        sess = _sess_of(x)
+        skip = [w.strip() for w in _env('SKIP_SESSIONS', 'LO,ASIA').split(',') if w.strip()]
+        if sess in skip:                        return (False, 'session:' + sess)   # London/Asia (+NYL) excluded by firing time
+        mm = _env('MONDAY_MODE', 'nyam').lower()                              # nyam=Monday starts at NYAM (skip PREM) | skip | quarter | full
+        if _wd(x) == 0:
+            if mm == 'skip':                    return (False, 'monday_skip')
+            if mm == 'nyam' and sess == 'PREM': return (False, 'monday_prem')  # keep Monday but ignore PREM — start at NYAM open
+            if mm == 'quarter': x['_mon_quarter'] = True
+
+        d = _day_stats()
+        if d['openpos']:                        return (False, 'position_open')     # THE anti-stack rule
+        if d['sent']   >= _envi('MAX_TRADES_DAY', 3):   return (False, 'max_trades_day')
+        if d['losses'] >= _envi('DAY_LOSS_N', 2):
+            _latch('day_loss_n');               return (False, 'day_loss_n')        # primary floor guard
+        if d['net']    <= -_envf('DAY_LOSS_USD', 1000):
+            _latch('day_loss_usd');             return (False, 'day_loss_usd')
+        if d['net']    >=  _envf('DAY_TARGET_USD', 1500):
+            _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
+
+        eq = s.get('equity', _envf('START_EQUITY', 99887.0)) + d['net']             # modeled; keep honest via /guard/sync
+        if (eq - _envf('DD_FLOOR', 97000)) < _envf('DD_BUFFER', 800):
+            _latch('dd_proximity', hard=True);  return (False, 'dd_proximity')
+        return (True, 'ok')
+    except Exception as e:
+        print('[guard] guard_ok EXC (fail-closed, blocking):', e, flush=True)
+        return (False, 'guard_error')
+
+def ramp_qty(x):
+    """First RAMP_TRADES sent trades run at 1 contract to prove routing; then normal size.
+    Sets x['_exec_qty_override'] (honored by the _exec_order 1-line patch). Returns the override or None."""
+    try:
+        if _state().get('sent_total', 0) < _envi('RAMP_TRADES', 3):
+            x['_exec_qty_override'] = 1; return 1
+    except Exception as e:
+        print('[guard] ramp err', e, flush=True)
+    return None
+
+def note(x, decision, reason=''):
+    """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
+    try:
+        glog = _load(GLOG, []); k = _skey(x)
+        glog.append(dict(key=k, ts=_now_ms(), date=_today(), et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
+                         sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
+                         tp=x.get('TP'), qty=x.get('_exec_qty_override'), decision=decision, reason=reason))
+        _save(GLOG, glog)
+        if decision == 'sent':
+            s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
+    except Exception as e:
+        print('[guard] note err', e, flush=True)
+
+# ---------- auto-executor HEALTH (is it live, armed, and unbroken?) ----------
+def beat(feed_age_min=None, market_open=None):
+    """Liveness stamp + the last feed age the pipeline actually saw. Called on every guard_ok/manual_ok,
+    and (optionally, for tick-level coverage) once per detect loop via guardrails.beat() in agent.py."""
+    try:
+        s = _state(); s['last_seen_ms'] = _now_ms()
+        if feed_age_min is not None:
+            try: s['feed_age_min'] = round(float(feed_age_min), 1); s['feed_ts_ms'] = _now_ms()
+            except Exception: pass
+        if market_open is not None: s['market_open'] = bool(market_open)
+        _set_state(s)
+    except Exception as e:
+        print('[guard] beat err', e, flush=True)
+
+def _state_writable():
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        p = os.path.join(DATA_DIR, '.guard_probe')
+        open(p, 'w').write('1'); os.remove(p); return True
+    except Exception:
+        return False
+
+def _mins_since(ms):
+    try: return (_now_ms() - int(ms or 0)) / 60000.0
+    except Exception: return None
+
+def health(feed_age_min=None, market_open=None):
+    """Structured verdict on the AUTO executor. status = ok | warn | critical | paused(=mode!=auto).
+    Catches the SILENT failures: armed-but-no-webhook, halted, DD_FLOOR unset, feed/equity stale,
+    state unwritable, gate raising, pipeline idle during RTH. HTTP maps critical->503 for a dead-man."""
+    checks = []
+    def add(name, level, detail): checks.append(dict(name=name, level=level, ok=(level in ('ok', 'info')), detail=detail))
+    try:
+        s = _state(); mode = exec_mode()
+        webhook = bool(os.environ.get('EXEC_WEBHOOK'))
+        live = (mode == 'auto' and webhook)
+        stale_min = _envf('STALE_MIN', 20)
+        fa = feed_age_min; fa_src = 'live'
+        if fa is None: fa = s.get('feed_age_min'); fa_src = 'last-seen'
+
+        # 1 mode
+        add('mode', 'ok' if mode == 'auto' else 'info',
+            'AUTO' if mode == 'auto' else (mode.upper() + ' — auto is off by choice'))
+        # 2 webhook wired (only matters in auto)
+        if mode == 'auto':
+            add('webhook', 'ok' if webhook else 'critical',
+                'EXEC_WEBHOOK set' if webhook else 'AUTO but EXEC_WEBHOOK UNSET — armed yet cannot place orders')
+        # 3 halt / kill latch
+        if _kill_active(s):
+            r = s.get('kill_reason', '?')
+            lvl = 'critical' if r == 'guard_error' else ('info' if r == 'target_hit_6pct' else 'warn')
+            add('halt', lvl, 'HALTED: ' + r + ('' if s.get('kill_hard') else ' (clears next day)'))
+        else:
+            add('halt', 'ok', 'armed')
+        # 4 feed freshness (degraded, not fatal — sends just abort until fresh)
+        if fa is None:
+            add('feed', 'warn', 'feed age unknown (gate not consulted yet)')
+        elif float(fa) > stale_min:
+            add('feed', 'warn', 'feed %.0fm old > STALE_MIN %.0fm — sends aborting (%s)' % (float(fa), stale_min, fa_src))
+        else:
+            add('feed', 'ok', 'fresh (%.0fm)' % float(fa))
+        # 5 equity sync honesty — the DD guard rides on this number
+        et = s.get('equity_ts', 0)
+        if not et:
+            add('equity_sync', 'warn', 'equity never synced — DD guard on MODELED equity (GET /guard/sync?equity=<real MFF bal>)')
+        else:
+            ah = (_mins_since(et) or 0) / 60.0
+            add('equity_sync', 'warn' if ah > 36 else 'ok', 'synced %.0fh ago' % ah)
+        # 6 DD_FLOOR actually set to a real level
+        add('dd_floor', 'ok' if os.environ.get('DD_FLOOR') else 'critical',
+            ('DD_FLOOR=' + os.environ['DD_FLOOR']) if os.environ.get('DD_FLOOR') else 'DD_FLOOR NOT set — drawdown guard is blind')
+        # 7 state persistence
+        add('state', 'ok' if _state_writable() else 'critical',
+            'DATA_DIR writable' if _state_writable() else 'DATA_DIR NOT writable — dedup / counter / kill-latch all dead')
+        # 8 shadow resolver (session classification + outcomes)
+        add('shadow', 'ok' if shadow is not None else 'warn',
+            'resolver ready' if shadow is not None else 'shadow.py not importable — session/outcome resolution degraded')
+        # 9 read-path probe — would guard_ok throw?
+        try:
+            eval_progress(); _day_stats(); add('gate', 'ok', 'read-path clean')
+        except Exception as e:
+            add('gate', 'critical', 'gate read-path raises: %s' % e)
+        # 10 pipeline liveness (only meaningful when live AND market open)
+        mo = market_open if market_open is not None else s.get('market_open')
+        seen = _mins_since(s.get('last_seen_ms')); idle_max = _envf('HEALTH_IDLE_MIN', 120)
+        if live and mo and seen is not None and seen > idle_max:
+            add('pipeline', 'warn', 'gate idle %.0fm during RTH — detector may not be feeding it' % seen)
+        else:
+            add('pipeline', 'ok', ('last activity %.0fm ago' % seen) if seen is not None else 'no activity yet')
+
+        rank = {'critical': 3, 'warn': 2, 'info': 1, 'ok': 0}
+        worst = max((rank.get(c['level'], 0) for c in checks), default=0)
+        status = 'critical' if worst == 3 else ('warn' if worst == 2 else 'ok')
+        if mode != 'auto': status = 'paused'
+        bad = [c for c in checks if c['level'] in ('warn', 'critical')]
+        if status == 'ok' and live:   summary = 'AUTO live & healthy'
+        elif status == 'paused':      summary = 'AUTO is not the active mode (%s)' % mode
+        else:                         summary = '; '.join('%s: %s' % (c['name'], c['detail']) for c in bad)[:260] or status
+        out = dict(status=status, mode=mode, live=live, ts=_now_ms(), checks=checks, summary=summary)
+        _health_alert(status, summary)
+        return out
+    except Exception as e:
+        print('[guard] health EXC', e, flush=True)
+        return dict(status='critical', mode='?', live=False, ts=_now_ms(),
+                    checks=[dict(name='health', level='critical', ok=False, detail=str(e))],
+                    summary='health check itself raised: %s' % e)
+
+def _health_alert(status, summary):
+    """Best-effort push ONLY on a status transition (dedup in state). Set GUARD_ALERT_URL (or reuse
+    WEBHOOK_URL) to get a Telegram ping the moment AUTO changes health. No-op if neither is set."""
+    try:
+        s = _state(); prev = s.get('last_health')
+        if status == prev: return
+        s['last_health'] = status; s['last_health_ms'] = _now_ms(); _set_state(s)
+        if prev is None: return                              # first observation — nothing to compare to
+        url = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
+        if not url or requests is None: return
+        icon = {'ok': '✅', 'warn': '⚠️', 'critical': '\U0001f534', 'paused': '⏸️'}.get(status, 'ℹ️')
+        msg = '%s AUTO health %s→%s — %s' % (icon, prev, status, summary)
+        try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
+        except Exception: pass
+    except Exception as e:
+        print('[guard] health alert err', e, flush=True)
+
+# ---------- HTTP: /guard (page), /guard/data, /guard/sync, /guard/kill, /guard/health ----------
+def register(app):
+    try: from flask import request, jsonify, Response
+    except Exception: return app
+
+    def _data():
+        s = _state(); d = _day_stats(); sm = _shadow_by_key()
+        book = [{**g, 'outcome': sm.get(g.get('key'), {}).get('outcome'),
+                 'R': sm.get(g.get('key'), {}).get('R'), 'net': sm.get(g.get('key'), {}).get('net')}
+                for g in reversed(_load(GLOG, []))][:80]
+        return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
+                       kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
+                       be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA'),
+                       trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
+                       losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
+                       day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
+                       ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
+                       health=health(), book=book)
+
+    def _sync():
+        try:
+            v = float(request.args.get('equity'))
+            s = _state(); s['equity'] = v; s['equity_ts'] = _now_ms(); _set_state(s)
+            return jsonify(ok=True, equity=v)
+        except Exception as e:
+            return jsonify(ok=False, err=str(e)), 400
+
+    def _kill():
+        on = request.args.get('on', '1') == '1'; s = _state()
+        s['kill'] = on; s['kill_hard'] = on; s['kill_reason'] = 'manual' if on else ''
+        if on: s['kill_day'] = _today()
+        _set_state(s); return jsonify(ok=True, kill=on)
+
+    def _mode():
+        m = request.args.get('set', '')
+        if set_mode(m): return jsonify(ok=True, mode=m)
+        return jsonify(ok=False, mode=exec_mode(), allowed=['auto', 'manual', 'off']), 400
+
+    def _page():
+        return Response(_HTML, mimetype='text/html')
+
+    def _health():
+        """Auto-executor health. ok/warn -> HTTP 200, critical -> 503 (point a free uptime monitor
+        — Healthchecks.io / UptimeRobot — at this URL to get a dead-man alert if AUTO breaks).
+        ?format=txt for a human-readable checklist."""
+        h = health()
+        code = 503 if h['status'] == 'critical' else 200
+        if request.args.get('format') == 'txt':
+            mark = {'ok': '✓', 'info': '·', 'warn': '!', 'critical': '✗'}
+            lines = ['AUTO HEALTH: %s  —  %s' % (h['status'].upper(), h['summary'])]
+            for c in h['checks']:
+                lines.append('  %s %-12s %s' % (mark.get(c['level'], '?'), c['name'], c['detail']))
+            return Response('\n'.join(lines) + '\n', mimetype='text/plain', status=code)
+        return jsonify(**h), code
+
+    app.add_url_rule('/guard', 'guard_page', _page)
+    app.add_url_rule('/guard/data', 'guard_data', _data)
+    app.add_url_rule('/guard/sync', 'guard_sync', _sync)
+    app.add_url_rule('/guard/kill', 'guard_kill', _kill)
+    app.add_url_rule('/guard/mode', 'guard_mode', _mode)
+    app.add_url_rule('/guard/health', 'guard_health', _health)
+    return app
+
+_HTML = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Auto-Executor · Guard</title><style>
+*{box-sizing:border-box;margin:0;font-family:system-ui,-apple-system,sans-serif}
+body{background:#0d0d0d;color:#eee;padding:14px;font-size:13px}
+h1{font-size:15px;margin-bottom:2px}.sub{color:#888;font-size:11px;margin-bottom:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+.c{background:#1a1a19;border:1px solid #ffffff1a;border-radius:8px;padding:9px 11px}
+.c .l{color:#888;font-size:10px}.c .v{font-size:19px;font-weight:600;margin-top:2px}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.on{background:#0ca30c22;color:#3ecb3e}.off{background:#89878122;color:#aaa}.kill{background:#d03b3b22;color:#e66}.manual{background:#3987e522;color:#7ab8f5}.warnp{background:#e0a93b22;color:#e0a93b}
+.modebar{display:flex;gap:6px;align-items:center;margin:10px 0 14px}.modebar .lb{color:#888;font-size:11px;margin-right:2px}
+.btn{cursor:pointer;border:1px solid #ffffff26;background:#1a1a19;color:#bbb;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none}
+.btn.act{border-color:currentColor}.btn.mauto.act{color:#3ecb3e}.btn.mmanual.act{color:#7ab8f5}.btn.moff.act{color:#e0a93b}
+.btn.kills{color:#e66;border-color:#d03b3b55;margin-left:auto}
+table{border-collapse:collapse;width:100%;font-size:12px}th{color:#888;text-align:left;font-weight:500;padding:5px;border-bottom:1px solid #333;font-size:10px;text-transform:uppercase}
+td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums}
+.sent{color:#3ecb3e;font-weight:600}.blk{color:#e88}.win{color:#3ecb3e}.loss{color:#e66}.open{color:#e0a93b}
+.g{color:#888}
+.evalbar{background:#1a1a19;border:1px solid #ffffff1a;border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.evalbar .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;font-size:12px}
+.evalbar .ttl{color:#888}.evalbar .st{font-weight:700}
+.trackp{position:relative;height:20px;background:#282826;border-radius:5px;overflow:hidden}
+.fillp{height:100%;border-radius:5px;min-width:3px}
+.bn{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700}</style></head><body>
+<h1>Auto-Executor — Guard <span id=mode class=pill></span> <span id=kill class=pill></span> <span id=health class=pill></span></h1>
+<div class=sub>MFF Pro-100k eval · resting-limit A/B · fail-closed · stale-data aborts the send · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN · health JSON: /guard/health</span></div>
+<div id=healthbar class=sub style="margin:-6px 0 12px;font-weight:600"></div>
+<div class=modebar>
+ <span class=lb>MODE</span>
+ <a class="btn mauto" href="/guard/mode?set=auto" onclick="return flip('auto')">AUTO</a>
+ <a class="btn mmanual" href="/guard/mode?set=manual" onclick="return flip('manual')">MANUAL (tap-to-approve)</a>
+ <a class="btn moff" href="/guard/mode?set=off" onclick="return flip('off')">OFF</a>
+ <a class="btn kills" href="#" onclick="return dokill()">■ HALT</a>
+</div>
+<div class="evalbar"><div class="top"><span class="ttl" id=ev_head></span><span class="st" id=ev_state></span></div>
+<div class="trackp"><div class="fillp" id=ev_fill></div></div></div>
+<div class=cards id=cards></div>
+<table><thead><tr><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
+<script>
+async function load(){
+ let d=await (await fetch('/guard/data',{cache:'no-store'})).json();
+ let mp=document.getElementById('mode');mp.textContent=d.mode.toUpperCase();mp.className='pill '+(d.mode=='auto'?'on':d.mode=='manual'?'manual':'off');
+ document.querySelectorAll('.btn.mauto,.btn.mmanual,.btn.moff').forEach(b=>b.classList.remove('act'));
+ let ab=document.querySelector('.btn.m'+d.mode);if(ab)ab.classList.add('act');
+ let k=document.getElementById('kill');k.textContent=d.kill?('HALTED: '+d.kill_reason):'armed';k.className='pill '+(d.kill?'kill':'on');
+ let h=d.health||{};let hp=document.getElementById('health');
+ hp.textContent='HEALTH '+(h.status||'?').toUpperCase();
+ hp.className='pill '+(h.status=='ok'?'on':h.status=='critical'?'kill':h.status=='paused'?'off':'warnp');
+ let hb=document.getElementById('healthbar');
+ hb.textContent=(h.status&&h.status!='ok'&&h.status!='paused')?('⚠ '+(h.summary||'')):'';
+ hb.style.color=h.status=='critical'?'#e66':'#e0a93b';
+ document.getElementById('day').textContent=d.day;
+ let e=d.eval||{};
+ let ef=document.getElementById('ev_fill');ef.style.width=Math.max(3,Math.min(100,e.pct||0))+'%';
+ ef.style.background=e.breached?'#d03b3b':e.passed?'#0ca30c':((e.pnl||0)<0?'#e0a93b':'#3987e5');
+ document.getElementById('ev_head').textContent='Eval progress — $'+(e.start||0).toLocaleString()+' → $'+(e.target||0).toLocaleString()+' (+6%)';
+ document.getElementById('ev_state').innerHTML=e.passed?'<span class=bn style="background:#0ca30c22;color:#3ecb3e">✓ TARGET HIT — PASS</span>':e.breached?'<span class=bn style="background:#d03b3b22;color:#e66">✕ DRAWDOWN BREACHED — halted</span>':('$'+(e.to_target||0).toLocaleString()+' to target · '+(e.pct||0)+'%');
+ let bufc=(e.buffer||0)<1200?'#e66':'#3ecb3e';
+ document.getElementById('cards').innerHTML=[
+  ['Equity (modeled)','$'+(e.equity||0).toLocaleString()],
+  ['P&L vs start','<span style=color:'+((e.pnl||0)>=0?'#3ecb3e':'#e0a93b')+'>'+((e.pnl||0)>=0?'+':'')+'$'+(e.pnl||0).toLocaleString()+'</span>'],
+  ['% to +6% target',(e.pct||0)+'%'],['DD buffer','<span style=color:'+bufc+'>$'+(e.buffer||0).toLocaleString()+'</span>'],
+  ['Trades today',d.trades+' / '+d.max_trades],['Losses today',d.losses+' / '+d.loss_n],
+  ['Day P&L','$'+d.day_net+' / '+d.day_target],
+  ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')]
+ ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
+ let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
+ let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';return '<span class='+c+'>'+o+'</span>';};
+ document.getElementById('tb').innerHTML=(d.book||[]).map(x=>'<tr><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
+  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td>'+oc(x)+
+  '</td><td>'+(x.R!=null?x.R:'')+'</td><td>'+(x.net!=null?x.net:'')+'</td></tr>').join('');
+}
+async function flip(m){await fetch('/guard/mode?set='+m,{cache:'no-store'});load();return false;}
+async function dokill(){await fetch('/guard/kill?on=1',{cache:'no-store'});load();return false;}
+load();setInterval(load,30000);
+</script></body></html>"""

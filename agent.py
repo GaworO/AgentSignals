@@ -25,6 +25,7 @@ import dashboard   # / — unified home shell (federuje istniejące strony; izol
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
+import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,7 +45,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v25'   # marker wersji — widoczny w /status i /health, by potwierdzić deploy (v25: watch C/F down+disabled+starved)
+VERSION = 'v26'   # marker wersji — widoczny w /status i /health (v26: MFF-eval AUTO executor — guardrails + /guard + dedup + Monday-from-NYAM + eval counter)
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -117,6 +118,10 @@ def _exec_order(x, text=None):
             except Exception:
                 qty = 1
         qty = int(round(qty * float(x.get('_size_mult', 1.0))))   # 🧲 magnet auto-size (magnet sets _size_mult; EXEC_MAX_QTY cap below still binds)
+        if x.get('_exec_qty_override') is not None:
+            qty = int(x['_exec_qty_override'])            # guardrails min-size ramp (first N live trades = 1)
+        if x.get('_mon_quarter'):
+            qty = max(1, int(round(qty * 0.5)))           # Monday quarter-size (0.5% -> 0.25%) if MONDAY_MODE=quarter
         _cap = os.environ.get('EXEC_MAX_QTY', '').strip()
         if _cap.isdigit() and int(_cap) > 0:
             qty = min(qty, int(_cap))
@@ -341,8 +346,29 @@ def _process_new(now_ms=None):
             for kk in allkeys: sentn.add(kk)
             continue
         if os.environ.get('EXEC_WEBHOOK'):
-            _exec_order(repx, txt)   # route 2: JEDNA wiadomość (alert + przyciski) przez relay /stage
-            code='exec'
+            _QUIET = ('duplicate', 'monday_skip', 'monday_prem')  # routine skips -> NO Telegram (kills dup alerts)
+            def _blk(_why):
+                guardrails.note(repx, 'blocked', _why)
+                if _why not in _QUIET and not str(_why).startswith('session') and WEBHOOK_URL:
+                    live_emit.post_webhook(txt, WEBHOOK_URL)       # informational only, NO order — you still see it (+ on /guard)
+                return 'guard:' + _why
+            _gmode = guardrails.exec_mode()                       # auto | manual | off  (flip at /guard/mode)
+            if _gmode == 'off':
+                guardrails.note(repx, 'blocked', 'mode_off'); code = 'guard:off'
+                if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)   # OFF still shows you the setup
+            elif _gmode == 'manual':                              # YOUR tap-to-approve semi-auto
+                _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
+                if _gok:
+                    _exec_order(repx, txt); guardrails.note(repx, 'manual'); code = 'exec-manual'
+                else:
+                    code = _blk(_gwhy)
+            else:                                                 # auto — full guardrails
+                _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(), market_open=_market_open_now())
+                if _gok:
+                    guardrails.ramp_qty(repx)                     # first N trades -> 1 contract
+                    _exec_order(repx, txt); guardrails.note(repx, 'sent'); code = 'exec'
+                else:
+                    code = _blk(_gwhy)
         else:
             code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
         print('ALERT', code, txt, flush=True)
@@ -613,9 +639,13 @@ def status():
     _age=_feed_age_min(); _mkt=_market_open_now()                  # v21: zdrowie feedu wprost w /status
     try: _cme=cme_calendar.status().get('note','')                 # v22: DLACZEGO rynek zamkniety (swieto/early close)
     except Exception: _cme=''
+    try: _amode=guardrails.exec_mode()
+    except Exception: _amode='?'
+    _alive=(_amode=='auto' and bool(os.environ.get('EXEC_WEBHOOK')))   # 🟢 AUTO live = will place orders
     _body=dict(version=VERSION, primed=_primed, archive_bars=na, **_last,
                feed_age_min=round(_age,1), market_open=_mkt, cme_note=_cme,
                feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety
+               auto_mode=_amode, auto_live=_alive,                 # v26: is the AUTO executor live?
                heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')))
     if _wants_html(): return _kv_page('Status', _body)
     return jsonify(_body)
@@ -819,6 +849,8 @@ def _heartbeat_loop():
             if _hc and requests is not None:               # ping co cykl = dowod ze AGENT zyje; gdy padnie, brak pingu -> zewn. alarm
                 try: requests.get(_hc, timeout=4)
                 except Exception: pass
+            try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health (fires even if HEARTBEAT off)
+            except Exception: pass
             if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
             age = _feed_age_min()
             stale = age > STALE_MIN and _market_open_now()
@@ -880,6 +912,7 @@ pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unifie
 how_ab.register(app)                        # /how — A/B explainer page (ORB /how style, isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
+guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
 if HEARTBEAT:

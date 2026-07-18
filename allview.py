@@ -215,6 +215,39 @@ def _amd_trades():
     return res
 
 
+def _dedup_key(t):
+    """Same setup fired under several catalysts/models => identical geometry. Collapse on it.
+    (strat, day, dir, entry@0.1, sl@0.1) — two genuinely different trades never share all five."""
+    e = _f(t.get('entry')); s = _f(t.get('sl'))
+    return (t.get('strat', ''), t.get('day', ''), (t.get('dir') or '').upper(),
+            round(e, 1) if e is not None else None,
+            round(s, 1) if s is not None else None)
+
+
+def _dedup(rows):
+    """One row per setup. Confluence inflation (~4.3x) logs the same A/B setup once per catalyst
+    AND per model; this keeps ONE row, upgraded to carry the fullest catalyst tag AND a chartable
+    key if any duplicate had one, and stamps _n = how many raw rows collapsed. Off with ALLVIEW_DEDUP=0."""
+    if os.environ.get('ALLVIEW_DEDUP', '1') == '0':
+        for t in rows:
+            t['_n'] = 1
+        return rows
+    best = {}
+    for t in rows:
+        k = _dedup_key(t)
+        cur = best.get(k)
+        if cur is None:
+            t['_n'] = 1
+            best[k] = t
+            continue
+        cur['_n'] = cur.get('_n', 1) + 1                       # remember how many collapsed
+        if len(str(t.get('cat') or '')) > len(str(cur.get('cat') or '')):
+            cur['cat'] = t.get('cat')                          # keep the fullest catalyst label
+        if (t.get('chartable') and t.get('key')) and not (cur.get('chartable') and cur.get('key')):
+            cur['chartable'] = True; cur['key'] = t.get('key')  # never drop a chart link on merge
+    return list(best.values())
+
+
 def _all_trades():
     out = []
     for fn in (_ab_trades, _c_trades, _f_trades, _orb_trades, _amd_trades):
@@ -222,6 +255,7 @@ def _all_trades():
             out += fn()
         except Exception:
             pass
+    out = _dedup(out)                                          # collapse confluence/model duplicates
     out.sort(key=lambda x: x['ts_ms'], reverse=True)
     return out
 
@@ -335,12 +369,14 @@ def render_trades():
         pine = ("<button class='copy' style='padding:3px 9px' "
                 "onclick=\"navigator.clipboard.writeText(document.getElementById('one_%d').value);this.textContent='copied'\">Pine</button>"
                 "<textarea id='one_%d' style='display:none'>%s</textarea>") % (i, i, one)
+        _nn = int(r.get('_n', 1) or 1)
+        catd = _h.escape(str(r['cat'])) + (" <span class='mut' title='%d confluences merged into one setup' style='font-size:10px'>&times;%d</span>" % (_nn, _nn) if _nn > 1 else '')
         _u = _h.escape(_uid(r)); _a = ann.get(_uid(r), {}); _cm = _a.get('comment', '') or ''; _ce = _h.escape(_cm)
         took = ("<td style='text-align:center'><input type='checkbox' class='ann-took' data-uid=\"%s\" %s onchange='saveTook(this)'></td>") % (_u, ('checked' if _a.get('taken') else ''))
         cbtn = ("<td style='text-align:center'><button type='button' class='cbtn%s' data-uid=\"%s\" data-comment=\"%s\" title=\"%s\" onclick='openComment(this)'>%s</button></td>") % (
             (' has' if _cm else ''), _u, _ce, _ce, ('\U0001F4DD' if _cm else '\U0001F4AC'))
         trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td>%s%s</tr>") % (
-            r['strat'], r['day'], r['time'], _chip(r['strat']), r['dir'], r['cat'], _num(r['entry']), _num(r['sl']),
+            r['strat'], r['day'], r['time'], _chip(r['strat']), r['dir'], catd, _num(r['entry']), _num(r['sl']),
             _rcell(r['r']), chart, pine, took, cbtn)
 
     body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
