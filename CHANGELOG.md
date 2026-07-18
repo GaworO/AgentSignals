@@ -300,6 +300,78 @@ Two live services touched. **Defaults keep current behaviour** — every change 
 
 ---
 
+## v26 — AUTO executor: MFF-eval-safe order gate + live counter  (2026-07-17)
+
+### The idea
+- The resting-limit edge (**+0.19R**) only pays if the limits are actually *placed*. v26 closes the last manual
+  gap: a **fail-closed gate** sits between detection and execution and fires the order itself — but only when
+  every eval-safety rule passes. It never widens what trades; it can only **subtract** (skip / shrink / halt).
+- **Nothing is added to the detector.** `guardrails.py` reuses the existing `shadow.py` price resolver and reads
+  the same signal stream; it just decides *place / hold / abort* and remembers state in `DATA_DIR`
+  (`guard_state.json`, `guard_log.json`).
+
+### Added — `guardrails.py` (new, next to `shadow.py`)
+- **3 modes, runtime-flippable** (`EXEC_MODE`, or the buttons on `/guard`): **AUTO** places orders · **MANUAL**
+  arms them for one-tap · **OFF** = alerts only. Flip live at `POST /guard/mode` — no redeploy.
+- **Stale-data abort (fail-closed):** if the feed is older than `STALE_MIN` (20) the gate **aborts** rather than
+  trading on old prices. Unknown age → abort (the safe default), not trade.
+- **Eval counter** — `eval_progress()`: live equity, P&L, **% to the $6k target**, `passed` (≥ `TARGET_BALANCE`)
+  and `breached` (hit the trailing-drawdown floor). The agent always knows where it stands in the eval.
+- **Drawdown guard:** halts if equity comes within `DD_BUFFER` ($800) of your real MFF trailing floor
+  (`DD_FLOOR`, read off the MFF dashboard). **■ HALT** latches — it won't silently un-halt.
+- **Session gate by FIRING time** (`SKIP_SESSIONS=LO,ASIA,NYL`) — excludes London/Asia (+ NY-Lunch in eval).
+  Uses the detector's real firing session, **not** the catalyst label.
+- **Monday-from-NYAM** (`MONDAY_MODE=nyam`): keep Monday but **skip its PREM** — start at the NYAM open, since the
+  week has barely begun. (`skip` = no Monday · `quarter` = quarter-size · `full` = normal.)
+- **One order per setup** (`is_duplicate`): collapses the ~4.3× confluence/model inflation so a single setup can't
+  fire four overlapping limits (and no duplicate Telegram alert).
+- **Ramp** (`RAMP_TRADES=3`): the first 3 auto orders are forced to **1 contract** to prove broker routing before
+  risk-based sizing (`RISK_PCT`, capped at `EXEC_MAX_QTY`) kicks in.
+- **Daily caps:** `MAX_TRADES_DAY` (3), stop after `DAY_LOSS_N` (2) losers or `DAY_LOSS_USD` ($1000) lost, and
+  bank a green day at `DAY_TARGET_USD` ($1500).
+- **Routes:** `/guard` (dashboard + panic buttons), `/guard/data` (JSON the dashboard card polls), `/guard/mode`
+  (flip mode), `/guard/sync?equity=` (feed the real MFF balance to the counter), `/guard/kill` (latch HALT).
+- **Health check** `/guard/health` — a structured self-diagnosis so AUTO can't break silently. Catches
+  armed-but-`EXEC_WEBHOOK`-unset, halt latched, `DD_FLOOR` unset (guard blind), feed/equity stale, `DATA_DIR`
+  unwritable, the gate raising, and pipeline idle during RTH. Returns **HTTP 200** (ok/warn) or **503** (critical)
+  so a free uptime monitor (Healthchecks.io / UptimeRobot) pointed at it becomes a **dead-man alarm**; `?format=txt`
+  for a human checklist. On any health **transition** it pushes one Telegram line (set `GUARD_ALERT_URL`, or it
+  reuses `WEBHOOK_URL`). A per-cycle `guardrails.beat()` in the agent heartbeat loop keeps the liveness signal
+  honest even on quiet days. The `/guard` page shows a HEALTH pill; `/guard/data` carries the verdict.
+
+### Changed — `agent.py` (v25 → **v26**), `dashboard.py`, `allview.py`
+- `agent.py`: `import guardrails` + `guardrails.register(app)`; the `EXEC_WEBHOOK` block is replaced by the
+  3-mode gate; two `qty` lines in `_exec_order` honour the ramp / Monday-quarter overrides; one `guardrails.beat()`
+  line in the heartbeat loop feeds the health check. Quiet log for the expected skips (`duplicate`, `monday_skip`,
+  `monday_prem`) so they don't spam.
+- `agent.py` **`/status`**: new **`auto_live`** flag — 🟢 true only when mode is `auto` **and** `EXEC_WEBHOOK` is
+  set (i.e. it will really place orders), plus `auto_mode`. One glance tells you if it's armed.
+- `dashboard.py`: a live **Auto-Executor card** (mode · eval progress bar · P&L · today's trades, polling
+  `/guard/data` every 30s) and the `/guard` page in the nav. **Removed** the retired *Shadow executor* and
+  *Compare* nav entries.
+- `allview.py`: **row-dedup** in the All-trades table — one row per setup (fullest catalyst kept, chart link
+  never dropped), with a `×N` badge showing how many confluences merged. Toggle with `ALLVIEW_DEDUP`.
+- `MANAGE_BE=0` stays the default: fixed stop beats break-even (**+0.298R vs +0.146R** over 4 years).
+
+### Why AUTO, not just alerts (the honest result)
+- **12-mo forward test:** taking *every* signal (MANUAL) **breaches the eval drawdown in month one**. The same
+  year run through the AUTO gate **passes**. The rules don't add profit — AUTO nets ~5% *less* gross — they
+  **survive the drawdown** that otherwise ends the eval. Capital preservation, not alpha.
+- **Monte Carlo (400 sims, realistic ~57% resting-limit fills):** live pass rate ≈ **54%**, not 100%. Median
+  pass ≈ **2.3 months**, not the 8 the all-signal curve implies. Sizing up on a tight buffer *lowers* the pass
+  rate — hence `RISK_PCT=0.4` and `EXEC_MAX_QTY` during the eval.
+- **Overfitting check (all 4 years):** Monday is **mixed by year** (−0.04 / +0.02 / +0.06 / −0.14 / +0.21), *not*
+  robustly negative — so `MONDAY_MODE=nyam` is **variance reduction**, not a mined edge. Same logic for the
+  session skips: they cut drawdown, they aren't cherry-picked winners.
+
+### Deploy
+- Add `guardrails.py`; replace `agent.py` / `dashboard.py` / `allview.py` (**diff first** — patch the copies only
+  if your deployed repo matches). Set the env vars below. **TradersPost auto-submit ON** is the actual hands-off
+  switch — the code stages the order, TradersPost fires it. First 3 orders run at 1 contract; confirm each lands
+  on MFF before trusting size. Roll back anytime: `EXEC_MODE=manual` (or `off`) — zero redeploy.
+
+---
+
 ## Env reference
 
 | Var | Where | Default | Meaning |
@@ -331,6 +403,25 @@ Two live services touched. **Defaults keep current behaviour** — every change 
 | `EXEC_MAX_QTY` | agent | (none) | hard cap on exec contract count (eval max-position rule); MNQ micros |
 | `EXEC_TICKER` | agent | `CONTRACT`/`MNQ1!` | broker symbol for exec orders (e.g. `MNQU2026`) |
 | `EXEC_TEST_SECRET` | agent | (empty) | gate for `/exectest` |
+| `EXEC_MODE` | **v26** guardrails | `auto` | `auto` (place) / `manual` (arm, you tap) / `off` (alerts only) — flip live at `/guard/mode` |
+| `SKIP_SESSIONS` | **v26** guardrails | `LO,ASIA` | firing-time sessions the executor won't trade (eval: `LO,ASIA,NYL`) |
+| `MONDAY_MODE` | **v26** guardrails | `nyam` | `nyam` (Mon starts NYAM, skip PREM) / `skip` / `quarter` / `full` |
+| `MAX_TRADES_DAY` | **v26** guardrails | `3` | max auto orders per day |
+| `DAY_LOSS_N` | **v26** guardrails | `2` | stop for the day after N losers |
+| `DAY_LOSS_USD` | **v26** guardrails | `1000` | stop for the day after $ lost |
+| `DAY_TARGET_USD` | **v26** guardrails | `1500` | bank a green day — stop after $ gained |
+| `DD_FLOOR` | **v26** guardrails | (none) | your **real** MFF trailing-drawdown $ level (read off the MFF dashboard) |
+| `DD_BUFFER` | **v26** guardrails | `800` | halt if equity comes within $ of `DD_FLOOR` |
+| `RAMP_TRADES` | **v26** guardrails | `3` | first N auto orders forced to 1 contract (prove routing) |
+| `START_EQUITY` | **v26** guardrails | `100000` | eval start equity for the counter |
+| `START_BALANCE` | **v26** guardrails | `100000` | eval start balance for the counter |
+| `TARGET_BALANCE` | **v26** guardrails | `106000` | pass line ($6k target) |
+| `STALE_MIN` | **v26** agent/guardrails | `20` | abort if feed older than N min (fail-closed) |
+| `GUARD_ALERT_URL` | **v26** guardrails | (uses `WEBHOOK_URL`) | where to push the one-line Telegram alert on an AUTO health transition |
+| `HEALTH_IDLE_MIN` | **v26** guardrails | `120` | flag pipeline idle if the gate sees no activity for N min during market hours |
+| `MANAGE_BE` | agent | `0` | `1`=move to BE at 1R; `0`=fixed stop (fixed wins +0.298R vs +0.146R / 4yr) |
+| `RISK_PCT` | agent | `0.5` | % risked per exec order (**eval: `0.4`** on a tight buffer) |
+| `ALLVIEW_DEDUP` | allview | `1` | `1`=one row per setup (collapse confluence dupes) / `0`=raw |
 | `TRADERSPOST_WEBHOOK` | relay | (hardcoded MFF BOT) | TradersPost strategy webhook — fires orders |
 | `WEBHOOK_SECRET` | relay | `nqscout2024` | guards `/stage`, `/cbdebug`, `/envcheck`, `/setwebhook` |
 | `TG_WEBHOOK_SECRET` | relay | (empty) | Telegram `setWebhook` secret_token header |
