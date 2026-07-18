@@ -45,7 +45,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v26'   # marker wersji — widoczny w /status i /health (v26: MFF-eval AUTO executor — guardrails + /guard + dedup + Monday-from-NYAM + eval counter)
+VERSION = 'v26.1'   # marker wersji — widoczny w /status i /health (v26.1: + auto health check, /guard Pine tab, ARM button, per-trade Telegram alert, is_live respects HALT)
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -641,7 +641,8 @@ def status():
     except Exception: _cme=''
     try: _amode=guardrails.exec_mode()
     except Exception: _amode='?'
-    _alive=(_amode=='auto' and bool(os.environ.get('EXEC_WEBHOOK')))   # 🟢 AUTO live = will place orders
+    try: _alive=guardrails.is_live()            # v26.1: auto AND webhook AND NOT halted (honest — halt makes it false)
+    except Exception: _alive=(_amode=='auto' and bool(os.environ.get('EXEC_WEBHOOK')))
     _body=dict(version=VERSION, primed=_primed, archive_bars=na, **_last,
                feed_age_min=round(_age,1), market_open=_mkt, cme_note=_cme,
                feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety

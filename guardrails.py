@@ -147,6 +147,14 @@ def set_mode(m):
     if m not in ('auto', 'manual', 'off'): return False
     s = _state(); s['mode'] = m; _set_state(s); print('[guard] MODE ->', m, flush=True); return True
 
+def is_live():
+    """True only if AUTO will REALLY place orders: mode=auto AND webhook set AND not halted.
+    /status uses this so it can't report 'live' while a HALT latch is blocking every order."""
+    try:
+        return exec_mode() == 'auto' and bool(os.environ.get('EXEC_WEBHOOK')) and not _kill_active(_state())
+    except Exception:
+        return False
+
 def manual_ok(x, feed_age_min=None, market_open=None):
     """Light gate for MANUAL mode: the non-negotiables (dup, Monday, stale, market, hard kill).
     Trade selection is yours (approve buttons) — the count/loss/DD guards don't block here."""
@@ -266,14 +274,32 @@ def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
         glog = _load(GLOG, []); k = _skey(x)
-        glog.append(dict(key=k, ts=_now_ms(), date=_today(), et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
+        glog.append(dict(key=k, ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
+                         et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
                          tp=x.get('TP'), qty=x.get('_exec_qty_override'), decision=decision, reason=reason))
         _save(GLOG, glog)
-        if decision == 'sent':
+        if decision in ('sent', 'manual'):
             s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
+            _trade_alert(x, decision)                      # 🟢 push a Telegram line the moment auto places it
     except Exception as e:
         print('[guard] note err', e, flush=True)
+
+def _trade_alert(x, decision):
+    """One Telegram line when AUTO stages a trade (so you know the second it fires, not just via email).
+    Off with GUARD_TRADE_ALERTS=0. Reuses GUARD_ALERT_URL, else WEBHOOK_URL (the same relay the agent uses)."""
+    try:
+        if _env('GUARD_TRADE_ALERTS', '1') != '1': return
+        url = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
+        if not url or requests is None: return
+        q = x.get('_exec_qty_override'); qtxt = ('%s×' % q) if q else 'risk-size'
+        tag = 'AUTO SENT' if decision == 'sent' else 'ARMED (manual)'
+        msg = ('\U0001f7e2 %s · %s %s %s @ %s · SL %s / TP %s'
+               % (tag, _sess_of(x), x.get('dir'), qtxt, x.get('entry'), x.get('SL'), x.get('TP')))
+        try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
+        except Exception: pass
+    except Exception as e:
+        print('[guard] trade alert err', e, flush=True)
 
 # ---------- auto-executor HEALTH (is it live, armed, and unbroken?) ----------
 def beat(feed_age_min=None, market_open=None):
@@ -399,7 +425,53 @@ def _health_alert(status, summary):
     except Exception as e:
         print('[guard] health alert err', e, flush=True)
 
-# ---------- HTTP: /guard (page), /guard/data, /guard/sync, /guard/kill, /guard/health ----------
+# ---------- Pine export (draw the AUTO trades on TradingView) ----------
+def _pine_one(r):
+    """One booked order -> Pine box(SL)/box(TP)/entry+SL+TP lines/label at its bar time."""
+    try:
+        e = float(r.get('entry')); sl = float(r.get('sl') if r.get('sl') is not None else r.get('SL'))
+    except Exception:
+        return []
+    ts = int(r.get('bar_ms') or r.get('ts') or 0)
+    if not ts or not e or not sl: return []
+    try: tp = float(r.get('tp'))
+    except Exception: tp = e + 2 * (e - sl)
+    left = ts; right = ts + 90 * 60 * 1000
+    q = r.get('qty'); qtxt = ('%s' % q) if q else 'rs'
+    txt = ('AUTO %s %s x%s' % (r.get('sess', ''), (r.get('dir') or ''), qtxt)).replace('"', '')
+    hi = max(e, sl, tp)
+    return [
+        'box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=color.new(color.red,70), bgcolor=color.new(color.red,88))' % (left, max(e, sl), right, min(e, sl)),
+        'box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=color.new(color.green,70), bgcolor=color.new(color.green,88))' % (left, max(e, tp), right, min(e, tp)),
+        'line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.aqua, width=1, style=line.style_dashed)' % (left, e, right, e),
+        'line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.red, width=2)' % (left, sl, right, sl),
+        'line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.green, width=2)' % (left, tp, right, tp),
+        'label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.aqua,20), textcolor=color.white, size=size.small)' % (left, hi, txt),
+    ]
+
+def pine_book(day=''):
+    """Full Pine indicator for the AUTO trades in the guard book (decision sent/manual).
+    day='' = all booked trades; else only that YYYY-MM-DD. Paste into TradingView Pine Editor -> Add to chart."""
+    rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual')]
+    if day: rows = [g for g in rows if g.get('date') == day]
+    body = []
+    for r in rows:
+        body += ['    ' + ln for ln in _pine_one(r)]
+    ttl = ('AUTO trades %s' % day) if day else 'AUTO trades'
+    head = ['//@version=5',
+            'indicator("%s", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)' % ttl,
+            'if barstate.islast']
+    if not body:
+        body = ['    label.new(bar_index, high, "no AUTO trades", style=label.style_label_down)']
+    return '\n'.join(head + body)
+
+def book_days():
+    """Distinct days that have booked AUTO trades, newest first (for the Pine day picker)."""
+    ds = sorted({g.get('date') for g in _load(GLOG, [])
+                 if g.get('decision') in ('sent', 'manual') and g.get('date')}, reverse=True)
+    return ds
+
+# ---------- HTTP: /guard (page), /guard/data, /guard/sync, /guard/kill, /guard/health, /guard/pine ----------
 def register(app):
     try: from flask import request, jsonify, Response
     except Exception: return app
@@ -416,7 +488,7 @@ def register(app):
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
-                       health=health(), book=book)
+                       health=health(), pine_days=book_days(), book=book)
 
     def _sync():
         try:
@@ -454,12 +526,17 @@ def register(app):
             return Response('\n'.join(lines) + '\n', mimetype='text/plain', status=code)
         return jsonify(**h), code
 
+    def _pine():
+        """Pine script for the AUTO trades (draw them on TradingView). ?day=YYYY-MM-DD or omit for all."""
+        return Response(pine_book(request.args.get('day', '')), mimetype='text/plain')
+
     app.add_url_rule('/guard', 'guard_page', _page)
     app.add_url_rule('/guard/data', 'guard_data', _data)
     app.add_url_rule('/guard/sync', 'guard_sync', _sync)
     app.add_url_rule('/guard/kill', 'guard_kill', _kill)
     app.add_url_rule('/guard/mode', 'guard_mode', _mode)
     app.add_url_rule('/guard/health', 'guard_health', _health)
+    app.add_url_rule('/guard/pine', 'guard_pine', _pine)
     return app
 
 _HTML = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -475,7 +552,12 @@ h1{font-size:15px;margin-bottom:2px}.sub{color:#888;font-size:11px;margin-bottom
 .modebar{display:flex;gap:6px;align-items:center;margin:10px 0 14px}.modebar .lb{color:#888;font-size:11px;margin-right:2px}
 .btn{cursor:pointer;border:1px solid #ffffff26;background:#1a1a19;color:#bbb;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none}
 .btn.act{border-color:currentColor}.btn.mauto.act{color:#3ecb3e}.btn.mmanual.act{color:#7ab8f5}.btn.moff.act{color:#e0a93b}
-.btn.kills{color:#e66;border-color:#d03b3b55;margin-left:auto}
+.btn.kills{color:#e66;border-color:#d03b3b55}.btn.arms{color:#3ecb3e;border-color:#3ecb3e55;margin-left:auto}
+.pinep{margin-top:16px;border-top:1px solid #ffffff14;padding-top:12px}
+.pinep .ph{display:flex;gap:8px;align-items:center;font-size:12px;color:#bbb;flex-wrap:wrap;margin-bottom:6px}
+.pinep select{background:#1a1a19;color:#ddd;border:1px solid #333;border-radius:5px;padding:4px 8px;font-size:12px}
+.cpy{cursor:pointer;border:1px solid #22d3ee55;background:#22d3ee18;color:#22d3ee;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600}
+#pinebox{width:100%;height:26vh;background:#0d0d0d;color:#cfefff;border:1px solid #222;border-radius:8px;padding:9px;font:11px/1.4 monospace;box-sizing:border-box;margin-top:2px}
 table{border-collapse:collapse;width:100%;font-size:12px}th{color:#888;text-align:left;font-weight:500;padding:5px;border-bottom:1px solid #333;font-size:10px;text-transform:uppercase}
 td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums}
 .sent{color:#3ecb3e;font-weight:600}.blk{color:#e88}.win{color:#3ecb3e}.loss{color:#e66}.open{color:#e0a93b}
@@ -494,12 +576,21 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <a class="btn mauto" href="/guard/mode?set=auto" onclick="return flip('auto')">AUTO</a>
  <a class="btn mmanual" href="/guard/mode?set=manual" onclick="return flip('manual')">MANUAL (tap-to-approve)</a>
  <a class="btn moff" href="/guard/mode?set=off" onclick="return flip('off')">OFF</a>
- <a class="btn kills" href="#" onclick="return dokill()">■ HALT</a>
+ <a class="btn arms" href="#" onclick="return doarm()" title="Clear a HALT latch — re-arm the executor">▶ ARM</a>
+ <a class="btn kills" href="#" onclick="return dokill()" title="Stop &amp; latch — places no orders until you ARM">■ HALT</a>
 </div>
 <div class="evalbar"><div class="top"><span class="ttl" id=ev_head></span><span class="st" id=ev_state></span></div>
 <div class="trackp"><div class="fillp" id=ev_fill></div></div></div>
 <div class=cards id=cards></div>
 <table><thead><tr><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
+<div class="pinep">
+ <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
+  <select id="pineday" onchange="loadPine()"></select>
+  <button class="cpy" onclick="copyPine(this)">Copy script</button>
+  <span class="g">paste into TradingView → Pine Editor → Add to chart</span>
+ </div>
+ <textarea id="pinebox" readonly placeholder="pick a day (or 'all trades') → the Pine appears here"></textarea>
+</div>
 <script>
 async function load(){
  let d=await (await fetch('/guard/data',{cache:'no-store'})).json();
@@ -533,8 +624,17 @@ async function load(){
  document.getElementById('tb').innerHTML=(d.book||[]).map(x=>'<tr><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
   '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td>'+oc(x)+
   '</td><td>'+(x.R!=null?x.R:'')+'</td><td>'+(x.net!=null?x.net:'')+'</td></tr>').join('');
+ let ps=document.getElementById('pineday');
+ let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
+ if(ps.dataset.sig!==opts){let cur=ps.value;ps.innerHTML=opts;ps.dataset.sig=opts;if(cur)ps.value=cur;loadPine();}
 }
 async function flip(m){await fetch('/guard/mode?set='+m,{cache:'no-store'});load();return false;}
 async function dokill(){await fetch('/guard/kill?on=1',{cache:'no-store'});load();return false;}
+async function doarm(){await fetch('/guard/kill?on=0',{cache:'no-store'});load();return false;}
+async function loadPine(){let day=document.getElementById('pineday').value;
+ let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
+ document.getElementById('pinebox').value=t;}
+function copyPine(btn){let b=document.getElementById('pinebox');b.select();navigator.clipboard.writeText(b.value);
+ btn.textContent='Copied ✓';setTimeout(()=>{btn.textContent='Copy script';},1200);}
 load();setInterval(load,30000);
 </script></body></html>"""
