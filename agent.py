@@ -122,6 +122,16 @@ def _exec_order(x, text=None):
             _ssm = float(os.environ.get('SELECT_SIZE_MULT', '1') or 1)
             if x.get('_select') and _ssm != 1.0: qty = max(1, int(round(qty * _ssm)))
         except Exception: pass
+        try:      # 🌙 per-session size multiplier — overnight test sessions run reduced size until proven.
+                  # SESSION_SIZE_MULT='ASIA:0.5,LO:0.5' default; '' disables; e.g. 'ASIA:0.25,LO:0.5,PREM:0.75'
+            _smv = os.environ.get('SESSION_SIZE_MULT', 'ASIA:0.5,LO:0.5')
+            if _smv:
+                _ss = guardrails._sess_of(x)
+                for _kv in _smv.split(','):
+                    _k, _v = _kv.split(':')
+                    if _k.strip() == _ss:
+                        qty = max(1, int(round(qty * float(_v)))); break
+        except Exception: pass
         try:      # 📈 GUARD_DYN_RISK=1: scale size with the DD cushion — never above base while the buffer
                   # is thin, up to DYN_RISK_MAX_MULT× once the buffer outgrows DYN_RISK_BASE_BUF ($).
                   # Rationale: worst guarded day = 2 losses; keep 2R well under ~1/3 of the live buffer.
@@ -254,7 +264,17 @@ def _load_calendar():
             evs.append((t, e.get('title','event')))
         _cal['events']=evs; _cal['at']=dt.datetime.utcnow()
     except Exception as ex:
-        print('[cal] blad pobierania:', ex, flush=True)   # fail-safe: brak flag eventow
+        print('[cal] blad pobierania:', ex, flush=True)   # guard side: NEWS_STRICT=1 blokuje sendy gdy kalendarz nieosiagalny >24h
+
+def _cal_age_h():
+    """Hours since the last SUCCESSFUL ForexFactory calendar fetch (None = never). Feeds the
+    fail-closed news gate: can't verify news => guard blocks unattended sends (NEWS_STRICT)."""
+    try:
+        _load_calendar()
+        if not _cal['at']: return None
+        return (dt.datetime.utcnow() - _cal['at']).total_seconds() / 3600.0
+    except Exception:
+        return None
 
 def flags_for(x):
     """zwraca (lista_flag, czy_high_impact). FLAGI nie filtry (chyba ze NO_TRADE_SUPPRESS)."""
@@ -396,7 +416,8 @@ def _process_new(now_ms=None):
                     code = _blk(_gwhy)
             else:                                                 # auto — full guardrails
                 _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(),
-                                                  market_open=_market_open_now(), news_hard=hard)
+                                                  market_open=_market_open_now(), news_hard=hard,
+                                                  cal_age_h=_cal_age_h())
                 if _gok:
                     guardrails.ramp_qty(repx)                     # first N trades -> 1 contract
                     _res = _exec_order(repx, txt)
@@ -889,7 +910,13 @@ def _heartbeat_loop():
                 except Exception: pass
             try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health (fires even if HEARTBEAT off)
             except Exception: pass
-            try: guardrails.eod_flatten_check(_market_open_now())       # EOD_FLATTEN_ET='HH:MM' -> daily flatten+cancel (off unless set)
+            try:                                                        # holiday early-close -> move flatten + entry cutoff up
+                import cme_calendar as _cmec
+                _hm = _cmec.EARLY_CLOSE.get(dt.datetime.now(_cmec.CT).date())
+                if _hm is not None:
+                    guardrails.note_early_close(_hm + 60 - 10)          # CT->ET (+60), flatten 10 min before the halt
+            except Exception: pass
+            try: guardrails.eod_flatten_check(_market_open_now())       # daily flatten+cancel (def 16:04 ET; early-close aware)
             except Exception: pass
             try: guardrails.daily_digest_check()                        # ☀️ proof-of-life digest — silence = the alarm
             except Exception: pass

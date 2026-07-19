@@ -273,19 +273,40 @@ def daily_digest_check():
     except Exception as e:
         print('[guard] digest err', e, flush=True); return False
 
+def _flatten_deadline_min(s=None):
+    """Today's flatten deadline in ET minutes: the holiday early-close override (noted by the agent
+    from cme_calendar) beats the normal EOD_FLATTEN_ET (16:04). None = flatten disabled."""
+    try:
+        s = s or _state(); ec = s.get('early_close')
+        if ec and ec.get('day') == _today(): return int(ec['min_et'])
+        t = _env('EOD_FLATTEN_ET', '16:04').strip()
+        if not t or t == '0': return None
+        hh, mm = [int(v) for v in t.split(':')]
+        return hh * 60 + mm
+    except Exception:
+        return 16 * 60 + 4
+
+def note_early_close(min_et):
+    """Agent heartbeat calls this on holiday early-close days (from cme_calendar.EARLY_CLOSE):
+    flatten + entry-cutoff move up to the early halt instead of 16:04."""
+    try:
+        s = _state(); s['early_close'] = {'day': _today(), 'min_et': int(min_et)}; _set_state(s)
+    except Exception as e:
+        print('[guard] early close note err', e, flush=True)
+
 def eod_flatten_check(market_open=None):
     """If EOD_FLATTEN_ET='HH:MM' is set, flatten+cancel once per day at/after that ET time.
     Default UNSET (off): whether to force-flatten daily is a strategy decision — the backtest holds
     up to 48h — but if MFF force-liquidates (verify on the dashboard!) set this a few minutes before.
     Called from the agent heartbeat loop (~5 min resolution)."""
     try:
-        t = _env('EOD_FLATTEN_ET', '16:04').strip()   # MFF auto-liquidates 16:10 ET — beat it with our own
-        if not t or t == '0': return False            # flatten+cancel. '0' disables (non-MFF use only).
-        # NOTE holidays: MFF does NOT auto-liquidate on holiday hours — this 16:04 flatten still fires
-        # (heartbeat runs as long as the process lives), but verify early-close days (13:00 ET) manually.
-        hh, mm = [int(v) for v in t.split(':')]
+        # MFF auto-liquidates 16:10 ET on normal days but NOT on holidays — the deadline below is
+        # 16:04 normally and the early-close override (set via note_early_close from cme_calendar)
+        # on holiday half-days, so the flatten fires while orders can still execute.
+        dl = _flatten_deadline_min()
+        if dl is None: return False
         now = _et(_now_ms())
-        if (now.hour * 60 + now.minute) < (hh * 60 + mm): return False
+        if (now.hour * 60 + now.minute) < dl: return False
         s = _state()
         if s.get('eod_flat_day') == _today(): return False
         s['eod_flat_day'] = _today(); _set_state(s)
@@ -391,7 +412,7 @@ def _day_stats():
     return dict(sent=len(sent), losses=losses, net=net, openpos=openpos)
 
 # ---------- the gate ----------
-def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None):
+def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None):
     """(True,'ok') to allow staging, else (False,'<reason>'). FAIL-CLOSED on any error."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
@@ -399,14 +420,23 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None):
         if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
-        if news_hard and _env('NEWS_GUARD', '1') == '1':
-            return (False, 'news_window')       # ±30min high-impact (flags_for) — auto never trades through CPI/FOMC
-        try:                                    # MFF liquidates 16:10 ET; placing trades late risks
-            let = _env('GUARD_LAST_ENTRY_ET', '15:30').strip()   # forced-flat entries and (post-16:10) disqualification
+        if _env('NEWS_GUARD', '1') == '1':
+            if news_hard:
+                return (False, 'news_window')   # ±30min high-impact (flags_for) — auto never trades through CPI/FOMC
+            if _env('NEWS_STRICT', '1') == '1': # FAIL-CLOSED calendar: can't verify news = don't trade.
+                if cal_age_h is None or float(cal_age_h) > _envf('NEWS_MAX_AGE_H', 24):
+                    return (False, 'news_cal_stale')   # ForexFactory unreachable/stale -> no unattended sends
+        try:                                    # MFF liquidates 16:10 ET (early-close days much earlier);
+            now = _et(_now_ms())                # placing trades late risks forced-flat entries + disqualification
+            let = _env('GUARD_LAST_ENTRY_ET', '').strip()
             if let and let != '0':
                 lh, lm = [int(v) for v in let.split(':')]
-                now = _et(_now_ms())
-                if (now.hour * 60 + now.minute) >= (lh * 60 + lm): return (False, 'late_day')
+                cutoff = lh * 60 + lm
+            else:
+                dl = _flatten_deadline_min(s)   # 16:04 normally; holiday early-close deadline when noted
+                cutoff = (dl - _envi('GUARD_ENTRY_MARGIN_MIN', 35)) if dl else None
+            if cutoff is not None and (now.hour * 60 + now.minute) >= cutoff:
+                return (False, 'late_day')
         except Exception:
             return (False, 'late_day')          # unparseable cutoff -> fail closed
         try:                                    # degenerate tight stop -> absurd qty + slippage beyond -1R
