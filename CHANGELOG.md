@@ -5,6 +5,27 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
+## v27.0 — auto-execution hardening + MFF-rules layer  (2026-07-19)
+
+**guardrails.py** — broker-boundary safety: loss/DD/manual latches now FLATTEN (exit+cancel), not
+just block; EOD flatten default 16:04 ET (MFF liquidates 16:10; holiday early-close aware via
+cme_calendar -> note_early_close); late-entry cutoff auto-derived (deadline-35m); fail-closed news
+calendar (news_cal_stale when ForexFactory stale >24h); MIN_SL_PTS=5; DD floor auto-trails synced
+equity highs (eq_high-3000, cap DD_FLOOR_CAP); atomic state writes + corrupt-state HARD latch;
+orphan-limit sweep (cancels broker orders shadow wrote off as no_fill); GUARD_TOKEN auth on
+/guard/kill|mode|sync; daily proof-of-life digest 08:45 ET; GUARD_SKIP_DIB gate (opt-in);
+SKIP_SESSIONS default now LO,ASIA,PREM,NYL (env overrides).
+**agent.py** — EXEC_TIF default day (was gtc); exec result checked before booking sent
+(failures alert, don't burn counters); EXEC_MAX_QTY default 15; SELECT_SIZE_MULT / GUARD_DYN_RISK
+/ SESSION_SIZE_MULT (def ASIA:0.5,LO:0.5) sizing levers; news hard + calendar age wired into guard.
+**shadow.py** — logs ALL sessions (SHADOW_EXCLUDE env restores old behaviour).
+**requirements.txt** — pin pandas<3 (timestamp parsing regression breaks shadow resolution).
+Validated: 4-yr machine run (2022-06->2026-06, 1.42M bars): guarded book 432 sent / 247 fills,
+155W-92L, 0 floor breaches, 13/13 eval passes (median 90 calendar days). Model = fixed bracket
+touch-fill (upper bound); tier ordering SELECT>A>B stable across all fill models.
+
+---
+
 ## v11 — sweep-based invalidation  (2026-06)
 
 ### Changed (the core idea)
