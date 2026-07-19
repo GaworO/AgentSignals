@@ -33,7 +33,11 @@ DATA_DIR   = os.environ.get('DATA_DIR', '.')
 LOG        = os.path.join(DATA_DIR, 'shadow_log.json')
 SHADOW_BUF = os.environ.get('SHADOW_BUF') or os.environ.get('BUF') or os.path.join(DATA_DIR, 'archive.csv')  # agent's full bar history (never trimmed); falls back to buffer.csv
 RISK, PV, COMM = 500.0, 2.0, 0.62
-EXCLUDE = {'ASIA', 'LO'}          # London + Asia never logged
+# 2026-07-19: EXCLUDE now env-driven, default EMPTY — shadow logs EVERY session so the excluded ones
+# (ASIA/LO) build a live forward record and can earn their way into the auto book with data instead
+# of a backtest argument. The AUTO gate still skips them (guardrails SKIP_SESSIONS) — shadow is no-money.
+# Restore the old behaviour with SHADOW_EXCLUDE=ASIA,LO.
+EXCLUDE = {s.strip() for s in os.environ.get('SHADOW_EXCLUDE', '').split(',') if s.strip()}
 
 def _et(ms):
     d = dt.datetime.fromtimestamp(ms / 1000.0, tz=dt.timezone.utc)

@@ -35,6 +35,21 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
   START_EQUITY=99887     modeled equity seed until first /guard/sync
   STALE_MIN=20           block if the bar feed is older than this (market hours)
   DATA_DIR=.             persist dir (shadow_log.json lives here too)
+
+Hardening (2026-07-19 review):
+  NEWS_GUARD=1           block auto sends inside ±30min of high-impact events (agent passes the flag)
+  MIN_SL_PTS=5           skip degenerate tight-SL setups (absurd qty + slippage beyond -1R)
+  DD_TRAIL_USD=3000      auto-trailing floor: max(DD_FLOOR, highest synced equity - this)
+  DD_FLOOR_CAP=0         optional cap where the trail locks (MFF locks at start balance)
+  GUARD_FLATTEN=1        loss/DD/manual latches also send exit+cancel to EXEC_WEBHOOK (stop the bleeding)
+  EOD_FLATTEN_ET=16:04   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
+  GUARD_LAST_ENTRY_ET=15:30  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
+  GUARD_SYNC_MAX_H=0     >0 = AUTO refuses to trade if real equity wasn't synced within N hours
+  GUARD_TOKEN=           set -> /guard/sync|kill|mode require ?t=<token> (open /guard?t=... for buttons)
+  SKIP_SESSIONS default is now LO,ASIA,PREM,NYL (was LO,ASIA — PREM/NYL used to auto-fire)
+  state writes are atomic; a CORRUPT state file now latches HARD (was: silently reset to defaults)
+  agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
+  booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
 import os, json, time, datetime as dt
 try:
@@ -76,9 +91,24 @@ def _sess_of(x):
 def _load(p, d):
     try: return json.load(open(p))
     except Exception: return d
+def _load_failclosed(p, d):
+    """Like _load, but a file that EXISTS yet won't parse is treated as corruption -> caller must
+    fail CLOSED, not fall back to permissive defaults (a truncated guard_state.json used to silently
+    clear the hard kill-latch and reset equity/ramp)."""
+    if not os.path.exists(p): return d, False
+    try: return json.load(open(p)), False
+    except Exception as e:
+        print('[guard] STATE CORRUPT (fail-closed):', p, e, flush=True)
+        return d, True
 def _save(p, x):
+    """ATOMIC write (tmp + os.replace) — a crash/redeploy mid-dump can no longer truncate the
+    state/log to invalid JSON (which then failed OPEN on the next _load)."""
     try:
-        os.makedirs(DATA_DIR, exist_ok=True); json.dump(x, open(p, 'w'))
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = p + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(x, f); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, p)
     except Exception as e:
         print('[guard] save err', p, e, flush=True)
 
@@ -110,9 +140,15 @@ def is_duplicate(x):
     return False
 
 # ---------- state ----------
+_DEF_STATE = {'kill': False, 'kill_reason': '', 'kill_day': '', 'kill_hard': False,
+              'sent_total': 0, 'equity': None, 'equity_ts': 0}
 def _state():
-    return _load(GSTATE, {'kill': False, 'kill_reason': '', 'kill_day': '', 'kill_hard': False,
-                          'sent_total': 0, 'equity': _envf('START_EQUITY', 99887.0), 'equity_ts': 0})
+    s, corrupt = _load_failclosed(GSTATE, dict(_DEF_STATE))
+    if corrupt:                                    # corrupted state -> HARD kill until a human looks
+        s = dict(_DEF_STATE); s.update(kill=True, kill_hard=True, kill_reason='state_corrupt',
+                                       kill_day=_today())
+    if s.get('equity') is None: s['equity'] = _envf('START_EQUITY', 99887.0)
+    return s
 def _set_state(s): _save(GSTATE, s)
 
 def _kill_active(s):
@@ -123,6 +159,140 @@ def _kill_active(s):
 def _latch(reason, hard=False):
     s = _state(); s['kill'] = True; s['kill_reason'] = reason; s['kill_day'] = _today(); s['kill_hard'] = hard
     _set_state(s); print('[guard] KILL LATCH', reason, 'hard=%s' % hard, flush=True)
+    # a loss/DD latch means STOP THE BLEEDING, not just "no new entries": flatten + cancel at the broker
+    if reason in ('day_loss_n', 'day_loss_usd', 'dd_proximity', 'dd_breached', 'target_hit_6pct', 'state_corrupt'):
+        flatten_all('latch:' + reason)
+
+def _dd_floor():
+    """Effective trailing floor = max(DD_FLOOR env, highest synced equity - DD_TRAIL_USD).
+    MFF's EOD-trailing floor only RISES; tracking eq_high makes the guard follow it automatically
+    instead of trusting a manually-updated env var that goes stale after every green day."""
+    env_floor = _envf('DD_FLOOR', 97000.0)
+    try:
+        hi = float(_state().get('eq_high') or 0)
+        trail = hi - _envf('DD_TRAIL_USD', 3000.0)
+        cap = _envf('DD_FLOOR_CAP', 0.0)              # MFF locks the trail at start balance; cap it if set
+        if cap: trail = min(trail, cap)
+        return max(env_floor, trail)
+    except Exception:
+        return env_floor
+
+def flatten_all(reason):
+    """Best-effort: close the open position ('exit') and cancel resting orders ('cancel') at
+    TradersPost for EXEC_TICKER. Fired on loss/DD latches and by the EOD flatten. Never raises.
+    Off with GUARD_FLATTEN=0."""
+    try:
+        if _env('GUARD_FLATTEN', '1') != '1': return False
+        url = os.environ.get('EXEC_WEBHOOK', '')
+        if not url or requests is None: return False
+        tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
+        ok = []
+        for action in ('exit', 'cancel'):
+            try:
+                r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
+                ok.append('%s:%s' % (action, getattr(r, 'status_code', '?')))
+            except Exception as e:
+                ok.append('%s:err' % action); print('[guard] flatten %s err' % action, e, flush=True)
+        print('[guard] FLATTEN (%s) ->' % reason, ' '.join(ok), flush=True)
+        aurl = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
+        if aurl:
+            msg = '\U0001f9f9 FLATTEN+CANCEL sent (%s) — %s' % (reason, ' '.join(ok))
+            try: requests.post(aurl, json={'text': msg, 'raw': msg}, timeout=6)
+            except Exception: pass
+        return True
+    except Exception as e:
+        print('[guard] flatten_all err', e, flush=True); return False
+
+def sweep_orphans():
+    """Cancel broker-side orphan LIMIT orders: guard-book trades whose modeled outcome says the limit
+    never filled (no_fill / missed / expired). Without this the resting order lives on at the broker
+    after the guard has already freed the one-position slot -> a later fill silently stacks positions.
+    Only sweeps when the modeled book shows NO open position ('cancel' cancels ALL open orders for the
+    ticker — must not strip the bracket off a live trade). Called from agent.py after shadow.refresh."""
+    try:
+        d = _day_stats()
+        if d['openpos']: return 0                     # never cancel while a bracket protects a position
+        s = _state(); swept = s.get('swept') or {}
+        sm = _shadow_by_key(); n = 0
+        for g in _load(GLOG, []):
+            if g.get('decision') != 'sent': continue
+            k = g.get('key')
+            if not k or k in swept: continue
+            oc = sm.get(k, {}).get('outcome')
+            if oc in ('no_fill', 'missed', 'expired'):
+                if flatten_cancel_only():
+                    swept[k] = _now_ms(); n += 1     # only mark on success -> a down relay is retried next bar
+                elif not os.environ.get('EXEC_WEBHOOK') or _env('GUARD_FLATTEN', '1') != '1':
+                    swept[k] = _now_ms()             # nothing to cancel with -> don't retry forever
+        if n or len(swept) > 200:
+            s['swept'] = dict(sorted(swept.items(), key=lambda kv: -kv[1])[:200]); _set_state(s)
+        return n
+    except Exception as e:
+        print('[guard] sweep err', e, flush=True); return 0
+
+def flatten_cancel_only():
+    """Cancel resting orders only (no exit) — used by the orphan sweep."""
+    try:
+        url = os.environ.get('EXEC_WEBHOOK', '')
+        if not url or requests is None or _env('GUARD_FLATTEN', '1') != '1': return False
+        tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
+        r = requests.post(url, json={'ticker': tick, 'action': 'cancel'}, timeout=10)
+        print('[guard] ORPHAN CANCEL ->', getattr(r, 'status_code', '?'), flush=True)
+        return True
+    except Exception as e:
+        print('[guard] cancel err', e, flush=True); return False
+
+def daily_digest_check():
+    """Proof-of-life: ONE Telegram line every day at DAILY_DIGEST_ET (def 08:45 ET) with mode/health/
+    equity/buffer. The point is the ABSENCE signal: no morning digest = the process is dead or Telegram
+    is broken — either way, look at Railway. In-process alerts cannot report their own death; this makes
+    silence itself the alarm (pair with HEALTHCHECK_URL + an uptime monitor on /guard/health).
+    DAILY_DIGEST_ET=0 disables."""
+    try:
+        t = _env('DAILY_DIGEST_ET', '08:45').strip()
+        if not t or t == '0': return False
+        hh, mm = [int(v) for v in t.split(':')]
+        now = _et(_now_ms())
+        if (now.hour * 60 + now.minute) < (hh * 60 + mm): return False
+        s = _state()
+        if s.get('digest_day') == _today(): return False
+        s['digest_day'] = _today(); _set_state(s)
+        url = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
+        if not url or requests is None: return False
+        try:
+            h = health(); ep = eval_progress(); d = _day_stats()
+            msg = ('☀️ AUTO check-in %s — mode %s · health %s · eq $%s (buffer $%s, floor $%s) · '
+                   'sent today %d · %s\nNo check-in tomorrow at %s ET = system is DOWN (check Railway/monitor).'
+                   % (_today(), exec_mode(), h.get('status', '?'), ep['equity'], ep['buffer'], ep['floor'],
+                      d['sent'], ('HALTED: ' + s.get('kill_reason', '')) if _kill_active(s) else 'armed', t))
+        except Exception as e:
+            msg = '☀️ AUTO check-in %s — alive, but digest build failed: %s' % (_today(), e)
+        try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
+        except Exception: pass
+        return True
+    except Exception as e:
+        print('[guard] digest err', e, flush=True); return False
+
+def eod_flatten_check(market_open=None):
+    """If EOD_FLATTEN_ET='HH:MM' is set, flatten+cancel once per day at/after that ET time.
+    Default UNSET (off): whether to force-flatten daily is a strategy decision — the backtest holds
+    up to 48h — but if MFF force-liquidates (verify on the dashboard!) set this a few minutes before.
+    Called from the agent heartbeat loop (~5 min resolution)."""
+    try:
+        t = _env('EOD_FLATTEN_ET', '16:04').strip()   # MFF auto-liquidates 16:10 ET — beat it with our own
+        if not t or t == '0': return False            # flatten+cancel. '0' disables (non-MFF use only).
+        # NOTE holidays: MFF does NOT auto-liquidate on holiday hours — this 16:04 flatten still fires
+        # (heartbeat runs as long as the process lives), but verify early-close days (13:00 ET) manually.
+        hh, mm = [int(v) for v in t.split(':')]
+        now = _et(_now_ms())
+        if (now.hour * 60 + now.minute) < (hh * 60 + mm): return False
+        s = _state()
+        if s.get('eod_flat_day') == _today(): return False
+        s['eod_flat_day'] = _today(); _set_state(s)
+        flatten_all('eod_%s' % t)
+        return True
+    except Exception as e:
+        print('[guard] eod flatten err', e, flush=True); return False
 
 # ---------- mode (auto/manual/off) + stale-data abort ----------
 def stale_abort(feed_age_min):
@@ -185,7 +355,7 @@ def eval_progress():
         s = _state(); d = _day_stats()
         start  = _envf('START_BALANCE', 100000.0)                 # eval starting balance
         target = _envf('TARGET_BALANCE', start + 6000.0)          # +$6,000 = +6%
-        floor  = _envf('DD_FLOOR', 97000.0)
+        floor  = _dd_floor()                                      # auto-trails with synced equity highs
         eq     = float(s.get('equity', _envf('START_EQUITY', 99887.0))) + d['net']   # modeled; /guard/sync keeps it real
         return dict(equity=round(eq), start=round(start), target=round(target), floor=round(floor),
                     pnl=round(eq - start), to_target=round(target - eq), buffer=round(eq - floor),
@@ -221,7 +391,7 @@ def _day_stats():
     return dict(sent=len(sent), losses=losses, net=net, openpos=openpos)
 
 # ---------- the gate ----------
-def guard_ok(x, feed_age_min=None, market_open=None):
+def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None):
     """(True,'ok') to allow staging, else (False,'<reason>'). FAIL-CLOSED on any error."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
@@ -229,12 +399,37 @@ def guard_ok(x, feed_age_min=None, market_open=None):
         if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
+        if news_hard and _env('NEWS_GUARD', '1') == '1':
+            return (False, 'news_window')       # ±30min high-impact (flags_for) — auto never trades through CPI/FOMC
+        try:                                    # MFF liquidates 16:10 ET; placing trades late risks
+            let = _env('GUARD_LAST_ENTRY_ET', '15:30').strip()   # forced-flat entries and (post-16:10) disqualification
+            if let and let != '0':
+                lh, lm = [int(v) for v in let.split(':')]
+                now = _et(_now_ms())
+                if (now.hour * 60 + now.minute) >= (lh * 60 + lm): return (False, 'late_day')
+        except Exception:
+            return (False, 'late_day')          # unparseable cutoff -> fail closed
+        try:                                    # degenerate tight stop -> absurd qty + slippage beyond -1R
+            if abs(float(x.get('entry')) - float(x.get('SL'))) < _envf('MIN_SL_PTS', 5.0):
+                return (False, 'sl_too_tight')
+        except Exception:
+            return (False, 'bad_levels')
+        mah = _envf('GUARD_SYNC_MAX_H', 0)      # >0 = in AUTO require a real-equity sync fresher than N hours
+        if mah > 0:
+            et_ts = s.get('equity_ts', 0)
+            if not et_ts or (_now_ms() - int(et_ts)) > mah * 3600000:
+                return (False, 'equity_stale')
         ep = eval_progress()                                          # eval over? stop trading it
         if ep['passed']:   _latch('target_hit_6pct', hard=True);  return (False, 'target_hit')
         if ep['breached']: _latch('dd_breached', hard=True);      return (False, 'dd_breached')
         if is_duplicate(x):                     return (False, 'duplicate')   # one setup = one order (silent, no dup alert)
+        if _env('GUARD_SKIP_DIB', '0') == '1' and 'DIB' in str(x.get('cat', '')):
+            return (False, 'class_b_dib')   # class-B tier: excluded from the audited premium tier (T4);
+                                            # went 0W/4L in the 2026 Feb-Jun forward sim. Opt-in gate.
         sess = _sess_of(x)
-        skip = [w.strip() for w in _env('SKIP_SESSIONS', 'LO,ASIA').split(',') if w.strip()]
+        # default now matches the documented intent (green sessions = NYAM/NYPM/PM_AH):
+        # PREM + NYL were auto-firing on the old 'LO,ASIA' default. Env still overrides.
+        skip = [w.strip() for w in _env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL').split(',') if w.strip()]
         if sess in skip:                        return (False, 'session:' + sess)   # London/Asia (+NYL) excluded by firing time
         mm = _env('MONDAY_MODE', 'nyam').lower()                              # nyam=Monday starts at NYAM (skip PREM) | skip | quarter | full
         if _wd(x) == 0:
@@ -253,7 +448,7 @@ def guard_ok(x, feed_age_min=None, market_open=None):
             _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
 
         eq = s.get('equity', _envf('START_EQUITY', 99887.0)) + d['net']             # modeled; keep honest via /guard/sync
-        if (eq - _envf('DD_FLOOR', 97000)) < _envf('DD_BUFFER', 800):
+        if (eq - _dd_floor()) < _envf('DD_BUFFER', 800):
             _latch('dd_proximity', hard=True);  return (False, 'dd_proximity')
         return (True, 'ok')
     except Exception as e:
@@ -490,21 +685,34 @@ def register(app):
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
                        health=health(), pine_days=book_days(), book=book)
 
+    def _authed():
+        """GUARD_TOKEN set -> every MUTATING endpoint requires ?t=<token>. These are open GETs on a
+        public URL; without this, anyone who finds the URL can clear the hard latch or arm AUTO."""
+        tok = os.environ.get('GUARD_TOKEN', '')
+        return (not tok) or (request.args.get('t', '') == tok)
+
     def _sync():
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
         try:
             v = float(request.args.get('equity'))
-            s = _state(); s['equity'] = v; s['equity_ts'] = _now_ms(); _set_state(s)
-            return jsonify(ok=True, equity=v)
+            s = _state(); s['equity'] = v; s['equity_ts'] = _now_ms()
+            s['eq_high'] = max(float(s.get('eq_high') or 0), v)   # feeds the auto-trailing DD floor
+            _set_state(s)
+            return jsonify(ok=True, equity=v, eq_high=s['eq_high'], floor=_dd_floor())
         except Exception as e:
             return jsonify(ok=False, err=str(e)), 400
 
     def _kill():
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
         on = request.args.get('on', '1') == '1'; s = _state()
         s['kill'] = on; s['kill_hard'] = on; s['kill_reason'] = 'manual' if on else ''
         if on: s['kill_day'] = _today()
-        _set_state(s); return jsonify(ok=True, kill=on)
+        _set_state(s)
+        if on: flatten_all('manual_halt')          # HALT = stop the bleeding, not only new entries
+        return jsonify(ok=True, kill=on)
 
     def _mode():
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
         m = request.args.get('set', '')
         if set_mode(m): return jsonify(ok=True, mode=m)
         return jsonify(ok=False, mode=exec_mode(), allowed=['auto', 'manual', 'off']), 400
@@ -628,9 +836,10 @@ async function load(){
  let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
  if(ps.dataset.sig!==opts){let cur=ps.value;ps.innerHTML=opts;ps.dataset.sig=opts;if(cur)ps.value=cur;loadPine();}
 }
-async function flip(m){await fetch('/guard/mode?set='+m,{cache:'no-store'});load();return false;}
-async function dokill(){await fetch('/guard/kill?on=1',{cache:'no-store'});load();return false;}
-async function doarm(){await fetch('/guard/kill?on=0',{cache:'no-store'});load();return false;}
+const _tok=new URLSearchParams(location.search).get('t');const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
+async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});load();return false;}
+async function dokill(){await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});load();return false;}
+async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
 async function loadPine(){let day=document.getElementById('pineday').value;
  let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
  document.getElementById('pinebox').value=t;}

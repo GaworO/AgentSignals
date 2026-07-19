@@ -118,11 +118,24 @@ def _exec_order(x, text=None):
             except Exception:
                 qty = 1
         qty = int(round(qty * float(x.get('_size_mult', 1.0))))   # 🧲 magnet auto-size (magnet sets _size_mult; EXEC_MAX_QTY cap below still binds)
+        try:      # ⭐ SELECT size skew: T4 setups (~+0.30R live vs +0.195R baseline) get more size. Off by default.
+            _ssm = float(os.environ.get('SELECT_SIZE_MULT', '1') or 1)
+            if x.get('_select') and _ssm != 1.0: qty = max(1, int(round(qty * _ssm)))
+        except Exception: pass
+        try:      # 📈 GUARD_DYN_RISK=1: scale size with the DD cushion — never above base while the buffer
+                  # is thin, up to DYN_RISK_MAX_MULT× once the buffer outgrows DYN_RISK_BASE_BUF ($).
+                  # Rationale: worst guarded day = 2 losses; keep 2R well under ~1/3 of the live buffer.
+            if os.environ.get('GUARD_DYN_RISK', '0') == '1':
+                _buf = float(guardrails.eval_progress().get('buffer') or 0)
+                _base = float(os.environ.get('DYN_RISK_BASE_BUF', '3000'))
+                _mx = float(os.environ.get('DYN_RISK_MAX_MULT', '2'))
+                if _buf > _base: qty = int(round(qty * min(_mx, _buf / _base)))
+        except Exception: pass
         if x.get('_exec_qty_override') is not None:
             qty = int(x['_exec_qty_override'])            # guardrails min-size ramp (first N live trades = 1)
         if x.get('_mon_quarter'):
             qty = max(1, int(round(qty * 0.5)))           # Monday quarter-size (0.5% -> 0.25%) if MONDAY_MODE=quarter
-        _cap = os.environ.get('EXEC_MAX_QTY', '').strip()
+        _cap = os.environ.get('EXEC_MAX_QTY', '15').strip()   # default HARD cap: a 5-pt SL used to compute 50 micros
         if _cap.isdigit() and int(_cap) > 0:
             qty = min(qty, int(_cap))
         qty = max(1, int(qty))
@@ -134,7 +147,10 @@ def _exec_order(x, text=None):
             "quantity": qty,
             "takeProfit": {"limitPrice": round(tp + off, 2)},
             "stopLoss": {"type": "stop", "stopPrice": round(sl + off, 2)},
-            "timeInForce": "gtc",
+            # 'day' (default) — a GTC entry limit outlived every model window (shadow no_fill=4h,
+            # manage cancel=2h) and could fill overnight AFTER the guard freed the slot -> stacked
+            # positions no guard sees. EXEC_TIF=gtc restores the old behaviour if you really want it.
+            "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
         }
         if text: payload["text"] = text   # relay /stage użyje jako treść -> JEDNA wiadomość zamiast dwóch
         r = requests.post(url, json=payload, timeout=10)
@@ -323,6 +339,7 @@ def _process_new(now_ms=None):
             import select_tag as _sel
             _st=_sel.tagline(repx, members)
             if _st: txt=_st+txt
+            if not _sel.why_not(repx, members): repx['_select']=True   # ⭐ mark T4 for SELECT_SIZE_MULT sizing
         except Exception as _se: print('select_tag err', _se, flush=True)
         try:                                                                                # 🧲 magnet size-up tag (isolated, read-only — never changes entry/SL/TP/direction)
             import magnet as _mag, sqlite3 as _sq3
@@ -356,17 +373,35 @@ def _process_new(now_ms=None):
             if _gmode == 'off':
                 guardrails.note(repx, 'blocked', 'mode_off'); code = 'guard:off'
                 if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)   # OFF still shows you the setup
+            def _exec_ok(_res):
+                """True only when the relay ACCEPTED the order (2xx). Booking 'sent' on a 401/timeout
+                used to burn day counters + ramp + tell Telegram AUTO SENT for an order that never existed."""
+                try: return bool(_res.get('sent')) and 200 <= int(_res.get('status') or 0) < 300
+                except Exception: return False
+            def _exec_fail_alert(_res, _tag):
+                m = ('\U0001f534 EXEC FAILED (%s) — order NOT at broker: %s' % (_tag, json.dumps(_res)[:180]))
+                print(m, flush=True)
+                if WEBHOOK_URL:
+                    try: live_emit.post_webhook(m + '\n' + txt, WEBHOOK_URL)
+                    except Exception: pass
+            if _gmode == 'off':
+                pass
             elif _gmode == 'manual':                              # YOUR tap-to-approve semi-auto
                 _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
                 if _gok:
-                    _exec_order(repx, txt); guardrails.note(repx, 'manual'); code = 'exec-manual'
+                    _res = _exec_order(repx, txt)
+                    if _exec_ok(_res): guardrails.note(repx, 'manual'); code = 'exec-manual'
+                    else: guardrails.note(repx, 'blocked', 'exec_failed'); _exec_fail_alert(_res, 'manual'); code = 'exec-failed'
                 else:
                     code = _blk(_gwhy)
             else:                                                 # auto — full guardrails
-                _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(), market_open=_market_open_now())
+                _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(),
+                                                  market_open=_market_open_now(), news_hard=hard)
                 if _gok:
                     guardrails.ramp_qty(repx)                     # first N trades -> 1 contract
-                    _exec_order(repx, txt); guardrails.note(repx, 'sent'); code = 'exec'
+                    _res = _exec_order(repx, txt)
+                    if _exec_ok(_res): guardrails.note(repx, 'sent'); code = 'exec'
+                    else: guardrails.note(repx, 'blocked', 'exec_failed'); _exec_fail_alert(_res, 'auto'); code = 'exec-failed'
                 else:
                     code = _blk(_gwhy)
         else:
@@ -405,6 +440,8 @@ def bars():
             print('manage.check err', e, flush=True)
         try: shadow.refresh()                       # resolve shadow trades on every bar (not only when tab open)
         except Exception as e: print('shadow.refresh err', e, flush=True)
+        try: guardrails.sweep_orphans()             # cancel broker-side limits the model already wrote off (no_fill/missed)
+        except Exception as e: print('guard.sweep err', e, flush=True)
         nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
         _last.update(last_bar=str(b.get('ts_event')), bars_in_buffer=nb,
                      setups_seen=res.get('nowe', res.get('primed')),
@@ -851,6 +888,10 @@ def _heartbeat_loop():
                 try: requests.get(_hc, timeout=4)
                 except Exception: pass
             try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health (fires even if HEARTBEAT off)
+            except Exception: pass
+            try: guardrails.eod_flatten_check(_market_open_now())       # EOD_FLATTEN_ET='HH:MM' -> daily flatten+cancel (off unless set)
+            except Exception: pass
+            try: guardrails.daily_digest_check()                        # ☀️ proof-of-life digest — silence = the alarm
             except Exception: pass
             if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
             age = _feed_age_min()
