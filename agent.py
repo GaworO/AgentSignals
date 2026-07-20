@@ -100,6 +100,13 @@ def _exec_order(x, text=None):
     Z auto-submit OFF w TradersPost zlecenie czeka na Twoje 1-klik zatwierdzenie (MFF: nadzór nad
     każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście.
     EXEC_QTY='auto' (domyślnie) = ryzyko jak w alercie (size_for); liczba = sztywno; EXEC_MAX_QTY = limit."""
+    if os.environ.get('EXEC_FX', '') == '1':          # FX services: MetaApi/MT5 adapter (exec_fx.py)
+        try:
+            import exec_fx
+            return exec_fx.place(x, text)
+        except Exception as _fe:
+            print('EXEC_FX import/place err', _fe, flush=True)
+            return {"sent": False, "error": str(_fe)}
     url = os.environ.get('EXEC_WEBHOOK', '')
     if not url or requests is None: return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
     try:
