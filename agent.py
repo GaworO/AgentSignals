@@ -24,6 +24,7 @@ import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat —
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
+import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 
@@ -392,7 +393,7 @@ def _process_new(now_ms=None):
             _save_db(repx, txt+' [SUPPRESSED]', 'suppressed')
             for kk in allkeys: sentn.add(kk)
             continue
-        if os.environ.get('EXEC_WEBHOOK'):
+        if os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':   # FX services: MetaApi, no webhook
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')  # routine skips -> NO Telegram (kills dup alerts)
             def _blk(_why):
                 guardrails.note(repx, 'blocked', _why)
@@ -993,6 +994,7 @@ dashboard.register(app)                     # /    — unified home shell (feder
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
+fxguard.register(app)                       # /fxguard - joined forex Auto-Executor (isolated add-on)
 allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()

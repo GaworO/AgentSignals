@@ -124,7 +124,7 @@ def _skey(x):
     try:
         if shadow is not None:
             return shadow._key('A/B', x.get('dir'), int(x.get('bos_ms') or _now_ms()),
-                               round(float(x.get('entry')), 2))
+                               round(float(x.get('entry')), _envi('GUARD_PRICE_DP', 2)))
     except Exception: pass
     return "%s|%s|%s" % (x.get('dir'), x.get('entry'), x.get('bos_ms'))
 
@@ -193,6 +193,12 @@ def flatten_all(reason):
     Off with GUARD_FLATTEN=0."""
     try:
         if _env('GUARD_FLATTEN', '1') != '1': return False
+        if os.environ.get('EXEC_FX') == '1':               # FX services: MetaApi close-symbol instead of TradersPost
+            try:
+                import exec_fx
+                return exec_fx.flatten(reason)
+            except Exception as e:
+                print('[guard] fx flatten err', e, flush=True); return False
         url = os.environ.get('EXEC_WEBHOOK', '')
         if not url or requests is None: return False
         tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
@@ -243,6 +249,7 @@ def sweep_orphans():
 def flatten_cancel_only():
     """Cancel resting orders only (no exit) — used by the orphan sweep."""
     try:
+        if os.environ.get('EXEC_FX') == '1': return False   # MT5 entry orders self-expire (FX_ENTRY_TTL_MIN) — no sweep needed
         url = os.environ.get('EXEC_WEBHOOK', '')
         if not url or requests is None or _env('GUARD_FLATTEN', '1') != '1': return False
         tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
@@ -351,11 +358,17 @@ def set_mode(m):
     if m not in ('auto', 'manual', 'off'): return False
     s = _state(); s['mode'] = m; _set_state(s); print('[guard] MODE ->', m, flush=True); return True
 
+def _exec_ready():
+    """True when an execution path is configured: TradersPost webhook OR the MetaApi FX adapter."""
+    if os.environ.get('EXEC_WEBHOOK'): return True
+    return (os.environ.get('EXEC_FX') == '1' and bool(os.environ.get('METAAPI_TOKEN'))
+            and bool(os.environ.get('METAAPI_ACCOUNT_ID')))
+
 def is_live():
     """True only if AUTO will REALLY place orders: mode=auto AND webhook set AND not halted.
     /status uses this so it can't report 'live' while a HALT latch is blocking every order."""
     try:
-        return exec_mode() == 'auto' and bool(os.environ.get('EXEC_WEBHOOK')) and not _kill_active(_state())
+        return exec_mode() == 'auto' and _exec_ready() and not _kill_active(_state())
     except Exception:
         return False
 
@@ -583,7 +596,7 @@ def health(feed_age_min=None, market_open=None):
     def add(name, level, detail): checks.append(dict(name=name, level=level, ok=(level in ('ok', 'info')), detail=detail))
     try:
         s = _state(); mode = exec_mode()
-        webhook = bool(os.environ.get('EXEC_WEBHOOK'))
+        webhook = _exec_ready()
         live = (mode == 'auto' and webhook)
         stale_min = _envf('STALE_MIN', 20)
         fa = feed_age_min; fa_src = 'live'
@@ -595,7 +608,7 @@ def health(feed_age_min=None, market_open=None):
         # 2 webhook wired (only matters in auto)
         if mode == 'auto':
             add('webhook', 'ok' if webhook else 'critical',
-                'EXEC_WEBHOOK set' if webhook else 'AUTO but EXEC_WEBHOOK UNSET — armed yet cannot place orders')
+                'exec path configured' if webhook else 'AUTO but NO exec path (EXEC_WEBHOOK / EXEC_FX+METAAPI_*) — armed yet cannot place orders')
         # 3 halt / kill latch
         if _kill_active(s):
             r = s.get('kill_reason', '?')
@@ -688,12 +701,14 @@ def _pine_one(r):
     q = r.get('qty'); qtxt = ('%s' % q) if q else 'rs'
     txt = ('AUTO %s %s x%s' % (r.get('sess', ''), (r.get('dir') or ''), qtxt)).replace('"', '')
     hi = max(e, sl, tp)
+    dp = _envi('GUARD_PRICE_DP', 2)                     # Pine at instrument precision (EURUSD 5dp, JPY 3dp)
+    def _f(p): return ('%.*f' % (dp, p))
     return [
-        'box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=color.new(color.red,70), bgcolor=color.new(color.red,88))' % (left, max(e, sl), right, min(e, sl)),
-        'box.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, border_color=color.new(color.green,70), bgcolor=color.new(color.green,88))' % (left, max(e, tp), right, min(e, tp)),
-        'line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.aqua, width=1, style=line.style_dashed)' % (left, e, right, e),
-        'line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.red, width=2)' % (left, sl, right, sl),
-        'line.new(%d, %.2f, %d, %.2f, xloc=xloc.bar_time, color=color.green, width=2)' % (left, tp, right, tp),
+        'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.red,70), bgcolor=color.new(color.red,88))' % (left, _f(max(e, sl)), right, _f(min(e, sl))),
+        'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.green,70), bgcolor=color.new(color.green,88))' % (left, _f(max(e, tp)), right, _f(min(e, tp))),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.aqua, width=1, style=line.style_dashed)' % (left, _f(e), right, _f(e)),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.red, width=2)' % (left, _f(sl), right, _f(sl)),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.green, width=2)' % (left, _f(tp), right, _f(tp)),
         'label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.aqua,20), textcolor=color.white, size=size.small)' % (left, hi, txt),
     ]
 

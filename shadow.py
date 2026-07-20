@@ -65,7 +65,8 @@ def _save(x):
         print('[shadow] save err', e, flush=True)
 
 def _key(strategy, dirn, ms, entry):
-    return "%s|%s|%d|%.2f" % (strategy, dirn, int(ms), round(float(entry), 2))
+    _dp = int(os.environ.get('SHADOW_PRICE_DP', '2') or 2)
+    return "%s|%s|%d|%.*f" % (strategy, dirn, int(ms), _dp, round(float(entry), _dp))
 
 def _costed(R, gross_R):
     """contracts + net$ + net-R for a gross-R outcome (costs: 2 commissions + 1 tick each side).
@@ -90,9 +91,13 @@ def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None):
         ms = int(ms if ms is not None else dt.datetime.utcnow().timestamp() * 1000)
         et = _et(ms); s = sess if sess in ('PREM','NYAM','NYL','NYPM','PM_AH','ASIA','LO') else _sess(et)
         if s in EXCLUDE: return False
-        entry = round(float(entry), 2); sl = round(float(sl), 2); R = abs(entry - sl)
+        _dp = int(os.environ.get('SHADOW_PRICE_DP', '2') or 2)   # MNQ 2 (unchanged) · EURUSD 5 · USDJPY 3.
+        # The hardcoded round-to-2 DESTROYED forex trades at write time (1.14382 -> 1.14, stop distance
+        # -> 0 -> unresolvable 'expired'; JPY stops mangled -> ct=25000, -113R). Found 2026-07-20.
+        entry = round(float(entry), _dp); sl = round(float(sl), _dp); R = abs(entry - sl)
+        if R <= 0: return False                                   # zero-distance stop = corrupt input, refuse to log
         if tp is None: tp = entry + 2 * R if dirn == 'LONG' else entry - 2 * R
-        tp = round(float(tp), 2)
+        tp = round(float(tp), _dp)
         log = _load(); k = _key(strategy, dirn, ms, entry)
         if any(t.get('key') == k for t in log): return False
         wk = (et - dt.timedelta(days=et.weekday())).strftime('%Y-%m-%d')

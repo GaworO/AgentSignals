@@ -164,11 +164,12 @@ var STRAT={
  amd:{name:'AMD',sub:'Accumulation → Manipulation → Distribution · NY-PM short',ext:AMD,tabs:[['how','How it works',{html:AMD_HOW},'help'],['dash','Dashboard',AMD+'/','grid'],['stats','Gate 0',AMD+'/stats','chart']]},
  eur:{name:'EUR/USD',sub:'Forex · observe only · EURUSD-calibrated',ext:EUR,tabs:[['sum','Summary',EUR+'/performance','chart'],['trades','Trades',EUR+'/outcomes','book'],['pine','Pine for TV',EUR+'/pine','file'],['cand','Candidates & setups',EUR+'/candidates','list'],['status','Status',EUR+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  jpy:{name:'USD/JPY',sub:'Forex · observe only · JPY-calibrated (×100)',ext:JPY,tabs:[['sum','Summary',JPY+'/performance','chart'],['trades','Trades',JPY+'/outcomes','book'],['pine','Pine for TV',JPY+'/pine','file'],['cand','Candidates & setups',JPY+'/candidates','list'],['status','Status',JPY+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
- fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]}
+ fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]},
+ fxg:{name:'Forex - Auto-Executor',sub:'EUR/USD + USD/JPY joined guard · each pair has its own counters & kill-latch',tabs:[['joined','Joined','/fxguard','grid'],['eurg','EUR/USD guard',EUR+'/guard','grid'],['jpyg','USD/JPY guard',JPY+'/guard','grid'],['eurh','EUR health',EUR+'/guard/health?format=txt','help'],['jpyh','JPY health',JPY+'/guard/health?format=txt','help']]}
 };
 var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],/* hidden: ['gen/news','News','news'],['gen/income','Income','income'], */['gen/guard','Auto-Executor','grid']]],
          ['Strategies',[['ab','A/B','ab'],['c','C','c'],['f','F','f'],['orb','ORB','orb'],['amd','AMD','amd']]],
-         ['Forex (observe)',[['fx','P&L (joined)','pnl'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
+         ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),
     tabsEl=document.getElementById('tabs'), openEl=document.getElementById('open'),
