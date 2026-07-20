@@ -149,14 +149,17 @@ def _exec_order(x, text=None):
         if _cap.isdigit() and int(_cap) > 0:
             qty = min(qty, int(_cap))
         qty = max(1, int(qty))
+        _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
+        def _t(p):                                                 # sees them (OTE math emits 29043.43;
+            return round(round(p / _tk) * _tk, 6) if _tk > 0 else round(p, 2)   # MNQ trades in 0.25s)
         payload = {
             "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
             "action": "buy" if bull else "sell",
             "orderType": "limit",
-            "limitPrice": round(e + off, 2),
+            "limitPrice": _t(e + off),
             "quantity": qty,
-            "takeProfit": {"limitPrice": round(tp + off, 2)},
-            "stopLoss": {"type": "stop", "stopPrice": round(sl + off, 2)},
+            "takeProfit": {"limitPrice": _t(tp + off)},
+            "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
             # 'day' (default) — a GTC entry limit outlived every model window (shadow no_fill=4h,
             # manage cancel=2h) and could fill overnight AFTER the guard freed the slot -> stacked
             # positions no guard sees. EXEC_TIF=gtc restores the old behaviour if you really want it.
