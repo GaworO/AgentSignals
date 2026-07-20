@@ -76,6 +76,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
     <div class="brand"><span class="ic" id="brandic"></span> Trading desk</div>
     <div id="sidenav"></div>
     <a id="autocard" class="autocard" href="#/gen/guard" title="Open the Auto-Executor guard"></a>
+    <a id="fxcard" class="autocard" href="#/fxg" title="Open the joined Forex Auto-Executor"></a>
   </aside>
   <main>
     <header>
@@ -210,25 +211,31 @@ buildNav(); window.addEventListener('hashchange',render); render();
       '<div class=track><div class=fill style="width:'+pct+'%;background:'+bc+'"></div></div>'+
       '<div class=kv><span>Eval &rarr; $106k</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
       '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
-      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
-      '<div id=fxmini></div>';
-    loadFxMini();
+      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>';
   }).catch(function(){});}
-  function loadFxMini(){fetch('/fxguard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
-    var el=document.getElementById('fxmini');if(!el)return;var h='';
-    (j.pairs||[]).forEach(function(p){
-      var g=p.data;if(!g){h+='<div class=kv><span>'+p.pair+'</span><b style="color:#828a99">offline</b></div>';return;}
-      var m=String(g.mode||'off').toUpperCase(),c=col(g.mode||'off');
-      var hs=(g.health&&g.health.status)||'?';
-      var hb=hs==='ok'?'#4ade80':(hs==='critical'?'#f87171':(hs==='paused'?'#828a99':'#e0a93b'));
-      h+='<div class=kv><span>'+p.pair+'</span><b><span style="color:'+c+'">'+m+'</span>'+
-         (g.kill?' &middot; <span style="color:#f87171">HALT</span>':'')+
-         ' &middot; <span style="color:'+hb+'">'+hs+'</span>'+
-         ' &middot; '+(g.trades||0)+'/'+(g.max_trades||3)+'</b></div>';
-    });
-    el.innerHTML=h;
+  function loadFx(){fetch('/fxguard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+    var fc=document.getElementById('fxcard');if(!fc)return;
+    var ps=(j.pairs||[]).filter(function(p){return p.data;});
+    if(!ps.length){fc.innerHTML='<div class=ah><span class=dot style="background:#828a99"></span>Auto-Executor &middot; FX'+
+      '<span class=mode style="background:#82879922;color:#a8afc0">OFFLINE</span></div>'+
+      '<div class=kv><span>EUR/USD + USD/JPY</span><b>services unreachable</b></div>';return;}
+    var modes=ps.map(function(p){return p.data.mode||'off';});
+    var m=modes.every(function(x){return x===modes[0];})?modes[0]:'mixed';
+    var c=m==='mixed'?'#e0a93b':col(m);
+    var anyKill=ps.some(function(p){return p.data.kill;});
+    var pnl=0,tr=0,mx=0,ls=0,pctMin=100,tgt=null,breached=false,passed=true;
+    ps.forEach(function(p){var e=p.data.eval||{};pnl+=(e.pnl||0);tr+=(p.data.trades||0);mx+=(p.data.max_trades||0);ls+=(p.data.losses||0);
+      pctMin=Math.min(pctMin,e.pct||0);tgt=e.target||tgt;breached=breached||!!e.breached;passed=passed&&!!e.passed;});
+    var pct=Math.max(3,Math.min(100,pctMin)),bc=breached?'#f87171':passed?'#4ade80':(pnl<0?'#e0a93b':'#7ab8f5');
+    var st=passed?'PASS ✓':breached?'BREACH ✕':(anyKill?'HALTED':'armed');
+    fc.innerHTML='<div class=ah><span class=dot style="background:'+c+'"></span>Auto-Executor &middot; FX'+
+      '<span class=mode style="background:'+c+'22;color:'+c+'">'+String(m).toUpperCase()+'</span></div>'+
+      '<div class=track><div class=fill style="width:'+pct+'%;background:'+bc+'"></div></div>'+
+      '<div class=kv><span>Eval &rarr; $'+((tgt||110000)/1000)+'k (worst pair)</span><b>'+pctMin+'% &middot; '+st+'</b></div>'+
+      '<div class=kv><span>P&amp;L (joined)</span><b>'+(pnl>=0?'+$':'-$')+Math.abs(pnl).toLocaleString()+'</b></div>'+
+      '<div class=kv><span>Today (both)</span><b>'+tr+'/'+mx+' &middot; '+ls+'L</b></div>';
   }).catch(function(){});}
-  loadAuto(); setInterval(loadAuto,30000);
+  loadAuto(); loadFx(); setInterval(function(){loadAuto();loadFx();},30000);
 })();
 </script></body></html>"""
 
