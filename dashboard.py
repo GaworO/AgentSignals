@@ -210,7 +210,23 @@ buildNav(); window.addEventListener('hashchange',render); render();
       '<div class=track><div class=fill style="width:'+pct+'%;background:'+bc+'"></div></div>'+
       '<div class=kv><span>Eval &rarr; $106k</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
       '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
-      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>';
+      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
+      '<div id=fxmini></div>';
+    loadFxMini();
+  }).catch(function(){});}
+  function loadFxMini(){fetch('/fxguard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
+    var el=document.getElementById('fxmini');if(!el)return;var h='';
+    (j.pairs||[]).forEach(function(p){
+      var g=p.data;if(!g){h+='<div class=kv><span>'+p.pair+'</span><b style="color:#828a99">offline</b></div>';return;}
+      var m=String(g.mode||'off').toUpperCase(),c=col(g.mode||'off');
+      var hs=(g.health&&g.health.status)||'?';
+      var hb=hs==='ok'?'#4ade80':(hs==='critical'?'#f87171':(hs==='paused'?'#828a99':'#e0a93b'));
+      h+='<div class=kv><span>'+p.pair+'</span><b><span style="color:'+c+'">'+m+'</span>'+
+         (g.kill?' &middot; <span style="color:#f87171">HALT</span>':'')+
+         ' &middot; <span style="color:'+hb+'">'+hs+'</span>'+
+         ' &middot; '+(g.trades||0)+'/'+(g.max_trades||3)+'</b></div>';
+    });
+    el.innerHTML=h;
   }).catch(function(){});}
   loadAuto(); setInterval(loadAuto,30000);
 })();
