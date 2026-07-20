@@ -513,6 +513,12 @@ def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
         glog = _load(GLOG, []); k = _skey(x)
+        if decision == 'blocked':                     # same setup re-detected each bar while fresh ->
+            day = _today()                            # note each (key, reason) ONCE per day, not 15x
+            for g in reversed(glog[-100:]):
+                if g.get('date') != day: break
+                if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
+                    return
         glog.append(dict(key=k, ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
