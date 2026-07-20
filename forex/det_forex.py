@@ -56,4 +56,15 @@ for r in finals:
     for f in PRICE_FIELDS:
         if isinstance(r.get(f), (int, float)): r[f] = round(r[f] / MULT, 6)
 pickle.dump(finals, open(OUT, 'wb'))
+try:      # /candidates diagnostics: detcore wrote the trace with SCALED prices (xMULT) — rescale the
+          # fvg fields to real quotes so the candidates page shows 1.16234, not 116234.5
+    if cfg.debug_trace and os.path.exists(cfg.trace_out):
+        import json as _json
+        _tr = _json.load(open(cfg.trace_out))
+        for _r in _tr:
+            if isinstance(_r.get('fvg'), list):
+                _r['fvg'] = [round(float(v) / MULT, 6) for v in _r['fvg']]
+        _json.dump(_tr, open(cfg.trace_out, 'w'))
+except Exception as _te:
+    print('[det_forex] trace rescale err', _te, flush=True)
 print(f"[det_forex] {INST} scale={scale:.4f} max_stop_r={TH['max_stop_r']/MULT:.5f} setups={len(finals)} -> {OUT}", flush=True)

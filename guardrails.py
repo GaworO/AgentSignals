@@ -137,10 +137,13 @@ def is_duplicate(x):
     """True if an order for the SAME setup (dir + entry, to 0.1) was already SENT/staged today.
     Kills confluence re-emits, re-detection, and restart double-fires -> one setup = one order + one alert."""
     try:
-        d = x.get('dir'); e = round(float(x.get('entry')), 1); day = _today()
+        dp = _envi('GUARD_PRICE_DP', 1)     # price decimals for dedup identity. MNQ=1 (default);
+        # FX MUST override (EURUSD=5, USDJPY=3): at dp=1 every EURUSD entry rounds to the same
+        # bucket and the whole day after trade #1 would be blocked as 'duplicate'.
+        d = x.get('dir'); e = round(float(x.get('entry')), dp); day = _today()
         for g in _load(GLOG, []):
             if g.get('date') == day and g.get('decision') in ('sent', 'manual'):
-                if g.get('dir') == d and round(float(g.get('entry') or 0), 1) == e:
+                if g.get('dir') == d and round(float(g.get('entry') or 0), dp) == e:
                     return True
     except Exception as ex:
         print('[guard] is_duplicate err', ex, flush=True)

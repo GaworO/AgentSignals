@@ -68,7 +68,17 @@ def _key(strategy, dirn, ms, entry):
     return "%s|%s|%d|%.2f" % (strategy, dirn, int(ms), round(float(entry), 2))
 
 def _costed(R, gross_R):
-    """contracts + net$ + net-R for a gross-R outcome (costs: 2 commissions + 1 tick each side)."""
+    """contracts + net$ + net-R for a gross-R outcome (costs: 2 commissions + 1 tick each side).
+    SHADOW_COST_R (env) overrides with a cost stated directly in R — REQUIRED on forex services:
+    the MNQ contract math below computes garbage on 5-decimal prices (0.3-yen stop -> ~800
+    'contracts' -> a -54R 'win'). FX: spread+commission ~ 0.05-0.10R."""
+    cr = os.environ.get('SHADOW_COST_R', '')
+    if cr:
+        try:
+            net = (gross_R - float(cr)) * RISK
+            return 1, round(net), round(net / RISK, 3)
+        except Exception:
+            pass
     ct = max(1, round(RISK / (R * PV)))
     cost = ct * (COMM * 2 + 0.25 * PV + 0.25 * PV)
     net = gross_R * RISK - cost
@@ -109,7 +119,10 @@ def _bars(since_ms=None):
     ok = ts.notna().to_numpy()
     if not ok.all():                                   # drop stray header / blank / partial rows
         df = df.loc[ok].reset_index(drop=True); ts = ts[ok]
-    ms = (ts.astype('int64') // 10**6).to_numpy()
+    try:
+        ms = pd.DatetimeIndex(ts).as_unit('ms').asi8            # pandas>=2, version-proof
+    except Exception:
+        ms = (ts.astype('int64') // 10**6).to_numpy()           # legacy fallback
     if since_ms is not None and len(ms):
         start = max(0, int(np.searchsorted(ms, int(since_ms), side='left')) - 5)  # tiny pad before oldest open trade
         df = df.iloc[start:].reset_index(drop=True); ms = ms[start:]
@@ -139,7 +152,11 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
         if LO[i] <= e <= HI[i]: fb = i; break
     if fb is None:
         return {'outcome': 'no_fill'} if N > sb + fill_bars else {'outcome': 'open'}
-    if (HI[fb] - LO[fb]) > 20:                        # fast bar -> resting limit missed
+    if (HI[fb] - LO[fb]) > 20 and os.environ.get('SHADOW_FAST_FILL', '1') != '1':
+        # fast bar at the limit price. OLD default: score as 'missed' (conservative). Ramp trade #1
+        # (2026-07-20, first live auto order) proved the broker DOES fill these -> a real loss scored
+        # 'missed' would be INVISIBLE to the 2-loss halt and day-loss guard. Default now FILLS them
+        # (also +0.70R vs +0.63R over 4y when counted). SHADOW_FAST_FILL=0 restores the old model.
         return {'outcome': 'missed'}
     res = None
     for i in range(fb, min(fb + hold_bars, N)):
@@ -158,7 +175,7 @@ def refresh():
     """Resolve open shadow trades against the live bar buffer. Safe if buffer missing (stays open)."""
     import time as _time
     log = _load()
-    open_ms = [int(t['ms']) for t in log if t.get('outcome') == 'open' and isinstance(t.get('ms'), (int, float))]
+    open_ms = [int(t['ms']) for t in log if t.get('outcome') in ('open', 'expired') and isinstance(t.get('ms'), (int, float))]
     if not open_ms: return log
     try: MS, HI, LO = _bars(since_ms=min(open_ms))    # anchor read on the oldest open trade -> always covered
     except Exception as _e:
@@ -167,7 +184,8 @@ def refresh():
     now_ms = int(_time.time() * 1000)
     STALE_MS = int(os.environ.get('SHADOW_STALE_DAYS', '3')) * 86400000
     for t in log:
-        if t.get('outcome') != 'open': continue
+        if t.get('outcome') not in ('open', 'expired'): continue   # 'expired' retried: rescues rows the
+                                                                   # pandas-3 timestamp bug wrongly aged out
         stale = (now_ms - int(t['ms'])) > STALE_MS
         res = score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO)
         oc = res.get('outcome')
