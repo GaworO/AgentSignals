@@ -306,11 +306,14 @@ def eod_flatten_check(market_open=None):
         dl = _flatten_deadline_min()
         if dl is None: return False
         now = _et(_now_ms())
-        if (now.hour * 60 + now.minute) < dl: return False
+        nm = now.hour * 60 + now.minute
+        # fire ONLY inside [deadline, 18:00 ET). After the 18:00 reopen a NEW trading day is live —
+        # a late-firing flatten there would close a legitimate overnight position (v27.0 bug).
+        if not (dl <= nm < 18 * 60): return False
         s = _state()
         if s.get('eod_flat_day') == _today(): return False
         s['eod_flat_day'] = _today(); _set_state(s)
-        flatten_all('eod_%s' % t)
+        flatten_all('eod_%02d:%02d' % (dl // 60, dl % 60))
         return True
     except Exception as e:
         print('[guard] eod flatten err', e, flush=True); return False
@@ -435,7 +438,11 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             else:
                 dl = _flatten_deadline_min(s)   # 16:04 normally; holiday early-close deadline when noted
                 cutoff = (dl - _envi('GUARD_ENTRY_MARGIN_MIN', 35)) if dl else None
-            if cutoff is not None and (now.hour * 60 + now.minute) >= cutoff:
+            # late-day applies ONLY between the cutoff and the 18:00 ET Globex reopen — after 18:00
+            # a NEW MFF trading day starts and overnight entries are legitimate again.
+            # (v27.0 bug: no upper bound -> the whole ASIA evening was blocked as 'late_day'.)
+            nm = now.hour * 60 + now.minute
+            if cutoff is not None and cutoff <= nm < 18 * 60:
                 return (False, 'late_day')
         except Exception:
             return (False, 'late_day')          # unparseable cutoff -> fail closed
