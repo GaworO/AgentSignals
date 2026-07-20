@@ -78,7 +78,14 @@ def _now_ms():         return int(time.time() * 1000)
 def _et(ms):
     d = dt.datetime.fromtimestamp(ms/1000.0, tz=dt.timezone.utc)
     return d.astimezone(_NY) if _NY else d
-def _today():          return _et(_now_ms()).strftime('%Y-%m-%d')
+def _today():
+    """TRADING day, not calendar day: from 18:00 ET the date rolls to the next day (Globex/MFF
+    convention). Keeps the day counters/dedup/latches aligned with the real 18:00->16:10 trading
+    day — before this, Sun-evening trades used Sunday's counters and midnight handed out a fresh
+    allowance INSIDE the same MFF day (up to 6 trades / 4 losses per real day). Found by Aleks."""
+    d = _et(_now_ms())
+    if d.hour >= 18: d = d + dt.timedelta(days=1)
+    return d.strftime('%Y-%m-%d')
 
 def _sess_of(x):
     s = x.get('sess')
