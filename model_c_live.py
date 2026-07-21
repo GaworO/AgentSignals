@@ -269,6 +269,23 @@ def _ab_position_open():
     except Exception as e:
         print('[C] guard check err (fail-closed, skip):',e,flush=True); return True
 
+def _guard_outcome_push(x, res, gross, risk):
+    """Push a resolved C outcome into the shared A/B guard book (/guard/extlog update by key).
+    Maps: win->win, loss->loss, be/no_fill/timeout->timeout (frees the shared one-position slot,
+    no loss counted). ext_net priced at the ACTUAL qty (1 contract)."""
+    u,t=_guard_base()
+    if not u or requests is None: return
+    try:
+        key='C|%s|%s|%.2f'%(x['dir'], x.get('bos_ms'), float(x['entry']))
+        oc={'win':'win','loss':'loss'}.get(res,'timeout')
+        qty=1.0                                            # EXEC_MAX_QTY_C=1 live size
+        pv=float(os.environ.get('POINT_VALUE','2') or 2)
+        net=round(gross*risk*pv*qty - qty*(0.62*2+0.25*pv*2))
+        requests.post(u+'/guard/extlog?t='+t, json=dict(key=key, ext_outcome=oc, ext_net=net), timeout=6)
+        print('[C] outcome pushed:',key,oc,net,flush=True)
+    except Exception as e:
+        print('[C] outcome push err',e,flush=True)
+
 def _guard_report(x, qty):
     u,t=_guard_base()
     if not u or requests is None: return
@@ -423,7 +440,8 @@ def resolve_perf(buf=BUF):
         for i in range(eb,min(eb+FILL_MIN,n)):
             if lo[i]<=entry<=hi[i]: fb=i; break
         if fb is None:
-            if n-eb>=FILL_MIN: x['status']='no_fill'; changed=True   # window passed, never filled
+            if n-eb>=FILL_MIN:
+                x['status']='no_fill'; changed=True; _guard_outcome_push(x, 'no_fill', 0.0, risk)
             continue
         tp=entry+2*risk if bull else entry-2*risk; be=False; oneR=entry+risk if bull else entry-risk; res=None
         for i in range(fb,min(fb+2880,n)):
@@ -431,12 +449,14 @@ def resolve_perf(buf=BUF):
             if (lo[i]<=cur) if bull else (hi[i]>=cur): res=('be' if be else 'loss'); break
             if i==fb: continue
             if (hi[i]>=tp) if bull else (lo[i]<=tp): res='win'; break
-            if (not be) and ((hi[i]>=oneR) if bull else (lo[i]<=oneR)): be=True
+            if (not NOBE) and (not be) and ((hi[i]>=oneR) if bull else (lo[i]<=oneR)): be=True   # C_NOBE=1 -> fixed bracket (matches live exec)
         if res is None:
-            if (n-fb)>=2880: x['status']='timeout'; changed=True   # open past MAXHOLD (48h) and buffer moved on
+            if (n-fb)>=2880:
+                x['status']='timeout'; changed=True; _guard_outcome_push(x, 'timeout', 0.0, risk)
             continue
         g=2.0 if res=='win' else (0.0 if res=='be' else -1.0)
         x['status']=res; x['R_gross']=g; x['R']=round(net_R(res,g,risk),3); x['fill_ts']=int(ts[fb]); changed=True
+        _guard_outcome_push(x, res, g, risk)
     if changed: _sv(C_TRADES,j)
     done=[x for x in j.values() if x.get('status') in ('win','loss','be')]
     n_=len(done); w=sum(1 for x in done if x['status']=='win'); b=sum(1 for x in done if x['status']=='be'); l=sum(1 for x in done if x['status']=='loss')
