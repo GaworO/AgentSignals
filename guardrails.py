@@ -361,8 +361,9 @@ def set_mode(m):
 def _exec_ready():
     """True when an execution path is configured: TradersPost webhook OR the MetaApi FX adapter."""
     if os.environ.get('EXEC_WEBHOOK'): return True
-    return (os.environ.get('EXEC_FX') == '1' and bool(os.environ.get('METAAPI_TOKEN'))
-            and bool(os.environ.get('METAAPI_ACCOUNT_ID')))
+    if os.environ.get('EXEC_FX') != '1': return False
+    if os.environ.get('FX_BRIDGE_URL'): return True                    # cTrader bridge route (free)
+    return bool(os.environ.get('METAAPI_TOKEN')) and bool(os.environ.get('METAAPI_ACCOUNT_ID'))
 
 def is_live():
     """True only if AUTO will REALLY place orders: mode=auto AND webhook set AND not halted.
@@ -422,12 +423,33 @@ def _shadow_by_key():
     except Exception as e:
         print('[guard] shadow.refresh err', e, flush=True); return {}
 
+def _actualize(g, sh):
+    """Join a guard row with its shadow outcome, repriced at the ACTUAL sent quantity.
+    The shadow model prices outcomes at risk-model size (~$500/R); during the ramp the real
+    order is 1 contract — a real -$17 loss displayed (and counted!) as -$569 skews the day-loss
+    counter and the modeled equity. qty x stop x POINT_VALUE is the real risk. Found by Aleks."""
+    oc = sh.get('outcome', 'open')
+    out = {**g, 'outcome': oc, 'R': sh.get('R'), 'net': sh.get('net')}
+    try:
+        q = g.get('qty')
+        if q and oc in ('win', 'loss', 'timeout') and g.get('entry') is not None and g.get('sl') is not None:
+            pv = _envf('POINT_VALUE', 2.0)
+            slp = abs(float(g['entry']) - float(g['sl']))
+            risk = float(q) * slp * pv
+            gross = {'win': 2.0, 'loss': -1.0, 'timeout': 0.0}[oc]
+            cost = float(q) * (0.62 * 2 + 0.25 * pv * 2)
+            net = gross * risk - cost
+            if risk > 0:
+                out['net'] = round(net); out['R'] = round(net / risk, 3)
+    except Exception:
+        pass
+    return out
+
 def _today_sent():
     glog = _load(GLOG, []); sm = _shadow_by_key(); day = _today(); out = []
     for g in glog:
         if g.get('decision') != 'sent' or g.get('date') != day: continue
-        sh = sm.get(g.get('key'), {})
-        out.append({**g, 'outcome': sh.get('outcome', 'open'), 'R': sh.get('R'), 'net': sh.get('net')})
+        out.append(_actualize(g, sm.get(g.get('key'), {})))
     return out
 
 def _day_stats():
@@ -538,7 +560,8 @@ def note(x, decision, reason=''):
         glog.append(dict(key=k, ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
-                         tp=x.get('TP'), qty=x.get('_exec_qty_override'), decision=decision, reason=reason))
+                         tp=x.get('TP'), qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
+                                              else x.get('_exec_qty_override')), decision=decision, reason=reason))
         _save(GLOG, glog)
         if decision in ('sent', 'manual'):
             s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
@@ -741,9 +764,7 @@ def register(app):
 
     def _data():
         s = _state(); d = _day_stats(); sm = _shadow_by_key()
-        book = [{**g, 'outcome': sm.get(g.get('key'), {}).get('outcome'),
-                 'R': sm.get(g.get('key'), {}).get('R'), 'net': sm.get(g.get('key'), {}).get('net')}
-                for g in reversed(_load(GLOG, []))][:80]
+        book = [_actualize(g, sm.get(g.get('key'), {})) for g in reversed(_load(GLOG, []))][:80]
         return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
                        be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA'),

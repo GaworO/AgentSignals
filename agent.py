@@ -421,6 +421,7 @@ def _process_new(now_ms=None):
                 _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
                 if _gok:
                     _res = _exec_order(repx, txt)
+                    repx['_sent_qty'] = _res.get('qty')
                     if _exec_ok(_res): guardrails.note(repx, 'manual'); code = 'exec-manual'
                     else: guardrails.note(repx, 'blocked', 'exec_failed'); _exec_fail_alert(_res, 'manual'); code = 'exec-failed'
                 else:
@@ -432,6 +433,7 @@ def _process_new(now_ms=None):
                 if _gok:
                     guardrails.ramp_qty(repx)                     # first N trades -> 1 contract
                     _res = _exec_order(repx, txt)
+                    repx['_sent_qty'] = _res.get('qty')          # book the ACTUAL quantity sent
                     if _exec_ok(_res): guardrails.note(repx, 'sent'); code = 'exec'
                     else: guardrails.note(repx, 'blocked', 'exec_failed'); _exec_fail_alert(_res, 'auto'); code = 'exec-failed'
                 else:

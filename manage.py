@@ -72,6 +72,8 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000
 
         # ---- FILL GATE: bez tego leciały fałszywe TP/SL zaraz po wejściu (limit nie był wypełniony) ----
         if not t.get('filled'):
+            if t.get('bos_ms') and bar_ms and bar_ms <= t['bos_ms']:
+                keep.append(t); continue          # order does not exist yet on this bar -> no fill possible
             hit_entry = (lo <= e) if bull else (hi >= e)
             if hit_entry:
                 t['filled'] = True; changed = True
@@ -83,7 +85,16 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000
             if not drop: keep.append(t)
             continue
 
-        if not t['done1']:
+        _fixed = os.environ.get('MANAGE_FIXED', '1') == '1'   # auto trades run a FIXED bracket:
+        # no BE. MANAGE_FIXED=0 restores the old BE@1R advisory narration (manual-trading style).
+        if _fixed:
+            if (lo <= sl) if bull else (hi >= sl):
+                send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl}. Trade zamknięty (−1R). Zakończony.")
+                _record(outcomes_path, t, -1.0, 'SL', bar_ms); drop = True; changed = True
+            elif (hi >= r2) if bull else (lo <= r2):
+                send(f"🎯 TP {emoji} {t['dir']} · {t['cat']} → cel 2R @ {r2}. Trade zakończony (+2R).")
+                _record(outcomes_path, t, 2.0, 'TP', bar_ms); drop = True; changed = True
+        elif not t['done1']:
             # 1) SL (ruch przeciw) — sprawdzany NAJPIERW
             if (lo <= sl) if bull else (hi >= sl):
                 send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl}. Trade zamknięty (−1R). Zakończony.")
@@ -95,7 +106,7 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000
                      f"→ przesuń SL na BE ({e}). TRZYMAJ całość, cel 2R ({r2}).")
                 t['done1'] = True; changed = True
 
-        if t['done1'] and not drop:
+        if (not _fixed) and t['done1'] and not drop:
             # 3) po 1R stop = entry (BE). Powrot na entry (ruch przeciw) — sprawdzany NAJPIERW
             if (lo <= e) if bull else (hi >= e):
                 send(f"➖ BE {emoji} {t['dir']} · {t['cat']} → cena wróciła na entry ({e}). "

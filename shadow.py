@@ -151,7 +151,12 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
         return {'outcome': 'open'}
     if int(ms) < int(MS[0]) - 60000 or int(ms) > int(MS[-1]):
         return {'outcome': 'out_of_range'}
-    sb = max(0, int(np.searchsorted(MS, int(ms), side='right')) - 1)   # include the bar the signal fired in
+    sb = max(0, int(np.searchsorted(MS, int(ms), side='right')) - 1)
+    if os.environ.get('SHADOW_FILL_SAME_BAR', '0') != '1':
+        sb = sb + 1   # 2026-07-21: the REAL order is placed AFTER the signal bar closes — a fill on
+                      # the signal bar itself is price action the order never saw (live proof: PREM
+                      # 05:30 'FILL' while the broker limit sat unfilled). Costs ~0.12R of modeled
+                      # expectancy — which was never real.
     fb = None
     for i in range(sb, min(sb + fill_bars, N)):
         if LO[i] <= e <= HI[i]: fb = i; break
