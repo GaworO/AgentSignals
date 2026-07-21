@@ -243,19 +243,54 @@ def _td_payload(x, action='enter'):
     cap=os.environ.get('EXEC_MAX_QTY_C','').strip()
     if cap.isdigit() and int(cap)>0: qty=min(qty,int(cap))
     qty=max(1,qty)
+    _tk=float(os.environ.get('EXEC_TICK','0.25') or 0)          # tick-align (A/B hardening, 2026-07)
+    def _t(p): return round(round(p/_tk)*_tk,6) if _tk>0 else round(p,2)
     return {"ticker":os.environ.get('EXEC_TICKER_C',os.environ.get('EXEC_TICKER',os.environ.get('CONTRACT','MNQ1!'))),
             "action":("buy" if isL else "sell") if action=='enter' else "exit",
-            "orderType":"limit","limitPrice":round(e+OFFSET,2),"quantity":qty,
-            "takeProfit":{"limitPrice":round(tp+OFFSET,2)},
-            "stopLoss":{"type":"stop","stopPrice":round(sl+OFFSET,2)},
-            "timeInForce":"gtc","strategy":("STRATEGY_C_LOOSE" if x.get('disp_mode')=='loose' else ("STRATEGY_C_LOCAL" if x.get('bos_mode')=='local' else "STRATEGY_C"))}
+            "orderType":"limit","limitPrice":_t(e+OFFSET),"quantity":qty,
+            "takeProfit":{"limitPrice":_t(tp+OFFSET)},
+            "stopLoss":{"type":"stop","stopPrice":_t(sl+OFFSET)},
+            "timeInForce":(os.environ.get('EXEC_TIF','day').strip().lower() or 'day'),  # day: no orphan GTC limits
+            "strategy":("STRATEGY_C_LOOSE" if x.get('disp_mode')=='loose' else ("STRATEGY_C_LOCAL" if x.get('bos_mode')=='local' else "STRATEGY_C"))}
+
+def _guard_base():
+    u=os.environ.get('C_GUARD_URL','').rstrip('/'); t=os.environ.get('GUARD_TOKEN','')
+    return (u, t) if u else (None, None)
+
+def _ab_position_open():
+    """True if the SHARED account already has a live A/B commitment (resting or running).
+    One TradersPost strategy + one netted account => C must not stack on A/B. Fail-open=False
+    would stack on outages, so unreachable guard -> treat as OPEN (fail-closed, skip the C trade)."""
+    u,_=_guard_base()
+    if not u or requests is None: return False       # cross-guard not configured -> old behaviour
+    try:
+        d=requests.get(u+'/guard/data',timeout=6).json()
+        return any((b.get('outcome')=='open') for b in (d.get('book') or [])[:30])
+    except Exception as e:
+        print('[C] guard check err (fail-closed, skip):',e,flush=True); return True
+
+def _guard_report(x, qty):
+    u,t=_guard_base()
+    if not u or requests is None: return
+    try:
+        requests.post(u+'/guard/extlog?t='+t, json=dict(strat='C', dir=x['dir'], entry=x['entry'],
+            sl=x['SL'], tp=x['TP'], qty=qty, bos_ms=x.get('bos_ms'), sess=x.get('sess','?')), timeout=6)
+    except Exception as e: print('[C] guard report err',e,flush=True)
 
 def exec_c(x, text=None, action='enter'):
     if not EXEC_C or requests is None: return 'no-exec'
+    if action=='enter' and _ab_position_open():
+        print('EXEC_C skipped: shared account has an open A/B commitment',flush=True); return 'ab-open'
     p=_td_payload(x,action)
     if text: p['text']=text
     try:
-        r=requests.post(EXEC_C,json=p,timeout=10); print('EXEC_C',getattr(r,'status_code',None),flush=True); return 'exec'
+        r=requests.post(EXEC_C,json=p,timeout=10)
+        st=getattr(r,'status_code',None)
+        print('EXEC_C',st,flush=True)
+        if st and 200<=int(st)<300:
+            if action=='enter': _guard_report(x, p.get('quantity'))
+            return 'exec'
+        return f'ERR http {st}'
     except Exception as ex:
         print('EXEC_C err',ex,flush=True); return f'ERR {ex}'
 

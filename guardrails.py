@@ -428,6 +428,9 @@ def _actualize(g, sh):
     The shadow model prices outcomes at risk-model size (~$500/R); during the ramp the real
     order is 1 contract — a real -$17 loss displayed (and counted!) as -$569 skews the day-loss
     counter and the modeled equity. qty x stop x POINT_VALUE is the real risk. Found by Aleks."""
+    if g.get('ext_outcome'):                      # external (C, ...) rows carry their OWN resolution —
+        return {**g, 'outcome': g['ext_outcome'],  # the A/B shadow knows nothing about them
+                'net': g.get('ext_net'), 'R': g.get('R')}
     oc = sh.get('outcome', 'open')
     out = {**g, 'outcome': oc, 'R': sh.get('R'), 'net': sh.get('net')}
     try:
@@ -456,7 +459,17 @@ def _day_stats():
     sent = _today_sent()
     losses = sum(1 for t in sent if t.get('outcome') == 'loss')
     net = sum((t.get('net') or 0) for t in sent if t.get('outcome') in ('win', 'loss', 'timeout'))
-    openpos = any(t.get('outcome') == 'open' for t in sent)      # resting OR running -> a live commitment
+    # openpos: resting OR running = a live commitment. External rows (C, ... via /guard/extlog) have
+    # no shadow resolution — they hold the slot for EXT_OPEN_H hours (fill window), then age out
+    # unless the satellite POSTs an outcome update.
+    exth = _envf('EXT_OPEN_H', 4) * 3600000
+    openpos = False
+    for t in sent:
+        if t.get('outcome') != 'open': continue
+        if t.get('strat', 'A/B') != 'A/B' and not t.get('ext_outcome'):
+            if (_now_ms() - int(t.get('ts') or 0)) < exth: openpos = True
+        else:
+            openpos = True
     return dict(sent=len(sent), losses=losses, net=net, openpos=openpos)
 
 # ---------- the gate ----------
@@ -557,7 +570,7 @@ def note(x, decision, reason=''):
                 if g.get('date') != day: break
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
                     return
-        glog.append(dict(key=k, ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
+        glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
                          tp=x.get('TP'), qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
@@ -827,6 +840,31 @@ def register(app):
         """Pine script for the AUTO trades (draw them on TradingView). ?day=YYYY-MM-DD or omit for all."""
         return Response(pine_book(request.args.get('day', '')), mimetype='text/plain')
 
+    def _extlog():
+        """POST: a satellite strategy (C, ...) sharing this account registers its SEND, or updates
+        its outcome. Body: {strat, dir, entry, sl, tp, qty, bos_ms, decision:'sent'} or
+        {key, ext_outcome:'win|loss|timeout', ext_net: $}. Token-protected."""
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
+        b = request.get_json(force=True, silent=True) or {}
+        glog = _load(GLOG, [])
+        if b.get('key') and b.get('ext_outcome'):                     # outcome update by key
+            for g0 in reversed(glog):
+                if g0.get('key') == b['key']:
+                    g0['ext_outcome'] = b['ext_outcome']; g0['ext_net'] = b.get('ext_net')
+                    g0['outcome'] = b['ext_outcome']
+                    _save(GLOG, glog); return jsonify(ok=True, updated=True)
+            return jsonify(ok=False, err='key not found'), 404
+        k = '%s|%s|%s|%.2f' % (b.get('strat', 'EXT'), b.get('dir'), b.get('bos_ms'), float(b.get('entry') or 0))
+        for g0 in glog[-100:]:
+            if g0.get('key') == k: return jsonify(ok=True, dup=True)
+        glog.append(dict(key=k, strat=b.get('strat', 'EXT'), ts=_now_ms(), bar_ms=int(b.get('bos_ms') or 0),
+                         date=_today(), et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'), sess=b.get('sess', '?'),
+                         dir=b.get('dir'), entry=b.get('entry'), sl=b.get('sl'), tp=b.get('tp'),
+                         qty=b.get('qty'), decision='sent', reason=''))
+        _save(GLOG, glog)
+        return jsonify(ok=True)
+
+    app.add_url_rule('/guard/extlog', 'guard_extlog', _extlog, methods=['POST'])
     app.add_url_rule('/guard', 'guard_page', _page)
     app.add_url_rule('/guard/data', 'guard_data', _data)
     app.add_url_rule('/guard/sync', 'guard_sync', _sync)
@@ -879,7 +917,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 <div class="evalbar"><div class="top"><span class="ttl" id=ev_head></span><span class="st" id=ev_state></span></div>
 <div class="trackp"><div class="fillp" id=ev_fill></div></div></div>
 <div class=cards id=cards></div>
-<table><thead><tr><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
+<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
  <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
   <select id="pineday" onchange="loadPine()"></select>
@@ -918,7 +956,7 @@ async function load(){
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';return '<span class='+c+'>'+o+'</span>';};
- document.getElementById('tb').innerHTML=(d.book||[]).map(x=>'<tr><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
+ document.getElementById('tb').innerHTML=(d.book||[]).map(x=>'<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
   '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td>'+oc(x)+
   '</td><td>'+(x.R!=null?x.R:'')+'</td><td>'+(x.net!=null?x.net:'')+'</td></tr>').join('');
  let ps=document.getElementById('pineday');
