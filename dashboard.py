@@ -182,8 +182,15 @@ function setActive(top){document.querySelectorAll('.nav').forEach(function(n){n.
 function buildNav(){
  var h='';
  NAV.forEach(function(g){ h+='<div class="grp">'+g[0]+'</div>';
-   g[1].forEach(function(n){ h+='<div class="nav'+(g[0]==='Strategies'?'':'')+'" data-r="'+n[0]+'">'+ic(n[2])+'<span>'+n[1]+'</span></div>'; }); });
+   g[1].forEach(function(n){ h+='<div class="nav'+(g[0]==='Strategies'?'':'')+'" data-r="'+n[0]+'">'+ic(n[2])+'<span>'+n[1]+'</span></div>'; });
+   if(g[0]==='Strategies') h+='<div id="slot-mnq"></div>';        // MNQ Auto-Executor card under STRATEGIES
+   if(g[0].indexOf('Forex')===0) h+='<div id="slot-fx"></div>';   // joined FX card under FOREX (bottom)
+ });
  document.getElementById('sidenav').innerHTML=h;
+ var _sm=document.getElementById('slot-mnq'), _ac=document.getElementById('autocard');
+ if(_sm&&_ac) _sm.appendChild(_ac);
+ var _sf=document.getElementById('slot-fx'), _fc=document.getElementById('fxcard');
+ if(_sf&&_fc) _sf.appendChild(_fc);
  document.querySelectorAll('.nav').forEach(function(n){n.onclick=function(){location.hash='#/'+n.dataset.r;};});
 }
 function render(){
