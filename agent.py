@@ -46,7 +46,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v27.0'   # 2026-07-19 hardening drop: day-TIF + orphan sweep, flatten-on-latch + EOD 16:04 (MFF), late-entry gate, fail-closed news calendar, atomic guard state, token auth, all-session shadow, per-session size mult, daily digest
+VERSION = 'v27.1'   # 2026-07-22 telegram quiet drop: TG_BLOCKED=0 default (blocked setups -> /guard only, no Telegram); FIRED message now carries the full setup summary; guard table Fired/Blocked filter + gray model-priced Net$ on blocked rows
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -395,9 +395,14 @@ def _process_new(now_ms=None):
             continue
         if os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':   # FX services: MetaApi, no webhook
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')  # routine skips -> NO Telegram (kills dup alerts)
+            # v27.1: TG_BLOCKED=0 (default) — blocked setups go to /guard + DB only, NOT Telegram.
+            # Telegram fires only when an order is actually placed (full summary rides on the AUTO SENT
+            # message via _alert_txt). TG_BLOCKED=1 restores the old behaviour (every non-quiet block alerted).
+            _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
+            repx['_alert_txt'] = txt                              # guardrails._trade_alert appends this on SENT
             def _blk(_why):
                 guardrails.note(repx, 'blocked', _why)
-                if _why not in _QUIET and not str(_why).startswith('session') and WEBHOOK_URL:
+                if _TG_BLOCKED and _why not in _QUIET and not str(_why).startswith('session') and WEBHOOK_URL:
                     live_emit.post_webhook(txt, WEBHOOK_URL)       # informational only, NO order — you still see it (+ on /guard)
                 return 'guard:' + _why
             _gmode = guardrails.exec_mode()                       # auto | manual | off  (flip at /guard/mode)

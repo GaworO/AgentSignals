@@ -589,10 +589,12 @@ def _trade_alert(x, decision):
         if _env('GUARD_TRADE_ALERTS', '1') != '1': return
         url = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
         if not url or requests is None: return
-        q = x.get('_exec_qty_override'); qtxt = ('%s×' % q) if q else 'risk-size'
+        q = x.get('_sent_qty') if x.get('_sent_qty') is not None else x.get('_exec_qty_override')
+        qtxt = ('%s×' % q) if q else 'risk-size'
         tag = 'AUTO SENT' if decision == 'sent' else 'ARMED (manual)'
         msg = ('\U0001f7e2 %s · %s %s %s @ %s · SL %s / TP %s'
                % (tag, _sess_of(x), x.get('dir'), qtxt, x.get('entry'), x.get('SL'), x.get('TP')))
+        if x.get('_alert_txt'): msg += '\n' + str(x['_alert_txt'])   # v27.1: full setup summary rides on the FIRED message
         try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
         except Exception: pass
     except Exception as e:
@@ -917,6 +919,13 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 <div class="evalbar"><div class="top"><span class="ttl" id=ev_head></span><span class="st" id=ev_state></span></div>
 <div class="trackp"><div class="fillp" id=ev_fill></div></div></div>
 <div class=cards id=cards></div>
+<div class=modebar style="margin-top:4px">
+ <span class=lb>SHOW</span>
+ <a class="btn fall act" href="#" onclick="return setf('all')">All decisions</a>
+ <a class="btn fsent" href="#" onclick="return setf('sent')">Fired only</a>
+ <a class="btn fblk" href="#" onclick="return setf('blocked')">Blocked only</a>
+ <span class=g style="font-size:11px">blocked rows never traded — their R/Net$ are model-priced (shown gray)</span>
+</div>
 <table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
  <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
@@ -954,14 +963,29 @@ async function load(){
   ['Day P&L','$'+d.day_net+' / '+d.day_target],
   ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')]
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
- let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
+ let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';return '<span class='+c+'>'+o+'</span>';};
- document.getElementById('tb').innerHTML=(d.book||[]).map(x=>'<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
-  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td>'+oc(x)+
-  '</td><td>'+(x.R!=null?x.R:'')+'</td><td>'+(x.net!=null?x.net:'')+'</td></tr>').join('');
+ let fired=x=>x.decision=='sent'||x.decision=='manual';
+ window._dec=dec;window._oc=oc;window._fired=fired;window._book=d.book||[];
+ renderBook();
  let ps=document.getElementById('pineday');
  let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
  if(ps.dataset.sig!==opts){let cur=ps.value;ps.innerHTML=opts;ps.dataset.sig=opts;if(cur)ps.value=cur;loadPine();}
+}
+let _filter='all';
+function setf(f){_filter=f;document.querySelectorAll('.btn.fall,.btn.fsent,.btn.fblk').forEach(b=>b.classList.remove('act'));
+ document.querySelector('.btn.f'+(f=='all'?'all':f=='sent'?'sent':'blk')).classList.add('act');renderBook();return false;}
+function renderBook(){
+ let dec=window._dec,oc=window._oc,fired=window._fired;if(!dec)return;
+ let rows=(window._book||[]).filter(x=>_filter=='all'||(_filter=='sent'?fired(x):!fired(x)));
+ document.getElementById('tb').innerHTML=rows.map(x=>{
+  let isB=!fired(x);                         // blocked rows never traded -> model-priced R/Net$, render gray
+  let rc=isB?' style="color:#6b7688" title="model-priced — trade was NOT executed"':'';
+  let rv=(x.R!=null?x.R:''),nv=(x.net!=null?x.net:'');
+  if(isB&&(rv!==''||nv!=='')){rv=rv!==''?('('+rv+')'):'';nv=nv!==''?('('+nv+')'):'';}
+  return '<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
+  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
+  '</td><td'+rc+'>'+rv+'</td><td'+rc+'>'+nv+'</td></tr>';}).join('');
 }
 const _tok=new URLSearchParams(location.search).get('t');const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
 async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});load();return false;}
