@@ -902,6 +902,61 @@ def register(app):
         _save(GLOG, glog)
         return jsonify(ok=True)
 
+    def _reconcile():
+        """v27.3 — paste the Tradovate Performance CSV, the book overwrites MODEL outcomes with BROKER
+        reality. POST /guard/reconcile?t=<token>, body = raw CSV text (or form field 'csv').
+        Matching: direction from fill order (sold-first = SHORT), entry = first-leg price; a book SENT
+        row matches when |entry diff| <= 2.0 pts (qty equality preferred). Matched rows get
+        ext_outcome win/loss (pnl sign) + ext_net = broker pnl — from then on day counters, the
+        2-loss halt and modeled equity run on real fills, not the touch-fill model. User 'canceled'
+        stamps are preserved. Returns matched / unmatched so nothing fails silently."""
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
+        try:
+            raw = (request.form.get('csv') or request.get_data(as_text=True) or '').strip()
+            if not raw: return jsonify(ok=False, err='empty body'), 400
+            import csv as _csv, io as _io, datetime as _dt
+            fills = []
+            for r in _csv.DictReader(_io.StringIO(raw)):
+                try:
+                    qty = int(float(r.get('qty') or 0))
+                    bp, sp = float(r['buyPrice']), float(r['sellPrice'])
+                    pnl_s = (r.get('pnl') or '').replace('$', '').replace(',', '').strip()
+                    pnl = -float(pnl_s.strip('()')) if pnl_s.startswith('(') else float(pnl_s or 0)
+                    bt = _dt.datetime.strptime(r['boughtTimestamp'], '%m/%d/%Y %H:%M:%S')
+                    st = _dt.datetime.strptime(r['soldTimestamp'], '%m/%d/%Y %H:%M:%S')
+                    short = st < bt
+                    fills.append(dict(qty=qty, dir='SHORT' if short else 'LONG',
+                                      entry=(sp if short else bp), exit=(bp if short else sp),
+                                      pnl=pnl, t=min(bt, st).isoformat()))
+                except Exception as fe:
+                    print('[guard] reconcile row skip:', fe, flush=True)
+            glog = _load(GLOG, []); matched = []; unmatched = []
+            used = set()
+            for f in fills:
+                best = None; bestd = 99.0
+                for i in range(len(glog) - 1, -1, -1):
+                    g = glog[i]
+                    if i in used or g.get('decision') not in ('sent', 'manual'): continue
+                    if g.get('ext_outcome') == 'canceled': continue
+                    if g.get('dir') != f['dir'] or g.get('entry') is None: continue
+                    dpx = abs(float(g['entry']) - f['entry'])
+                    if dpx > 2.0: continue
+                    score = dpx + (0 if (g.get('qty') and int(g['qty']) == f['qty']) else 0.5)
+                    if score < bestd: bestd = score; best = i
+                if best is None:
+                    unmatched.append(f); continue
+                g = glog[best]; used.add(best)
+                g['ext_outcome'] = 'win' if f['pnl'] > 0 else ('loss' if f['pnl'] < 0 else 'timeout')
+                g['ext_net'] = round(f['pnl']); g['outcome'] = g['ext_outcome']; g['reconciled'] = True
+                matched.append(dict(key=g.get('key'), et=g.get('et'), broker_pnl=round(f['pnl']),
+                                    outcome=g['ext_outcome']))
+            _save(GLOG, glog)
+            print('[guard] reconcile: %d matched, %d unmatched' % (len(matched), len(unmatched)), flush=True)
+            return jsonify(ok=True, matched=matched, unmatched=unmatched,
+                           note='matched rows now carry BROKER outcomes; sync equity too: /guard/sync?equity=<real>')
+        except Exception as e:
+            return jsonify(ok=False, err=str(e)), 500
+
     def _cancel():
         """v27.2 — you canceled a resting order at the broker by hand; tell the book. Marks the row
         ext_outcome='canceled' (net 0): the table stops showing 'open', the one-position slot frees
@@ -927,6 +982,7 @@ def register(app):
             return jsonify(ok=False, err=str(e)), 500
 
     app.add_url_rule('/guard/cancel', 'guard_cancel', _cancel)
+    app.add_url_rule('/guard/reconcile', 'guard_reconcile', _reconcile, methods=['POST'])
     app.add_url_rule('/guard/extlog', 'guard_extlog', _extlog, methods=['POST'])
     app.add_url_rule('/guard', 'guard_page', _page)
     app.add_url_rule('/guard/data', 'guard_data', _data)
@@ -988,6 +1044,13 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <span class=g style="font-size:11px">blocked rows never traded — their R/Net$ are model-priced (shown gray)</span>
 </div>
 <table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
+<div class="pinep">
+ <div class="ph">🧾 <b>Reconcile with broker</b> — paste the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
+  <button class="cpy" onclick="return doRec(this)">Reconcile</button>
+  <span class="g" id="recout">day counters + 2-loss halt then run on broker truth</span>
+ </div>
+ <textarea id="recbox" placeholder="symbol,_priceFormat,...  (paste the whole Performance CSV here)" style="min-height:70px"></textarea>
+</div>
 <div class="pinep">
  <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
   <select id="pineday" onchange="loadPine()"></select>
@@ -1059,6 +1122,14 @@ async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});l
 async function dokill(){await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});load();return false;}
 async function cancelRow(k){let r=await (await fetch('/guard/cancel?key='+k+(_t||''),{cache:'no-store'})).json();
  if(!r.ok){document.getElementById('healthbar').textContent='⚠ cancel: '+(r.err||'failed');}load();return false;}
+async function doRec(btn){let b=document.getElementById('recbox').value.trim();let o=document.getElementById('recout');
+ if(!b){o.textContent='paste the CSV first';return false;}
+ btn.textContent='...';
+ try{let r=await (await fetch('/guard/reconcile?x=1'+(_t||''),{method:'POST',body:b,cache:'no-store'})).json();
+  o.textContent=r.ok?('✓ matched '+r.matched.length+' · unmatched fills '+r.unmatched.length+' — now sync real equity!')
+                    :('⚠ '+(r.err||'failed'));
+ }catch(e){o.textContent='⚠ '+e;}
+ btn.textContent='Reconcile';load();return false;}
 async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
 async function loadPine(){let day=document.getElementById('pineday').value;
  let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
