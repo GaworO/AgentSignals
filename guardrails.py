@@ -1046,7 +1046,9 @@ function renderBook(){
   '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
   '</td><td'+rc+'>'+rv+'</td><td'+rc+'>'+nv+'</td></tr>';}).join('');
 }
-const _tok=new URLSearchParams(location.search).get('t');const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
+let _tok=new URLSearchParams(location.search).get('t');
+try{ if(_tok) localStorage.setItem('guard_t',_tok); else _tok=localStorage.getItem('guard_t'); }catch(e){}
+const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
 async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});load();return false;}
 async function dokill(){await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});load();return false;}
 async function cancelRow(k){let r=await (await fetch('/guard/cancel?key='+k+(_t||''),{cache:'no-store'})).json();
