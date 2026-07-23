@@ -1045,11 +1045,16 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 </div>
 <table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
- <div class="ph">🧾 <b>Reconcile with broker</b> — paste the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
+ <div class="ph">🧾 <b>Reconcile with broker</b> — paste OR drag &amp; drop the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
+  <input type="file" id="recfile" accept=".csv,text/csv" style="display:none" onchange="recFile(this.files)">
+  <button class="cpy" onclick="document.getElementById('recfile').click();return false">Choose file</button>
   <button class="cpy" onclick="return doRec(this)">Reconcile</button>
   <span class="g" id="recout">day counters + 2-loss halt then run on broker truth</span>
  </div>
- <textarea id="recbox" placeholder="symbol,_priceFormat,...  (paste the whole Performance CSV here)" style="min-height:70px"></textarea>
+ <textarea id="recbox" placeholder="drop the Performance .csv here, or paste its contents" style="min-height:70px"
+  ondragover="event.preventDefault();this.style.borderColor='#3987e5'"
+  ondragleave="this.style.borderColor=''"
+  ondrop="event.preventDefault();this.style.borderColor='';recFile(event.dataTransfer.files)"></textarea>
 </div>
 <div class="pinep">
  <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
@@ -1122,6 +1127,11 @@ async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});l
 async function dokill(){await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});load();return false;}
 async function cancelRow(k){let r=await (await fetch('/guard/cancel?key='+k+(_t||''),{cache:'no-store'})).json();
  if(!r.ok){document.getElementById('healthbar').textContent='⚠ cancel: '+(r.err||'failed');}load();return false;}
+function recFile(files){if(!files||!files.length)return false;
+ let f=files[0];let rd=new FileReader();
+ rd.onload=e=>{document.getElementById('recbox').value=e.target.result;
+  document.getElementById('recout').textContent='loaded '+f.name+' ('+f.size+' B) — click Reconcile';};
+ rd.readAsText(f);return false;}
 async function doRec(btn){let b=document.getElementById('recbox').value.trim();let o=document.getElementById('recout');
  if(!b){o.textContent='paste the CSV first';return false;}
  btn.textContent='...';
