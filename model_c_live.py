@@ -277,8 +277,12 @@ def _guard_outcome_push(x, res, gross, risk):
     if not u or requests is None: return
     try:
         key='C|%s|%s|%.2f'%(x['dir'], x.get('bos_ms'), float(x['entry']))
-        oc={'win':'win','loss':'loss'}.get(res,'timeout')
-        qty=1.0                                            # EXEC_MAX_QTY_C=1 live size
+        oc={'win':'win','loss':'loss','no_fill':'no_fill'}.get(res,'timeout')   # v27.2e: no_fill is
+        # distinct from timeout — a never-filled C order consumed no risk and must not eat a day-trade slot
+        try:                                               # v27.2: price at the qty ACTUALLY SENT
+            qty=float(x.get('_sent_qty') or 1)             # (was hardcoded 1.0 — an 8-lot loss booked as -$63)
+        except Exception:
+            qty=1.0
         pv=float(os.environ.get('POINT_VALUE','2') or 2)
         net=round(gross*risk*pv*qty - qty*(0.62*2+0.25*pv*2))
         requests.post(u+'/guard/extlog?t='+t, json=dict(key=key, ext_outcome=oc, ext_net=net), timeout=6)
@@ -294,8 +298,26 @@ def _guard_report(x, qty):
             sl=x['SL'], tp=x['TP'], qty=qty, bos_ms=x.get('bos_ms'), sess=x.get('sess','?')), timeout=6)
     except Exception as e: print('[C] guard report err',e,flush=True)
 
+def _c_late_window():
+    """v27.2 — C shares the MFF account but skipped A/B's late_day gate: on 2026-07-22 it SENT at
+    16:10 ET, the exact MFF liquidation minute. Mirror the A/B window: no entries from
+    C_LAST_ENTRY_ET (def 15:29) until the 18:00 ET Globex reopen. Fail-closed on parse errors."""
+    try:
+        import datetime as _dt
+        from zoneinfo import ZoneInfo as _ZI
+        now=_dt.datetime.now(_ZI('America/New_York')); nm=now.hour*60+now.minute
+        try:
+            hh,mm=os.environ.get('C_LAST_ENTRY_ET','15:29').split(':'); cut=int(hh)*60+int(mm)
+        except Exception:
+            cut=15*60+29
+        return cut <= nm < 18*60
+    except Exception:
+        return True
+
 def exec_c(x, text=None, action='enter'):
     if not EXEC_C or requests is None: return 'no-exec'
+    if action=='enter' and _c_late_window():
+        print('EXEC_C skipped: late-day window (>=C_LAST_ENTRY_ET, MFF flatten ahead)',flush=True); return 'late_day'
     if action=='enter' and _ab_position_open():
         print('EXEC_C skipped: shared account has an open A/B commitment',flush=True); return 'ab-open'
     p=_td_payload(x,action)
@@ -305,7 +327,9 @@ def exec_c(x, text=None, action='enter'):
         st=getattr(r,'status_code',None)
         print('EXEC_C',st,flush=True)
         if st and 200<=int(st)<300:
-            if action=='enter': _guard_report(x, p.get('quantity'))
+            if action=='enter':
+                x['_sent_qty']=p.get('quantity')           # v27.2: outcome push prices at THIS qty
+                _guard_report(x, p.get('quantity'))
             return 'exec'
         return f'ERR http {st}'
     except Exception as ex:

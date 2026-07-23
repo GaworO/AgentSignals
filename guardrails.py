@@ -457,9 +457,10 @@ def _today_sent():
 
 def _day_stats():
     sent = _today_sent()
-    # v27.2d: rows YOU canceled at the broker (ext_outcome='canceled' via /guard/cancel) consumed no
-    # risk — they don't count toward MAX_TRADES_DAY. Dedup + one-position still bound send churn.
-    n_trades = sum(1 for t in sent if t.get('outcome') != 'canceled')
+    # v27.2d/e: rows that consumed NO risk don't count toward MAX_TRADES_DAY — user cancels
+    # ('canceled' via /guard/cancel) and never-filled sends ('no_fill' / 'missed' write-offs).
+    # A/B 'timeout' still counts (filled, exited flat). Dedup + one-position bound send churn.
+    n_trades = sum(1 for t in sent if t.get('outcome') not in ('canceled', 'no_fill', 'missed'))
     losses = sum(1 for t in sent if t.get('outcome') == 'loss')
     net = sum((t.get('net') or 0) for t in sent if t.get('outcome') in ('win', 'loss', 'timeout'))
     # openpos: resting OR running = a live commitment. External rows (C, ... via /guard/extlog) have
@@ -885,7 +886,9 @@ def register(app):
         if b.get('key') and b.get('ext_outcome'):                     # outcome update by key
             for g0 in reversed(glog):
                 if g0.get('key') == b['key']:
-                    g0['ext_outcome'] = b['ext_outcome']; g0['ext_net'] = b.get('ext_net')
+                    if g0.get('ext_outcome') == 'canceled':           # v27.2e: a user cancel is FINAL —
+                        return jsonify(ok=True, kept='canceled')      # the satellite's later model verdict
+                    g0['ext_outcome'] = b['ext_outcome']; g0['ext_net'] = b.get('ext_net')   # can't overwrite it
                     g0['outcome'] = b['ext_outcome']
                     _save(GLOG, glog); return jsonify(ok=True, updated=True)
             return jsonify(ok=False, err='key not found'), 404
