@@ -46,7 +46,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v27.1'   # 2026-07-22 telegram quiet drop: TG_BLOCKED=0 default (blocked setups -> /guard only, no Telegram); FIRED message now carries the full setup summary; guard table Fired/Blocked filter + gray model-priced Net$ on blocked rows
+VERSION = 'v27.2'   # 2026-07-22 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -361,6 +361,17 @@ def _process_new(now_ms=None):
             if c not in cats: cats.append(c)
         merged=' + '.join(cats) + ('+DIB' if live_emit.grade(rep)=='B' else '')
         repx=dict(rep); repx['cat']=merged
+        try:      # v27.4 ENTRY_OFFSET_PTS (default 0=off): quote the resting limit N pts SHALLOWER
+                  # (toward market) than the detector level. Rationale: a real limit fills on trade-
+                  # THROUGH, so resting 1pt shallower converts a touch of the detector level into a
+                  # REAL fill — 4y through-model: +0.443R/fill vs +0.365 baseline, better in all 5
+                  # years, plateau-stable 0.5-1.5pt. Applied BEFORE alert/exec/book/shadow so every
+                  # witness sees the same level. SL stays the detector's (widening tested: adds nothing).
+            _eo = float(os.environ.get('ENTRY_OFFSET_PTS', '0') or 0)
+            if _eo:
+                _es = 1 if repx.get('dir') == 'LONG' else -1
+                repx['entry'] = round(float(repx['entry']) + _es * _eo, 2)
+        except Exception as _eoe: print('entry_offset err', _eoe, flush=True)
         fl, hard = flags_for(rep)
         txt=live_emit.to_alert(repx)
         _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci

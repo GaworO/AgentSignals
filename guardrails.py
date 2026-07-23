@@ -813,6 +813,11 @@ def register(app):
     def _data():
         s = _state(); d = _day_stats(); sm = _shadow_by_key()
         book = [_actualize(g, sm.get(g.get('key'), {})) for g in reversed(_load(GLOG, []))][:80]
+        # fired vs actually-filled, all-time over the visible book (v27.3c): 'fired' = every SENT/ARMED
+        # row; 'filled' = those that really held a position (win/loss/timeout incl. reconciled)
+        _sent_rows = [b for b in book if b.get('decision') in ('sent', 'manual')]
+        fired_n = len(_sent_rows)
+        filled_n = sum(1 for b in _sent_rows if b.get('outcome') in ('win', 'loss', 'timeout'))
         return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
                        openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
@@ -821,6 +826,7 @@ def register(app):
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
+                       fired=fired_n, filled=filled_n,
                        health=health(), pine_days=book_days(), book=book)
 
     def _authed():
@@ -931,6 +937,7 @@ def register(app):
                 except Exception as fe:
                     print('[guard] reconcile row skip:', fe, flush=True)
             glog = _load(GLOG, []); matched = []; unmatched = []
+            sm = _shadow_by_key()                     # so the summary can show model->broker deltas
             used = set()
             for f in fills:
                 best = None; bestd = 99.0
@@ -946,10 +953,12 @@ def register(app):
                 if best is None:
                     unmatched.append(f); continue
                 g = glog[best]; used.add(best)
+                prior = _actualize(g, sm.get(g.get('key'), {}))        # model verdict BEFORE overwrite
                 g['ext_outcome'] = 'win' if f['pnl'] > 0 else ('loss' if f['pnl'] < 0 else 'timeout')
                 g['ext_net'] = round(f['pnl']); g['outcome'] = g['ext_outcome']; g['reconciled'] = True
                 matched.append(dict(key=g.get('key'), et=g.get('et'), broker_pnl=round(f['pnl']),
-                                    outcome=g['ext_outcome']))
+                                    outcome=g['ext_outcome'],
+                                    was_outcome=prior.get('outcome'), was_net=prior.get('net')))
             _save(GLOG, glog)
             print('[guard] reconcile: %d matched, %d unmatched' % (len(matched), len(unmatched)), flush=True)
             return jsonify(ok=True, matched=matched, unmatched=unmatched,
@@ -1055,6 +1064,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
   ondragover="event.preventDefault();this.style.borderColor='#3987e5'"
   ondragleave="this.style.borderColor=''"
   ondrop="event.preventDefault();this.style.borderColor='';recFile(event.dataTransfer.files)"></textarea>
+ <div id="rectab"></div>
 </div>
 <div class="pinep">
  <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
@@ -1090,7 +1100,9 @@ async function load(){
   ['% to +6% target',(e.pct||0)+'%'],['DD buffer','<span style=color:'+bufc+'>$'+(e.buffer||0).toLocaleString()+'</span>'],
   ['Trades today',d.trades+' / '+d.max_trades],['Losses today',d.losses+' / '+d.loss_n],
   ['Day P&L','$'+d.day_net+' / '+d.day_target],
-  ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')]
+  ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')],
+  ['Fired · Filled',(d.fired||0)+' · '+(d.filled||0)+' <span style="font-size:11px;color:#8a93a6">('+
+    (d.fired?Math.round(100*(d.filled||0)/d.fired):0)+'% fill)</span>']
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
@@ -1136,8 +1148,18 @@ async function doRec(btn){let b=document.getElementById('recbox').value.trim();l
  if(!b){o.textContent='paste the CSV first';return false;}
  btn.textContent='...';
  try{let r=await (await fetch('/guard/reconcile?x=1'+(_t||''),{method:'POST',body:b,cache:'no-store'})).json();
-  o.textContent=r.ok?('✓ matched '+r.matched.length+' · unmatched fills '+r.unmatched.length+' — now sync real equity!')
-                    :('⚠ '+(r.err||'failed'));
+  if(r.ok){
+   o.textContent='✓ matched '+r.matched.length+' · unmatched broker fills '+r.unmatched.length+' — now sync real equity!';
+   let tot=r.matched.reduce((a,m)=>a+(m.broker_pnl||0),0);
+   let rows=r.matched.map(m=>'<tr><td>'+m.et+'</td><td>'+(m.was_outcome||'?')+' → <b>'+m.outcome+'</b></td>'+
+     '<td style="text-align:right">'+(m.was_net!=null?('('+m.was_net+')'):'—')+' → <b>'+m.broker_pnl+'</b></td></tr>').join('');
+   let un=r.unmatched.map(u=>'<tr><td>'+(u.t||'')+'</td><td>'+u.dir+' '+u.qty+'× @ '+u.entry+'</td>'+
+     '<td style="text-align:right">'+Math.round(u.pnl)+' (no book row!)</td></tr>').join('');
+   document.getElementById('rectab').innerHTML='<table style="margin-top:8px;font-size:12px">'+
+     '<thead><tr><th>Time ET</th><th>Outcome model → broker</th><th>Net$ model → broker</th></tr></thead>'+
+     '<tbody>'+rows+un+'</tbody><tfoot><tr><td></td><td><b>broker total</b></td>'+
+     '<td style="text-align:right"><b>'+Math.round(tot)+'</b></td></tr></tfoot></table>';
+  } else o.textContent='⚠ '+(r.err||'failed');
  }catch(e){o.textContent='⚠ '+e;}
  btn.textContent='Reconcile';load();return false;}
 async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
