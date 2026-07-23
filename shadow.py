@@ -157,9 +157,19 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
                       # the signal bar itself is price action the order never saw (live proof: PREM
                       # 05:30 'FILL' while the broker limit sat unfilled). Costs ~0.12R of modeled
                       # expectancy — which was never real.
+    # v27.3 — SHADOW_FILL_THRU=1 (default): a real limit fills when price trades THROUGH the level,
+    # not when it merely touches it. 2026-07-23 live proof: book "win +$708" on a touch-fill while the
+    # broker filled only on the later break-through and stopped out -$385. Touch-only signals are 100%
+    # model wins over 4y (37/37) precisely because they bounced — the broker never gets those.
+    # 4y honest expectancy: touch +0.478 -> through +0.342 net R/fill. SHADOW_THRU_TICK sets the
+    # instrument tick (0.25 MNQ; FX services should set their own, e.g. 0.0001). =0 restores touch.
+    _thru = float(os.environ.get('SHADOW_THRU_TICK', '0.25') or 0) \
+        if os.environ.get('SHADOW_FILL_THRU', '1') == '1' else 0.0
     fb = None
     for i in range(sb, min(sb + fill_bars, N)):
-        if LO[i] <= e <= HI[i]: fb = i; break
+        ok = (LO[i] <= e - _thru) if bull else (HI[i] >= e + _thru)
+        if _thru == 0.0: ok = LO[i] <= e <= HI[i]
+        if ok: fb = i; break
     if fb is None:
         return {'outcome': 'no_fill'} if N > sb + fill_bars else {'outcome': 'open'}
     if (HI[fb] - LO[fb]) > 20 and os.environ.get('SHADOW_FAST_FILL', '1') != '1':
