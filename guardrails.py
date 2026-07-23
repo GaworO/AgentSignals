@@ -457,6 +457,9 @@ def _today_sent():
 
 def _day_stats():
     sent = _today_sent()
+    # v27.2d: rows YOU canceled at the broker (ext_outcome='canceled' via /guard/cancel) consumed no
+    # risk — they don't count toward MAX_TRADES_DAY. Dedup + one-position still bound send churn.
+    n_trades = sum(1 for t in sent if t.get('outcome') != 'canceled')
     losses = sum(1 for t in sent if t.get('outcome') == 'loss')
     net = sum((t.get('net') or 0) for t in sent if t.get('outcome') in ('win', 'loss', 'timeout'))
     # openpos: resting OR running = a live commitment. External rows (C, ... via /guard/extlog) have
@@ -470,7 +473,7 @@ def _day_stats():
             if (_now_ms() - int(t.get('ts') or 0)) < exth: openpos = True
         else:
             openpos = True
-    return dict(sent=len(sent), losses=losses, net=net, openpos=openpos)
+    return dict(sent=n_trades, losses=losses, net=net, openpos=openpos)
 
 # ---------- the gate ----------
 def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None):
