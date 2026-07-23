@@ -1022,7 +1022,7 @@ async function load(){
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
   let h='<span class='+c+'>'+o+'</span>';
   if(o=='open'&&(x.decision=='sent'||x.decision=='manual'))
-   h+=' <a href="#" title="I canceled this order at the broker — mark it canceled and free the slot" onclick="return cancelRow(\''+encodeURIComponent(x.key||'')+'\')" style="color:#e0a93b;text-decoration:none">✕</a>';
+   h+=' <a href="#" data-k="'+encodeURIComponent(x.key||'')+'" title="I canceled this order at the broker — mark it canceled and free the slot" onclick="return cancelRow(this.dataset.k)" style="color:#e0a93b;text-decoration:none">✕</a>';
   return h;};
  let fired=x=>x.decision=='sent'||x.decision=='manual';
  window._dec=dec;window._oc=oc;window._fired=fired;window._book=d.book||[];
