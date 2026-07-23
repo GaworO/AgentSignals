@@ -954,6 +954,7 @@ def register(app):
                     unmatched.append(f); continue
                 g = glog[best]; used.add(best)
                 prior = _actualize(g, sm.get(g.get('key'), {}))        # model verdict BEFORE overwrite
+                g['model_outcome'] = prior.get('outcome'); g['model_net'] = prior.get('net')  # keep BOTH:
                 g['ext_outcome'] = 'win' if f['pnl'] > 0 else ('loss' if f['pnl'] < 0 else 'timeout')
                 g['ext_net'] = round(f['pnl']); g['outcome'] = g['ext_outcome']; g['reconciled'] = True
                 matched.append(dict(key=g.get('key'), et=g.get('et'), broker_pnl=round(f['pnl']),
@@ -1052,7 +1053,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <a class="btn fblk" href="#" onclick="return setf('blocked')">Blocked only</a>
  <span class=g style="font-size:11px">blocked rows never traded — their R/Net$ are model-priced (shown gray)</span>
 </div>
-<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$</th></tr></thead><tbody id=tb></tbody></table>
+<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
  <div class="ph">🧾 <b>Reconcile with broker</b> — paste OR drag &amp; drop the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
   <input type="file" id="recfile" accept=".csv,text/csv" style="display:none" onchange="recFile(this.files)">
@@ -1126,11 +1127,15 @@ function renderBook(){
  document.getElementById('tb').innerHTML=rows.map(x=>{
   let isB=!fired(x);                         // blocked rows never traded -> model-priced R/Net$, render gray
   let rc=isB?' style="color:#6b7688" title="model-priced — trade was NOT executed"':'';
-  let rv=(x.R!=null?x.R:''),nv=(x.net!=null?x.net:'');
+  let rec=!!x.reconciled;
+  let rv=(x.R!=null?x.R:'');
+  let nv=rec?(x.model_net!=null?x.model_net:''):(x.net!=null?x.net:'');   // Net$ column = MODEL verdict
+  let real=rec?('<b>'+(x.net!=null?x.net:'')+'</b> <span title="broker-reconciled" style="color:#3ecb3e">✓</span>'):'';
   if(isB&&(rv!==''||nv!=='')){rv=rv!==''?('('+rv+')'):'';nv=nv!==''?('('+nv+')'):'';}
+  let mc=rec?' style="color:#6b7688" title="model verdict — see Real$ for the broker result"':'';
   return '<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
   '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
-  '</td><td'+rc+'>'+rv+'</td><td'+rc+'>'+nv+'</td></tr>';}).join('');
+  '</td><td'+rc+'>'+rv+'</td><td'+(isB?rc:mc)+'>'+nv+'</td><td>'+real+'</td></tr>';}).join('');
 }
 let _tok=new URLSearchParams(location.search).get('t');
 try{ if(_tok) localStorage.setItem('guard_t',_tok); else _tok=localStorage.getItem('guard_t'); }catch(e){}
