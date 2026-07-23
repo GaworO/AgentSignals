@@ -534,6 +534,8 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
 
         d = _day_stats()
         if d['openpos']:                        return (False, 'position_open')     # THE anti-stack rule
+        pb = _peer_busy()                                                           # v27.2: one position across ALL
+        if pb:                                  return (False, pb)                   # services sharing this broker acct
         if d['sent']   >= _envi('MAX_TRADES_DAY', 3):   return (False, 'max_trades_day')
         if d['losses'] >= _envi('DAY_LOSS_N', 2):
             _latch('day_loss_n');               return (False, 'day_loss_n')        # primary floor guard
@@ -549,6 +551,33 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
     except Exception as e:
         print('[guard] guard_ok EXC (fail-closed, blocking):', e, flush=True)
         return (False, 'guard_error')
+
+_PEER_CACHE = {}
+
+def _peer_busy():
+    """v27.2 — PEER_GUARD_URL: comma-separated base URLs of OTHER guard services sharing the SAME
+    broker account (e.g. forex-eur <-> forex-jpy on one FTMO login). Before any send, each peer's
+    /guard/data is asked whether it holds a live commitment (resting order or open position).
+    Returns a block reason or None. FAIL-CLOSED: an unreachable peer blocks the send — a peer you
+    cannot see may be holding a position, and a double position on one FX account is exactly the
+    over-risk this exists to prevent. Cached PEER_CACHE_S (default 20s) per process."""
+    urls = [u.strip() for u in _env('PEER_GUARD_URL', '').split(',') if u.strip()]
+    if not urls: return None
+    if requests is None: return 'peer_unreachable'
+    now = _now_ms()
+    if _PEER_CACHE.get('t', 0) + _envf('PEER_CACHE_S', 20) * 1000 > now:
+        return _PEER_CACHE.get('v')
+    v = None
+    for u in urls:
+        try:
+            j = requests.get(u.rstrip('/') + '/guard/data', timeout=6).json()
+            if j.get('openpos'):
+                v = 'peer_open'; break
+        except Exception as e:
+            print('[guard] peer %s unreachable: %s (fail-closed)' % (u, e), flush=True)
+            v = 'peer_unreachable'; break
+    _PEER_CACHE.update(t=now, v=v)
+    return v
 
 def ramp_qty(x):
     """First RAMP_TRADES sent trades run at 1 contract to prove routing; then normal size.
@@ -782,6 +811,7 @@ def register(app):
         book = [_actualize(g, sm.get(g.get('key'), {})) for g in reversed(_load(GLOG, []))][:80]
         return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
+                       openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
                        be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA'),
                        trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
@@ -866,6 +896,31 @@ def register(app):
         _save(GLOG, glog)
         return jsonify(ok=True)
 
+    def _cancel():
+        """v27.2 — you canceled a resting order at the broker by hand; tell the book. Marks the row
+        ext_outcome='canceled' (net 0): the table stops showing 'open', the one-position slot frees
+        NOW instead of at the 4h shadow no_fill write-off, and day counters ignore it.
+        GET /guard/cancel?key=<row key>&t=<token>   or   ?last=1&t=<token> (most recent open SENT row)."""
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
+        try:
+            glog = _load(GLOG, []); sm = _shadow_by_key()
+            want = request.args.get('key', '')
+            hit = None
+            for g in reversed(glog):
+                if g.get('decision') not in ('sent', 'manual') or g.get('ext_outcome'): continue
+                if want:
+                    if g.get('key') == want: hit = g; break
+                else:
+                    if sm.get(g.get('key'), {}).get('outcome', 'open') == 'open': hit = g; break
+            if hit is None: return jsonify(ok=False, err='no matching open sent row'), 404
+            hit['ext_outcome'] = 'canceled'; hit['ext_net'] = 0
+            _save(GLOG, glog)
+            print('[guard] row canceled by user:', hit.get('key'), flush=True)
+            return jsonify(ok=True, key=hit.get('key'), et=hit.get('et'))
+        except Exception as e:
+            return jsonify(ok=False, err=str(e)), 500
+
+    app.add_url_rule('/guard/cancel', 'guard_cancel', _cancel)
     app.add_url_rule('/guard/extlog', 'guard_extlog', _extlog, methods=['POST'])
     app.add_url_rule('/guard', 'guard_page', _page)
     app.add_url_rule('/guard/data', 'guard_data', _data)
@@ -964,7 +1019,11 @@ async function load(){
   ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')]
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
- let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';return '<span class='+c+'>'+o+'</span>';};
+ let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
+  let h='<span class='+c+'>'+o+'</span>';
+  if(o=='open'&&(x.decision=='sent'||x.decision=='manual'))
+   h+=' <a href="#" title="I canceled this order at the broker — mark it canceled and free the slot" onclick="return cancelRow(\''+encodeURIComponent(x.key||'')+'\')" style="color:#e0a93b;text-decoration:none">✕</a>';
+  return h;};
  let fired=x=>x.decision=='sent'||x.decision=='manual';
  window._dec=dec;window._oc=oc;window._fired=fired;window._book=d.book||[];
  renderBook();
@@ -990,6 +1049,8 @@ function renderBook(){
 const _tok=new URLSearchParams(location.search).get('t');const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
 async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});load();return false;}
 async function dokill(){await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});load();return false;}
+async function cancelRow(k){let r=await (await fetch('/guard/cancel?key='+k+(_t||''),{cache:'no-store'})).json();
+ if(!r.ok){document.getElementById('healthbar').textContent='⚠ cancel: '+(r.err||'failed');}load();return false;}
 async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
 async function loadPine(){let day=document.getElementById('pineday').value;
  let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
