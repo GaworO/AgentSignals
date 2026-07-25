@@ -5,6 +5,99 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
+## v28.0 — the backtest was wrong; fill clock; cross-strategy audit  (2026-07-25)
+
+> **Read this before trusting any number written in this file above.** Every forward-test figure in
+> the v10–v27 entries was produced by a harness that (a) let the entry read a bar that had not closed
+> when the detector fires, and (b) opened the fill window on that same bar. Over 2022-06→2026-07 that
+> is worth **+0.4895 R/fill modelled vs +0.2606 R/fill real** — the backtest read **$624,270** where
+> the machine makes **$245,042**, and **$12,485/month against a real $4,901**. It is not slippage and
+> it is not the broker. Treat every historical R-figure above as roughly **2× optimistic** until it is
+> re-run on this harness.
+
+### Fixed — backtest/live parity
+- **`detcore/entries.py`, `detcore/primitives.py` — `Config.causal` (default ON, env `DET_CAUSAL=0`
+  to restore).** `find_entry_v10` scanned `fvgs(ob, bb+2)`, so the FVG defining the entry could have
+  its middle bar at `bb+1`; `impulse_end_v10`'s stall walk ran to `bb+cap`. Live the buffer ends at
+  the BOS bar, so it never sees either. Consequence, measured: **76% of live entries are the OTE/fibo
+  level and only 24% the FVG edge — in a backtest it is 53% FVG.** Half of every historical test was
+  priced at a level the machine does not quote.
+- **`detcore/emit.py` — emits `entry_ms`.** `entry_bar = max(sfvg_bar|hh_bar, bos_bar)+1` has been
+  stored since v11 and nothing ever read it; every consumer opened the fill window at `bos_ms+1 bar`.
+  **This single line is 81% of the parity gap** (+0.4895 → +0.2169 R/fill on identical entries).
+  Lag distribution over 4y: 1,227 signals at +1 bar, 377 at +2, 325 at +3, 359 at +4/+5; only 395 of
+  3,035 were genuinely tradeable at `bos+1`. 159 signals over 4y flip from a modelled +2R to a real −1R.
+- **`shadow.py` — fill bar is scored adverse-only** (`SHADOW_FILLBAR_TP=1` restores the old
+  behaviour). The outcome loop started AT the fill bar and checked the target against that whole
+  bar's range, so a favourable extreme printed BEFORE the limit was hit counted as a win. 2026-07-23
+  NYAM long: book **+1.937R**, broker **−$385**. Worth **+0.049 R/fill** of edge that never existed.
+- **`agent.py` / `guardrails.note()` — the book now stores the EXECUTED take-profit.** `_exec_order`
+  recomputes `tp = entry ± 2R` from the POST-`ENTRY_OFFSET_PTS` entry while the book stored the
+  detector's PRE-offset `x['TP']`; at offset 1 they are 3 points apart (2026-07-24 NYPM ×12: Pine
+  28347.67, broker 28344.75). Worth **−0.044 R/fill**. The two errors nearly cancelled at offset 1,
+  which is why neither surfaced — they stop cancelling the moment the offset changes.
+
+### Changed — the fill clock (the money)
+- **`shadow._fill_win()` → `FILL_WIN_MIN`, default 10 (was a hardcoded 240).** Expectancy by
+  time-to-fill over 4y: **0–1 min +0.972R · 1–5 min +0.583R · 5–10 min +0.331R · 10–15 min −0.014R ·
+  15–30 min −0.096R · 30–60 min −0.068R · 60–240 min −0.089R.** Stop distance (13–15 pt) and contract
+  count are flat across every bucket, so it is not a size artefact — the setup goes stale. Result:
+  fills 85.3% → 42.3%, R/fill +0.261 → +0.599, 4y net **$242,919 → $269,169**, peak DD
+  **$12,128 → $3,367**, **7 losing months out of 50 → 1**, worst month **−$8,375 → −$1,792**.
+  Monotone from 5 to 240 minutes and holds in all five yearly slices (2.1–2.7× each) — no fitted peak.
+- **`guardrails.sweep_orphans()` → `SWEEP_LAG_MIN`, default 3.** `flatten_cancel_only()` sends a
+  BLANKET ticker cancel guarded only by `if d['openpos']: return 0`. On a 10-minute clock that sweep
+  runs constantly; the lag holds it to 13 minutes so a fill at 9:59 the book has not resolved yet
+  cannot lose its bracket. **Do not set it to 0.**
+- **`manage.check(fill_ms=None)`** now defaults to the same `FILL_WIN_MIN` (was a hardcoded 2 h).
+
+### Rejected — partials and break-even (tested, do not ship)
+Against the flat 2R baseline (+0.2606 R/fill): BE@1R **+0.2063** · 50% at 1R stop-stays **+0.1952** ·
+50% at 1R + BE **+0.1681** (−0.093R, −36% of the edge) · 33% at 1R + BE **+0.1811** · 50% at 1R + BE
+runner 3R **+0.1809** · flat 1.5R **+0.2224** · **50% at 1.5R + BE +0.2318 (least bad)** · flat 3R
+**+0.3261** but a 23-trade losing run and 32R drawdown = an eval breach, not an edge.
+Partials only buy a shorter losing run (6 vs 10); the fill clock buys more drawdown reduction and
+pays more. The week of 2026-07-21 had 4 of 6 losers reach ≥1.2R before reversing — the 4-year base
+rate for losers reaching 1R is **30.0%**.
+
+### Also verified / left alone
+- `ENTRY_OFFSET_PTS=1` is correct and live (reproduces 2026-07-24 entries to the cent); the curve is
+  flat from 1 to 3 points.
+- **Waiting for the "better" FVG entry tests worse**: +1 bar +0.269R, +2 bars +0.200R, +3 bars
+  +0.133R. It fills more (90.5% vs 85.3%) but the extra fills are worth **0.020R each**, and in
+  dollars it only wins by risking 69% more capital (37.9% return on risk vs 57.5%).
+- `EXEC_MAX_QTY=17` binds on **58% of filled trades**; the tight-stop cohort runs at **$282 of risk
+  instead of $500 (56% of target)**. Lifting to 25 takes 4y net $269k → $323k at $3,947 DD — but
+  net/DD barely moves (79.9× → 81.9×), so it is leverage, not edge, and peak DD is already at the
+  MFF floor. Post-funding lever, not an eval lever.
+
+### KNOWN GAP — do not read the dollar figures as your account
+Entry price and fill mechanics now match live. **Which setups fire does not.** Live re-runs the
+detector every minute on a rolling 14,000-bar buffer and emits a setup the first time it appears;
+a single historical pass sees a different level history. Measured on 2026-07-19→24 by replaying the
+rolling buffer every 5 bars (1,367 detector runs): **exact replay 79 setups, reproducing 3 of the 9
+that reached the broker; one-pass backtest 16 setups, reproducing 0 of 9.** The live detection
+stream is ~5× denser than any one-pass. Rankings hold on both populations (on the 79 replayed
+setups: +0.331 R/fill at 240 min → +0.565 R/fill at 10 min); absolute dollars do not.
+
+### CROSS-STRATEGY — the fill clock is NOT wired to C / F / ORB / AMD
+Everything above was measured on the **A/B detector (`detcore`) only**. The other services run their
+own engines, their own dedup and their own TradersPost strategies (`EXEC_WEBHOOK_C/_F/_ORB/_AMD`),
+so `guardrails.sweep_orphans()` never reaches their orders. Audit:
+- **Strategy F** (`strategy_f_live.py`) — `STRAT_F_FILL_MIN=30`, **touch fill** (`lo<=e<=hi`, the
+  over-optimistic model A/B replaced with through-fill in v27.3), models **BE@1R** while the broker
+  holds a static bracket (the phantom-BE bug A/B already paid for), and **`timeInForce: "gtc"`
+  hardcoded** with `STRAT_F_AUTO_CANCEL` firing only on a body-break — **an F limit that simply never
+  fills is never cancelled at the broker and can fill days later.**
+- **Model C** (`model_c_live.py`) — `C_FILL_MIN=30`, touch fill, `C_NOBE=0` (BE@1R modelled), TIF day.
+- **ORB** (`orb_live.py`) — `timeInForce: "gtc"` hardcoded; stop/stopLimit entries mostly fill, but
+  the `limit` retest variant carries the same stale-limit risk.
+- **AMD** (`amd_live.py`) — market entry, immune to all of this.
+Priority order: F's GTC orphan (correctness) → F/C touch-fill and phantom BE (measurement) →
+F/C 30 → 10 minutes, only after the clock is re-measured on each engine's own population.
+
+---
+
 ## v27.0 — auto-execution hardening + MFF-rules layer  (2026-07-19)
 
 **guardrails.py** — broker-boundary safety: loss/DD/manual latches now FLATTEN (exit+cancel), not

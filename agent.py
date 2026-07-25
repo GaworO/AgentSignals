@@ -160,6 +160,9 @@ def _exec_order(x, text=None):
         _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
         def _t(p):                                                 # sees them (OTE math emits 29043.43;
             return round(round(p / _tk) * _tk, 6) if _tk > 0 else round(p, 2)   # MNQ trades in 0.25s)
+        x['_exec_tp'] = _t(tp + off)   # v28: the book/shadow must score the target the BROKER holds.
+        x['_exec_entry'] = _t(e + off)  # tp is recomputed from the POST-ENTRY_OFFSET_PTS entry; x['TP']
+                                        # is the detector's PRE-offset value (3 pts apart at offset=1).
         payload = {
             "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
             "action": "buy" if bull else "sell",
@@ -460,7 +463,9 @@ def _process_new(now_ms=None):
         _save_db(repx, txt, code)
         try: manage.register(repx, TRADES)
         except Exception as e: print('manage.register err', e, flush=True)
-        try: shadow.record('A/B', repx.get('dir'), repx.get('entry'), repx.get('SL'), repx.get('TP'), repx.get('bos_ms'))  # LIVE shadow log (hands-off, no money)
+        try: shadow.record('A/B', repx.get('dir'), repx.get('entry'), repx.get('SL'),
+                           repx.get('_exec_tp') or repx.get('TP'), repx.get('bos_ms'),
+                           entry_ms=repx.get('entry_ms'))   # v28: broker's TP + the bar the order can first trade
         except Exception as e: print('shadow.record err', e, flush=True)
         if code=='exec' or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)

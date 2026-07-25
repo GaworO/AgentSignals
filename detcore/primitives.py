@@ -19,6 +19,9 @@ def fvgs(ctx, a, b, bull):
 
 def impulse_end_v10(ctx, ob, bb, bull, K=2, cap=40):
     hi, lo, n = ctx.hi, ctx.lo, ctx.n
+    # v28 CAUSAL: the stall rule walks PAST the BOS bar (up to bb+cap) to find the impulse extreme.
+    # Live the buffer ends at bb, so the OTE level is anchored differently. Clamp to match.
+    if getattr(ctx.cfg, 'causal', True): n = min(n, bb + 1)
     ext = hi[ob] if bull else lo[ob]; eb = ob; stall = 0
     for m in range(ob + 1, min(n, bb + cap)):
         if (hi[m] > ext) if bull else (lo[m] < ext):

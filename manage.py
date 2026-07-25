@@ -56,13 +56,16 @@ def register(x, path):
                     filled=False, done1=False))
     _save(path, lst[-50:])   # trzymaj ostatnie 50
 
-def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=2*3600*1000, outcomes_path=None):
+def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=None, outcomes_path=None):
     """Na nowym barze. NAJPIERW brama FILL: wejscie to LIMIT (cofniecie) — nie liczymy zadnych
        celow dopoki limit nie zostanie trafiony. Niewypelniony limit anulujemy po fill_ms (2h).
        Po fillu, kolejnosc ADVERSE-FIRST (najpierw ruch przeciw — konserwatywnie):
        PRZED 1R:  SL trafiony -> -1R, koniec.  Inaczej 1R trafiony -> przesun SL na BE.
        PO 1R:     entry trafiony (BE) -> 0R, koniec.  Inaczej 2R trafiony -> +2R, koniec.
        Stare trady (>8h od BOS) wygasaja. send(msg) wysyla powiadomienie."""
+    if fill_ms is None:      # v28: same clock as shadow's FILL_WIN_MIN (was a hardcoded 2 h)
+        try: fill_ms = max(1, int(float(os.environ.get('FILL_WIN_MIN', '10')))) * 60000
+        except Exception: fill_ms = 10 * 60000
     lst = _load(path)
     if not lst: return
     keep = []; changed = False

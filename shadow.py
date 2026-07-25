@@ -85,7 +85,7 @@ def _costed(R, gross_R):
     net = gross_R * RISK - cost
     return ct, round(net), round(net / RISK, 3)
 
-def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None):
+def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None, entry_ms=None):
     """Log ONE fresh signal hands-off. Dedups. Skips London/Asia. tp defaults to 2R."""
     try:
         ms = int(ms if ms is not None else dt.datetime.utcnow().timestamp() * 1000)
@@ -103,7 +103,8 @@ def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None):
         wk = (et - dt.timedelta(days=et.weekday())).strftime('%Y-%m-%d')
         log.append(dict(key=k, strategy=strategy, dir=dirn, sess=s, week=wk, dow=et.strftime('%a'),
                         et=et.strftime('%Y-%m-%d %H:%M'), date=et.strftime('%Y-%m-%d'),
-                        entry=entry, sl=sl, tp=tp, ms=ms, outcome='open', R=None, net=None))
+                        entry=entry, sl=sl, tp=tp, ms=ms, entry_ms=(int(entry_ms) if entry_ms else None),
+                        outcome='open', R=None, net=None))
         _save(log); return True
     except Exception as e:
         print('[shadow] record err', e, flush=True); return False
@@ -139,19 +140,34 @@ def _bars(since_ms=None):
     lo = pd.to_numeric(df[low.get('low', 'low')], errors='coerce').to_numpy(float)
     return ms, hi, lo
 
-def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
+def _fill_win():
+    """v28: minutes the resting entry limit is allowed to sit before it is written off.
+    4y MNQ: fills after ~10 min are net NEGATIVE (10-15m -0.014R, 15-30m -0.096R, 30m+ -0.07R) while
+    fills inside 10 min pay +0.33 to +0.97R. 240 -> 10 halves the fill count, keeps the money
+    (4y $243k -> $269k) and cuts peak DD $12.1k -> $3.4k. Holds in all 5 yearly slices."""
+    try: return max(1, int(float(os.environ.get('FILL_WIN_MIN', '10'))))
+    except Exception: return 10
+
+
+def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=None, hold_bars=2880, entry_ms=None):
     """Resolve one trade FIXED-stop against bar arrays - the model full-auto would really run
        (and what your live TradersPost bracket does): fill the resting limit -> SL = LOSS -1R ;
        2R target = WIN +2R ; chopped the whole window = SCRATCH 0R. Adverse-first (conservative).
        Returns {'outcome': win/loss/timeout} + R/net, or open/no_fill/missed/out_of_range if unresolved."""
     import numpy as np
+    if fill_bars is None: fill_bars = _fill_win()
     bull = dirn == 'LONG'; e = float(entry); sl = float(sl); tp = float(tp); R = abs(e - sl)
     N = len(MS)
     if R <= 0 or N == 0:
         return {'outcome': 'open'}
     if int(ms) < int(MS[0]) - 60000 or int(ms) > int(MS[-1]):
         return {'outcome': 'out_of_range'}
-    sb = max(0, int(np.searchsorted(MS, int(ms), side='right')) - 1)
+    # v28: the order cannot trade before the bar that DEFINES its level has closed. det.emit() already
+    # stores that bar as `entry_bar` (max(sfvg_bar|hh_bar, bos_bar)+1); pass its ms in as entry_ms.
+    # Without it a backtest fills on the very bar that created the FVG: 4y +0.49R vs +0.22R honest.
+    _anchor = int(entry_ms) if entry_ms else int(ms)
+    if _anchor < int(ms): _anchor = int(ms)
+    sb = max(0, int(np.searchsorted(MS, _anchor, side='right')) - 1)
     if os.environ.get('SHADOW_FILL_SAME_BAR', '0') != '1':
         sb = sb + 1   # 2026-07-21: the REAL order is placed AFTER the signal bar closes — a fill on
                       # the signal bar itself is price action the order never saw (live proof: PREM
@@ -183,13 +199,21 @@ def score(dirn, entry, sl, tp, ms, MS, HI, LO, fill_bars=240, hold_bars=2880):
         hit_sl = (LO[i] <= sl) if bull else (HI[i] >= sl)
         hit_tp = (HI[i] >= tp) if bull else (LO[i] <= tp)
         if hit_sl:   res = ('loss', -1.0); break      # adverse-first
+        # v28: on the FILL bar the favourable extreme may pre-date the fill. 2026-07-23 NYAM long:
+        # book '+2R / +$708' off a high printed BEFORE the limit was hit; broker stopped out -$385.
+        # Scoring the fill bar adverse-only costs 0.049R/fill of modelled edge that was never real.
+        elif i == fb and os.environ.get('SHADOW_FILLBAR_TP', '0') != '1': continue
         elif hit_tp: res = ('win', 2.0); break
     if res is None:
         if N >= fb + hold_bars: res = ('timeout', 0.0)   # filled, chopped the full window -> scratch
         else: return {'outcome': 'open'}                 # still running / not enough bars
     oc, gross = res
     ct, net, Rn = _costed(R, gross)
-    return {'ct': ct, 'outcome': oc, 'R': Rn, 'net': net}
+    # v28: persist HOW LONG the limit waited. The 4y study found expectancy collapses past ~10 min
+    # (0-1m +0.97R -> 15-30m -0.10R); without wait_min the live log cannot reproduce that curve.
+    return {'ct': ct, 'outcome': oc, 'R': Rn, 'net': net,
+            'wait_min': int(round((int(MS[fb]) - int(ms)) / 60000.0)),
+            'fill_ms': int(MS[fb])}
 
 def refresh():
     """Resolve open shadow trades against the live bar buffer. Safe if buffer missing (stays open)."""
@@ -207,7 +231,7 @@ def refresh():
         if t.get('outcome') not in ('open', 'expired'): continue   # 'expired' retried: rescues rows the
                                                                    # pandas-3 timestamp bug wrongly aged out
         stale = (now_ms - int(t['ms'])) > STALE_MS
-        res = score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO)
+        res = score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO, entry_ms=t.get('entry_ms'))
         oc = res.get('outcome')
         if oc in ('open', 'out_of_range'):
             if stale: t['outcome'] = 'expired'; changed = True   # bars never arrived / signal outside archive -> don't hang forever

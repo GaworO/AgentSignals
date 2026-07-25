@@ -235,6 +235,11 @@ def sweep_orphans():
             k = g.get('key')
             if not k or k in swept: continue
             oc = sm.get(k, {}).get('outcome')
+            # v28: with FILL_WIN_MIN=10 the write-off happens minutes after the send, so the blanket
+            # ticker cancel now runs often. Wait SWEEP_LAG_MIN past the window before touching the
+            # broker, so a fill at 9:59 that the book has not resolved yet cannot lose its bracket.
+            _lag = _envf('SWEEP_LAG_MIN', 3) * 60000
+            if (_now_ms() - int(g.get('ts') or 0)) < _lag: continue
             if oc in ('no_fill', 'missed', 'expired'):
                 if flatten_cancel_only():
                     swept[k] = _now_ms(); n += 1     # only mark on success -> a down relay is retried next bar
@@ -466,6 +471,8 @@ def _day_stats():
     # openpos: resting OR running = a live commitment. External rows (C, ... via /guard/extlog) have
     # no shadow resolution — they hold the slot for EXT_OPEN_H hours (fill window), then age out
     # unless the satellite POSTs an outcome update.
+    # v28: an unfilled limit used to hold the one-position slot for EXT_OPEN_H (4 h), blocking every
+    # later setup that day. On the 10-min clock the slot frees as soon as the row is written off.
     exth = _envf('EXT_OPEN_H', 4) * 3600000
     openpos = False
     for t in sent:
@@ -606,7 +613,8 @@ def note(x, decision, reason=''):
         glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
-                         tp=x.get('TP'), qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
+                         tp=(x.get('_exec_tp') if x.get('_exec_tp') is not None else x.get('TP')),
+                         qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
                                               else x.get('_exec_qty_override')), decision=decision, reason=reason))
         _save(GLOG, glog)
         if decision in ('sent', 'manual'):

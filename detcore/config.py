@@ -38,6 +38,9 @@ class Config:
     stop_cap_trigger: float = 0.0         # v22: re-anchor only when structural risk > this. 0 => use
                                           #      stop_cap (cap EVERY trade). Set to 40 to rescue >40pt only.
     entry_primary: str = 'fvg'            # 'fvg' | 'fibo'
+    causal: bool = True                   # v28: the entry may only read bars up to the BOS bar — what the
+                                          # LIVE 14k-bar buffer actually contains when the detector fires.
+                                          # DET_CAUSAL=0 restores the old look-ahead (backtest-only, dishonest).
     cutoff: str = '2026-05-17'            # '' => no date filter (agent / backtest mode)
     data_csv: str = '/mnt/user-data/uploads/MNQ_databento_1m.csv'
     out_pkl: str = '/home/claude/det_new.pkl'
@@ -63,6 +66,7 @@ class Config:
             stop_cap=float(e.get('STOP_CAP') or '0'),                 # `or '0'` => empty-string env ('') is treated as 0, not a crash
             stop_cap_trigger=float(e.get('STOP_CAP_TRIGGER') or '0'),
             entry_primary=e.get('ENTRY_PRIMARY', 'fvg'),
+            causal=(e.get('DET_CAUSAL', '1') != '0'),
             cutoff=e.get('CUTOFF', '2026-05-17'),
             data_csv=e.get('DATA_CSV', '/mnt/user-data/uploads/MNQ_databento_1m.csv'),
             out_pkl=e.get('OUT_PKL', '/home/claude/det_new.pkl'),

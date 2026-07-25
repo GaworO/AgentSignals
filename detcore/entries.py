@@ -25,7 +25,10 @@ def _cap_stop(ctx, entry, sl, risk, bull):
 def find_entry_v10(ctx, su):
     bull = su['dr'] == 'LONG'; ob = su['origin_bar']; bb = su['bos_bar']
     sl = round((su['fvg'][0] + su['fvg'][1]) / 2, 2)
-    fl_ = fvgs(ctx, ob, bb + 2, bull); seen = set(); fvl = []
+    # v28 CAUSAL: an FVG whose middle bar is bb+1 does not exist yet when the detector fires on bb.
+    # Live never sees it (the buffer ends at bb); every backtest did -> ~0.23R/fill of phantom edge.
+    lim = (bb + 1) if getattr(ctx.cfg, 'causal', True) else (bb + 2)
+    fl_ = fvgs(ctx, ob, lim, bull); seen = set(); fvl = []
     for f in fl_:
         if f[2] in seen: continue
         seen.add(f[2]); fvl.append(f)

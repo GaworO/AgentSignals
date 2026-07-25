@@ -55,6 +55,11 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
         sfvg_bar=int(e['sfvg_bar']) if e.get('sfvg_bar') is not None else None,
         hh_bar=int(e['hh_bar']) if e.get('hh_bar') is not None else None,
         emit_bar=int(su['bos_bar']), entry_bar=int(e['start_bar']),
+        # v28: ms of the first bar the resting order can actually trade (the bar that DEFINES the
+        # entry level has to close first). shadow.score(entry_ms=...) uses it instead of bos_ms+1.
+        entry_ms=int(df.dt[min(int(e['start_bar']), ctx.n - 1)].timestamp() * 1000)
+                 if int(e['start_bar']) < ctx.n
+                 else int(df.dt[su['bos_bar']].timestamp() * 1000) + 60000 * (int(e['start_bar']) - int(su['bos_bar'])),
         bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
         bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000)))
 
