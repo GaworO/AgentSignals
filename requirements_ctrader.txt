@@ -1,6 +1,0 @@
-# cTrader bridge service (separate Railway service) — NOT the agent's requirements.
-flask
-gunicorn
-ctrader-open-api
-twisted
-protobuf
