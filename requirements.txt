@@ -5,3 +5,6 @@ requests
 gunicorn
 pyyaml
 tzdata
+ctrader-open-api
+twisted
+protobuf
