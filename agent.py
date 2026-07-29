@@ -46,7 +46,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v27.2'   # 2026-07-22 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
+VERSION = 'v29.0'   # 2026-07-29 v29 STOP ANCHOR: SL = displacement-leg extreme (struct) when it fits inside SL_STRUCT_MAX_R (30pt), else the far edge of the HELD FVG; CE only as fallback. Default for detector + Auto-Executor. Risk cap / MAX_STOP_R unchanged. | v27.2 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)

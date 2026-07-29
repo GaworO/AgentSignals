@@ -5,6 +5,105 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
+## v29.0 — the stop anchor: struct, or the held FVG's far edge  (2026-07-29)
+
+**One change, and it is the stop.** Since v10 the protective stop has been hard-coded to the
+**consequent encroachment (midpoint) of the displacement FVG** — two identical lines,
+`detcore/entries.py:27` (FVG-edge entry) and `:46` (OTE/fibo entry). v29 replaces both with a
+structural anchor. Entries, targets, catalysts, scaffolding, the guard and the risk cap are
+untouched.
+
+### The rule
+
+```
+SL = struct                       when |entry − struct| <= SL_STRUCT_MAX_R   (default 30 points)
+SL = far edge of the held FVG     otherwise
+SL = CE                           only if the FVG edge is on the wrong side of entry (degenerate)
+```
+
+then `SL_ANCHOR_BUF` (default **0.25**, one MNQ tick) is added **beyond** the chosen level —
+lower for a long, higher for a short.
+
+- **`struct`** = the extreme of the whole **displacement leg**: `min(lo[s : origin_bar+1])` for a
+  long, `max(hi[s : origin_bar+1])` for a short, where `s` is the displacement start bar carried in
+  the setup dict. This is the swing the move came *from*, not the shallow wick that retested the gap.
+- **`far edge of the held FVG`** = `fvg[0]` (the FVG low) for a long, `fvg[1]` (the FVG high) for a
+  short — the edge price actually rejected from, not its midpoint. This is roughly half the FVG's
+  width wider than the old CE stop.
+- Both levels are **strictly causal**: every bar read is `<= su['bos_bar']`, the same window the live
+  14k-bar buffer holds when the detector fires. Live and backtest see identical inputs.
+
+### Why struct is capped at 30 points
+
+Unbounded, the displacement-leg extreme is far too wide to trade: over the June–July bars its median
+risk is **44.7 points against CE's 18.1**, the p90 is triple that, and the widest is **147.9 points**
+(over the full four years, 483.6). It is the right level conceptually and the wrong level
+practically on most setups. The 30-point gate keeps struct where it is genuinely tight — the cases
+where the leg that produced the displacement is close behind the entry — and hands everything else
+to the FVG edge, which sits at a workable **median 22.0 points**.
+
+Measured on 224 emitted signals over the June–July window: **struct is used on 38, the FVG far edge
+on 186.** No signal falls through to CE.
+
+### Changed
+
+- **`detcore/entries.py`** — new `struct_sl()`, `held_fvg_edge()` and `pick_sl()`. Both
+  `find_entry_v10()` and `find_entry_fibo_v10()` now compute `entry` **first** and then pick the
+  stop, because the rule is expressed in risk-from-entry and cannot be evaluated before the entry
+  price exists. The two hard-coded `sl = round((su['fvg'][0] + su['fvg'][1]) / 2, 2)` lines are gone.
+- **`detcore/emit.py`** — the record now carries `sl_src` (`struct` | `fvg_edge` | `ce`) plus
+  `sl_ce`, `sl_struct` and `sl_fvg_edge`, so the book, `/all/trades` and any audit can show **why**
+  the stop is where it is instead of inferring it.
+- **`agent.py`** — `VERSION` → `v29.0`. This is what `/health` and `/guard/data` report, so a
+  deployed instance can be checked at a glance.
+- **`dashboard.py`** — `SL_STRUCT_MAX_R` and `SL_ANCHOR_BUF` added to the A/B settings panel.
+
+### Unchanged — deliberately
+
+- **The risk cap.** `cfg.max_stop_r` (`MAX_STOP_R`, default 40) and `exits.exceeds_risk_cap()` still
+  **discard** a setup whose stop exceeds the cap, exactly as before. The v22 `_cap_stop` re-anchor
+  (`STOP_CAP` / `STOP_CAP_TRIGGER`, both 0/off by default) still runs after the anchor is chosen.
+- **The target.** `exits.take_profit()` is untouched: still `entry ± rr*risk` off the *actual* stop,
+  and `agent._exec_order` still recomputes `tp = entry ± 2R` from the stop it is given.
+- Entries, displacement/rejection/BOS, catalysts, sessions, `guardrails.py`, `shadow.py` and the
+  fill clock: no edits.
+
+### The cap RE-ANCHORS; it never deletes
+
+A wider anchor would otherwise collide with `MAX_STOP_R`, which discards a setup whose stop exceeds
+it. v29 does not accept that trade-off:
+
+- **`pick_sl()`** pulls an over-wide stop back **to** `cfg.max_stop_r` and tags the source
+  `+capped`. The setup is kept and the max-SL ceiling still holds exactly (no stop is ever wider
+  than the cap).
+- **`emit()`** gates on the **CE risk** (`risk_ce`), exactly as v28 did, so the SET of emitted
+  signals is unchanged. v29 only moves the stop.
+
+Verified: **7,533 signals in v28 and 7,533 in v29** over 2022-06→2026-06. On the June–July window the
+two builds agree **signal for signal** — same date, direction, catalyst, entry and `entry_ms` on all
+246 — with the stop moved on every one and a maximum stop of exactly 40.00. Anchor mix over four
+years: struct 3,438, held-FVG edge 3,652, FVG edge re-anchored to the cap 443, CE 0.
+
+`detcore/exits.py` is untouched: `exceeds_risk_cap()` behaves as before, it simply never fires
+because the stop it is handed already sits inside the cap.
+
+### Second-order effect: the anti-stack rule
+
+The signal set is identical but the *taken* set is not quite — 370 → 388 trades after the guard over
+four years (13 months take more, 3 take fewer, 33 unchanged). A wider stop changes when a position
+closes, which changes which later signals `position_open` blocks. This is a real consequence of
+moving the stop, not a detection change.
+
+### Live path
+
+`det_v11.py` → `detcore/` is the live A/B detector (`agent._detect()` shells out to
+`DET_FILE`, default `det_v11.py`). The emitted `SL` is what `guardrails` books and what
+`agent._exec_order()` sends to TradersPost as the bracket stop:
+`sl = float(x['SL'])`. No separate executor-side stop logic exists, so the Auto-Executor
+picks this up with no further change — every new signal from the next detector run onward.
+
+---
+
 ## v28.0 — the backtest was wrong; fill clock; cross-strategy audit  (2026-07-25)
 
 > **Read this before trusting any number written in this file above.** Every forward-test figure in
