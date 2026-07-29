@@ -20,6 +20,16 @@ def detect(cfg):
     build_levels(ctx)
     run_all(ctx)
 
+    # ---- v31: resolve orphaned-FVG re-arms (zones the price ran away from) ----
+    if getattr(ctx, 'orphans', None):
+        from .emit import emit_orphan
+        seen_o = set()
+        for o in ctx.orphans:
+            k = (o['dr'], round(o['disp']['fvg'][0], 2), round(o['disp']['fvg'][1], 2), int(o['disp']['fvg_bar']))
+            if k in seen_o: continue                     # same physical zone logged once per catalyst
+            seen_o.add(k)
+            emit_orphan(ctx, o)
+
     # ---- DEDUP (same model/cat/dir within a 30-bar bucket) ----
     seen = set(); ded = []
     for x in sorted(ctx.out, key=lambda z: z['emit_bar']):

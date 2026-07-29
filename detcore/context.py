@@ -23,3 +23,4 @@ class Ctx:
         self.out = []        # accumulated confirmed setups (mutated by emit.emit)
         self.cur_break = 1   # break # of the active trigger (set by scaffolding.run_*)
         self._TRC = []       # debug-trace rows (collected only when cfg.debug_trace)
+        self.orphans = []    # v31: displacement FVGs whose retest window expired untouched

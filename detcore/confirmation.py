@@ -152,3 +152,114 @@ def bias_for(ctx, t):
     elif b == 'LONG?' and vu and not vd: b = 'LONG'
     elif b == 'SHORT?' and vd and not vu: b = 'SHORT'
     return (b, pd_)
+
+
+# ---------------------------------------------------------------------------------------------
+# v31 ORPHANED-FVG RE-ARM. A displacement FVG whose retest window (retwin) expires with ZERO
+# wick-tests is not forgotten any more: it stays a watched zone until (a) a candle BODY closes
+# through its CE, or (b) the trading day ends — the two invalidation rules specified by the
+# operator. When price finally returns (wick into the FVG, body still holding CE), the NORMAL
+# sequence restarts from the retest step: rejection origin -> BOS -> entry, with the v29 stop
+# anchor and v30 target untouched. ORPHAN_FVG=0 disables (bit-identical to v30.1).
+# ---------------------------------------------------------------------------------------------
+import os as _os
+
+
+def rejection_untested(ctx, disp, dr):
+    """v31.1: the zone is registerable whenever the v10 windows failed WITHOUT a CE body-break.
+    (v31.0 additionally required zero wick-tests; the operator widened the window to end-of-day,
+    so a tested-but-unfinished sequence keeps the zone alive too. The only killers are a BODY
+    close through CE and end of day — find_setup_orphan enforces both itself, this gate only
+    filters the zones that were already dead inside the v10 window.)"""
+    cl, n = ctx.cl, ctx.n
+    RETWIN = ctx.cfg.retwin
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; fb = disp['fvg_bar']
+    rf = ctx.cfg.rej_frac
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    hi, lo = ctx.hi, ctx.lo
+    for j in range(fb + 1, min(fb + 1 + RETWIN, n)):
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return False   # body through CE -> dead
+        if _os.environ.get('ORPHAN_WINDOW', 'caps') == 'caps':
+            wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+            if wick: return False              # caps mode (v31.0): only NEVER-tested zones re-arm
+    return True
+
+
+def find_setup_orphan_caps(ctx, disp, dr, start, day_end):
+    """v31.0 conservative variant (ORPHAN_WINDOW=caps): retwin/boswin caps inside the re-armed
+    sequence, multiple attempts until CE body-break or day end. Measured 4y: 10 guarded trades,
+    6W/4L, +$3,095 — neutral-positive. Kept selectable because the operator's day-wide window
+    measured NEGATIVE (see CHANGELOG v31.1)."""
+    hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
+    RETWIN, BOSWIN = ctx.cfg.retwin, ctx.cfg.boswin
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; ce = round((fl + fh) / 2, 2)
+    rf = ctx.cfg.rej_frac
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    s0, u = disp['s'], disp['u']
+    j = max(start, disp['fvg_bar'] + 1 + RETWIN)
+    end = min(day_end, n - 1)
+    while j <= end:
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return None
+        wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+        if not wick:
+            j += 1; continue
+        origin = hi[j] if not bull else lo[j]; ob = j
+        for q in range(j + 1, min(j + 1 + RETWIN, end + 1)):
+            if (cl[q] > thr) if not bull else (cl[q] < thr): return None
+            wq = (hi[q] >= fl) if not bull else (lo[q] <= fh)
+            bq = (cl[q] <= thr) if not bull else (cl[q] >= thr)
+            if wq and bq:
+                ext = hi[q] if not bull else lo[q]
+                if (ext > origin) if not bull else (ext < origin): origin, ob = ext, q
+        struct0 = float(max(hi[s0:ob])) if bull else float(min(lo[s0:ob])); level = struct0
+        for q in range(ob + 1, min(ob + 1 + BOSWIN, end + 1)):
+            if (cl[q] > thr) if not bull else (cl[q] < thr): return None
+            if (cl[q] > level) if bull else (cl[q] < level):
+                e2 = float(max(hi[ob:q + 1])) if bull else float(min(lo[ob:q + 1]))
+                return dict(dr=dr, origin=round(float(origin), 2), origin_bar=int(ob), end=round(e2, 2),
+                            bos_bar=int(q), ce=ce, fvg=disp['fvg'], fvg_bar=disp['fvg_bar'], s=s0, u=u)
+            level = max(level, hi[q]) if bull else min(level, lo[q])
+        j = max(j + 1, ob + 1 + BOSWIN)
+    return None
+
+
+def find_setup_orphan(ctx, disp, dr, start, day_end):
+    """Dispatch on ORPHAN_WINDOW: 'day' (operator spec, default) = window to end of day;
+    'caps' = the v31.0 conservative variant above."""
+    if _os.environ.get('ORPHAN_WINDOW', 'caps') == 'caps':
+        return find_setup_orphan_caps(ctx, disp, dr, start, day_end)
+    return _find_setup_orphan_day(ctx, disp, dr, start, day_end)
+
+
+def _find_setup_orphan_day(ctx, disp, dr, start, day_end):
+    """v31.1: the rejection+BOS sequence with the bar window extended TO END OF DAY (operator
+    spec). Single causal pass from `start`; the zone dies only on (a) a candle BODY closing
+    through CE or (b) `day_end`. Any wick into the FVG whose body holds CE is a test; the origin
+    is the deepest test wick so far; BOS = a close beyond the running structure level, checked
+    continuously — no retwin/boswin caps. Returns the find_setup_v10 su-dict shape, or None."""
+    hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; ce = round((fl + fh) / 2, 2)
+    rf = ctx.cfg.rej_frac
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    s0, u = disp['s'], disp['u']
+    end = min(day_end, n - 1)
+    origin = None; ob = None; level = None
+    for j in range(start, end + 1):
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return None    # body through CE -> zone dead
+        wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+        body = (cl[j] <= thr) if not bull else (cl[j] >= thr)
+        if origin is not None:
+            # BOS first: a close beyond the running structure level confirms
+            if (cl[j] > level) if bull else (cl[j] < level):
+                e2 = float(max(hi[ob:j + 1])) if bull else float(min(lo[ob:j + 1]))
+                return dict(dr=dr, origin=round(float(origin), 2), origin_bar=int(ob), end=round(e2, 2),
+                            bos_bar=int(j), ce=ce, fvg=disp['fvg'], fvg_bar=disp['fvg_bar'], s=s0, u=u)
+        if wick and body:
+            ext = hi[j] if not bull else lo[j]
+            if origin is None or ((ext > origin) if not bull else (ext < origin)):
+                origin, ob = ext, j
+                level = float(max(hi[s0:ob])) if bull else float(min(lo[s0:ob]))   # re-base structure
+                continue
+        if origin is not None:
+            level = max(level, hi[j]) if bull else min(level, lo[j])
+    return None

@@ -9,7 +9,7 @@ import os
 import numpy as np
 
 from .primitives import fvgs, impulse_end_v10
-from .exits import take_profit
+from .exits import take_profit, tp_with_src
 
 # ---------------------------------------------------------------------------------------------
 # v29 STOP ANCHOR (default). Replaces "SL = CE of the displacement FVG", which was hard-coded in
@@ -108,9 +108,9 @@ def find_entry_v10(ctx, su):
     risk = (entry - sl) if bull else (sl - entry)
     if risk <= 0: return None
     sl, risk = _cap_stop(ctx, entry, sl, risk, bull)   # v22 stop-cap re-anchor
-    tp = take_profit(ctx, entry, risk, bull)
+    tp, tp_level, tp_src = tp_with_src(ctx, entry, risk, bull, bb)   # v30 swing-liquidity target
     return dict(entry=round(entry, 2), sl=sl, tp=tp, risk=risk, sfvg_bar=fvg[2],
-                sl_src=sl_src, **lv)
+                sl_src=sl_src, tp_src=tp_src, tp_level=tp_level, **lv)
 
 
 def find_entry_fibo_v10(ctx, su, ote=0.62):
@@ -121,9 +121,9 @@ def find_entry_fibo_v10(ctx, su, ote=0.62):
     risk = (entry - sl) if bull else (sl - entry)
     if risk <= 0: return None
     sl, risk = _cap_stop(ctx, entry, sl, risk, bull)   # v22 stop-cap re-anchor
-    tp = take_profit(ctx, entry, risk, bull)
+    tp, tp_level, tp_src = tp_with_src(ctx, entry, risk, bull, bb)   # v30 swing-liquidity target
     return dict(entry=entry, sl=sl, tp=tp, risk=risk, hh_bar=eb, ote=ote,
-                sl_src=sl_src, **lv)
+                sl_src=sl_src, tp_src=tp_src, tp_level=tp_level, **lv)
 
 
 def _ent_fvg(ctx, su):
