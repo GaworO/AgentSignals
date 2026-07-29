@@ -613,6 +613,7 @@ def note(x, decision, reason=''):
         glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
+                         sl_src=x.get('sl_src'),   # v29.1: which anchor set the stop (struct | fvg_edge | fvg_edge+capped)
                          tp=(x.get('_exec_tp') if x.get('_exec_tp') is not None else x.get('TP')),
                          qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
                                               else x.get('_exec_qty_override')), decision=decision, reason=reason))
@@ -633,8 +634,9 @@ def _trade_alert(x, decision):
         q = x.get('_sent_qty') if x.get('_sent_qty') is not None else x.get('_exec_qty_override')
         qtxt = ('%s×' % q) if q else 'risk-size'
         tag = 'AUTO SENT' if decision == 'sent' else 'ARMED (manual)'
-        msg = ('\U0001f7e2 %s · %s %s %s @ %s · SL %s / TP %s'
-               % (tag, _sess_of(x), x.get('dir'), qtxt, x.get('entry'), x.get('SL'), x.get('TP')))
+        msg = ('\U0001f7e2 %s · %s %s %s @ %s · SL %s (%s) / TP %s'
+               % (tag, _sess_of(x), x.get('dir'), qtxt, x.get('entry'), x.get('SL'),
+                  x.get('sl_src') or '?', x.get('TP')))
         if x.get('_alert_txt'): msg += '\n' + str(x['_alert_txt'])   # v27.1: full setup summary rides on the FIRED message
         try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
         except Exception: pass
@@ -1061,7 +1063,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <a class="btn fblk" href="#" onclick="return setf('blocked')">Blocked only</a>
  <span class=g style="font-size:11px">blocked rows never traded — their R/Net$ are model-priced (shown gray)</span>
 </div>
-<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
+<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>SL type</th><th>TP</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
  <div class="ph">🧾 <b>Reconcile with broker</b> — paste OR drag &amp; drop the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
   <input type="file" id="recfile" accept=".csv,text/csv" style="display:none" onchange="recFile(this.files)">
@@ -1113,6 +1115,10 @@ async function load(){
   ['Fired · Filled',(d.fired||0)+' · '+(d.filled||0)+' <span style="font-size:11px;color:#8a93a6">('+
     (d.fired?Math.round(100*(d.filled||0)/d.fired):0)+'% fill)</span>']
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
+ let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';
+  let lab=v=='struct'?'STRUCT':v=='fvg_edge'?'FVG edge':v=='fvg_edge+capped'?'FVG edge · capped 40':v;
+  let col=v=='struct'?'#3ecb3e':v.indexOf('capped')>-1?'#e0a93b':'#3987e5';
+  return '<span style="color:'+col+'" title="v29 stop anchor: struct when the displacement-leg extreme is within 30pt, else the far edge of the held FVG; re-anchored to MAX_STOP_R when wider">'+lab+'</span>';};
  let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
   let h='<span class='+c+'>'+o+'</span>';
@@ -1120,7 +1126,7 @@ async function load(){
    h+=' <a href="#" data-k="'+encodeURIComponent(x.key||'')+'" title="I canceled this order at the broker — mark it canceled and free the slot" onclick="return cancelRow(this.dataset.k)" style="color:#e0a93b;text-decoration:none">✕</a>';
   return h;};
  let fired=x=>x.decision=='sent'||x.decision=='manual';
- window._dec=dec;window._oc=oc;window._fired=fired;window._book=d.book||[];
+ window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._book=d.book||[];
  renderBook();
  let ps=document.getElementById('pineday');
  let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
@@ -1130,7 +1136,7 @@ let _filter='all';
 function setf(f){_filter=f;document.querySelectorAll('.btn.fall,.btn.fsent,.btn.fblk').forEach(b=>b.classList.remove('act'));
  document.querySelector('.btn.f'+(f=='all'?'all':f=='sent'?'sent':'blk')).classList.add('act');renderBook();return false;}
 function renderBook(){
- let dec=window._dec,oc=window._oc,fired=window._fired;if(!dec)return;
+ let dec=window._dec,oc=window._oc,fired=window._fired,slsrc=window._slsrc||(x=>'');if(!dec)return;
  let rows=(window._book||[]).filter(x=>_filter=='all'||(_filter=='sent'?fired(x):!fired(x)));
  document.getElementById('tb').innerHTML=rows.map(x=>{
   let isB=!fired(x);                         // blocked rows never traded -> model-priced R/Net$, render gray
@@ -1142,7 +1148,7 @@ function renderBook(){
   if(isB&&(rv!==''||nv!=='')){rv=rv!==''?('('+rv+')'):'';nv=nv!==''?('('+nv+')'):'';}
   let mc=rec?' style="color:#6b7688" title="model verdict — see Real$ for the broker result"':'';
   return '<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
-  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
+  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+slsrc(x)+'</td><td>'+(x.tp||'')+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
   '</td><td'+rc+'>'+rv+'</td><td'+(isB?rc:mc)+'>'+nv+'</td><td>'+real+'</td></tr>';}).join('');
 }
 let _tok=new URLSearchParams(location.search).get('t');

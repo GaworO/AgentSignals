@@ -94,6 +94,15 @@ four years (13 months take more, 3 take fewer, 33 unchanged). A wider stop chang
 closes, which changes which later signals `position_open` blocks. This is a real consequence of
 moving the stop, not a detection change.
 
+### v29.1 — the book shows which anchor fired  (same day)
+
+- **`guardrails.note()`** stores `sl_src` on every book row (sent AND blocked).
+- **`/guard` (Auto-Executor page)** — new **SL type** column between SL and TP:
+  <span>STRUCT</span> (green) / <span>FVG edge</span> (blue) / <span>FVG edge · capped 40</span> (amber).
+  Rows from before v29.1 show "—" (the field did not exist yet).
+- **Telegram fire alert** now reads `SL 30952.25 (fvg_edge) / TP ...`.
+- `agent.py` `VERSION` → **v29.1**.
+
 ### Live path
 
 `det_v11.py` → `detcore/` is the live A/B detector (`agent._detect()` shells out to
