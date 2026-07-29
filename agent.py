@@ -46,7 +46,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v29.1'   # 2026-07-29 v29.1: Auto-Executor book + /guard table show WHICH anchor set the stop (sl_src column: STRUCT / FVG edge / capped); fire alert carries it too. | v29 STOP ANCHOR: SL = displacement-leg extreme (struct) when it fits inside SL_STRUCT_MAX_R (30pt), else the far edge of the HELD FVG; CE only as fallback. Default for detector + Auto-Executor. Risk cap / MAX_STOP_R unchanged. | v27.2 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
+VERSION = 'v31.3'   # 2026-07-29 v31.3: orphan zone lifetime = 120 BARS from the FVG (operator pick from the sweep: +$4,125, 6W/2L, 0 degraded months). Defaults: ORPHAN_WINDOW=caps, ORPHAN_LIFE=day, ORPHAN_MAX_BARS=120 — no env vars needed. | v31.2: 2026-07-29 v31.2 cap sweep: sequence caps KEPT + zone lives to END OF SESSION (defaults ORPHAN_WINDOW=caps, ORPHAN_LIFE=session; 4y sweep in CHANGELOG). | v31.1: 2026-07-29 v31.1: the FVG retest/BOS bar window runs TO END OF DAY (operator spec) — no retwin/boswin caps on re-armed zones; kills remain body-through-CE and day end only. | v31.0: 2026-07-29 v31: ORPHANED-FVG RE-ARM — a displacement FVG the price ran away from (no test in retwin) stays watched until a BODY closes through its CE or the day ends; on a later return that holds CE the retest->BOS->entry sequence re-arms (cat +ORPH). ORPHAN_FVG=0 disables. | v30.1: 2026-07-29 v30.1: 1R partial OFF by default (PARTIAL_AT_1R=1 re-enables) — last-12m test: partial cost $4,351 (~14%) for 3/12 better months. | v30.0: 2026-07-29 v30: TP = last swing level left of BOS (>=1R, capped 3R, 2R fallback; SWING_TP knobs) + 1R PARTIAL: 0.2% acct banked at +1R via a second broker bracket (PARTIAL_AT_1R / PARTIAL_ACCT_PCT). | v29.1: 2026-07-29 v29.1: Auto-Executor book + /guard table show WHICH anchor set the stop (sl_src column: STRUCT / FVG edge / capped); fire alert carries it too. | v29 STOP ANCHOR: SL = displacement-leg extreme (struct) when it fits inside SL_STRUCT_MAX_R (30pt), else the far edge of the HELD FVG; CE only as fallback. Default for detector + Auto-Executor. Risk cap / MAX_STOP_R unchanged. | v27.2 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -163,28 +163,56 @@ def _exec_order(x, text=None):
         x['_exec_tp'] = _t(tp + off)   # v28: the book/shadow must score the target the BROKER holds.
         x['_exec_entry'] = _t(e + off)  # tp is recomputed from the POST-ENTRY_OFFSET_PTS entry; x['TP']
                                         # is the detector's PRE-offset value (3 pts apart at offset=1).
-        payload = {
-            "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
-            "action": "buy" if bull else "sell",
-            "orderType": "limit",
-            "limitPrice": _t(e + off),
-            "quantity": qty,
-            "takeProfit": {"limitPrice": _t(tp + off)},
-            "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
-            # 'day' (default) — a GTC entry limit outlived every model window (shadow no_fill=4h,
-            # manage cancel=2h) and could fill overnight AFTER the guard freed the slot -> stacked
-            # positions no guard sees. EXEC_TIF=gtc restores the old behaviour if you really want it.
-            "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
-        }
-        if text: payload["text"] = text   # relay /stage użyje jako treść -> JEDNA wiadomość zamiast dwóch
-        r = requests.post(url, json=payload, timeout=10)
-        st = getattr(r, 'status_code', None)
-        body = ''
-        try: body = (r.text or '')[:200]
+        # ---- v30: 1R partial. Split ONE signal into TWO brackets at the broker:
+        #   leg A ("banker"):  PARTIAL_ACCT_PCT of the account realized at exactly +1R
+        #                      (0.2% at RISK_PCT 0.5 -> 40% of the contracts, TP = entry +/- 1R)
+        #   leg B ("runner"):  the rest, TP = the detector's target (v30 swing level / 2R).
+        # Same entry limit, same stop, same TIF on both -> they fill and stop together; only the
+        # targets differ. Entirely broker-side: no dependency on the agent being awake mid-trade.
+        # PARTIAL_AT_1R=0 disables (single bracket, exactly the v29 behaviour). qty=1 cannot split.
+        # v30: the runner's target is the DETECTOR's TP (swing level or 2R fallback), not a local
+        # 2R recompute. The old inline `tp = e ± 2R` above stays only as a fallback for records
+        # without a TP field. (Caught by the executor test: leg B was going to 2R while the
+        # detector aimed at the swing level.)
+        try: tp = float(x['TP']) if x.get('TP') is not None else tp
         except Exception: pass
-        print('EXEC', st, payload, flush=True)
-        return {"sent": True, "status": st, "resp": body,
-                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": payload.get("quantity")}
+        legs = [(qty, tp)]
+        try:
+            if os.environ.get('PARTIAL_AT_1R', '0') == '1' and qty >= 2:   # v30.1: default OFF (measured: costs ~14%/yr for little protection); PARTIAL_AT_1R=1 re-enables
+                _rp  = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
+                _pp  = float(os.environ.get('PARTIAL_ACCT_PCT', '0.2') or 0.2)
+                _fr  = max(0.0, min(0.9, _pp / _rp)) if _rp > 0 else 0.0
+                qa   = int(round(qty * _fr))
+                if 0 < qa < qty:
+                    r1 = (e + R) if bull else (e - R)
+                    legs = [(qa, r1), (qty - qa, tp)]
+        except Exception as _pe:
+            print('EXEC partial split err (single bracket fallback)', _pe, flush=True)
+        x['_legs'] = [{"qty": q_, "tp": _t(t_ + off)} for q_, t_ in legs]
+        st = None; body = ''; sent_any = False
+        for _i, (q_, t_) in enumerate(legs):
+            payload = {
+                "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
+                "action": "buy" if bull else "sell",
+                "orderType": "limit",
+                "limitPrice": _t(e + off),
+                "quantity": q_,
+                "takeProfit": {"limitPrice": _t(t_ + off)},
+                "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
+                # 'day' (default) — a GTC entry limit outlived every model window (shadow no_fill=4h,
+                # manage cancel=2h) and could fill overnight AFTER the guard freed the slot -> stacked
+                # positions no guard sees. EXEC_TIF=gtc restores the old behaviour if you really want it.
+                "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
+            }
+            if text and _i == 0: payload["text"] = text   # relay /stage: one message, not one per leg
+            r = requests.post(url, json=payload, timeout=10)
+            st = getattr(r, 'status_code', None)
+            try: body = (r.text or '')[:200]
+            except Exception: body = ''
+            sent_any = True
+            print('EXEC', st, ('leg %d/%d' % (_i + 1, len(legs))), payload, flush=True)
+        return {"sent": sent_any, "status": st, "resp": body, "legs": len(legs),
+                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": qty}
     except Exception as ex:
         print('EXEC err', ex, flush=True)
         return {"sent": False, "error": str(ex), "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}

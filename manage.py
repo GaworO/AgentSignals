@@ -41,19 +41,36 @@ def _record(opath, t, r, reason, bar_ms):
     except Exception:
         pass
 
+def _partial_frac():
+    """v30: fraction of the position banked at +1R = PARTIAL_ACCT_PCT / RISK_PCT
+    (0.2% of account at 0.5% risk -> 0.4). PARTIAL_AT_1R=0 -> 0.0 (no partial)."""
+    try:
+        if os.environ.get('PARTIAL_AT_1R', '0') != '1': return 0.0   # v30.1: default OFF
+        rp = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
+        pp = float(os.environ.get('PARTIAL_ACCT_PCT', '0.2') or 0.2)
+        return max(0.0, min(0.9, pp / rp)) if rp > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
 def register(x, path):
     """Zarejestruj potwierdzony trade do sledzenia. Idempotentne (po kluczu)."""
     e = float(x['entry']); sl = float(x['SL']); bull = x['dir'] == 'LONG'; R = abs(e - sl)
     if R <= 0: return
     r1 = e + R if bull else e - R
     r2 = e + 2*R if bull else e - 2*R
+    # v30: track the REAL emitted target (swing level or 2R fallback), not a hardcoded 2R
+    try: tp = float(x.get('TP')) if x.get('TP') is not None else r2
+    except Exception: tp = r2
     key = f"{x['date']}|{x['model']}|{x['cat']}|{x['dir']}|{x['bos']}"
     lst = _load(path)
     if any(t.get('key') == key for t in lst): return
     _dec = _dec_for(e)                                    # FX-safe precision (MNQ stays at 1); entry kept RAW as before
     lst.append(dict(key=key, dir=x['dir'], cat=x['cat'], entry=e, sl=round(sl,_dec),
-                    r1=round(r1,_dec), r2=round(r2,_dec), bos_ms=int(x.get('bos_ms', 0)),
-                    filled=False, done1=False))
+                    r1=round(r1,_dec), r2=round(r2,_dec), tp=round(tp,_dec),
+                    tp_r=round(abs(tp - e) / R, 3), tp_src=x.get('tp_src'),
+                    bos_ms=int(x.get('bos_ms', 0)),
+                    filled=False, done1=False, part=False))
     _save(path, lst[-50:])   # trzymaj ostatnie 50
 
 def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=None, outcomes_path=None):
@@ -90,13 +107,27 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=None, outco
 
         _fixed = os.environ.get('MANAGE_FIXED', '1') == '1'   # auto trades run a FIXED bracket:
         # no BE. MANAGE_FIXED=0 restores the old BE@1R advisory narration (manual-trading style).
+        tp  = t.get('tp', r2)                 # v30: real target (swing / 2R); legacy rows fall back to r2
+        tpr = t.get('tp_r', 2.0) or 2.0
+        fr  = _partial_frac()                 # v30: 0.4 by default; 0.0 = v29 whole-position maths
         if _fixed:
             if (lo <= sl) if bull else (hi >= sl):
-                send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl}. Trade zamknięty (−1R). Zakończony.")
-                _record(outcomes_path, t, -1.0, 'SL', bar_ms); drop = True; changed = True
-            elif (hi >= r2) if bull else (lo <= r2):
-                send(f"🎯 TP {emoji} {t['dir']} · {t['cat']} → cel 2R @ {r2}. Trade zakończony (+2R).")
-                _record(outcomes_path, t, 2.0, 'TP', bar_ms); drop = True; changed = True
+                if t.get('part'):             # runner stopped AFTER the 1R partial was banked
+                    net = round(2 * fr - 1.0, 3)
+                    send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl} po partialu 1R. Netto {net:+}R. Zakończony.")
+                    _record(outcomes_path, t, net, 'SL_after_partial', bar_ms)
+                else:
+                    send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl}. Trade zamknięty (−1R). Zakończony.")
+                    _record(outcomes_path, t, -1.0, 'SL', bar_ms)
+                drop = True; changed = True
+            elif fr > 0 and not t.get('part') and ((hi >= r1) if bull else (lo <= r1)):
+                t['part'] = True; changed = True   # bank the 1R leg; runner keeps going (target checked next bar)
+                send(f"💰 PARTIAL {emoji} {t['dir']} · {t['cat']} → +1R @ {r1}: zdjęte {int(round(fr*100))}% pozycji "
+                     f"(+{round(fr,2)}R w kieszeni). Runner {int(round((1-fr)*100))}% → cel {tp} ({t.get('tp_src') or '2R'}).")
+            elif (hi >= tp) if bull else (lo <= tp):
+                net = round((fr * 1.0 + (1 - fr) * tpr) if t.get('part') else tpr, 3)
+                send(f"🎯 TP {emoji} {t['dir']} · {t['cat']} → cel @ {tp} ({t.get('tp_src') or '2R'}). Netto {net:+}R. Zakończony.")
+                _record(outcomes_path, t, net, 'TP', bar_ms); drop = True; changed = True
         elif not t['done1']:
             # 1) SL (ruch przeciw) — sprawdzany NAJPIERW
             if (lo <= sl) if bull else (hi >= sl):

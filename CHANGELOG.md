@@ -5,6 +5,188 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
+## v31.3 — operator pick: zone lifetime = 120 bars  (2026-07-29)
+
+From the v31.2 sweep the operator selected the **120-bar (2h)** lifetime: +$4,125, 6W/2L,
+0 months with a longer losing streak, 2 months slightly worse on $. Shipped as the default —
+`ORPHAN_WINDOW=caps` (sequence caps kept), `ORPHAN_LIFE=day`, `ORPHAN_MAX_BARS=120` — which is
+byte-for-byte the configuration the sweep measured. **No environment variables are required**;
+the defaults ARE the chosen variant. `ORPHAN_MAX_BARS=0` widens back to v31.0 (day end),
+`ORPHAN_LIFE=session` clips at session end instead.
+
+---
+
+## v31.2 — the cap sweep: sequence caps stay, zone lives to END OF SESSION  (2026-07-29)
+
+Six lifetime/cap variants, 4 years, full guard, 0.5% risk, all vs the v30.1 baseline:
+
+| variant | orphan trades taken | W/L | orphan $ | months worse | monthly runs worse |
+|---|---|---|---|---|---|
+| seq caps + till day end (v31.0) | 10 | 6/4 | +$3,095 | 3 | 2 |
+| **seq caps + till SESSION end** | **5** | **4/1** | **+$2,685** | **1** | **0** |
+| seq caps + max 120 bars | 8 | 6/2 | +$4,125 | 2 | 0 |
+| seq caps + max 240 bars | 10 | 6/4 | +$3,095 | 3 | 2 |
+| no seq caps + session end | 61 | 16/45 | −$10,948 | 24 | 20 |
+| no seq caps + 120 bars | 73 | 22/51 | −$8,923 | 24 | 19 |
+
+**The finding: the poison in v31.1 was never the lifetime — it was removing the retwin/boswin
+caps inside the re-armed sequence.** Both uncapped-sequence variants lose ~$9–11k regardless of
+how short the zone lives. With the caps kept, every lifetime is positive.
+
+**New defaults: `ORPHAN_WINDOW=caps` + `ORPHAN_LIFE=session`** — the zone dies with the session
+it was born in. Cleanest profile of the sweep: 4W/1L, only one month worse than baseline, zero
+months with a longer losing streak. `ORPHAN_MAX_BARS=120` is the higher-$ alternative
+(+$4,125, 6W/2L) — at n≈5–10 per variant the dollar differences are 1–2 trades and not
+statistically separable; session-end is chosen for the risk profile, not the dollars.
+`ORPHAN_LIFE=day` restores v31.0; `ORPHAN_WINDOW=day` restores the (negative) v31.1 behaviour.
+
+---
+
+## v31.1 — the bar window runs to END OF DAY  (2026-07-29, operator adjustment)
+
+> **Measured result of this adjustment (4y, full guard, 0.5% risk): NEGATIVE.** The day-wide
+> window produces 477 orphan candidates, 75 guarded trades, **22W/53L, −$9,952**; 26 months worse
+> vs 13 better; profitable months 44 → 41; several monthly losing streaks lengthen (2 → 3/5).
+> The v31.0 capped variant on the same data: 10 trades, 6W/4L, **+$3,095**, no month damaged.
+> Both are shipped: `ORPHAN_WINDOW=day` (default — the operator's spec) | `ORPHAN_WINDOW=caps`
+> (the measured-safer variant). Recommendation on the data: run `caps`.
+
+v31.0 re-armed only zones with ZERO tests in the 20-bar window, and re-used the 20/30-bar
+retest/BOS caps inside the re-armed sequence. The operator widened the rule: **the bar window is
+the trading day**. Changes:
+
+- `find_setup_orphan` is now a single causal pass from the bar after the FVG forms to the last
+  bar of the day: any CE-holding wick is a test, the origin is the deepest test so far, BOS is a
+  close beyond the running structure level, checked continuously — **no retwin/boswin caps**.
+- Registration widened: any setup the v10 windows failed to complete (untested OR tested without
+  a BOS) stays watched, provided no candle body closed through CE inside the v10 window.
+- The two kill rules are unchanged and exclusive: **body close through CE** and **end of day**.
+- The immediate v10 path is untouched — fast setups emit exactly as before; +ORPH only ever adds
+  what the short windows dropped. `ORPHAN_FVG=0` still restores v30.1 bit-for-bit.
+
+## v31.0 — the orphaned-FVG re-arm  (2026-07-29)
+
+Operator-specified: *"does the strategy still have in mind the left FVGs of the displacement in
+case the market comes back there and then holds 50% of CE and starts the sequence of trades from
+that step?"* It did not — `find_rejection_v10` watches an FVG for `retwin = 20` bars and then
+forgets it forever. v31 adds the memory.
+
+### The rule
+
+A displacement FVG whose retest window expires with **zero wick-tests** (price simply ran away)
+becomes a **watched zone**. The zone dies on exactly two conditions — both specified by the
+operator, nothing else invented:
+
+1. **a candle BODY closes through its CE** (50% line) — at any point, including inside the
+   original window (a CE body-break in the window means the zone was never orphaned, it was killed);
+2. **end of the trading day** — zones do not carry overnight.
+
+While the zone lives, a return that wicks into the FVG with the **body still holding CE** restarts
+the normal sequence from the retest step: rejection origin (same `retwin` collection), BOS below /
+above the retest structure (same `boswin`), entry / SL (v29 anchor) / TP (v30 swing rule) —
+all downstream code unchanged. Failed BOS windows do not kill the zone; only the two rules above do.
+Emitted records carry `cat = <catalyst>+ORPH`, so the book, `/all/trades` and the Auto-Executor
+column show exactly where the trade came from. One physical zone re-arms at most once per catalyst
+set (deduped on the FVG itself).
+
+### Files
+
+`detcore/confirmation.py` (`rejection_untested`, `find_setup_orphan`) · `detcore/emit.py`
+(orphan registration inside `emit()`, `emit_orphan()`) · `detcore/context.py` (`ctx.orphans`) ·
+`detcore/pipeline.py` (orphan resolution pass after `run_all`) · `agent.py` (VERSION) ·
+`dashboard.py` (`ORPHAN_FVG` row).
+
+### Verified
+
+- `ORPHAN_FVG=0` → **bit-identical** signal list to v30.1 (checked record-for-record).
+- Every emitted `+ORPH` trade re-checked independently: **no body close through CE** anywhere from
+  FVG birth to the BOS bar (0 violations), and the whole sequence completes inside the zone's day.
+- The operator's own counter-example (2026-06-10 zone whose CE was body-broken before the late
+  return) is correctly **not** emitted.
+- Jun–Jul archive: 255 → 258 signals (**3** orphan re-arms). Four years: 7,533 → 7,672 signals
+  (**139** orphan candidates, **10** taken by the full guard: 6W/4L, **+$3,095** at 0.5% risk).
+  Month-by-month: 6 months better / 3 worse, profitable-month count unchanged (44/49).
+
+---
+
+## v30.1 — 1R partial OFF by default  (2026-07-29)
+
+Measured on the last 12 months (same swing TP, same trades): partial ON $+26,197 vs OFF
+$+30,548 — the partial cost **$4,351 (~14%)**, was the better month only 3/12, identical
+profitable-month count and losing streaks, and softened the in-month DD in 5/12 months.
+On the Jun–Jul archive replay: ON +1.19R vs OFF +2.31R with exactly one save (−1R → −0.11R).
+That is a high insurance premium for the protection delivered, so the default flips to OFF.
+`PARTIAL_AT_1R=1` re-enables the two-leg bracket unchanged (env only, no redeploy).
+
+---
+
+## v30.0 — the target: last swing level left, capped 3R; 1R partial  (2026-07-29)
+
+Base = v29.1. Two changes, both about WHEN profit is taken. Entries, the v29 stop anchor,
+the guard and the risk cap are untouched.
+
+### 1 · TP = the last swing level to the left  (`detcore/exits.py`)
+
+Since v10 the target was a blind `entry ± 2R`. v30 aims at structure instead:
+
+```
+target = the most recent CONFIRMED swing left of the BOS bar
+         (swing low below for a SHORT, swing high above for a LONG)
+rules  : must be DEEPER than SWING_TP_MIN_R x risk   (default 1R — shallower swings are skipped)
+         clamped at SWING_TP_MAX_R x risk            (default 3R)
+         no qualifying level in SWING_TP_LOOKBACK    (240 bars) -> fixed 2R, exactly as before
+```
+
+- A swing is a `SWING_TP_K`-bar fractal (default 5 each side) and only counts once its right
+  side has printed — every bar read is `<= bos_bar`, so live and backtest see the same level.
+- Emitted records carry **`tp_src`** (`swing` | `2R`) and **`tp_level`** (the raw level aimed at).
+- `SWING_TP=0` restores v29's flat 2R bit for bit. Callers that never passed a BOS bar
+  (forex det, strategy_f) are unchanged by construction.
+- Measured on Jun–Jul 2026 (246 signals, identical trade set): **114 swing-targeted
+  (1.02R…3.00R, median 2.0R), 132 fall back to 2R.** Cap and floor verified per signal.
+
+### 2 · 1R partial — 0.2% of the account banked  (`agent.py` + `manage.py`)
+
+`_exec_order()` now splits one signal into **two broker brackets**:
+
+- **leg A ("banker")** — `PARTIAL_ACCT_PCT / RISK_PCT` of the contracts (0.2/0.5 = **40%**),
+  TP at exactly **+1R**;
+- **leg B ("runner")** — the rest, TP at the v30 target above.
+
+Same entry limit, same stop, same TIF — they fill and stop together; only the targets differ.
+This is entirely broker-side: the partial executes even if the agent is asleep mid-trade.
+With 1 contract there is nothing to split — single bracket, partial skipped.
+`PARTIAL_AT_1R=0` restores the single v29 bracket.
+
+`manage.py` models the same maths in its tracking/alerts: partial banked at r1
+(`+0.4R` in the pocket), runner to the real target; SL after the partial nets `2·frac−1`
+(−0.2R at 40%), TP nets `frac + (1−frac)·tp_r`. The book stores `tp`, `tp_r`, `tp_src`.
+
+### 3 · Auto-Executor wiring — tested, one bug found and fixed
+
+The two-leg bracket was exercised against a local capture server with `agent._exec_order()`
+itself (not a re-implementation), fed real v30 detector records:
+
+- **BUG (caught by the test, fixed):** leg B was sent to a locally recomputed `entry ± 2R`
+  instead of the detector's swing target — `_exec_order` still had the pre-v30 inline TP.
+  The runner now uses `x['TP']` (the swing level / 2R fallback); records without a TP fall
+  back to the old 2R recompute.
+- Verified payloads: two brackets, same entry limit / same stop / same TIF, leg A TP at
+  exactly +1R (tick-aligned), leg B TP at the detector's target; `PARTIAL_AT_1R=0` → one
+  bracket at the detector's TP; `EXEC_QTY=1` → one bracket (nothing to split).
+- **`/guard` (Auto-Executor page)** — new **TP type** column next to TP: SWING (green) /
+  2R (blue), with "· 2 legs" when the partial split fired; hover shows the exact brackets
+  (`3@30894.5 + 5@30885.25`). Book rows store `tp_src` and `legs`; the Telegram fire alert
+  now reads `... / TP 30885.25 (swing) [3@30894.5 + 5@30885.25]`. Pre-v30 rows show "—".
+
+### Arithmetic, so nobody has to re-derive it
+
+At RISK_PCT 0.5% and the default 40% partial: reaching +1R banks **+0.2% of the account**;
+a runner stopped at the original SL nets **−0.2%** account (was −0.5%); a runner reaching a
+2R target nets **+0.8%** (was +1.0%); at a 3R swing target **+1.1%**.
+
+---
+
 ## v29.0 — the stop anchor: struct, or the held FVG's far edge  (2026-07-29)
 
 **One change, and it is the stop.** Since v10 the protective stop has been hard-coded to the
