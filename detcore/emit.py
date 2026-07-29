@@ -42,7 +42,10 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
     _trc(ctx, t, dr, model, name, 'setup OK (BOS)', disp)
     e = get_entry_v10(ctx, su)
     if e is None: _trc(ctx, t, dr, model, name, 'brak wejscia', disp); return
-    if exceeds_risk_cap(ctx, e['risk']):
+    # v29: the emit-gate still measures the CE risk, exactly as v28 did, so the SET of trades is
+    # unchanged. The v29 anchor only decides WHERE the stop sits (and is re-anchored to the cap
+    # rather than deleting the setup).
+    if exceeds_risk_cap(ctx, e.get('risk_ce', e['risk'])):
         _trc(ctx, t, dr, model, name, f'odciety cap (R={e["risk"]:.0f}pkt)', disp); return
     _trc(ctx, t, dr, model, name, 'POTWIERDZONY', disp)
     b, pdv = bias_for(ctx, su['bos_bar'])
@@ -52,6 +55,10 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
         bias=b, bias_align=align, bos=df.dt[su['bos_bar']].strftime('%H:%M'),
         s=int(disp['s']), u=int(disp['u']), fvg_lo=round(disp['fvg'][0], 2), fvg_hi=round(disp['fvg'][1], 2),
         fvg_bar=int(disp['fvg_bar']), origin_bar=int(su['origin_bar']), bos_bar=int(su['bos_bar']), ce=round(su['ce'], 2),
+        # v29: which anchor the stop came from + all three candidate levels, so the live book,
+        # /all/trades and the Auto-Executor audit can show WHY the stop is where it is.
+        sl_src=e.get('sl_src'), sl_ce=e.get('sl_ce'), sl_struct=e.get('sl_struct'),
+        sl_fvg_edge=e.get('sl_fvg_edge'),
         sfvg_bar=int(e['sfvg_bar']) if e.get('sfvg_bar') is not None else None,
         hh_bar=int(e['hh_bar']) if e.get('hh_bar') is not None else None,
         emit_bar=int(su['bos_bar']), entry_bar=int(e['start_bar']),
