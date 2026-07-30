@@ -506,7 +506,13 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
                 cutoff = lh * 60 + lm
             else:
                 dl = _flatten_deadline_min(s)   # 16:04 normally; holiday early-close deadline when noted
-                cutoff = (dl - _envi('GUARD_ENTRY_MARGIN_MIN', 35)) if dl else None
+                # v31.4 (operator): late_day starts at 16:00 ET — margin default 35 -> 4
+                # (16:04 deadline - 4 = 16:00 on normal days; early-close days still scale down
+                # because the margin rides on the calendar deadline, not a fixed clock time).
+                # NOTE: an entry at 15:59 has 11 minutes before the 16:10 MFF force-flatten; the
+                # 4y band 15:29-16:00 modelled +$8,548 on 27 trades, but median resolution is
+                # 62 min and only 11/27 finish inside 24 min — live, the flatten decides the rest.
+                cutoff = (dl - _envi('GUARD_ENTRY_MARGIN_MIN', 4)) if dl else None
             # late-day applies ONLY between the cutoff and the 18:00 ET Globex reopen — after 18:00
             # a NEW MFF trading day starts and overnight entries are legitimate again.
             # (v27.0 bug: no upper bound -> the whole ASIA evening was blocked as 'late_day'.)

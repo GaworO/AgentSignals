@@ -5,6 +5,22 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
+## v31.4 — late_day starts at 16:00 ET  (2026-07-30, operator instruction)
+
+`GUARD_ENTRY_MARGIN_MIN` default 35 → **4**: the entry cutoff is the flatten deadline (16:04 ET,
+earlier on early-close days) minus 4 minutes — i.e. **16:00** on a normal day. The block still
+ends at the 18:00 ET reopen. `GUARD_ENTRY_MARGIN_MIN=35` restores the old 15:29 cutoff;
+`GUARD_LAST_ENTRY_ET` still overrides with an explicit clock time.
+
+Measured (4y, v31.3 rules, full guard): the reopened 15:29–16:00 band adds **27 trades,
+15W/12L, +$8,548 modelled** — but read the caveat before banking it: median resolution of those
+trades is **62 minutes**, and only 11 of 27 finish within 24 minutes. Live, everything still open
+at the 16:10 force-flatten exits at market; the model lets them run for hours. The true value of
+the band is therefore materially less certain than the +$8,548 suggests, and entries near 15:59
+hand the exit decision to the liquidation engine, not the bracket.
+
+---
+
 ## v31.3 — operator pick: zone lifetime = 120 bars  (2026-07-29)
 
 From the v31.2 sweep the operator selected the **120-bar (2h)** lifetime: +$4,125, 6W/2L,
