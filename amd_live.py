@@ -37,6 +37,7 @@ ENV (all optional; nothing is SENT unless STRAT_AMD_ENABLED=1 and a webhook is s
   ACCOUNT (def 100000) · RISK_PCT (def 0.5)   for the Gate-0 $ counter
 """
 import os, sys, json, time, csv, datetime as dt
+import timebase
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
@@ -58,7 +59,7 @@ try:
 except Exception:
     live_emit = None
 
-TZ = "America/New_York"
+TZ = timebase.STRATEGY_TZ_NAME
 CFG_PATH = os.environ.get("AMD_CONFIG", os.path.join(HERE, "config", "amd.yaml"))
 CFG = load_config(CFG_PATH)
 

@@ -1,6 +1,6 @@
 """Data loading and the multi-timeframe engine.
 
-All timestamps are converted to America/New_York. A "trading day" follows the
+All timestamps are converted to the project fixed UTC-04:00 strategy clock. A "trading day" follows the
 futures convention and rolls at 18:00 ET.
 
 Look-ahead policy
@@ -44,7 +44,7 @@ class MarketData:
     accum_ok: object = None       # per-bar bool: this trading-day AM was a compressed "accumulation"
 
 
-def load_1m(csv_path: str | Path, tz: str = "America/New_York",
+def load_1m(csv_path: str | Path, tz: str = "Etc/GMT+4",
             start: str | None = None, end: str | None = None) -> pd.DataFrame:
     csv_path = Path(csv_path)
     cache = csv_path.with_suffix(".feather")

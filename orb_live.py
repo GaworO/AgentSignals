@@ -14,7 +14,7 @@ SAFE BY DESIGN — does NOT touch A/B, C or F (built exactly like model_c_live.p
   * With STRAT_ORB_ENABLED unset it does nothing (dry-run prints only).
 
 WHAT IT DOES each poll (1-min cron or --loop):
-  1. Read the agent's bar buffer, convert to America/New_York (real cash-open time, DST-aware).
+  1. Read the agent's bar buffer, convert to the project fixed UTC-04:00 strategy clock.
   2. Build TODAY's opening range = high/low of 09:30–09:44 ET (ORB_MIN default 15).
   3. After 09:45, watch for the FIRST 1-min CLOSE beyond the range (long above, short below).
   4. Filters (default): only breakouts by ORB_LATE_CUTOFF (10:30 ET); trade WITH the 20-day regime.
@@ -40,6 +40,7 @@ ENV (nothing fires unless STRAT_ORB_ENABLED=1 and a webhook is set):
 import os, sys, json, time, math
 import datetime as dt
 from zoneinfo import ZoneInfo
+import timebase
 HERE = os.path.dirname(os.path.abspath(__file__))
 PARENT = os.path.dirname(HERE)
 sys.path.insert(0, PARENT)          # import live_emit (sizing + telegram) read-only, like strategy_f
@@ -53,7 +54,7 @@ try:
 except Exception:
     requests = None
 
-ET = ZoneInfo('America/New_York')
+ET = timebase.STRATEGY_TZ
 
 # ---------- self-contained fallbacks (work even if live_emit / parent repo is absent) ----------
 def _size_for(entry, sl):

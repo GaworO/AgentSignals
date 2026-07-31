@@ -4,6 +4,7 @@
 # Rdzen (det_v10) zamrozony. Wywolywane z agent.py: register() po potwierdzonym alercie,
 # check() na kazdym nowym barze. Opakowane try/except po stronie agenta — nie moze ruszyc intake'u.
 import json, os
+import execution_plan
 
 def _dec_for(price):
     """Decimal precision for stored SL/TP. Index futures (MNQ, price>=1000) -> 1 (UNCHANGED).
@@ -54,24 +55,52 @@ def _partial_frac():
 
 
 def register(x, path):
-    """Zarejestruj potwierdzony trade do sledzenia. Idempotentne (po kluczu)."""
+    """Register an order accepted by the broker.  Canonical plans are stored
+    verbatim; legacy signals retain the old fallback path."""
+    plan_data = x.get('_execution_plan')
+    if plan_data:
+        p = execution_plan.ExecutionPlan.from_dict(plan_data)
+        e = p.entry; sl = p.stop_loss; bull = p.side is execution_plan.Side.LONG
+        R = p.risk_points
+        r1 = e + R if bull else e - R
+        r2 = e + 2 * R if bull else e - 2 * R
+        key = p.signal_key
+        lst = _load(path)
+        if any(t.get('key') == key for t in lst): return
+        banker = [leg for leg in p.legs if leg.label == 'banker_1R']
+        partial_frac = (banker[0].quantity / p.total_quantity) if banker else 0.0
+        lst.append(dict(
+            key=key, plan_id=p.plan_id, plan=p.to_dict(), dir=p.side.value,
+            cat=p.metadata.get('cat') or x.get('cat'), entry=e, sl=sl,
+            r1=r1, r2=r2, tp=p.primary_take_profit,
+            tp_r=round(p.reward_r(p.primary_take_profit), 6),
+            tp_src=p.metadata.get('tp_src') or x.get('tp_src'),
+            bos_ms=p.signal_ms, active_from_ms=p.active_from_ms,
+            valid_until_ms=p.valid_until_ms, tick_size=p.tick_size,
+            fill_through_ticks=p.fill_through_ticks,
+            allow_fill_bar_take_profit=p.allow_fill_bar_take_profit,
+            adverse_first=p.adverse_first, partial_frac=partial_frac,
+            filled=False, done1=False, part=False))
+        _save(path, lst[-50:])
+        return
+
+    # Legacy fallback for old rows / non-plan integrations.
     e = float(x['entry']); sl = float(x['SL']); bull = x['dir'] == 'LONG'; R = abs(e - sl)
     if R <= 0: return
     r1 = e + R if bull else e - R
     r2 = e + 2*R if bull else e - 2*R
-    # v30: track the REAL emitted target (swing level or 2R fallback), not a hardcoded 2R
     try: tp = float(x.get('TP')) if x.get('TP') is not None else r2
     except Exception: tp = r2
     key = f"{x['date']}|{x['model']}|{x['cat']}|{x['dir']}|{x['bos']}"
     lst = _load(path)
     if any(t.get('key') == key for t in lst): return
-    _dec = _dec_for(e)                                    # FX-safe precision (MNQ stays at 1); entry kept RAW as before
+    _dec = _dec_for(e)
     lst.append(dict(key=key, dir=x['dir'], cat=x['cat'], entry=e, sl=round(sl,_dec),
                     r1=round(r1,_dec), r2=round(r2,_dec), tp=round(tp,_dec),
                     tp_r=round(abs(tp - e) / R, 3), tp_src=x.get('tp_src'),
                     bos_ms=int(x.get('bos_ms', 0)),
                     filled=False, done1=False, part=False))
-    _save(path, lst[-50:])   # trzymaj ostatnie 50
+    _save(path, lst[-50:])
 
 def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=None, outcomes_path=None):
     """Na nowym barze. NAJPIERW brama FILL: wejscie to LIMIT (cofniecie) — nie liczymy zadnych
@@ -90,26 +119,44 @@ def check(hi, lo, bar_ms, send, path, expire_ms=8*3600*1000, fill_ms=None, outco
         bull = t['dir'] == 'LONG'; emoji = '🟢' if bull else '🔴'; drop = False
         e = t['entry']; sl = t['sl']; r1 = t['r1']; r2 = t.get('r2', t.get('r3'))
 
-        # ---- FILL GATE: bez tego leciały fałszywe TP/SL zaraz po wejściu (limit nie był wypełniony) ----
+        # ---- CANONICAL FILL GATE ----
         if not t.get('filled'):
-            if t.get('bos_ms') and bar_ms and bar_ms <= t['bos_ms']:
-                keep.append(t); continue          # order does not exist yet on this bar -> no fill possible
-            hit_entry = (lo <= e) if bull else (hi >= e)
-            if hit_entry:
-                t['filled'] = True; changed = True
-                send(f"✅ FILL {emoji} {t['dir']} · {t['cat']} → wejście @ {e} aktywne (SL {sl} · cel 2R {r2}).")
-                keep.append(t); continue          # celów nie sprawdzamy na barze wypełnienia — czekamy na kolejny
-            if t.get('bos_ms') and bar_ms and (bar_ms - t['bos_ms']) > fill_ms:
-                send(f"⌛ {emoji} {t['dir']} · {t['cat']} → limit @ {e} niewypełniony w {fill_ms//3600000}h — anulowany.")
+            active_ms = int(t.get('active_from_ms') or (int(t.get('bos_ms') or 0) + 60000))
+            valid_until_ms = int(t.get('valid_until_ms') or (active_ms + fill_ms))
+            if bar_ms and bar_ms < active_ms:
+                keep.append(t); continue
+            # valid_until is exclusive: an order is cancelled before this bar can trade.
+            if bar_ms and bar_ms >= valid_until_ms:
+                send(f"⌛ {emoji} {t['dir']} · {t['cat']} → limit @ {e} niewypełniony przed expiry — anulowany.")
+                _record(outcomes_path, t, None, 'no_fill', bar_ms)
                 drop = True; changed = True
-            if not drop: keep.append(t)
+                continue
+            tick = float(t.get('tick_size') or os.environ.get('EXEC_TICK', '0.25') or 0.25)
+            through = int(t.get('fill_through_ticks', 1)) * tick
+            if through > 0:
+                hit_entry = (lo <= e - through) if bull else (hi >= e + through)
+            else:
+                hit_entry = lo <= e <= hi
+            if hit_entry:
+                t['filled'] = True; t['fill_ms'] = int(bar_ms or 0); changed = True
+                send(f"✅ FILL {emoji} {t['dir']} · {t['cat']} → wejście @ {e} aktywne (SL {sl} · cel {t.get('tp', r2)}).")
+                # Conservative OHLC parity: adverse risk on the fill bar counts; favourable
+                # extreme is ignored because it may have printed before the limit filled.
+                hit_stop = (lo <= sl) if bull else (hi >= sl)
+                if t.get('adverse_first', True) and hit_stop:
+                    send(f"🛑 SL {emoji} {t['dir']} · {t['cat']} → stop @ {sl} na barze fill (−1R).")
+                    _record(outcomes_path, t, -1.0, 'SL_fill_bar', bar_ms)
+                    drop = True
+                if not drop: keep.append(t)
+                continue
+            keep.append(t)
             continue
 
         _fixed = os.environ.get('MANAGE_FIXED', '1') == '1'   # auto trades run a FIXED bracket:
         # no BE. MANAGE_FIXED=0 restores the old BE@1R advisory narration (manual-trading style).
         tp  = t.get('tp', r2)                 # v30: real target (swing / 2R); legacy rows fall back to r2
         tpr = t.get('tp_r', 2.0) or 2.0
-        fr  = _partial_frac()                 # v30: 0.4 by default; 0.0 = v29 whole-position maths
+        fr  = float(t.get('partial_frac', _partial_frac()))  # canonical plan fraction when available
         if _fixed:
             if (lo <= sl) if bull else (hi >= sl):
                 if t.get('part'):             # runner stopped AFTER the 1R partial was banked

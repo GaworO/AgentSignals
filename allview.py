@@ -24,11 +24,8 @@ try:
     import requests
 except Exception:
     requests = None
-try:
-    from zoneinfo import ZoneInfo
-    _ET = ZoneInfo('America/New_York')
-except Exception:
-    _ET = None
+import timebase
+_ET = timebase.STRATEGY_TZ
 
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'

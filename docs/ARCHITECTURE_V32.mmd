@@ -1,0 +1,46 @@
+flowchart LR
+    FEED["1-minute OHLCV feed"] --> BARS["agent.py /bars"]
+    BARS --> ARCH["archive.csv\nfull history"]
+    BARS --> BUF["buffer.csv\nrolling 14,000 bars"]
+    BUF --> DET["det_v11 / detcore\ncausal A/B detector"]
+    DET --> SELECT["dedup + select_tag + magnet + regime"]
+    SELECT --> PLAN["ExecutionPlan\none canonical order contract"]
+    PLAN --> GUARD["guardrails.py\nsession, news, stale feed, DD, daily limits, one-position"]
+    GUARD -->|blocked| SHADOW["shadow.py + execution_engine.py"]
+    GUARD -->|allowed| PAYLOAD["broker payload legs\nentry / SL / TP / qty / TIF"]
+    PAYLOAD --> RELAY["execution relay / TradersPost"]
+    RELAY --> BROKER["broker / evaluation account"]
+    BROKER --> CALLBACK["broker lifecycle callback"]
+    CALLBACK --> ENDPOINT["POST /guard/broker-event"]
+    ENDPOINT --> NORMALIZE["broker_feedback.py\nnormalize + strict ID match"]
+    NORMALIZE --> GUARD
+    PLAN --> MANAGE["manage.py\naccepted-order tracking"]
+    PLAN --> SHADOW
+    GUARD --> BOOK["guard_log + guard_state\nbroker status, fill, P&L, open slot"]
+    MANAGE --> OBS["dashboard / allview / P&L"]
+    SHADOW --> OBS
+    BOOK --> OBS
+
+    BARS --> SAT["forwarded bars"]
+    SAT --> C["Strategy C service"]
+    SAT --> F["Strategy F service"]
+    SAT --> ORB["ORB service"]
+    SAT --> AMD["AMD service"]
+    C --> LEGACY["separate satellite execution webhooks"]
+    F --> LEGACY
+    ORB --> LEGACY
+    AMD --> LEGACY
+    LEGACY --> BROKER
+    C -. shared-position / extlog .-> GUARD
+    F -. shared-position / extlog .-> GUARD
+    ORB -. shared-position / extlog .-> GUARD
+    AMD -. shared-position / extlog .-> GUARD
+
+    TIME["timebase.py\nUTC epoch ms storage\nfixed UTC-04:00 strategy clock"] --> BARS
+    TIME --> DET
+    TIME --> GUARD
+    TIME --> SHADOW
+    TIME --> C
+    TIME --> ORB
+    TIME --> AMD
+    CME["cme_calendar.py\nAmerica/Chicago exchange calendar"] --> GUARD
