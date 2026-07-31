@@ -5,49 +5,6 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
-## v32.0 - canonical ExecutionPlan, broker feedback and one strategy clock (2026-07-30)
-
-This release fixes execution-parity defects found in the four-year live-like replay. It does not
-change the A/B detector edge; it makes the broker order, guard, shadow and management layers describe
-the same trade.
-
-### Execution parity
-
-- Added `execution_plan.py`: one immutable, validated source of truth for ticker, side, final
-  tick-aligned entry, stop-loss, take-profit legs, quantity, TIF, `entry_ms`, expiry and fill policy.
-- Added `execution_engine.py`: one causal resolver for first legal fill, trade-through, adverse-first,
-  fill-bar target handling and absolute expiry.
-- `agent.py` now creates the plan once, generates every broker leg from it and rejects a partial
-  multi-leg send as an invalid execution.
-- `shadow.py` and `manage.py` consume the same plan. The old broker-target versus shadow-2R mismatch
-  and the hidden extra-bar delay are removed.
-- Guard accounting uses the plan's real target/R instead of assuming every win is +2R.
-
-### Broker truth
-
-- Added `broker_feedback.py` and authenticated `POST /guard/broker-event`.
-- Normalized broker states: `submitted`, `accepted`, `working`, `partial`, `filled`, `closed`,
-  `canceled`, `rejected`, `expired`.
-- Broker callbacks can update effective activation time, actual fill price/quantity, realized P&L,
-  open-position state, daily limits, profit lock and drawdown state.
-- Relay HTTP 2xx is treated only as relay acceptance. Broker callbacks remain the authoritative state.
-
-### Timebase and version
-
-- Added `timebase.py`: UTC epoch milliseconds are canonical storage; all strategy/session labels use
-  one fixed `UTC-04:00` clock. `cme_calendar.py` remains in `America/Chicago` for exchange rules.
-- `/status` and `/health` report `v32.0-execplan-broker-sync`.
-- Default auto session policy remains `SKIP_SESSIONS=LO,ASIA,PREM,NYL`; these sessions are still
-  detected and may be logged in shadow, but the main Auto-Executor does not send them.
-
-### Verification
-
-- Added unit coverage for plan validation/serialization, causal execution rules, broker callbacks and
-  fixed-clock session boundaries.
-- Package verification: `python -m compileall -q .` and `python -m unittest discover -s tests -v`.
-
----
-
 ## v31.4 — late_day starts at 16:00 ET  (2026-07-30, operator instruction)
 
 `GUARD_ENTRY_MARGIN_MIN` default 35 → **4**: the entry cutoff is the flatten deadline (16:04 ET,

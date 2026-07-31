@@ -1,6 +1,6 @@
 data:
   csv_path: data/MNQ_databento_2022_1m.csv
-  tz: Etc/GMT+4
+  tz: America/New_York
   tick_size: 0.25
   point_value: 2.0
   trading_day_roll_hour: 18

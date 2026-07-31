@@ -23,9 +23,11 @@ Env: DATA_DIR (persist dir, def '.'), SHADOW_BUF or BUF (live bar CSV for outcom
      SHADOW_STALE_DAYS (def 3).
 """
 import os, json, datetime as dt
-import timebase
-import execution_plan
-import execution_engine
+try:
+    from zoneinfo import ZoneInfo; _NY = ZoneInfo('America/New_York')
+except Exception:
+    _NY = None
+
 HERE       = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR   = os.environ.get('DATA_DIR', '.')
 LOG        = os.path.join(DATA_DIR, 'shadow_log.json')
@@ -38,10 +40,18 @@ RISK, PV, COMM = 500.0, 2.0, 0.62
 EXCLUDE = {s.strip() for s in os.environ.get('SHADOW_EXCLUDE', '').split(',') if s.strip()}
 
 def _et(ms):
-    return timebase.strategy_from_ms(ms)
+    d = dt.datetime.fromtimestamp(ms / 1000.0, tz=dt.timezone.utc)
+    return d.astimezone(_NY) if _NY else d
 
 def _sess(et):
-    return timebase.session_name(et)
+    m = et.hour * 60 + et.minute
+    if m >= 18 * 60 or m < 2 * 60: return 'ASIA'
+    if m < 5 * 60:                 return 'LO'
+    if m < 9 * 60 + 30:            return 'PREM'
+    if m < 11 * 60:                return 'NYAM'
+    if m < 13 * 60 + 30:           return 'NYL'
+    if m < 16 * 60:                return 'NYPM'
+    return 'PM_AH'
 
 def _load():
     try: return json.load(open(LOG))
@@ -78,7 +88,7 @@ def _costed(R, gross_R):
 def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None, entry_ms=None):
     """Log ONE fresh signal hands-off. Dedups. Skips London/Asia. tp defaults to 2R."""
     try:
-        ms = int(ms if ms is not None else timebase.now_ms())
+        ms = int(ms if ms is not None else dt.datetime.utcnow().timestamp() * 1000)
         et = _et(ms); s = sess if sess in ('PREM','NYAM','NYL','NYPM','PM_AH','ASIA','LO') else _sess(et)
         if s in EXCLUDE: return False
         _dp = int(os.environ.get('SHADOW_PRICE_DP', '2') or 2)   # MNQ 2 (unchanged) · EURUSD 5 · USDJPY 3.
@@ -98,55 +108,6 @@ def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None, entry_ms=None
         _save(log); return True
     except Exception as e:
         print('[shadow] record err', e, flush=True); return False
-
-def record_plan(plan_data):
-    """Log an exact canonical ExecutionPlan.  The key is the guard signal_key so
-    guardrails, shadow and broker records join without price/time reconstruction."""
-    try:
-        plan = (plan_data if isinstance(plan_data, execution_plan.ExecutionPlan)
-                else execution_plan.ExecutionPlan.from_dict(plan_data))
-        log = _load()
-        if any(t.get('key') == plan.signal_key for t in log):
-            return False
-        et = _et(plan.signal_ms); s = plan.metadata.get('session') or _sess(et)
-        if s in EXCLUDE:
-            return False
-        wk = (et - dt.timedelta(days=et.weekday())).strftime('%Y-%m-%d')
-        log.append(dict(
-            key=plan.signal_key, plan_id=plan.plan_id, strategy=plan.strategy,
-            dir=plan.side.value, sess=s, week=wk, dow=et.strftime('%a'),
-            et=et.strftime('%Y-%m-%d %H:%M'), date=et.strftime('%Y-%m-%d'),
-            entry=plan.entry, sl=plan.stop_loss, tp=plan.primary_take_profit,
-            ms=plan.signal_ms, entry_ms=plan.active_from_ms,
-            valid_until_ms=plan.valid_until_ms, plan=plan.to_dict(),
-            outcome='open', R=None, net=None))
-        _save(log)
-        return True
-    except Exception as e:
-        print('[shadow] record_plan err', e, flush=True)
-        return False
-
-
-def score_plan(plan_data, MS, HI, LO, hold_bars=2880):
-    """Resolve the exact plan with the same first-bar, through-fill and target rules
-    used by the broker payload and unit-tested execution engine."""
-    plan = (plan_data if isinstance(plan_data, execution_plan.ExecutionPlan)
-            else execution_plan.ExecutionPlan.from_dict(plan_data))
-    res = execution_engine.resolve_arrays(plan, MS, HI, LO, hold_bars=hold_bars)
-    oc = res.get('outcome')
-    if oc in ('open', 'no_fill'):
-        return res
-    gross = float(res.get('gross_R') or 0.0)
-    raw_oc = oc
-    if oc == 'partial':
-        oc = 'win' if gross > 0 else ('loss' if gross < 0 else 'timeout')
-    ct, net, rn = _costed(plan.risk_points, gross)
-    out = dict(res)
-    out.update(ct=ct, outcome=oc, raw_outcome=raw_oc, gross_R=gross, R=rn, net=net)
-    if res.get('fill_ms') is not None:
-        out['wait_min'] = max(0, int(round((int(res['fill_ms']) - plan.active_from_ms) / 60000.0)))
-    return out
-
 
 def _bars(since_ms=None):
     """Return (ms, high, low) arrays from the archive. If since_ms is given, slice the
@@ -270,8 +231,7 @@ def refresh():
         if t.get('outcome') not in ('open', 'expired'): continue   # 'expired' retried: rescues rows the
                                                                    # pandas-3 timestamp bug wrongly aged out
         stale = (now_ms - int(t['ms'])) > STALE_MS
-        res = (score_plan(t['plan'], MS, HI, LO) if t.get('plan') else
-               score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO, entry_ms=t.get('entry_ms')))
+        res = score(t['dir'], t['entry'], t['sl'], t['tp'], t['ms'], MS, HI, LO, entry_ms=t.get('entry_ms'))
         oc = res.get('outcome')
         if oc in ('open', 'out_of_range'):
             if stale: t['outcome'] = 'expired'; changed = True   # bars never arrived / signal outside archive -> don't hang forever

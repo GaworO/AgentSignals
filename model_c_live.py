@@ -31,7 +31,6 @@ ENV (nothing fires unless STRAT_C_ENABLED=1 and a webhook is set):
 """
 import os, sys, json, time, csv, threading, datetime as dt
 from zoneinfo import ZoneInfo
-import timebase
 HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
 from detcore.config import Config
 from detcore.pipeline import detect
@@ -41,7 +40,7 @@ from detcore.primitives import fvgs
 import live_emit
 try: import requests
 except Exception: requests=None
-ET=timebase.STRATEGY_TZ
+ET=ZoneInfo('America/New_York')
 
 BUF        = os.environ.get('STRAT_C_BUF') or os.environ.get('BUF') or os.path.join(HERE,'buffer.csv')
 BUF_URL    = os.environ.get('STRAT_C_BUF_URL','')          # if set → pull bars over HTTP from the agent (/archive). No shared volume; A/B untouched.
@@ -306,7 +305,7 @@ def _c_late_window():
     try:
         import datetime as _dt
         from zoneinfo import ZoneInfo as _ZI
-        now=timebase.strategy_now(); nm=now.hour*60+now.minute
+        now=_dt.datetime.now(_ZI('America/New_York')); nm=now.hour*60+now.minute
         try:
             hh,mm=os.environ.get('C_LAST_ENTRY_ET','15:29').split(':'); cut=int(hh)*60+int(mm)
         except Exception:

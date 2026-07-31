@@ -11,6 +11,7 @@ ENV:
 Uruchom: python3 agent.py    (lokalnie/VPS/osobny serwis Railway)
 """
 import os, csv, json, subprocess, threading, sqlite3, shutil, datetime as dt
+from zoneinfo import ZoneInfo
 try: import requests
 except Exception: requests=None
 from flask import Flask, request, jsonify, send_file
@@ -26,13 +27,10 @@ import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
-import execution_plan  # canonical broker/shadow/manage order contract
-import broker_feedback  # normalizes relay/broker acknowledgements
-import timebase          # UTC storage + one fixed UTC-04:00 strategy clock
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
-NY = timebase.STRATEGY_TZ   # v32: one canonical fixed UTC-04:00 strategy clock
+NY = ZoneInfo('Etc/GMT+4')   # sztywne UTC-4 (jak TFO/wykres), bez DST
 PUBLIC_URL = os.environ.get('PUBLIC_URL','').rstrip('/')   # np. https://agentsignals-production.up.railway.app
 NO_TRADE_SUPPRESS = os.environ.get('NO_TRADE_SUPPRESS','') == '1'   # 1 = twarde wyciszenie przy high-impact
 DATA_DIR = os.environ.get('DATA_DIR', HERE)   # ustaw na /data (Railway Volume) by przetrwac restart
@@ -48,7 +46,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v32.0-execplan-broker-sync'   # canonical ExecutionPlan, broker feedback, fixed UTC-04:00 strategy clock
+VERSION = 'v31.4'   # 2026-07-30 v31.4: late_day starts at 16:00 ET (GUARD_ENTRY_MARGIN_MIN default 35->4; early-close days still scale). | v31.3: 2026-07-29 v31.3: orphan zone lifetime = 120 BARS from the FVG (operator pick from the sweep: +$4,125, 6W/2L, 0 degraded months). Defaults: ORPHAN_WINDOW=caps, ORPHAN_LIFE=day, ORPHAN_MAX_BARS=120 — no env vars needed. | v31.2: 2026-07-29 v31.2 cap sweep: sequence caps KEPT + zone lives to END OF SESSION (defaults ORPHAN_WINDOW=caps, ORPHAN_LIFE=session; 4y sweep in CHANGELOG). | v31.1: 2026-07-29 v31.1: the FVG retest/BOS bar window runs TO END OF DAY (operator spec) — no retwin/boswin caps on re-armed zones; kills remain body-through-CE and day end only. | v31.0: 2026-07-29 v31: ORPHANED-FVG RE-ARM — a displacement FVG the price ran away from (no test in retwin) stays watched until a BODY closes through its CE or the day ends; on a later return that holds CE the retest->BOS->entry sequence re-arms (cat +ORPH). ORPHAN_FVG=0 disables. | v30.1: 2026-07-29 v30.1: 1R partial OFF by default (PARTIAL_AT_1R=1 re-enables) — last-12m test: partial cost $4,351 (~14%) for 3/12 better months. | v30.0: 2026-07-29 v30: TP = last swing level left of BOS (>=1R, capped 3R, 2R fallback; SWING_TP knobs) + 1R PARTIAL: 0.2% acct banked at +1R via a second broker bracket (PARTIAL_AT_1R / PARTIAL_ACCT_PCT). | v29.1: 2026-07-29 v29.1: Auto-Executor book + /guard table show WHICH anchor set the stop (sl_src column: STRUCT / FVG edge / capped); fire alert carries it too. | v29 STOP ANCHOR: SL = displacement-leg extreme (struct) when it fits inside SL_STRUCT_MAX_R (30pt), else the far edge of the HELD FVG; CE only as fallback. Default for detector + Auto-Executor. Risk cap / MAX_STOP_R unchanged. | v27.2 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -60,7 +58,7 @@ _last = {'last_bar': None, 'bars_in_buffer': 0, 'setups_seen': None, 'processed_
 # background thread is the one thing that runs WITHOUT an inbound bar — so it is what notices the
 # feed died and pings Telegram. Opt out with HEARTBEAT=0.
 import time as _time
-_START = timebase.utc_now_naive()
+_START = dt.datetime.utcnow()
 _hb = {'alerted': False}
 HEARTBEAT       = os.environ.get('HEARTBEAT', '1') != '0'                 # default ON
 STALE_MIN       = float(os.environ.get('STALE_MIN', '20'))               # min w/o a new bar = stale (market hours)
@@ -113,7 +111,9 @@ def _exec_order(x, text=None):
     url = os.environ.get('EXEC_WEBHOOK', '')
     if not url or requests is None: return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
     try:
-        e = float(x['entry']); sl = float(x['SL'])
+        off = float(os.environ.get('PRICE_OFFSET', '0'))
+        bull = x['dir'] == 'LONG'; e = float(x['entry']); sl = float(x['SL']); R = abs(e - sl)
+        tp = (e + 2*R) if bull else (e - 2*R)
         # Wielkosc: 'auto' (domyslnie) = ryzyko jak w alercie (size_for: RISK_PCT% z ACCOUNT, MNQ $2/pkt),
         # ta sama liczba kontraktow co w linii "Ryzyko: N kontr.". Liczba w EXEC_QTY = sztywno.
         # EXEC_MAX_QTY = opcjonalny limit (np. regula max kontraktow MFF / eval).
@@ -157,65 +157,62 @@ def _exec_order(x, text=None):
         if _cap.isdigit() and int(_cap) > 0:
             qty = min(qty, int(_cap))
         qty = max(1, int(qty))
-        # Build the canonical plan ONCE.  Every downstream observer receives these exact
-        # normalised prices/times instead of recomputing a different trade.
+        _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
+        def _t(p):                                                 # sees them (OTE math emits 29043.43;
+            return round(round(p / _tk) * _tk, 6) if _tk > 0 else round(p, 2)   # MNQ trades in 0.25s)
+        x['_exec_tp'] = _t(tp + off)   # v28: the book/shadow must score the target the BROKER holds.
+        x['_exec_entry'] = _t(e + off)  # tp is recomputed from the POST-ENTRY_OFFSET_PTS entry; x['TP']
+                                        # is the detector's PRE-offset value (3 pts apart at offset=1).
+        # ---- v30: 1R partial. Split ONE signal into TWO brackets at the broker:
+        #   leg A ("banker"):  PARTIAL_ACCT_PCT of the account realized at exactly +1R
+        #                      (0.2% at RISK_PCT 0.5 -> 40% of the contracts, TP = entry +/- 1R)
+        #   leg B ("runner"):  the rest, TP = the detector's target (v30 swing level / 2R).
+        # Same entry limit, same stop, same TIF on both -> they fill and stop together; only the
+        # targets differ. Entirely broker-side: no dependency on the agent being awake mid-trade.
+        # PARTIAL_AT_1R=0 disables (single bracket, exactly the v29 behaviour). qty=1 cannot split.
+        # v30: the runner's target is the DETECTOR's TP (swing level or 2R fallback), not a local
+        # 2R recompute. The old inline `tp = e ± 2R` above stays only as a fallback for records
+        # without a TP field. (Caught by the executor test: leg B was going to 2R while the
+        # detector aimed at the swing level.)
+        try: tp = float(x['TP']) if x.get('TP') is not None else tp
+        except Exception: pass
+        legs = [(qty, tp)]
         try:
-            _plan = execution_plan.build_execution_plan(
-                x, qty, strategy=x.get('_strat', 'A/B'),
-                signal_key=guardrails._skey(x),
-            )
-            execution_plan.attach_plan(x, _plan)
+            if os.environ.get('PARTIAL_AT_1R', '0') == '1' and qty >= 2:   # v30.1: default OFF (measured: costs ~14%/yr for little protection); PARTIAL_AT_1R=1 re-enables
+                _rp  = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
+                _pp  = float(os.environ.get('PARTIAL_ACCT_PCT', '0.2') or 0.2)
+                _fr  = max(0.0, min(0.9, _pp / _rp)) if _rp > 0 else 0.0
+                qa   = int(round(qty * _fr))
+                if 0 < qa < qty:
+                    r1 = (e + R) if bull else (e - R)
+                    legs = [(qa, r1), (qty - qa, tp)]
         except Exception as _pe:
-            print('EXEC plan invalid', _pe, flush=True)
-            return {"sent": False, "reason": "plan_invalid", "error": str(_pe),
-                    "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}
-
-        payloads = _plan.broker_payloads(text)
-        responses = []
-        accepted = []
-        for _i, payload in enumerate(payloads):
-            try:
-                r = requests.post(url, json=payload, timeout=10)
-                st = int(getattr(r, 'status_code', 0) or 0)
-                try: body = (r.text or '')[:200]
-                except Exception: body = ''
-                ok = 200 <= st < 300
-                _ack = None
-                try:
-                    _j = r.json() if hasattr(r, 'json') else {}
-                    if isinstance(_j, dict) and _j:
-                        _ev = broker_feedback.normalize({**_j,
-                            'plan_id': _plan.plan_id, 'signal_key': _plan.signal_key,
-                            'status': _j.get('status') or ('submitted' if ok else 'rejected'),
-                            'provider': _j.get('provider') or 'execution-relay'})
-                        _ack = _ev.to_dict()
-                except Exception:
-                    _ack = None
-                responses.append({"leg": _i, "status": st, "ok": ok, "resp": body,
-                                  "relay_ack": _ack})
-                accepted.append(ok)
-                print('EXEC', st, ('leg %d/%d' % (_i + 1, len(payloads))),
-                      'plan=' + _plan.plan_id, payload, flush=True)
-            except Exception as _send_err:
-                responses.append({"leg": _i, "status": 0, "ok": False, "error": str(_send_err)})
-                accepted.append(False)
-                print('EXEC leg error', _i + 1, _send_err, flush=True)
-
-        all_accepted = bool(payloads) and len(accepted) == len(payloads) and all(accepted)
-        # A half-sent multi-leg position is not a valid plan.  The current TradersPost adapter
-        # only exposes ticker-wide cancel, which is safe here because the guard is one-position.
-        if not all_accepted and any(accepted):
-            try: guardrails.flatten_cancel_only()
-            except Exception as _cancel_err: print('EXEC partial-send cancel err', _cancel_err, flush=True)
-        last_status = responses[-1].get('status', 0) if responses else 0
-        _relay_acks = [r.get('relay_ack') for r in responses if r.get('relay_ack')]
-        x['_relay_acks'] = _relay_acks
-        x['_relay_accepted_ms'] = timebase.now_ms() if all_accepted else None
-        return {"sent": all_accepted, "status": last_status, "responses": responses,
-                "broker_acks": _relay_acks, "legs": len(payloads), "plan_id": _plan.plan_id,
-                "signal_key": _plan.signal_key,
-                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:],
-                "qty": _plan.total_quantity}
+            print('EXEC partial split err (single bracket fallback)', _pe, flush=True)
+        x['_legs'] = [{"qty": q_, "tp": _t(t_ + off)} for q_, t_ in legs]
+        st = None; body = ''; sent_any = False
+        for _i, (q_, t_) in enumerate(legs):
+            payload = {
+                "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
+                "action": "buy" if bull else "sell",
+                "orderType": "limit",
+                "limitPrice": _t(e + off),
+                "quantity": q_,
+                "takeProfit": {"limitPrice": _t(t_ + off)},
+                "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
+                # 'day' (default) — a GTC entry limit outlived every model window (shadow no_fill=4h,
+                # manage cancel=2h) and could fill overnight AFTER the guard freed the slot -> stacked
+                # positions no guard sees. EXEC_TIF=gtc restores the old behaviour if you really want it.
+                "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
+            }
+            if text and _i == 0: payload["text"] = text   # relay /stage: one message, not one per leg
+            r = requests.post(url, json=payload, timeout=10)
+            st = getattr(r, 'status_code', None)
+            try: body = (r.text or '')[:200]
+            except Exception: body = ''
+            sent_any = True
+            print('EXEC', st, ('leg %d/%d' % (_i + 1, len(legs))), payload, flush=True)
+        return {"sent": sent_any, "status": st, "resp": body, "legs": len(legs),
+                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": qty}
     except Exception as ex:
         print('EXEC err', ex, flush=True)
         return {"sent": False, "error": str(ex), "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}
@@ -492,20 +489,11 @@ def _process_new(now_ms=None):
             code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
         print('ALERT', code, txt, flush=True)
         _save_db(repx, txt, code)
-        # manage follows ONLY orders accepted by the broker.  Shadow may still log blocked
-        # candidates, but sent orders use the exact canonical plan for guard parity.
-        try:
-            if code in ('exec', 'exec-manual') and repx.get('_execution_plan'):
-                manage.register(repx, TRADES)
+        try: manage.register(repx, TRADES)
         except Exception as e: print('manage.register err', e, flush=True)
-        try:
-            if not repx.get('_execution_plan'):
-                # Blocked candidates still receive the same normalised timing/price semantics;
-                # quantity=1 is sufficient because shadow reports R and guard ignores blocked risk.
-                _candidate_plan = execution_plan.build_execution_plan(
-                    repx, 1, strategy='A/B', signal_key=guardrails._skey(repx))
-                execution_plan.attach_plan(repx, _candidate_plan)
-            shadow.record_plan(repx['_execution_plan'])
+        try: shadow.record('A/B', repx.get('dir'), repx.get('entry'), repx.get('SL'),
+                           repx.get('_exec_tp') or repx.get('TP'), repx.get('bos_ms'),
+                           entry_ms=repx.get('entry_ms'))   # v28: broker's TP + the bar the order can first trade
         except Exception as e: print('shadow.record err', e, flush=True)
         if code=='exec' or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)
@@ -775,7 +763,7 @@ def status():
     except Exception: _amode='?'
     try: _alive=guardrails.is_live()            # v26.1: auto AND webhook AND NOT halted (honest — halt makes it false)
     except Exception: _alive=(_amode=='auto' and bool(os.environ.get('EXEC_WEBHOOK')))
-    _body=dict(version=VERSION, strategy_clock='UTC-04:00 fixed', utc_ms=timebase.now_ms(), primed=_primed, archive_bars=na, **_last,
+    _body=dict(version=VERSION, primed=_primed, archive_bars=na, **_last,
                feed_age_min=round(_age,1), market_open=_mkt, cme_note=_cme,
                feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety
                auto_mode=_amode, auto_live=_alive,                 # v26: is the AUTO executor live?
