@@ -46,6 +46,8 @@ class BrokerEvent:
     signal_key: str | None = None
     order_id: str | None = None
     parent_order_id: str | None = None
+    relay_signal_id: str | None = None
+    relay_log_id: str | None = None
     ticker: str | None = None
     side: str | None = None
     quantity: int | None = None
@@ -110,6 +112,15 @@ def normalize(payload: Mapping[str, Any]) -> BrokerEvent:
             break
 
     status, raw = _status(data)
+    provider = str(_first(data, "provider", "source", "broker") or "") or None
+    provider_key = (provider or "").strip().lower()
+    # TradersPost returns a webhook Signal ID in the generic ``id`` field. It is not
+    # a broker order ID and must never be used to claim broker acknowledgement.
+    order_id = _first(data, "order_id", "orderId", "brokerOrderId")
+    if order_id is None and provider_key not in {
+        "execution-relay", "traderspost", "traderspost-relay", "traderspost_webhook"
+    }:
+        order_id = _first(data, "id")
     event_ms = timebase.parse_event_ms(
         _first(data, "event_ms", "eventMs", "timestamp", "time", "updatedAt", "updated_at", "createdAt"),
         default=timebase.now_ms(),
@@ -125,8 +136,10 @@ def normalize(payload: Mapping[str, Any]) -> BrokerEvent:
         event_ms=event_ms,
         plan_id=str(_first(data, "plan_id", "planId", "client_plan_id") or "") or None,
         signal_key=str(_first(data, "signal_key", "signalKey", "client_signal_key") or "") or None,
-        order_id=str(_first(data, "order_id", "orderId", "id", "brokerOrderId") or "") or None,
+        order_id=str(order_id or "") or None,
         parent_order_id=str(_first(data, "parent_order_id", "parentOrderId", "parentId") or "") or None,
+        relay_signal_id=str(_first(data, "relay_signal_id", "relaySignalId", "signal_id", "signalId") or "") or None,
+        relay_log_id=str(_first(data, "relay_log_id", "relayLogId", "log_id", "logId") or "") or None,
         ticker=str(_first(data, "ticker", "symbol", "instrument") or "") or None,
         side=side,
         quantity=_int_or_none(_first(data, "quantity", "qty", "orderQty")),
@@ -136,6 +149,6 @@ def normalize(payload: Mapping[str, Any]) -> BrokerEvent:
         exit_price=_float_or_none(_first(data, "exit_price", "exitPrice", "closePrice")),
         realized_pnl=_float_or_none(_first(data, "realized_pnl", "realizedPnl", "pnl", "profitLoss")),
         reason=str(_first(data, "reason", "message", "rejectReason") or "") or None,
-        provider=str(_first(data, "provider", "source", "broker") or "") or None,
+        provider=provider,
         raw_status=raw or None,
     )

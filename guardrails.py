@@ -749,6 +749,8 @@ def apply_broker_event(payload):
         row['broker_raw_status'] = event.raw_status
     if event.provider: row['broker_provider'] = event.provider
     if event.reason: row['broker_reason'] = event.reason
+    if event.relay_signal_id: row['relay_signal_id'] = event.relay_signal_id
+    if event.relay_log_id: row['relay_log_id'] = event.relay_log_id
     if event.order_id:
         orders = row.setdefault('broker_orders', [])
         if not any(isinstance(x, dict) and str(x.get('order_id')) == str(event.order_id) for x in orders):
@@ -909,27 +911,46 @@ def health(feed_age_min=None, market_open=None):
         # 8 shadow resolver (session classification + outcomes)
         add('shadow', 'ok' if shadow is not None else 'warn',
             'resolver ready' if shadow is not None else 'shadow.py not importable — session/outcome resolution degraded')
-        # 9 broker feedback: fail visibly when the relay accepted an order but no broker ack arrived.
+        # 9 broker feedback. TradersPost deliberately has no broker-state/order-feedback API.
+        # In direct mode missing ACK is critical; in traderspost mode we report relay-only
+        # visibility without pretending the webhook Signal ID is a broker order ID.
         if _env('BROKER_FEEDBACK_REQUIRED', '1') == '1' and mode == 'auto':
-            token_set = bool(os.environ.get('BROKER_EVENT_TOKEN') or os.environ.get('GUARD_TOKEN'))
-            if not token_set and _env('ALLOW_UNAUTH_BROKER_EVENT', '0') != '1':
-                add('broker_feedback', 'critical', 'BROKER_EVENT_TOKEN/GUARD_TOKEN missing — callbacks cannot authenticate')
-            else:
-                pending = []
+            feedback_mode = _env('BROKER_FEEDBACK_MODE', 'direct').strip().lower()
+            if feedback_mode in ('off', 'disabled', 'none'):
+                add('broker_feedback', 'info', 'disabled by BROKER_FEEDBACK_MODE')
+            elif feedback_mode in ('traderspost', 'relay_only', 'relay-only'):
+                latest = None
                 for row in reversed(_load(GLOG, [])):
-                    if row.get('decision') not in ('sent', 'manual'): continue
-                    if row.get('broker_status'): continue
-                    if row.get('relay_accepted_ms'):
-                        pending.append(row); break
-                if pending:
-                    age_s = max(0, (_now_ms() - int(pending[0]['relay_accepted_ms'])) / 1000.0)
-                    lim = _envf('BROKER_ACK_MAX_SEC', 30)
-                    add('broker_feedback', 'critical' if age_s > lim else 'warn',
-                        'relay accepted but broker ack missing for %.0fs (limit %.0fs)' % (age_s, lim))
+                    if row.get('decision') in ('sent', 'manual') and row.get('relay_accepted_ms'):
+                        latest = row; break
+                if latest:
+                    valid = latest.get('valid_until_ms')
+                    expiry = ('; plan validity ended' if valid and _now_ms() > int(valid) else '')
+                    add('broker_feedback', 'warn',
+                        'TradersPost relay-only mode: no broker order/status API%s; cancelAfter protects pending entry expiry' % expiry)
                 else:
-                    last = s.get('last_broker_event_ms')
-                    add('broker_feedback', 'ok' if last else 'info',
-                        ('last callback %.0fm ago' % ((_now_ms()-int(last))/60000.0)) if last else 'ready; no broker callback received yet')
+                    add('broker_feedback', 'info',
+                        'TradersPost relay-only mode ready; true broker state is unavailable')
+            else:
+                token_set = bool(os.environ.get('BROKER_EVENT_TOKEN') or os.environ.get('GUARD_TOKEN'))
+                if not token_set and _env('ALLOW_UNAUTH_BROKER_EVENT', '0') != '1':
+                    add('broker_feedback', 'critical', 'BROKER_EVENT_TOKEN/GUARD_TOKEN missing — callbacks cannot authenticate')
+                else:
+                    pending = []
+                    for row in reversed(_load(GLOG, [])):
+                        if row.get('decision') not in ('sent', 'manual'): continue
+                        if row.get('broker_status'): continue
+                        if row.get('relay_accepted_ms'):
+                            pending.append(row); break
+                    if pending:
+                        age_s = max(0, (_now_ms() - int(pending[0]['relay_accepted_ms'])) / 1000.0)
+                        lim = _envf('BROKER_ACK_MAX_SEC', 30)
+                        add('broker_feedback', 'critical' if age_s > lim else 'warn',
+                            'relay accepted but broker ack missing for %.0fs (limit %.0fs)' % (age_s, lim))
+                    else:
+                        last = s.get('last_broker_event_ms')
+                        add('broker_feedback', 'ok' if last else 'info',
+                            ('last callback %.0fm ago' % ((_now_ms()-int(last))/60000.0)) if last else 'ready; no broker callback received yet')
         # 10 read-path probe — would guard_ok throw?
         try:
             eval_progress(); _day_stats(); add('gate', 'ok', 'read-path clean')

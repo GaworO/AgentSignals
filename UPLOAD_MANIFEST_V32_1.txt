@@ -1,0 +1,21 @@
+AgentSignals v32.1 main-service changed files:
+.env.v32.example
+VERSION
+CHANGELOG.md
+agent.py
+execution_plan.py
+broker_feedback.py
+guardrails.py
+tools/expire_guard_order.py
+tests/test_relay_fix.py
+V32_1_RELAY_DEPLOY_PL.md
+RELAY_FIX_SUMMARY.md
+
+New standalone Railway relay service:
+relay_service/app.py
+relay_service/core.py
+relay_service/__init__.py
+relay_service/requirements.txt
+relay_service/Procfile
+relay_service/.env.example
+relay_service/README_PL.md
