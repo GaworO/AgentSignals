@@ -56,11 +56,11 @@ def to_signal(x):
         'Weekly': wk,
     }
 
-def size_for(entry, sl):
+def size_for(entry, sl, risk_pct=None):
     """Wielkosc pozycji: ryzyko RISK_PCT% z ACCOUNT, w zaleznosci od SL. MNQ = $2/pkt."""
     try:
         acct  = float(os.environ.get('ACCOUNT', '100000'))
-        riskp = float(os.environ.get('RISK_PCT', '0.5'))
+        riskp = float(risk_pct if risk_pct is not None else os.environ.get('RISK_PCT', '0.5'))
         ptval = float(os.environ.get('POINT_VALUE', '2'))   # MNQ = $2/pkt
         risk_usd = acct * riskp / 100.0
         slpts = abs(float(entry) - float(sl))
@@ -92,7 +92,7 @@ def to_alert(x):
              f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt · BE po +{rpts} pkt (1R)"
              f"\n🎯 TP2 {tp_d} · +{tppts} pkt (2R — cel systemu, zweryfikowany)"
              f"\n🎯 TP3 {tp3_d} · +{tp3pts} pkt (3R — opcjonalny runner, niezweryfikowany)")
-    s = size_for(x['entry'], x['SL'])
+    s = size_for(x['entry'], x['SL'], x.get('_risk_pct_override'))
     if s:
         qty, slpts, perc, real, pct = s
         base += f"\n📐 Ryzyko: {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
