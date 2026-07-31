@@ -56,15 +56,15 @@ def to_signal(x):
         'Weekly': wk,
     }
 
-def size_for(entry, sl):
-    """Wielkosc pozycji: ryzyko RISK_PCT% z ACCOUNT, w zaleznosci od SL. MNQ = $2/pkt."""
+def size_for(entry, sl, risk_pct=None):
+    """Wielkosc pozycji: wskazane ryzyko % z ACCOUNT; domyslnie RISK_PCT. MNQ = $2/pkt."""
     try:
         acct  = float(os.environ.get('ACCOUNT', '100000'))
-        riskp = float(os.environ.get('RISK_PCT', '0.5'))
+        riskp = float(risk_pct if risk_pct is not None else os.environ.get('RISK_PCT', '0.5'))
         ptval = float(os.environ.get('POINT_VALUE', '2'))   # MNQ = $2/pkt
         risk_usd = acct * riskp / 100.0
         slpts = abs(float(entry) - float(sl))
-        if slpts <= 0 or ptval <= 0: return None
+        if slpts <= 0 or ptval <= 0 or riskp <= 0: return None
         qty = int(risk_usd // (slpts * ptval))              # zaokraglenie w dol (nie przekrocz limitu)
         real = qty * slpts * ptval
         return qty, round(slpts,1), round(slpts*ptval), round(real), round(real/acct*100,2)
@@ -74,27 +74,47 @@ def size_for(entry, sl):
 def to_alert(x):
     emoji = '🟢' if x['dir']=='LONG' else '🔴'
     model = 'Reversal' if x['model']=='Reversal' else 'Cont'
+    strat = x.get('_strat', 'A/B')
     slpts = abs(x['entry']-x['SL']); isL = x['dir']=='LONG'
-    be = round((x['entry']+slpts) if isL else (x['entry']-slpts),1)      # 1R: SL na BE
-    tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)  # 2R: TP calosc
+    be = round((x['entry']+slpts) if isL else (x['entry']-slpts),1)
     g = grade(x); gtag = '🅰️ klasa A' if g=='A' else '🅱️ klasa B (DIB)'
     if x.get('bias_align')=='Y': gtag += ' ⭐bias'
     if x.get('brk',1)>=2: gtag += f" 🔁 re-test #{x['brk']}"
-    rpts = round(slpts,1); tppts = round(2*slpts,1)
+    rpts = round(slpts,1)
     side = 'BUY' if isL else 'SELL'
-    e_d = round(x['entry']+OFFSET,1); sl_d = round(x['SL']+OFFSET,1); tp_d = round(tp+OFFSET,1)
-    tp3 = round((x['entry']+3*slpts) if isL else (x['entry']-3*slpts),1)
-    tp3_d = round(tp3+OFFSET,1); tp3pts = round(3*slpts,1)
-    base = (f"📋 {side} LIMIT · POSTAW (BOS potwierdzony — zlecenie oczekujące, fill na cofnięciu) · {gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
-    if CONTRACT or OFFSET:
-        base += f"\n📄 Kontrakt: {CONTRACT or '—'}" + (f" (ceny +{round(OFFSET,1)} z MNQ1!)" if OFFSET else "")
-    base += (f"\n🎯 {side} LIMIT {e_d} ({x.get('kind','FVG/OTE')})"
-             f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt · BE po +{rpts} pkt (1R)"
-             f"\n🎯 TP2 {tp_d} · +{tppts} pkt (2R — cel systemu, zweryfikowany)"
-             f"\n🎯 TP3 {tp3_d} · +{tp3pts} pkt (3R — opcjonalny runner, niezweryfikowany)")
-    s = size_for(x['entry'], x['SL'])
-    if s:
-        qty, slpts, perc, real, pct = s
+    e_d = round(x['entry']+OFFSET,1); sl_d = round(x['SL']+OFFSET,1)
+
+    if strat == 'A/B-shallow':
+        default_tp = (x['entry']+2*slpts) if isL else (x['entry']-2*slpts)
+        try: tp = float(x.get('TP')) if x.get('TP') is not None else default_tp
+        except Exception: tp = default_tp
+        tp_r = abs(tp - x['entry']) / slpts if slpts else 0
+        tppts = round(abs(tp-x['entry']),1); tp_d = round(tp+OFFSET,1)
+        base = (f"📋 A/B-shallow · {side} LIMIT · POSTAW (BOS potwierdzony — płytsze wejście) · "
+                f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
+        if CONTRACT or OFFSET:
+            base += f"\n📄 Kontrakt: {CONTRACT or '—'}" + (f" (ceny +{round(OFFSET,1)} z MNQ1!)" if OFFSET else "")
+        base += (f"\n🎯 {side} LIMIT {e_d} ({x.get('kind','A/B shallow')})"
+                 f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt"
+                 f"\n🎯 TP {tp_d} · +{tppts} pkt ({tp_r:.2f}R · {x.get('tp_src') or 'shallow'})")
+    else:
+        tp = round((x['entry']+2*slpts) if isL else (x['entry']-2*slpts),1)
+        tppts = round(2*slpts,1); tp_d = round(tp+OFFSET,1)
+        tp3 = round((x['entry']+3*slpts) if isL else (x['entry']-3*slpts),1)
+        tp3_d = round(tp3+OFFSET,1); tp3pts = round(3*slpts,1)
+        base = (f"📋 {side} LIMIT · POSTAW (BOS potwierdzony — zlecenie oczekujące, fill na cofnięciu) · "
+                f"{gtag} · {emoji} {x['dir']} | {model} · Kat: {catname(x)}")
+        if CONTRACT or OFFSET:
+            base += f"\n📄 Kontrakt: {CONTRACT or '—'}" + (f" (ceny +{round(OFFSET,1)} z MNQ1!)" if OFFSET else "")
+        base += (f"\n🎯 {side} LIMIT {e_d} ({x.get('kind','FVG/OTE')})"
+                 f"\n🛑 SL {sl_d} · ryzyko {rpts} pkt · BE po +{rpts} pkt (1R)"
+                 f"\n🎯 TP2 {tp_d} · +{tppts} pkt (2R — cel systemu, zweryfikowany)"
+                 f"\n🎯 TP3 {tp3_d} · +{tp3pts} pkt (3R — opcjonalny runner, niezweryfikowany)")
+
+    rp = x.get('_risk_pct_override')
+    sf = size_for(x['entry'], x['SL'], rp)
+    if sf:
+        qty, slpts, perc, real, pct = sf
         base += f"\n📐 Ryzyko: {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
     return base
 

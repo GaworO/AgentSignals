@@ -1,0 +1,29 @@
+# Add/update these variables in the SAME Railway service that runs agent.py.
+# Base repository: AgentSignals-main (65), version v31.4 -> v31.5.
+
+# Existing normal A/B risk
+RISK_PCT=0.50
+ACCOUNT=100000
+POINT_VALUE=2
+EXEC_QTY=auto
+EXEC_TICK=0.25
+EXEC_TIF=day
+FILL_WIN_MIN=10
+PARTIAL_AT_1R=0
+
+# New independent A/B-shallow order
+AB_SHALLOW_ENABLED=1
+AB_SHALLOW_FRACTION=0.25
+AB_SHALLOW_RR=2
+AB_SHALLOW_RISK_PCT=0.50
+AB_SHALLOW_MIN_SL_PTS=5
+AB_SHALLOW_MAX_SL_PTS=0
+AB_SHALLOW_DURING_RAMP=1
+
+# IMPORTANT
+# Remove AB_SHALLOW_RISK_SHARE if it exists. This v31.5 build does not use shared risk.
+# 0.5% A/B + 0.5% A/B-shallow = maximum planned setup exposure of 1.0%
+# when both limits fill. Commission/slippage are additional.
+#
+# AB_SHALLOW_DURING_RAMP=1 enables shallow immediately, also during RAMP_TRADES.
+# The ramp override remains 1 contract per sibling. Use 0 for deep-only ramp.

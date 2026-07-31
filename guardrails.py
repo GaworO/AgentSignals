@@ -123,10 +123,10 @@ def _skey(x):
     """same identity shadow.py uses, so a guard row can be joined to its shadow outcome."""
     try:
         if shadow is not None:
-            return shadow._key('A/B', x.get('dir'), int(x.get('bos_ms') or _now_ms()),
+            return shadow._key(x.get('_strat', 'A/B'), x.get('dir'), int(x.get('bos_ms') or _now_ms()),
                                round(float(x.get('entry')), _envi('GUARD_PRICE_DP', 2)))
     except Exception: pass
-    return "%s|%s|%s" % (x.get('dir'), x.get('entry'), x.get('bos_ms'))
+    return "%s|%s|%s|%s" % (x.get('_strat', 'A/B'), x.get('dir'), x.get('entry'), x.get('bos_ms'))
 
 def _wd(x):
     """weekday of the signal (0=Mon) by ET clock."""
@@ -462,25 +462,32 @@ def _today_sent():
 
 def _day_stats():
     sent = _today_sent()
-    # v27.2d/e: rows that consumed NO risk don't count toward MAX_TRADES_DAY — user cancels
-    # ('canceled' via /guard/cancel) and never-filled sends ('no_fill' / 'missed' write-offs).
-    # A/B 'timeout' still counts (filled, exited flat). Dedup + one-position bound send churn.
-    n_trades = sum(1 for t in sent if t.get('outcome') not in ('canceled', 'no_fill', 'missed'))
-    losses = sum(1 for t in sent if t.get('outcome') == 'loss')
-    net = sum((t.get('net') or 0) for t in sent if t.get('outcome') in ('win', 'loss', 'timeout'))
-    # openpos: resting OR running = a live commitment. External rows (C, ... via /guard/extlog) have
-    # no shadow resolution — they hold the slot for EXT_OPEN_H hours (fill window), then age out
-    # unless the satellite POSTs an outcome update.
-    # v28: an unfilled limit used to hold the one-position slot for EXT_OPEN_H (4 h), blocking every
-    # later setup that day. On the 10-min clock the slot frees as soon as the row is written off.
+    # A/B and A/B-shallow are sibling rows of one signal group.  MAX_TRADES_DAY counts the
+    # setup once, while loss limits count each independently-risked losing sibling.  Net P&L
+    # always sums both rows.
+    grouped = {}
+    for t in sent:
+        grouped.setdefault(t.get('setup_group_id') or t.get('key'), []).append(t)
+    n_trades = 0; losses = 0; net = 0.0
     exth = _envf('EXT_OPEN_H', 4) * 3600000
     openpos = False
-    for t in sent:
-        if t.get('outcome') != 'open': continue
-        if t.get('strat', 'A/B') != 'A/B' and not t.get('ext_outcome'):
-            if (_now_ms() - int(t.get('ts') or 0)) < exth: openpos = True
-        else:
-            openpos = True
+    for grows in grouped.values():
+        consumed_risk = False
+        for t in grows:
+            oc = t.get('outcome')
+            if oc not in ('canceled', 'no_fill', 'missed', 'open', None, ''):
+                consumed_risk = True
+            if oc == 'loss':
+                losses += 1
+            if oc in ('win', 'loss', 'timeout'):
+                net += float(t.get('net') or 0)
+            if oc == 'open':
+                if t.get('strat', 'A/B') not in ('A/B', 'A/B-shallow') and not t.get('ext_outcome'):
+                    if (_now_ms() - int(t.get('ts') or 0)) < exth: openpos = True
+                else:
+                    openpos = True
+        if consumed_risk:
+            n_trades += 1
     return dict(sent=n_trades, losses=losses, net=net, openpos=openpos)
 
 # ---------- the gate ----------
@@ -610,13 +617,18 @@ def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
         glog = _load(GLOG, []); k = _skey(x)
+        gid = x.get('_setup_group_id')
+        group_already_sent = bool(gid and any(
+            g.get('setup_group_id') == gid and g.get('decision') in ('sent', 'manual')
+            for g in glog[-200:]))
         if decision == 'blocked':                     # same setup re-detected each bar while fresh ->
             day = _today()                            # note each (key, reason) ONCE per day, not 15x
             for g in reversed(glog[-100:]):
                 if g.get('date') != day: break
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
                     return
-        glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
+        glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), setup_group_id=gid,
+                         ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
                          sl_src=x.get('sl_src'),   # v29.1: which anchor set the stop (struct | fvg_edge | fvg_edge+capped)
@@ -627,7 +639,8 @@ def note(x, decision, reason=''):
                                               else x.get('_exec_qty_override')), decision=decision, reason=reason))
         _save(GLOG, glog)
         if decision in ('sent', 'manual'):
-            s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
+            if not group_already_sent:
+                s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
             _trade_alert(x, decision)                      # 🟢 push a Telegram line the moment auto places it
     except Exception as e:
         print('[guard] note err', e, flush=True)
@@ -1127,7 +1140,7 @@ async function load(){
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
   if(!v)return '<span style="color:#6b7688">—</span>';
-  let lab=v=='swing'?'SWING':'2R';let col=v=='swing'?'#3ecb3e':'#3987e5';
+  let lab=v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
   let tt=x.legs?x.legs.map(function(l){return l.qty+'@'+l.tp;}).join(' + '):'';
   return '<span style="color:'+col+'" title="v30 target: last confirmed swing beyond 1R (capped 3R) or fixed 2R fallback. Brackets: '+tt+'">'+lab+legs+'</span>';};
  let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';

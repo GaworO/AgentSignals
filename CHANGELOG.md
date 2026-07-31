@@ -1,3 +1,20 @@
+## v31.5 — A/B-shallow with independent 0.5% risk (2026-07-31)
+
+Built directly on the operator-provided **v31.4** repository. No v32 modules or
+`execution_plan.py` dependency are introduced.
+
+- Adds a causal `A/B-shallow` sibling at 25% of the distance from the BOS-bar close to the existing A/B limit.
+- The shallow sibling uses the same structural SL and a fixed 2R target by default.
+- `A/B` uses `RISK_PCT`; `A/B-shallow` uses an independent `AB_SHALLOW_RISK_PCT`.
+- At 0.5% + 0.5%, maximum planned exposure is 1.0% if both orders fill.
+- Guard table stores adjacent `A/B` and `A/B-shallow` rows with separate entry, quantity, TP and outcome.
+- Maximum-trades/day counts the sibling pair as one setup; daily loss limits count each losing independently-risked leg.
+- Shallow sizing is strict: size-up multipliers cannot raise it above its own risk budget, and the order is skipped if one contract does not fit.
+- Partial sibling send fails closed by sending flatten+cancel for the ticker.
+- `/status` exposes all shallow settings and combined maximum planned risk.
+
+Files: `agent.py`, `guardrails.py`, `live_emit.py`, new `ab_shallow.py`.
+
 # Changelog — MNQ detector
 
 Baseline = v10 (`det_v10.py`, time-based invalidation). Forward tests: MNQ 1m, 2022-06→2026-06,

@@ -27,6 +27,7 @@ import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
+import ab_shallow  # causal A/B-shallow sibling; independent risk budget
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,7 +47,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.4'   # 2026-07-30 v31.4: late_day starts at 16:00 ET (GUARD_ENTRY_MARGIN_MIN default 35->4; early-close days still scale). | v31.3: 2026-07-29 v31.3: orphan zone lifetime = 120 BARS from the FVG (operator pick from the sweep: +$4,125, 6W/2L, 0 degraded months). Defaults: ORPHAN_WINDOW=caps, ORPHAN_LIFE=day, ORPHAN_MAX_BARS=120 — no env vars needed. | v31.2: 2026-07-29 v31.2 cap sweep: sequence caps KEPT + zone lives to END OF SESSION (defaults ORPHAN_WINDOW=caps, ORPHAN_LIFE=session; 4y sweep in CHANGELOG). | v31.1: 2026-07-29 v31.1: the FVG retest/BOS bar window runs TO END OF DAY (operator spec) — no retwin/boswin caps on re-armed zones; kills remain body-through-CE and day end only. | v31.0: 2026-07-29 v31: ORPHANED-FVG RE-ARM — a displacement FVG the price ran away from (no test in retwin) stays watched until a BODY closes through its CE or the day ends; on a later return that holds CE the retest->BOS->entry sequence re-arms (cat +ORPH). ORPHAN_FVG=0 disables. | v30.1: 2026-07-29 v30.1: 1R partial OFF by default (PARTIAL_AT_1R=1 re-enables) — last-12m test: partial cost $4,351 (~14%) for 3/12 better months. | v30.0: 2026-07-29 v30: TP = last swing level left of BOS (>=1R, capped 3R, 2R fallback; SWING_TP knobs) + 1R PARTIAL: 0.2% acct banked at +1R via a second broker bracket (PARTIAL_AT_1R / PARTIAL_ACCT_PCT). | v29.1: 2026-07-29 v29.1: Auto-Executor book + /guard table show WHICH anchor set the stop (sl_src column: STRUCT / FVG edge / capped); fire alert carries it too. | v29 STOP ANCHOR: SL = displacement-leg extreme (struct) when it fits inside SL_STRUCT_MAX_R (30pt), else the far edge of the HELD FVG; CE only as fallback. Default for detector + Auto-Executor. Risk cap / MAX_STOP_R unchanged. | v27.2 FTMO FX drop: PEER_GUARD_URL one-position-across-services gate (EUR<->JPY on one FX account, fail-closed), /guard/data exposes openpos, exec_fx ctbridge route (free cTrader Open API) + v27.1 telegram quiet defaults
+VERSION = 'v31.5-ab-shallow-independent-risk2R'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -118,17 +119,31 @@ def _exec_order(x, text=None):
         # ta sama liczba kontraktow co w linii "Ryzyko: N kontr.". Liczba w EXEC_QTY = sztywno.
         # EXEC_MAX_QTY = opcjonalny limit (np. regula max kontraktow MFF / eval).
         _q = os.environ.get('EXEC_QTY', 'auto').strip().lower()
-        if _q.isdigit() and int(_q) > 0:
+        _risk_override = x.get('_risk_pct_override')
+        _strict_risk = bool(x.get('_strict_risk_budget'))
+        if _strict_risk:
+            try:
+                _sf = live_emit.size_for(e, sl, _risk_override)
+                qty = int(_sf[0]) if _sf else 0
+            except Exception:
+                qty = 0
+        elif _q.isdigit() and int(_q) > 0:
             qty = int(_q)
         else:
             try:
-                _sf = live_emit.size_for(e, sl); qty = int(_sf[0]) if _sf else 1
+                _sf = live_emit.size_for(e, sl, _risk_override)
+                qty = int(_sf[0]) if _sf else 0
             except Exception:
-                qty = 1
-        qty = int(round(qty * float(x.get('_size_mult', 1.0))))   # 🧲 magnet auto-size (magnet sets _size_mult; EXEC_MAX_QTY cap below still binds)
+                qty = 0
+        if _strict_risk and qty < 1:
+            return {"sent": False, "reason": "risk_budget_below_one_contract", "qty": 0}
+        if qty < 1:
+            qty = 1
+        if not _strict_risk:
+            qty = int(round(qty * float(x.get('_size_mult', 1.0))))   # 🧲 normal A/B size-up path
         try:      # ⭐ SELECT size skew: T4 setups (~+0.30R live vs +0.195R baseline) get more size. Off by default.
             _ssm = float(os.environ.get('SELECT_SIZE_MULT', '1') or 1)
-            if x.get('_select') and _ssm != 1.0: qty = max(1, int(round(qty * _ssm)))
+            if (not _strict_risk) and x.get('_select') and _ssm != 1.0: qty = max(1, int(round(qty * _ssm)))
         except Exception: pass
         try:      # 🌙 per-session size multiplier — overnight test sessions run reduced size until proven.
                   # SESSION_SIZE_MULT='ASIA:0.5,LO:0.5' default; '' disables; e.g. 'ASIA:0.25,LO:0.5,PREM:0.75'
@@ -143,7 +158,7 @@ def _exec_order(x, text=None):
         try:      # 📈 GUARD_DYN_RISK=1: scale size with the DD cushion — never above base while the buffer
                   # is thin, up to DYN_RISK_MAX_MULT× once the buffer outgrows DYN_RISK_BASE_BUF ($).
                   # Rationale: worst guarded day = 2 losses; keep 2R well under ~1/3 of the live buffer.
-            if os.environ.get('GUARD_DYN_RISK', '0') == '1':
+            if (not _strict_risk) and os.environ.get('GUARD_DYN_RISK', '0') == '1':
                 _buf = float(guardrails.eval_progress().get('buffer') or 0)
                 _base = float(os.environ.get('DYN_RISK_BASE_BUF', '3000'))
                 _mx = float(os.environ.get('DYN_RISK_MAX_MULT', '2'))
@@ -160,7 +175,6 @@ def _exec_order(x, text=None):
         _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
         def _t(p):                                                 # sees them (OTE math emits 29043.43;
             return round(round(p / _tk) * _tk, 6) if _tk > 0 else round(p, 2)   # MNQ trades in 0.25s)
-        x['_exec_tp'] = _t(tp + off)   # v28: the book/shadow must score the target the BROKER holds.
         x['_exec_entry'] = _t(e + off)  # tp is recomputed from the POST-ENTRY_OFFSET_PTS entry; x['TP']
                                         # is the detector's PRE-offset value (3 pts apart at offset=1).
         # ---- v30: 1R partial. Split ONE signal into TWO brackets at the broker:
@@ -176,10 +190,11 @@ def _exec_order(x, text=None):
         # detector aimed at the swing level.)
         try: tp = float(x['TP']) if x.get('TP') is not None else tp
         except Exception: pass
+        x['_exec_tp'] = _t(tp + off)   # the book/shadow must score the target the broker actually receives
         legs = [(qty, tp)]
         try:
             if os.environ.get('PARTIAL_AT_1R', '0') == '1' and qty >= 2:   # v30.1: default OFF (measured: costs ~14%/yr for little protection); PARTIAL_AT_1R=1 re-enables
-                _rp  = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
+                _rp  = float(_risk_override if _risk_override is not None else os.environ.get('RISK_PCT', '0.5') or 0.5)
                 _pp  = float(os.environ.get('PARTIAL_ACCT_PCT', '0.2') or 0.2)
                 _fr  = max(0.0, min(0.9, _pp / _rp)) if _rp > 0 else 0.0
                 qa   = int(round(qty * _fr))
@@ -216,6 +231,82 @@ def _exec_order(x, text=None):
     except Exception as ex:
         print('EXEC err', ex, flush=True)
         return {"sent": False, "error": str(ex), "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}
+
+def _signal_bar_close(x):
+    """Return the close of the detector BOS bar from the same rolling buffer.
+
+    This is the only price used to construct A/B-shallow, keeping the sibling
+    causal.  ``bos_bar`` is preferred; ``bos_iso`` is a defensive fallback.
+    """
+    try:
+        wanted = x.get('bos_bar')
+        wanted = int(wanted) if wanted is not None else None
+        bos_iso = str(x.get('bos_iso') or '')
+        with open(BUF, newline='', encoding='utf-8') as f:
+            for i, row in enumerate(csv.DictReader(f)):
+                if wanted is not None and i == wanted:
+                    return float(row['close'])
+                if bos_iso and str(row.get('ts_event') or '').replace('+00:00', 'Z') == bos_iso:
+                    return float(row['close'])
+    except Exception as e:
+        print('A/B-shallow signal close lookup err', e, flush=True)
+    return None
+
+def _prepare_ab_siblings(repx):
+    """Build deep A/B and the causal A/B-shallow sibling.
+
+    Deep A/B uses ``RISK_PCT``.  The sibling uses its own
+    ``AB_SHALLOW_RISK_PCT`` and therefore can bring the combined setup exposure
+    to 1.0% when both are configured at 0.5% and both fill.
+    """
+    repx['_strat'] = repx.get('_strat', 'A/B')
+    if repx['_strat'] != 'A/B' or not ab_shallow.enabled():
+        return [repx]
+    if repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
+        repx['_shallow_skip'] = 'ramp'
+        return [repx]
+    close = _signal_bar_close(repx)
+    if close is None:
+        repx['_shallow_skip'] = 'signal_close_missing'
+        return [repx]
+    repx['_signal_close'] = close
+    gid = ab_shallow.setup_group_id(repx)
+    repx['_setup_group_id'] = gid
+    try:
+        shallow = ab_shallow.build_shallow_signal(repx)
+        meta = ab_shallow.risk_metadata(repx, shallow)
+        repx['_ab_risk_meta'] = meta
+        shallow['_ab_risk_meta'] = meta
+        return [repx, shallow]
+    except Exception as e:
+        repx['_shallow_skip'] = str(e)
+        print('A/B-shallow build skip:', e, flush=True)
+        return [repx]
+
+def _exec_sibling_batch(items, base_text):
+    """Send siblings as one fail-closed batch.
+
+    If any sibling fails after another was accepted, flatten+cancel the ticker.
+    The guard permits only one active setup, so this is safer than leaving a
+    partially created pair at the broker.
+    """
+    results = []
+    for item in items:
+        itxt = base_text if item.get('_strat', 'A/B') == 'A/B' else live_emit.to_alert(item)
+        item['_alert_txt'] = itxt
+        res = _exec_order(item, itxt)
+        item['_sent_qty'] = res.get('qty')
+        results.append((item, res, itxt))
+        try:
+            ok = bool(res.get('sent')) and 200 <= int(res.get('status') or 0) < 300
+        except Exception:
+            ok = False
+        if not ok:
+            if any(bool(r.get('sent')) for _, r, _ in results[:-1]):
+                try: guardrails.flatten_all('ab_sibling_partial_send')
+                except Exception as e: print('A/B sibling rollback err', e, flush=True)
+            return False, results
+    return True, results
 
 def _seed_buffer():
     if os.path.exists(BUF) or not os.path.exists(SEED_CSV): return
@@ -435,6 +526,7 @@ def _process_new(now_ms=None):
             _save_db(repx, txt+' [SUPPRESSED]', 'suppressed')
             for kk in allkeys: sentn.add(kk)
             continue
+        _book_items = [repx]
         if os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':   # FX services: MetaApi, no webhook
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')  # routine skips -> NO Telegram (kills dup alerts)
             # v27.1: TG_BLOCKED=0 (default) — blocked setups go to /guard + DB only, NOT Telegram.
@@ -442,14 +534,17 @@ def _process_new(now_ms=None):
             # message via _alert_txt). TG_BLOCKED=1 restores the old behaviour (every non-quiet block alerted).
             _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
             repx['_alert_txt'] = txt                              # guardrails._trade_alert appends this on SENT
-            def _blk(_why):
-                guardrails.note(repx, 'blocked', _why)
+            def _blocked_items(_why):
+                items = _prepare_ab_siblings(repx)
+                for item in items:
+                    item['_alert_txt'] = txt if item.get('_strat', 'A/B') == 'A/B' else live_emit.to_alert(item)
+                    guardrails.note(item, 'blocked', _why)
                 if _TG_BLOCKED and _why not in _QUIET and not str(_why).startswith('session') and WEBHOOK_URL:
                     live_emit.post_webhook(txt, WEBHOOK_URL)       # informational only, NO order — you still see it (+ on /guard)
-                return 'guard:' + _why
+                return items
             _gmode = guardrails.exec_mode()                       # auto | manual | off  (flip at /guard/mode)
             if _gmode == 'off':
-                guardrails.note(repx, 'blocked', 'mode_off'); code = 'guard:off'
+                _book_items = _blocked_items('mode_off'); code = 'guard:off'
                 if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)   # OFF still shows you the setup
             def _exec_ok(_res):
                 """True only when the relay ACCEPTED the order (2xx). Booking 'sent' on a 401/timeout
@@ -467,35 +562,46 @@ def _process_new(now_ms=None):
             elif _gmode == 'manual':                              # YOUR tap-to-approve semi-auto
                 _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
                 if _gok:
-                    _res = _exec_order(repx, txt)
-                    repx['_sent_qty'] = _res.get('qty')
-                    if _exec_ok(_res): guardrails.note(repx, 'manual'); code = 'exec-manual'
-                    else: guardrails.note(repx, 'blocked', 'exec_failed'); _exec_fail_alert(_res, 'manual'); code = 'exec-failed'
+                    _book_items = _prepare_ab_siblings(repx)
+                    _batch_ok, _batch = _exec_sibling_batch(_book_items, txt)
+                    if _batch_ok:
+                        for _item, _res, _itxt in _batch: guardrails.note(_item, 'manual')
+                        code = 'exec-manual'
+                    else:
+                        for _item in _book_items: guardrails.note(_item, 'blocked', 'sibling_batch_failed')
+                        _exec_fail_alert((_batch[-1][1] if _batch else {}), 'manual-batch'); code = 'exec-failed'
                 else:
-                    code = _blk(_gwhy)
+                    _book_items = _blocked_items(_gwhy); code = 'guard:' + _gwhy
             else:                                                 # auto — full guardrails
                 _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(),
                                                   market_open=_market_open_now(), news_hard=hard,
                                                   cal_age_h=_cal_age_h())
                 if _gok:
                     guardrails.ramp_qty(repx)                     # first N trades -> 1 contract
-                    _res = _exec_order(repx, txt)
-                    repx['_sent_qty'] = _res.get('qty')          # book the ACTUAL quantity sent
-                    if _exec_ok(_res): guardrails.note(repx, 'sent'); code = 'exec'
-                    else: guardrails.note(repx, 'blocked', 'exec_failed'); _exec_fail_alert(_res, 'auto'); code = 'exec-failed'
+                    _book_items = _prepare_ab_siblings(repx)
+                    _batch_ok, _batch = _exec_sibling_batch(_book_items, txt)
+                    if _batch_ok:
+                        for _item, _res, _itxt in _batch: guardrails.note(_item, 'sent')
+                        code = 'exec'
+                    else:
+                        for _item in _book_items: guardrails.note(_item, 'blocked', 'sibling_batch_failed')
+                        _exec_fail_alert((_batch[-1][1] if _batch else {}), 'auto-batch'); code = 'exec-failed'
                 else:
-                    code = _blk(_gwhy)
+                    _book_items = _blocked_items(_gwhy); code = 'guard:' + _gwhy
         else:
+            _book_items = _prepare_ab_siblings(repx)
             code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
         print('ALERT', code, txt, flush=True)
-        _save_db(repx, txt, code)
-        try: manage.register(repx, TRADES)
-        except Exception as e: print('manage.register err', e, flush=True)
-        try: shadow.record('A/B', repx.get('dir'), repx.get('entry'), repx.get('SL'),
-                           repx.get('_exec_tp') or repx.get('TP'), repx.get('bos_ms'),
-                           entry_ms=repx.get('entry_ms'))   # v28: broker's TP + the bar the order can first trade
-        except Exception as e: print('shadow.record err', e, flush=True)
-        if code=='exec' or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
+        for _item in _book_items:
+            _itxt = txt if _item.get('_strat', 'A/B') == 'A/B' else live_emit.to_alert(_item)
+            _save_db(_item, _itxt, code)
+            try: manage.register(_item, TRADES)
+            except Exception as e: print('manage.register err', e, flush=True)
+            try: shadow.record(_item.get('_strat', 'A/B'), _item.get('dir'), _item.get('entry'), _item.get('SL'),
+                               _item.get('_exec_tp') or _item.get('TP'), _item.get('bos_ms'),
+                               entry_ms=_item.get('entry_ms'))
+            except Exception as e: print('shadow.record err', e, flush=True)
+        if code in ('exec', 'exec-manual') or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)
         nfired+=1
     # ====== (usunięte) PRE-ALERTY — stary etap odbicia od CE „czekaj na BOS" zniesiony.
@@ -767,7 +873,13 @@ def status():
                feed_age_min=round(_age,1), market_open=_mkt, cme_note=_cme,
                feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety
                auto_mode=_amode, auto_live=_alive,                 # v26: is the AUTO executor live?
-               heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')))
+               heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')),
+               ab_shallow_enabled=ab_shallow.enabled(),
+               ab_shallow_fraction=float(os.environ.get('AB_SHALLOW_FRACTION','0.25') or 0.25),
+               ab_shallow_rr=float(os.environ.get('AB_SHALLOW_RR','2') or 2),
+               ab_shallow_risk_pct=float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5),
+               ab_shallow_combined_max_risk_pct=(float(os.environ.get('RISK_PCT','0.5') or 0.5) +
+                                                  float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5)))
     if _wants_html(): return _kv_page('Status', _body)
     return jsonify(_body)
 
