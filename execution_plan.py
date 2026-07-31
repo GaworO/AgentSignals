@@ -13,10 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-import datetime as dt
 import hashlib
 import json
-import math
 import os
 import time
 from typing import Any, Mapping, MutableMapping, Sequence
@@ -199,21 +197,12 @@ class ExecutionPlan:
     def broker_payloads(self, text: str | None = None) -> list[dict[str, Any]]:
         """Return the exact TradersPost-compatible payloads represented by this plan.
 
-        ``cancelAfter`` is derived from the plan's absolute validity window so an entry
-        cannot remain working at TradersPost after AgentSignals considers it expired.
-        Identity is stored in the documented ``extras`` object and repeated in ``text``
-        for operator visibility. TradersPost's response ID is a *signal ID*, not a broker
-        order ID; downstream code must keep those concepts separate.
+        The human-readable ``text`` carries plan/signal identity. A relay that receives
+        broker status callbacks must echo these identifiers to ``/guard/broker-event``.
+        We intentionally avoid undocumented provider-specific client-order fields.
         """
         payloads: list[dict[str, Any]] = []
-        cancel_after = max(1, min(3600, int(math.ceil(
-            (self.valid_until_ms - self.active_from_ms) / 1000.0
-        ))))
-        signal_time = dt.datetime.fromtimestamp(
-            self.signal_ms / 1000.0, tz=dt.timezone.utc
-        ).isoformat().replace("+00:00", "Z")
         for index, leg in enumerate(self.legs):
-            identity = f"[plan:{self.plan_id}] [signal:{self.signal_key}] [leg:{index + 1}/{len(self.legs)}]"
             payload: dict[str, Any] = {
                 "ticker": self.ticker,
                 "action": self.side.broker_action,
@@ -223,20 +212,9 @@ class ExecutionPlan:
                 "takeProfit": {"limitPrice": leg.take_profit},
                 "stopLoss": {"type": "stop", "stopPrice": self.stop_loss},
                 "timeInForce": self.time_in_force,
-                "time": signal_time,
-                "cancelAfter": cancel_after,
-                "extras": {
-                    "plan_id": self.plan_id,
-                    "signal_key": self.signal_key,
-                    "strategy": self.strategy,
-                    "leg": index + 1,
-                    "leg_count": len(self.legs),
-                    "active_from_ms": self.active_from_ms,
-                    "valid_until_ms": self.valid_until_ms,
-                    "schema_version": self.schema_version,
-                },
-                "text": (f"{text}\n{identity}" if text else identity).strip(),
             }
+            identity = f"[plan:{self.plan_id}] [signal:{self.signal_key}] [leg:{index + 1}/{len(self.legs)}]"
+            payload["text"] = (f"{text}\n{identity}" if text else identity).strip()
             payloads.append(payload)
         return payloads
 

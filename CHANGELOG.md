@@ -5,29 +5,6 @@ CONFIRM mode, BE@1R / TP=2R, intrabar SL-first, costs in R vs each trade's own s
 
 ---
 
-## v32.1 - TradersPost relay semantics and pending-order expiry (2026-07-31)
-
-This patch fixes a live diagnostic defect discovered after v32 deployment. TradersPost's webhook
-response `id` is a Signal ID, not a broker order ID, and TradersPost does not expose a broker-state
-feedback loop to strategy code.
-
-- Added documented `cancelAfter` to every pending ExecutionPlan leg; the default 10-minute plan
-  window now reaches TradersPost itself instead of existing only in local shadow state.
-- Added documented `extras` metadata with `plan_id`, `signal_key`, leg identity and absolute plan times.
-- Stopped mapping TradersPost's generic response `id` to `broker_order_id`; it is stored as
-  `relay_signal_id`, with `logId` stored as `relay_log_id`.
-- Added `BROKER_FEEDBACK_MODE=traderspost`, which reports relay-only visibility honestly and no longer
-  raises the false “broker ACK missing” critical alarm. `direct` mode retains strict callback checks.
-- Added a deployable `relay_service/` with `/stage`, `/execute`, `/health`, direct provider callback
-  forwarding and operator-only `/reconcile-expired`.
-- Added `tools/expire_guard_order.py` for safe manual reconciliation after verifying the broker has no
-  working order or open position.
-- Added four tests; package total is 22 tests.
-
-No detector, entry, SL or TP rule changed.
-
----
-
 ## v32.0 - canonical ExecutionPlan, broker feedback and one strategy clock (2026-07-30)
 
 This release fixes execution-parity defects found in the four-year live-like replay. It does not

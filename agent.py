@@ -48,7 +48,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v32.1-traderspost-relay-fix'   # canonical plan + truthful TradersPost relay semantics
+VERSION = 'v32.0-execplan-broker-sync'   # canonical ExecutionPlan, broker feedback, fixed UTC-04:00 strategy clock
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -177,30 +177,17 @@ def _exec_order(x, text=None):
             try:
                 r = requests.post(url, json=payload, timeout=10)
                 st = int(getattr(r, 'status_code', 0) or 0)
-                try: body = (r.text or '')[:500]
+                try: body = (r.text or '')[:200]
                 except Exception: body = ''
+                ok = 200 <= st < 300
                 _ack = None
-                _j = {}
                 try:
                     _j = r.json() if hasattr(r, 'json') else {}
-                except Exception:
-                    _j = {}
-                provider_ok = not (isinstance(_j, dict) and _j.get('success') is False)
-                ok = 200 <= st < 300 and provider_ok
-                try:
                     if isinstance(_j, dict) and _j:
-                        # TradersPost's generic ``id`` is a Signal ID, not a broker order ID.
-                        # Keep it as relay metadata so the guard does not falsely claim broker ACK.
-                        _ev = broker_feedback.normalize({
-                            'plan_id': _plan.plan_id,
-                            'signal_key': _plan.signal_key,
-                            'status': _j.get('status') or ('accepted' if ok else 'rejected'),
-                            'provider': _j.get('provider') or 'traderspost-relay',
-                            'relay_signal_id': (_j.get('relay_signal_id') or _j.get('id')),
-                            'relay_log_id': (_j.get('relay_log_id') or _j.get('logId')),
-                            'reason': (_j.get('message') if not ok else None),
-                            'event_ms': timebase.now_ms(),
-                        })
+                        _ev = broker_feedback.normalize({**_j,
+                            'plan_id': _plan.plan_id, 'signal_key': _plan.signal_key,
+                            'status': _j.get('status') or ('submitted' if ok else 'rejected'),
+                            'provider': _j.get('provider') or 'execution-relay'})
                         _ack = _ev.to_dict()
                 except Exception:
                     _ack = None
