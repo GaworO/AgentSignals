@@ -24,8 +24,11 @@ try:
     import requests
 except Exception:
     requests = None
-import timebase
-_ET = timebase.STRATEGY_TZ
+try:
+    from zoneinfo import ZoneInfo
+    _ET = ZoneInfo('America/New_York')
+except Exception:
+    _ET = None
 
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
@@ -65,7 +68,6 @@ def _migrate_json_once():
 # strategy -> (Pine color, HTML chip color)
 STRAT_COLORS = {
     'AB':  ('color.aqua',    '#22d3ee'),
-    'AB-shallow': ('color.blue', '#60a5fa'),
     'C':   ('color.lime',    '#4ade80'),
     'F':   ('color.orange',  '#f59e0b'),
     'ORB': ('color.fuchsia', '#c084fc'),
@@ -135,9 +137,7 @@ def _ab_trades():
         e = _f(o.get('entry')); sl = _f(o.get('sl'))
         if e is None or sl is None:
             continue
-        _st = o.get('strategy') or o.get('strat') or 'A/B'
-        _st = 'AB-shallow' if _st == 'A/B-shallow' else 'AB'
-        res.append(_norm(_st, o.get('bos_ms') or o.get('closed_ms'), o.get('dir'), o.get('cat'),
+        res.append(_norm('AB', o.get('bos_ms') or o.get('closed_ms'), o.get('dir'), o.get('cat'),
                          e, sl, o.get('r'), o.get('reason'), key=str(o.get('key', '')), chartable=True))
     return res
 

@@ -11,11 +11,12 @@ evaluation. Current account $99,887 · $6,000 target ($106k) · $3,000 EOD-trail
 daily-loss limit (so OUR count-based stops are the only floor) · 50% consistency rule in eval ·
 min 2 trading days · own-account automation allowed.
 
-The eval-killer is the $3k trailing drawdown. v32 accepts authenticated broker lifecycle feedback. Until the relay confirms a callback, the
-hard protection remains COUNT-BASED (one position, max trades/day, halt after N losses) — those bound the
+The eval-killer is the $3k trailing drawdown. Because the agent has NO broker fill-feedback, the
+hard protection is COUNT-BASED (one position, max trades/day, halt after N losses) — those bound the
 worst realistic day to ~-2R regardless of what equity the model thinks it has. The $-based
 DD-proximity guard runs on a MODELED equity that you keep honest with /guard/sync?equity=<real MFF
-balance> (5 seconds, do it after each session). Uses broker truth when available and shadow.py only as the fallback model.
+balance> (5 seconds, do it after each session). Reuses shadow.py's resolver for outcomes so this and
+the shadow tab always agree.
 
 Wire (agent.py):  import guardrails  (top, next to `import shadow`)
                   guardrails.register(app)  (bottom, next to `shadow.register(app)`)
@@ -41,8 +42,8 @@ Hardening (2026-07-19 review):
   DD_TRAIL_USD=3000      auto-trailing floor: max(DD_FLOOR, highest synced equity - this)
   DD_FLOOR_CAP=0         optional cap where the trail locks (MFF locks at start balance)
   GUARD_FLATTEN=1        loss/DD/manual latches also send exit+cancel to EXEC_WEBHOOK (stop the bleeding)
-  EOD_FLATTEN_ET=16:04   (legacy env name; interpreted on fixed UTC-04:00)   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
-  GUARD_LAST_ENTRY_ET=15:30  (legacy env name; interpreted on fixed UTC-04:00)  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
+  EOD_FLATTEN_ET=16:04   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
+  GUARD_LAST_ENTRY_ET=15:30  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
   GUARD_SYNC_MAX_H=0     >0 = AUTO refuses to trade if real equity wasn't synced within N hours
   GUARD_TOKEN=           set -> /guard/sync|kill|mode require ?t=<token> (open /guard?t=... for buttons)
   SKIP_SESSIONS default is now LO,ASIA,PREM,NYL (was LO,ASIA — PREM/NYL used to auto-fire)
@@ -51,8 +52,6 @@ Hardening (2026-07-19 review):
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
 import os, json, time, datetime as dt
-import timebase
-import broker_feedback
 try:
     import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
 except Exception:
@@ -61,25 +60,32 @@ try:
     import requests                                 # only for the optional health-transition alert POST
 except Exception:
     requests = None
+try:
+    from zoneinfo import ZoneInfo; _NY = ZoneInfo('America/New_York')
+except Exception:
+    _NY = None
+
 DATA_DIR = os.environ.get('DATA_DIR', '.')
 GLOG     = os.path.join(DATA_DIR, 'guard_log.json')    # every decision (sent/blocked) — the /guard book
 GSTATE   = os.path.join(DATA_DIR, 'guard_state.json')  # kill-latch, ramp counter, synced equity
-BUNMATCH  = os.path.join(DATA_DIR, 'broker_unmatched.json')  # callbacks that could not be joined
 RISK_DOLLAR = 500.0                                     # 1R at 0.5%/$100k (display only)
 
 def _env(k, d):        return os.environ.get(k, d)
 def _envf(k, d):       return float(os.environ.get(k, str(d)))
 def _envi(k, d):       return int(float(os.environ.get(k, str(d))))
 
-def _now_ms():         return timebase.now_ms()
-def _et(ms):             return timebase.strategy_from_ms(ms)
+def _now_ms():         return int(time.time() * 1000)
+def _et(ms):
+    d = dt.datetime.fromtimestamp(ms/1000.0, tz=dt.timezone.utc)
+    return d.astimezone(_NY) if _NY else d
 def _today():
-    """Trading day on the project's one fixed UTC-04:00 strategy clock.
-
-    The date rolls at 18:00 UTC-04:00. UTC epoch milliseconds remain the canonical
-    stored time; only session/day interpretation uses the fixed strategy clock.
-    """
-    return timebase.trading_day(_now_ms())
+    """TRADING day, not calendar day: from 18:00 ET the date rolls to the next day (Globex/MFF
+    convention). Keeps the day counters/dedup/latches aligned with the real 18:00->16:10 trading
+    day — before this, Sun-evening trades used Sunday's counters and midnight handed out a fresh
+    allowance INSIDE the same MFF day (up to 6 trades / 4 losses per real day). Found by Aleks."""
+    d = _et(_now_ms())
+    if d.hour >= 18: d = d + dt.timedelta(days=1)
+    return d.strftime('%Y-%m-%d')
 
 def _sess_of(x):
     s = x.get('sess')
@@ -90,19 +96,14 @@ def _sess_of(x):
     return '?'
 
 def _load(p, d):
-    try:
-        with open(p, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return d
+    try: return json.load(open(p))
+    except Exception: return d
 def _load_failclosed(p, d):
     """Like _load, but a file that EXISTS yet won't parse is treated as corruption -> caller must
     fail CLOSED, not fall back to permissive defaults (a truncated guard_state.json used to silently
     clear the hard kill-latch and reset equity/ramp)."""
     if not os.path.exists(p): return d, False
-    try:
-        with open(p, encoding='utf-8') as f:
-            return json.load(f), False
+    try: return json.load(open(p)), False
     except Exception as e:
         print('[guard] STATE CORRUPT (fail-closed):', p, e, flush=True)
         return d, True
@@ -122,7 +123,7 @@ def _skey(x):
     """same identity shadow.py uses, so a guard row can be joined to its shadow outcome."""
     try:
         if shadow is not None:
-            return shadow._key(x.get('_strat', 'A/B'), x.get('dir'), int(x.get('bos_ms') or _now_ms()),
+            return shadow._key('A/B', x.get('dir'), int(x.get('bos_ms') or _now_ms()),
                                round(float(x.get('entry')), _envi('GUARD_PRICE_DP', 2)))
     except Exception: pass
     return "%s|%s|%s" % (x.get('dir'), x.get('entry'), x.get('bos_ms'))
@@ -428,56 +429,25 @@ def _shadow_by_key():
         print('[guard] shadow.refresh err', e, flush=True); return {}
 
 def _actualize(g, sh):
-    """Return the guard row resolved with broker truth first, then external, then shadow.
-
-    Once broker feedback exists, day counters and open-position logic must not be driven by a
-    model that may have different fill timing. Before the first callback, the existing shadow
-    resolver remains the conservative fallback.
-    """
-    broker_status = g.get('broker_status')
-    broker_outcome = g.get('broker_outcome')
-    if broker_status or broker_outcome:
-        out = {**g}
-        if broker_outcome:
-            out['outcome'] = broker_outcome
-        elif broker_status in ('submitted', 'accepted', 'working', 'partial', 'filled'):
-            out['outcome'] = 'open'
-        elif broker_status in ('canceled', 'rejected', 'expired'):
-            out['outcome'] = 'canceled' if broker_status == 'canceled' else 'no_fill'
-        else:
-            out['outcome'] = 'open'
-        if g.get('broker_realized_pnl') is not None:
-            out['net'] = float(g['broker_realized_pnl'])
-            try:
-                q = float(g.get('broker_filled_quantity') or g.get('qty') or 0)
-                pv = _envf('POINT_VALUE', 2.0)
-                risk = q * abs(float(g.get('entry')) - float(g.get('sl'))) * pv
-                if risk > 0:
-                    out['R'] = round(float(out['net']) / risk, 3)
-            except Exception:
-                pass
-        return out
-
-    if g.get('ext_outcome'):
-        return {**g, 'outcome': g['ext_outcome'],
+    """Join a guard row with its shadow outcome, repriced at the ACTUAL sent quantity.
+    The shadow model prices outcomes at risk-model size (~$500/R); during the ramp the real
+    order is 1 contract — a real -$17 loss displayed (and counted!) as -$569 skews the day-loss
+    counter and the modeled equity. qty x stop x POINT_VALUE is the real risk. Found by Aleks."""
+    if g.get('ext_outcome'):                      # external (C, ...) rows carry their OWN resolution —
+        return {**g, 'outcome': g['ext_outcome'],  # the A/B shadow knows nothing about them
                 'net': g.get('ext_net'), 'R': g.get('R')}
     oc = sh.get('outcome', 'open')
     out = {**g, 'outcome': oc, 'R': sh.get('R'), 'net': sh.get('net')}
     try:
         q = g.get('qty')
-        if q and oc in ('win', 'loss', 'timeout', 'partial') and g.get('entry') is not None and g.get('sl') is not None:
+        if q and oc in ('win', 'loss', 'timeout') and g.get('entry') is not None and g.get('sl') is not None:
             pv = _envf('POINT_VALUE', 2.0)
             slp = abs(float(g['entry']) - float(g['sl']))
             risk = float(q) * slp * pv
-            gross = sh.get('gross_R')
-            if gross is None:
-                gross = {'win': 2.0, 'loss': -1.0, 'timeout': 0.0, 'partial': 0.0}[oc]
-            gross = float(gross)
-            tick = _envf('EXEC_TICK', 0.25)
-            cost = float(q) * (0.62 * 2 + tick * pv * 2)
+            gross = {'win': 2.0, 'loss': -1.0, 'timeout': 0.0}[oc]
+            cost = float(q) * (0.62 * 2 + 0.25 * pv * 2)
             net = gross * risk - cost
             if risk > 0:
-                out['gross_R'] = round(gross, 6)
                 out['net'] = round(net); out['R'] = round(net / risk, 3)
     except Exception:
         pass
@@ -492,42 +462,25 @@ def _today_sent():
 
 def _day_stats():
     sent = _today_sent()
-    # v32.2: A/B and A/B-shallow are sibling rows of ONE setup group.  Aggregate
-    # them before applying max-trades/day, loss count and the one-position slot.
-    grouped = {}
-    for t in sent:
-        gid = t.get('setup_group_id') or t.get('key')
-        grouped.setdefault(gid, []).append(t)
-    n_trades = 0; losses = 0; net = 0.0
+    # v27.2d/e: rows that consumed NO risk don't count toward MAX_TRADES_DAY — user cancels
+    # ('canceled' via /guard/cancel) and never-filled sends ('no_fill' / 'missed' write-offs).
+    # A/B 'timeout' still counts (filled, exited flat). Dedup + one-position bound send churn.
+    n_trades = sum(1 for t in sent if t.get('outcome') not in ('canceled', 'no_fill', 'missed'))
+    losses = sum(1 for t in sent if t.get('outcome') == 'loss')
+    net = sum((t.get('net') or 0) for t in sent if t.get('outcome') in ('win', 'loss', 'timeout'))
+    # openpos: resting OR running = a live commitment. External rows (C, ... via /guard/extlog) have
+    # no shadow resolution — they hold the slot for EXT_OPEN_H hours (fill window), then age out
+    # unless the satellite POSTs an outcome update.
+    # v28: an unfilled limit used to hold the one-position slot for EXT_OPEN_H (4 h), blocking every
+    # later setup that day. On the 10-min clock the slot frees as soon as the row is written off.
     exth = _envf('EXT_OPEN_H', 4) * 3600000
     openpos = False
-    for grows in grouped.values():
-        group_open = False; group_filled = False; group_terminal = True; group_net = 0.0
-        for t in grows:
-            bs = t.get('broker_status')
-            if bs in broker_feedback.OPEN:
-                group_open = True
-            elif not bs and t.get('outcome') == 'open':
-                # Satellite strategies without explicit feedback use a short TTL;
-                # A/B sibling rows use the normal shadow resolver.
-                if t.get('strat', 'A/B') not in ('A/B', 'A/B-shallow') and not t.get('ext_outcome'):
-                    if (_now_ms() - int(t.get('ts') or 0)) < exth: group_open = True
-                else:
-                    group_open = True
-            oc = t.get('outcome')
-            if oc not in ('canceled', 'no_fill', 'missed'):
-                group_filled = True
-            if oc in ('open', None, ''):
-                group_terminal = False
-            if oc in ('win', 'loss', 'timeout', 'partial'):
-                group_net += float(t.get('net') or 0)
-        if group_open:
+    for t in sent:
+        if t.get('outcome') != 'open': continue
+        if t.get('strat', 'A/B') != 'A/B' and not t.get('ext_outcome'):
+            if (_now_ms() - int(t.get('ts') or 0)) < exth: openpos = True
+        else:
             openpos = True
-        if group_filled:
-            n_trades += 1
-        if group_terminal and group_filled:
-            net += group_net
-            if group_net < 0: losses += 1
     return dict(sent=n_trades, losses=losses, net=net, openpos=openpos)
 
 # ---------- the gate ----------
@@ -657,175 +610,27 @@ def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
         glog = _load(GLOG, []); k = _skey(x)
-        _gid = x.get('_setup_group_id')
-        _group_already_sent = bool(_gid and any(
-            g.get('setup_group_id') == _gid and g.get('decision') in ('sent', 'manual')
-            for g in glog[-200:]))
         if decision == 'blocked':                     # same setup re-detected each bar while fresh ->
             day = _today()                            # note each (key, reason) ONCE per day, not 15x
             for g in reversed(glog[-100:]):
                 if g.get('date') != day: break
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
                     return
-        _plan = x.get('_execution_plan') if isinstance(x.get('_execution_plan'), dict) else {}
-        _relay_acks = x.get('_relay_acks') or []
-        _broker_orders = [a for a in _relay_acks if isinstance(a, dict) and a.get('order_id')]
-        # Relay HTTP 2xx is not broker truth. Keep any returned order IDs for matching,
-        # but wait for /guard/broker-event before setting broker_status.
-        _broker_status = None
-        _broker_event_ms = None
-        glog.append(dict(key=k, plan_id=_plan.get('plan_id'), strat=x.get('_strat', 'A/B'),
-                         setup_group_id=_gid,
-                         ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
+        glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
-                         sess=_sess_of(x), dir=x.get('dir'),
-                         entry=(_plan.get('entry') if _plan else x.get('entry')),
-                         sl=(_plan.get('stop_loss') if _plan else x.get('SL')),
-                         active_from_ms=_plan.get('active_from_ms'), valid_until_ms=_plan.get('valid_until_ms'),
-                         sl_src=x.get('sl_src'),
-                         tp_src=x.get('tp_src'),
-                         legs=x.get('_legs'),
+                         sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
+                         sl_src=x.get('sl_src'),   # v29.1: which anchor set the stop (struct | fvg_edge | fvg_edge+capped)
+                         tp_src=x.get('tp_src'),   # v30: which rule set the target (swing | 2R)
+                         legs=x.get('_legs'),      # v30: the brackets actually sent (qty+tp per leg; None pre-v30/blocked)
                          tp=(x.get('_exec_tp') if x.get('_exec_tp') is not None else x.get('TP')),
                          qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
-                                              else x.get('_exec_qty_override')),
-                         relay_status=('accepted' if decision in ('sent', 'manual') else None),
-                         relay_accepted_ms=x.get('_relay_accepted_ms'),
-                         relay_acks=_relay_acks,
-                         broker_status=_broker_status, broker_event_ms=_broker_event_ms,
-                         broker_orders=_broker_orders,
-                         decision=decision, reason=reason))
+                                              else x.get('_exec_qty_override')), decision=decision, reason=reason))
         _save(GLOG, glog)
         if decision in ('sent', 'manual'):
-            if not _group_already_sent:
-                s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
+            s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
             _trade_alert(x, decision)                      # 🟢 push a Telegram line the moment auto places it
     except Exception as e:
         print('[guard] note err', e, flush=True)
-
-
-def _broker_ids(row):
-    ids = set()
-    for item in row.get('broker_orders') or []:
-        if isinstance(item, dict):
-            for key in ('order_id', 'parent_order_id'):
-                if item.get(key): ids.add(str(item[key]))
-        elif item:
-            ids.add(str(item))
-    for item in row.get('relay_acks') or []:
-        if isinstance(item, dict):
-            for key in ('order_id', 'parent_order_id'):
-                if item.get(key): ids.add(str(item[key]))
-    if row.get('broker_order_id'): ids.add(str(row['broker_order_id']))
-    return ids
-
-
-def _broker_match(glog, event):
-    """Match strongest identifiers only; never guess by price/time for live callbacks."""
-    if event.plan_id:
-        for row in reversed(glog):
-            if row.get('plan_id') == event.plan_id:
-                return row
-    if event.signal_key:
-        for row in reversed(glog):
-            if row.get('key') == event.signal_key:
-                return row
-    if event.order_id:
-        oid = str(event.order_id)
-        for row in reversed(glog):
-            if oid in _broker_ids(row):
-                return row
-    return None
-
-
-def apply_broker_event(payload):
-    """Join one relay/broker callback to the guard book and make broker truth authoritative.
-
-    Required identity: plan_id, signal_key or a previously known order_id. Returns a compact
-    result dict suitable for the HTTP endpoint and tests. Unmatched events are persisted for
-    diagnosis instead of being silently discarded.
-    """
-    event = broker_feedback.normalize(payload)
-    glog = _load(GLOG, [])
-    row = _broker_match(glog, event)
-    if row is None:
-        unmatched = _load(BUNMATCH, [])
-        unmatched.append({**event.to_dict(), 'received_ms': _now_ms()})
-        _save(BUNMATCH, unmatched[-500:])
-        st = _state(); st['last_broker_event_ms'] = event.event_ms
-        st['last_broker_unmatched_ms'] = _now_ms(); _set_state(st)
-        return {'ok': False, 'matched': False, 'status': event.status,
-                'error': 'no guard row for plan_id/signal_key/order_id'}
-
-    old_status = str(row.get('broker_status') or '')
-    old_ms = int(row.get('broker_event_ms') or 0)
-    # Never regress a terminal order to a delayed non-terminal event. Still merge prices/IDs.
-    update_status = not (old_status in broker_feedback.TERMINAL and
-                         event.status not in broker_feedback.TERMINAL)
-    if event.event_ms < old_ms and event.status not in broker_feedback.TERMINAL:
-        update_status = False
-    if update_status:
-        row['broker_status'] = event.status
-        row['broker_event_ms'] = event.event_ms
-        row['broker_raw_status'] = event.raw_status
-    if event.provider: row['broker_provider'] = event.provider
-    if event.reason: row['broker_reason'] = event.reason
-    if event.order_id:
-        orders = row.setdefault('broker_orders', [])
-        if not any(isinstance(x, dict) and str(x.get('order_id')) == str(event.order_id) for x in orders):
-            orders.append({'order_id': str(event.order_id),
-                           'parent_order_id': event.parent_order_id,
-                           'status': event.status})
-        row['broker_order_id'] = str(event.order_id)
-    # Keep the newest status on the specific order record.
-    for item in row.get('broker_orders') or []:
-        if isinstance(item, dict) and event.order_id and str(item.get('order_id')) == str(event.order_id):
-            item['status'] = event.status; item['event_ms'] = event.event_ms
-
-    for attr, key in (
-        ('quantity', 'broker_quantity'), ('filled_quantity', 'broker_filled_quantity'),
-        ('remaining_quantity', 'broker_remaining_quantity'),
-        ('avg_fill_price', 'broker_avg_fill_price'), ('exit_price', 'broker_exit_price'),
-        ('realized_pnl', 'broker_realized_pnl')):
-        value = getattr(event, attr)
-        if value is not None: row[key] = value
-
-    if event.status in ('submitted', 'accepted', 'working'):
-        row.setdefault('broker_accepted_ms', event.event_ms)
-        # entry_ms is the theoretical first legal bar. The order cannot be live before the
-        # broker acknowledges it, so live effective activation is the later timestamp.
-        row['broker_active_from_ms'] = max(int(row.get('active_from_ms') or 0),
-                                           int(row.get('broker_accepted_ms') or event.event_ms))
-    if event.status in ('partial', 'filled'):
-        row.setdefault('broker_accepted_ms', event.event_ms)
-        row.setdefault('broker_filled_ms', event.event_ms)
-        row['broker_active_from_ms'] = max(int(row.get('active_from_ms') or 0),
-                                           int(row.get('broker_accepted_ms') or event.event_ms))
-    if event.status in broker_feedback.TERMINAL:
-        row['broker_closed_ms'] = event.event_ms
-
-    pnl = row.get('broker_realized_pnl')
-    if event.status == 'closed':
-        if pnl is None:
-            row['broker_outcome'] = 'timeout'
-        elif float(pnl) > 0:
-            row['broker_outcome'] = 'win'
-        elif float(pnl) < 0:
-            row['broker_outcome'] = 'loss'
-        else:
-            row['broker_outcome'] = 'timeout'
-    elif event.status in ('canceled', 'rejected', 'expired'):
-        filled = int(row.get('broker_filled_quantity') or 0)
-        row['broker_outcome'] = ('canceled' if event.status == 'canceled' else
-                                 ('no_fill' if filled == 0 else 'timeout'))
-
-    _save(GLOG, glog)
-    st = _state(); st['last_broker_event_ms'] = event.event_ms
-    st['last_broker_status'] = event.status; st['last_broker_plan_id'] = row.get('plan_id')
-    _set_state(st)
-    return {'ok': True, 'matched': True, 'key': row.get('key'),
-            'plan_id': row.get('plan_id'), 'status': row.get('broker_status'),
-            'broker_outcome': row.get('broker_outcome')}
-
 
 def _trade_alert(x, decision):
     """One Telegram line when AUTO stages a trade (so you know the second it fires, not just via email).
@@ -839,13 +644,9 @@ def _trade_alert(x, decision):
         tag = 'AUTO SENT' if decision == 'sent' else 'ARMED (manual)'
         _legs = x.get('_legs') or []
         _lt = (' [%s]' % ' + '.join('%s@%s' % (l.get('qty'), l.get('tp')) for l in _legs)) if len(_legs) > 1 else ''
-        _plan = x.get('_execution_plan') if isinstance(x.get('_execution_plan'), dict) else {}
-        _entry = _plan.get('entry', x.get('entry'))
-        _sl = _plan.get('stop_loss', x.get('SL'))
-        _tp = x.get('_exec_tp') if x.get('_exec_tp') is not None else x.get('TP')
-        msg = ('🟢 %s · %s %s %s @ %s · SL %s (%s) / TP %s (%s)%s'
-               % (tag, _sess_of(x), x.get('dir'), qtxt, _entry, _sl,
-                  x.get('sl_src') or '?', _tp, x.get('tp_src') or '?', _lt))
+        msg = ('\U0001f7e2 %s · %s %s %s @ %s · SL %s (%s) / TP %s (%s)%s'
+               % (tag, _sess_of(x), x.get('dir'), qtxt, x.get('entry'), x.get('SL'),
+                  x.get('sl_src') or '?', x.get('TP'), x.get('tp_src') or '?', _lt))
         if x.get('_alert_txt'): msg += '\n' + str(x['_alert_txt'])   # v27.1: full setup summary rides on the FIRED message
         try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
         except Exception: pass
@@ -929,33 +730,12 @@ def health(feed_age_min=None, market_open=None):
         # 8 shadow resolver (session classification + outcomes)
         add('shadow', 'ok' if shadow is not None else 'warn',
             'resolver ready' if shadow is not None else 'shadow.py not importable — session/outcome resolution degraded')
-        # 9 broker feedback: fail visibly when the relay accepted an order but no broker ack arrived.
-        if _env('BROKER_FEEDBACK_REQUIRED', '1') == '1' and mode == 'auto':
-            token_set = bool(os.environ.get('BROKER_EVENT_TOKEN') or os.environ.get('GUARD_TOKEN'))
-            if not token_set and _env('ALLOW_UNAUTH_BROKER_EVENT', '0') != '1':
-                add('broker_feedback', 'critical', 'BROKER_EVENT_TOKEN/GUARD_TOKEN missing — callbacks cannot authenticate')
-            else:
-                pending = []
-                for row in reversed(_load(GLOG, [])):
-                    if row.get('decision') not in ('sent', 'manual'): continue
-                    if row.get('broker_status'): continue
-                    if row.get('relay_accepted_ms'):
-                        pending.append(row); break
-                if pending:
-                    age_s = max(0, (_now_ms() - int(pending[0]['relay_accepted_ms'])) / 1000.0)
-                    lim = _envf('BROKER_ACK_MAX_SEC', 30)
-                    add('broker_feedback', 'critical' if age_s > lim else 'warn',
-                        'relay accepted but broker ack missing for %.0fs (limit %.0fs)' % (age_s, lim))
-                else:
-                    last = s.get('last_broker_event_ms')
-                    add('broker_feedback', 'ok' if last else 'info',
-                        ('last callback %.0fm ago' % ((_now_ms()-int(last))/60000.0)) if last else 'ready; no broker callback received yet')
-        # 10 read-path probe — would guard_ok throw?
+        # 9 read-path probe — would guard_ok throw?
         try:
             eval_progress(); _day_stats(); add('gate', 'ok', 'read-path clean')
         except Exception as e:
             add('gate', 'critical', 'gate read-path raises: %s' % e)
-        # 11 pipeline liveness (only meaningful when live AND market open)
+        # 10 pipeline liveness (only meaningful when live AND market open)
         mo = market_open if market_open is not None else s.get('market_open')
         seen = _mins_since(s.get('last_seen_ms')); idle_max = _envf('HEALTH_IDLE_MIN', 120)
         if live and mo and seen is not None and seen > idle_max:
@@ -1061,17 +841,12 @@ def register(app):
         return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
                        openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
-                       be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL'),
+                       be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA'),
                        trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
                        fired=fired_n, filled=filled_n,
-                       strategy_clock='UTC-04:00 fixed', utc_ms=_now_ms(),
-                       broker_last_event_ms=s.get('last_broker_event_ms'),
-                       broker_last_status=s.get('last_broker_status'),
-                       broker_feedback_required=_env('BROKER_FEEDBACK_REQUIRED', '1') == '1',
-                       broker_unmatched=len(_load(BUNMATCH, [])),
                        health=health(), pine_days=book_days(), book=book)
 
     def _authed():
@@ -1079,33 +854,6 @@ def register(app):
         public URL; without this, anyone who finds the URL can clear the hard latch or arm AUTO."""
         tok = os.environ.get('GUARD_TOKEN', '')
         return (not tok) or (request.args.get('t', '') == tok)
-
-    def _broker_authed():
-        token = os.environ.get('BROKER_EVENT_TOKEN') or os.environ.get('GUARD_TOKEN') or ''
-        if not token:
-            return os.environ.get('ALLOW_UNAUTH_BROKER_EVENT', '0') == '1'
-        supplied = (request.args.get('t', '') or
-                    request.headers.get('X-Broker-Token', '') or
-                    request.headers.get('Authorization', '').removeprefix('Bearer ').strip())
-        return supplied == token
-
-    def _broker_event():
-        """Receive normalized or provider-native order lifecycle callbacks from the relay.
-
-        The relay must echo plan_id/signal_key from the order text, or send a previously known
-        order_id. Broker truth then drives guard open-position state and realized P&L.
-        """
-        if not _broker_authed():
-            return jsonify(ok=False, err='auth or BROKER_EVENT_TOKEN missing'), 401
-        body = request.get_json(force=True, silent=True) or {}
-        if not isinstance(body, dict) or not body:
-            return jsonify(ok=False, err='empty JSON body'), 400
-        try:
-            result = apply_broker_event(body)
-            return jsonify(**result), (200 if result.get('matched') else 404)
-        except Exception as exc:
-            print('[guard] broker event err', exc, flush=True)
-            return jsonify(ok=False, err=str(exc)), 400
 
     def _sync():
         if not _authed(): return jsonify(ok=False, err='auth'), 401
@@ -1263,7 +1011,6 @@ def register(app):
         except Exception as e:
             return jsonify(ok=False, err=str(e)), 500
 
-    app.add_url_rule('/guard/broker-event', 'guard_broker_event', _broker_event, methods=['POST'])
     app.add_url_rule('/guard/cancel', 'guard_cancel', _cancel)
     app.add_url_rule('/guard/reconcile', 'guard_reconcile', _reconcile, methods=['POST'])
     app.add_url_rule('/guard/extlog', 'guard_extlog', _extlog, methods=['POST'])
@@ -1326,7 +1073,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <a class="btn fblk" href="#" onclick="return setf('blocked')">Blocked only</a>
  <span class=g style="font-size:11px">blocked rows never traded — their R/Net$ are model-priced (shown gray)</span>
 </div>
-<table><thead><tr><th>Strat</th><th>Time UTC-4</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>SL type</th><th>TP</th><th>TP type</th><th>Qty</th><th>Decision</th><th>Broker</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
+<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>SL type</th><th>TP</th><th>TP type</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
  <div class="ph">🧾 <b>Reconcile with broker</b> — paste OR drag &amp; drop the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
   <input type="file" id="recfile" accept=".csv,text/csv" style="display:none" onchange="recFile(this.files)">
@@ -1380,7 +1127,7 @@ async function load(){
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
   if(!v)return '<span style="color:#6b7688">—</span>';
-  let lab=v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
+  let lab=v=='swing'?'SWING':'2R';let col=v=='swing'?'#3ecb3e':'#3987e5';
   let tt=x.legs?x.legs.map(function(l){return l.qty+'@'+l.tp;}).join(' + '):'';
   return '<span style="color:'+col+'" title="v30 target: last confirmed swing beyond 1R (capped 3R) or fixed 2R fallback. Brackets: '+tt+'">'+lab+legs+'</span>';};
  let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';
@@ -1393,9 +1140,8 @@ async function load(){
   if(o=='open'&&(x.decision=='sent'||x.decision=='manual'))
    h+=' <a href="#" data-k="'+encodeURIComponent(x.key||'')+'" title="I canceled this order at the broker — mark it canceled and free the slot" onclick="return cancelRow(this.dataset.k)" style="color:#e0a93b;text-decoration:none">✕</a>';
   return h;};
- let broker=x=>{let b=x.broker_status||x.relay_status||'';let id=x.broker_order_id?(' · '+x.broker_order_id):'';return b?('<span class='+(b=='closed'?'win':(b=='rejected'?'loss':'g'))+'>'+b+id+'</span>'):'—';};
  let fired=x=>x.decision=='sent'||x.decision=='manual';
- window._dec=dec;window._oc=oc;window._broker=broker;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._book=d.book||[];
+ window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._book=d.book||[];
  renderBook();
  let ps=document.getElementById('pineday');
  let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
@@ -1405,19 +1151,19 @@ let _filter='all';
 function setf(f){_filter=f;document.querySelectorAll('.btn.fall,.btn.fsent,.btn.fblk').forEach(b=>b.classList.remove('act'));
  document.querySelector('.btn.f'+(f=='all'?'all':f=='sent'?'sent':'blk')).classList.add('act');renderBook();return false;}
 function renderBook(){
- let dec=window._dec,oc=window._oc,broker=window._broker||(x=>'—'),fired=window._fired,slsrc=window._slsrc||(x=>''),tpsrc=window._tpsrc||(x=>'');if(!dec)return;
+ let dec=window._dec,oc=window._oc,fired=window._fired,slsrc=window._slsrc||(x=>''),tpsrc=window._tpsrc||(x=>'');if(!dec)return;
  let rows=(window._book||[]).filter(x=>_filter=='all'||(_filter=='sent'?fired(x):!fired(x)));
  document.getElementById('tb').innerHTML=rows.map(x=>{
   let isB=!fired(x);                         // blocked rows never traded -> model-priced R/Net$, render gray
   let rc=isB?' style="color:#6b7688" title="model-priced — trade was NOT executed"':'';
-  let rec=!!x.reconciled||x.broker_realized_pnl!=null;
+  let rec=!!x.reconciled;
   let rv=(x.R!=null?x.R:'');
   let nv=rec?(x.model_net!=null?x.model_net:''):(x.net!=null?x.net:'');   // Net$ column = MODEL verdict
-  let real=rec?('<b>'+(x.broker_realized_pnl!=null?x.broker_realized_pnl:(x.net!=null?x.net:''))+'</b> <span title="broker truth" style="color:#3ecb3e">✓</span>'):'';
+  let real=rec?('<b>'+(x.net!=null?x.net:'')+'</b> <span title="broker-reconciled" style="color:#3ecb3e">✓</span>'):'';
   if(isB&&(rv!==''||nv!=='')){rv=rv!==''?('('+rv+')'):'';nv=nv!==''?('('+nv+')'):'';}
   let mc=rec?' style="color:#6b7688" title="model verdict — see Real$ for the broker result"':'';
   return '<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
-  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+slsrc(x)+'</td><td>'+(x.tp||'')+'</td><td>'+tpsrc(x)+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td>'+broker(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
+  '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+slsrc(x)+'</td><td>'+(x.tp||'')+'</td><td>'+tpsrc(x)+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
   '</td><td'+rc+'>'+rv+'</td><td'+(isB?rc:mc)+'>'+nv+'</td><td>'+real+'</td></tr>';}).join('');
 }
 let _tok=new URLSearchParams(location.search).get('t');
@@ -1444,7 +1190,7 @@ async function doRec(btn){let b=document.getElementById('recbox').value.trim();l
    let un=r.unmatched.map(u=>'<tr><td>'+(u.t||'')+'</td><td>'+u.dir+' '+u.qty+'× @ '+u.entry+'</td>'+
      '<td style="text-align:right">'+Math.round(u.pnl)+' (no book row!)</td></tr>').join('');
    document.getElementById('rectab').innerHTML='<table style="margin-top:8px;font-size:12px">'+
-     '<thead><tr><th>Time UTC-4</th><th>Outcome model → broker</th><th>Net$ model → broker</th></tr></thead>'+
+     '<thead><tr><th>Time ET</th><th>Outcome model → broker</th><th>Net$ model → broker</th></tr></thead>'+
      '<tbody>'+rows+un+'</tbody><tfoot><tr><td></td><td><b>broker total</b></td>'+
      '<td style="text-align:right"><b>'+Math.round(tot)+'</b></td></tr></tfoot></table>';
   } else o.textContent='⚠ '+(r.err||'failed');
