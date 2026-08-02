@@ -134,16 +134,27 @@ def _wd(x):
     except Exception: return -1
 
 def is_duplicate(x):
-    """True if an order for the SAME setup (dir + entry, to 0.1) was already SENT/staged today.
-    Kills confluence re-emits, re-detection, and restart double-fires -> one setup = one order + one alert."""
+    """True when this exact setup group/strategy was already staged today.
+
+    Group identity (when present) is authoritative.  A/B and A/B-shallow are
+    siblings inside one batch and are not guarded separately, so the one-trade
+    rule blocks a re-fire of the whole group, never the second sibling.
+    """
     try:
-        dp = _envi('GUARD_PRICE_DP', 1)     # price decimals for dedup identity. MNQ=1 (default);
-        # FX MUST override (EURUSD=5, USDJPY=3): at dp=1 every EURUSD entry rounds to the same
-        # bucket and the whole day after trade #1 would be blocked as 'duplicate'.
-        d = x.get('dir'); e = round(float(x.get('entry')), dp); day = _today()
+        dp = _envi('GUARD_PRICE_DP', 1)
+        day = _today(); gid = x.get('_setup_group_id')
+        strat = x.get('_strat', 'A/B'); d = x.get('dir')
+        e = round(float(x.get('entry')), dp)
+        bos = int(x.get('bos_ms') or 0)
         for g in _load(GLOG, []):
-            if g.get('date') == day and g.get('decision') in ('sent', 'manual'):
-                if g.get('dir') == d and round(float(g.get('entry') or 0), dp) == e:
+            if g.get('date') != day or g.get('decision') not in ('sent', 'manual'):
+                continue
+            if gid and g.get('setup_group_id') == gid:
+                return True
+            # Legacy rows without a group id: include strategy and BOS so two
+            # different setups at the same price are not collapsed all day.
+            if not gid and not g.get('setup_group_id'):
+                if g.get('strat', 'A/B') == strat and g.get('dir') == d                         and round(float(g.get('entry') or 0), dp) == e                         and int(g.get('bar_ms') or 0) == bos:
                     return True
     except Exception as ex:
         print('[guard] is_duplicate err', ex, flush=True)
@@ -170,7 +181,7 @@ def _latch(reason, hard=False):
     s = _state(); s['kill'] = True; s['kill_reason'] = reason; s['kill_day'] = _today(); s['kill_hard'] = hard
     _set_state(s); print('[guard] KILL LATCH', reason, 'hard=%s' % hard, flush=True)
     # a loss/DD latch means STOP THE BLEEDING, not just "no new entries": flatten + cancel at the broker
-    if reason in ('day_loss_n', 'day_loss_usd', 'dd_proximity', 'dd_breached', 'target_hit_6pct', 'state_corrupt'):
+    if reason in ('day_loss_n', 'day_loss_usd', 'dd_proximity', 'dd_breached', 'target_hit_6pct', 'state_corrupt', 'sibling_batch_uncertain'):
         flatten_all('latch:' + reason)
 
 def _dd_floor():
@@ -218,6 +229,106 @@ def flatten_all(reason):
         return True
     except Exception as e:
         print('[guard] flatten_all err', e, flush=True); return False
+
+def _active_pending_group(s=None):
+    """Return a live batch reservation, clearing an expired one safely."""
+    st = _state() if s is None else s
+    pg = st.get('pending_group') or None
+    if not pg:
+        return None
+    try:
+        if int(pg.get('expires_ms') or 0) <= _now_ms():
+            st['last_batch'] = {**pg, 'status': 'reservation_expired', 'ended_ms': _now_ms()}
+            st['pending_group'] = None
+            _set_state(st)
+            return None
+    except Exception:
+        return pg
+    return pg
+
+
+def begin_sibling_batch(group_id, planned_risk_usd, strats=None):
+    """Persistently reserve the one active setup before the first relay call."""
+    try:
+        s = _state()
+        if _active_pending_group(s):
+            return False
+        try:
+            sec = int(float(_env('EXEC_CANCEL_AFTER_SEC', '') or 0))
+        except Exception:
+            sec = 0
+        if sec <= 0:
+            sec = int(round(_envf('FILL_WIN_MIN', 10) * 60))
+        grace = _envi('BATCH_PENDING_GRACE_SEC', 120)
+        now = _now_ms()
+        s['pending_group'] = dict(group_id=str(group_id), started_ms=now,
+                                  expires_ms=now + max(60, sec + grace) * 1000,
+                                  planned_risk_usd=round(float(planned_risk_usd or 0), 2),
+                                  strats=list(strats or []), accepted=[])
+        _set_state(s)
+        return True
+    except Exception as e:
+        print('[guard] begin_sibling_batch err', e, flush=True)
+        return False
+
+
+def touch_sibling_batch(group_id, strat, relay_status=None):
+    try:
+        s = _state(); pg = _active_pending_group(s)
+        if not pg or pg.get('group_id') != str(group_id): return False
+        acc = list(pg.get('accepted') or [])
+        acc.append(dict(strat=strat, relay_status=relay_status, at_ms=_now_ms()))
+        pg['accepted'] = acc; s['pending_group'] = pg; _set_state(s); return True
+    except Exception as e:
+        print('[guard] touch_sibling_batch err', e, flush=True); return False
+
+
+def finish_sibling_batch(group_id, status='sent'):
+    try:
+        s = _state(); pg = s.get('pending_group') or {}
+        if pg and pg.get('group_id') != str(group_id): return False
+        s['last_batch'] = {**pg, 'status': status, 'ended_ms': _now_ms()}
+        s['pending_group'] = None; _set_state(s); return True
+    except Exception as e:
+        print('[guard] finish_sibling_batch err', e, flush=True); return False
+
+
+def _relay_action(action):
+    url = os.environ.get('EXEC_WEBHOOK', '')
+    if not url or requests is None:
+        return dict(action=action, ok=False, status=None, error='exec webhook unavailable')
+    tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
+    try:
+        r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
+        st = getattr(r, 'status_code', None)
+        return dict(action=action, ok=(st is not None and 200 <= int(st) < 300), status=st)
+    except Exception as e:
+        return dict(action=action, ok=False, status=None, error=str(e))
+
+
+def rollback_sibling_batch(group_id, reason='partial_send'):
+    """Best available atomic rollback: CANCEL first, then EXIT any possible fill.
+
+    A 2xx response confirms relay acceptance, not final broker state.  If either
+    command is not accepted, AUTO hard-kills because the account state is unknown.
+    """
+    cancel = _relay_action('cancel')
+    exit_ = _relay_action('exit')
+    ok = bool(cancel.get('ok') and exit_.get('ok'))
+    result = dict(ok=ok, group_id=str(group_id), reason=reason,
+                  cancel=cancel, exit=exit_, at_ms=_now_ms())
+    if ok:
+        finish_sibling_batch(group_id, 'rolled_back')
+    else:
+        try:
+            s = _state(); pg = s.get('pending_group') or {}
+            pg.update(status='rollback_uncertain', rollback=result)
+            s['pending_group'] = pg; _set_state(s)
+        except Exception: pass
+        _latch('sibling_batch_uncertain', hard=True)
+    print('[guard] SIBLING ROLLBACK', result, flush=True)
+    return result
+
 
 def sweep_orphans():
     """Cancel broker-side orphan LIMIT orders: guard-book trades whose modeled outcome says the limit
@@ -388,6 +499,7 @@ def manual_ok(x, feed_age_min=None, market_open=None):
         ep = eval_progress()
         if ep['passed']:                           return (False, 'target_hit')
         if ep['breached']:                         return (False, 'dd_breached')
+        if _active_pending_group(s):                return (False, 'group_pending')
         if is_duplicate(x):                        return (False, 'duplicate')
         mm = _env('MONDAY_MODE', 'nyam').lower()
         if _wd(x) == 0:
@@ -556,8 +668,9 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             if mm == 'nyam' and sess == 'PREM': return (False, 'monday_prem')  # keep Monday but ignore PREM — start at NYAM open
             if mm == 'quarter': x['_mon_quarter'] = True
 
+        if _active_pending_group(s):             return (False, 'group_pending')
         d = _day_stats()
-        if d['openpos']:                        return (False, 'position_open')     # THE anti-stack rule
+        if d['openpos']:                        return (False, 'position_open')     # blocks OTHER setups; siblings share one batch
         pb = _peer_busy()                                                           # v27.2: one position across ALL
         if pb:                                  return (False, pb)                   # services sharing this broker acct
         if d['sent']   >= _envi('MAX_TRADES_DAY', 3):   return (False, 'max_trades_day')
@@ -569,8 +682,20 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
 
         eq = s.get('equity', _envf('START_EQUITY', 99887.0)) + d['net']             # modeled; keep honest via /guard/sync
-        if (eq - _dd_floor()) < _envf('DD_BUFFER', 800):
+        buffer_now = eq - _dd_floor()
+        dd_buffer = _envf('DD_BUFFER', 800)
+        if buffer_now < dd_buffer:
             _latch('dd_proximity', hard=True);  return (False, 'dd_proximity')
+        if _env('DD_PROJECTED_RISK', '1') == '1':
+            planned = float(x.get('_planned_group_risk_usd') or 0.0)
+            if planned <= 0:
+                planned = _envf('ACCOUNT', 100000.0) * _envf('RISK_PCT', 0.5) / 100.0
+            planned += max(0.0, _envf('DD_PROJECTED_EXTRA_USD', 0.0))
+            projected = buffer_now - planned
+            x['_projected_buffer_after_risk'] = round(projected, 2)
+            x['_planned_group_risk_usd'] = round(planned, 2)
+            if projected < dd_buffer:
+                return (False, 'projected_dd_risk')
         return (True, 'ok')
     except Exception as e:
         print('[guard] guard_ok EXC (fail-closed, blocking):', e, flush=True)
@@ -621,8 +746,24 @@ def note(x, decision, reason=''):
         group_already_sent = bool(gid and any(
             g.get('setup_group_id') == gid and g.get('decision') in ('sent', 'manual')
             for g in glog[-200:]))
-        if decision == 'blocked':                     # same setup re-detected each bar while fresh ->
-            day = _today()                            # note each (key, reason) ONCE per day, not 15x
+        if decision == 'blocked':
+            day = _today()
+            if reason == 'duplicate':
+                # Do not create a second fake trade row. Fold the re-detection into
+                # the original sent/manual setup and preserve alternate target info.
+                for g in reversed(glog):
+                    if g.get('date') != day: continue
+                    same_group = bool(gid and g.get('setup_group_id') == gid)
+                    same_key = g.get('key') == k
+                    if g.get('decision') in ('sent', 'manual') and (same_group or same_key):
+                        g['duplicate_count'] = int(g.get('duplicate_count') or 0) + 1
+                        g['last_duplicate_ts'] = _now_ms()
+                        alts = list(g.get('candidate_tps') or [])
+                        tp0 = x.get('TP')
+                        if tp0 is not None and tp0 not in alts: alts.append(tp0)
+                        g['candidate_tps'] = alts[-8:]
+                        _save(GLOG, glog); return
+            # Any other identical blocked row is stored once per day/reason.
             for g in reversed(glog[-100:]):
                 if g.get('date') != day: break
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
@@ -636,7 +777,12 @@ def note(x, decision, reason=''):
                          legs=x.get('_legs'),      # v30: the brackets actually sent (qty+tp per leg; None pre-v30/blocked)
                          tp=(x.get('_exec_tp') if x.get('_exec_tp') is not None else x.get('TP')),
                          qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
-                                              else x.get('_exec_qty_override')), decision=decision, reason=reason))
+                                              else x.get('_exec_qty_override')),
+                         planned_group_risk_usd=x.get('_planned_group_risk_usd'),
+                         projected_buffer_after_risk=x.get('_projected_buffer_after_risk'),
+                         batch_group_id=x.get('_batch_group_id'),
+                         rollback_confirmed=x.get('_rollback_confirmed'),
+                         decision=decision, reason=reason))
         _save(GLOG, glog)
         if decision in ('sent', 'manual'):
             if not group_already_sent:
@@ -688,6 +834,31 @@ def _state_writable():
     except Exception:
         return False
 
+def news_calendar_check(cal_age_h=None, market_open=None):
+    """Persist calendar freshness and alert before the first blocked setup."""
+    try:
+        s = _state(); s['news_cal_checked_ms'] = _now_ms()
+        s['news_cal_age_h'] = None if cal_age_h is None else round(float(cal_age_h), 2)
+        strict = _env('NEWS_GUARD', '1') == '1' and _env('NEWS_STRICT', '1') == '1'
+        stale = strict and (cal_age_h is None or float(cal_age_h) > _envf('NEWS_MAX_AGE_H', 24))
+        was = bool(s.get('news_cal_alerted'))
+        s['news_cal_alerted'] = bool(stale and market_open)
+        _set_state(s)
+        if _env('NEWS_CAL_ALERTS', '1') != '1' or not market_open or stale == was:
+            return not stale
+        url = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
+        if url and requests is not None:
+            if stale:
+                msg = '⚠️ NEWS CALENDAR STALE/UNAVAILABLE — AUTO will block new orders (NEWS_STRICT=1).'
+            else:
+                msg = '✅ NEWS CALENDAR RECOVERED — news guard can verify events again.'
+            try: requests.post(url, json={'text': msg, 'raw': msg}, timeout=6)
+            except Exception: pass
+        return not stale
+    except Exception as e:
+        print('[guard] news_calendar_check err', e, flush=True); return False
+
+
 def _mins_since(ms):
     try: return (_now_ms() - int(ms or 0)) / 60000.0
     except Exception: return None
@@ -720,6 +891,12 @@ def health(feed_age_min=None, market_open=None):
             add('halt', lvl, 'HALTED: ' + r + ('' if s.get('kill_hard') else ' (clears next day)'))
         else:
             add('halt', 'ok', 'armed')
+        pg = _active_pending_group(s)
+        if pg:
+            add('batch', 'warn', 'setup batch pending: %s (accepted=%s)' %
+                (pg.get('group_id'), len(pg.get('accepted') or [])))
+        else:
+            add('batch', 'ok', 'no unresolved sibling batch')
         # 4 feed freshness (degraded, not fatal — sends just abort until fresh)
         if fa is None:
             add('feed', 'warn', 'feed age unknown (gate not consulted yet)')
@@ -727,6 +904,16 @@ def health(feed_age_min=None, market_open=None):
             add('feed', 'warn', 'feed %.0fm old > STALE_MIN %.0fm — sends aborting (%s)' % (float(fa), stale_min, fa_src))
         else:
             add('feed', 'ok', 'fresh (%.0fm)' % float(fa))
+        if _env('NEWS_GUARD', '1') == '1' and _env('NEWS_STRICT', '1') == '1':
+            ca = s.get('news_cal_age_h')
+            if ca is None:
+                add('news_cal', 'warn', 'calendar never verified — AUTO blocks until fetched')
+            elif float(ca) > _envf('NEWS_MAX_AGE_H', 24):
+                add('news_cal', 'warn', 'calendar %.1fh old — AUTO blocks' % float(ca))
+            else:
+                add('news_cal', 'ok', 'fresh (%.1fh)' % float(ca))
+        else:
+            add('news_cal', 'info', 'strict calendar guard disabled')
         # 5 equity sync honesty — the DD guard rides on this number
         et = s.get('equity_ts', 0)
         if not et:
@@ -854,11 +1041,13 @@ def register(app):
         return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
                        openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
-                       be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA'),
+                       be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL'),
                        trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
+                       pending_group=_active_pending_group(s),
+                       projected_dd_check=_env('DD_PROJECTED_RISK', '1') == '1',
                        fired=fired_n, filled=filled_n,
                        health=health(), pine_days=book_days(), book=book)
 
@@ -1147,7 +1336,8 @@ async function load(){
   let lab=v=='struct'?'STRUCT':v=='fvg_edge'?'FVG edge':v=='fvg_edge+capped'?'FVG edge · capped 40':v;
   let col=v=='struct'?'#3ecb3e':v.indexOf('capped')>-1?'#e0a93b':'#3987e5';
   return '<span style="color:'+col+'" title="v29 stop anchor: struct when the displacement-leg extreme is within 30pt, else the far edge of the held FVG; re-anchored to MAX_STOP_R when wider">'+lab+'</span>';};
- let dec=x=>x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');
+ let dec=x=>{let dup=x.duplicate_count?(' · dup×'+x.duplicate_count):'';
+  return x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');};
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
   let h='<span class='+c+'>'+o+'</span>';
   if(o=='open'&&(x.decision=='sent'||x.decision=='manual'))

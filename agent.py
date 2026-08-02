@@ -47,7 +47,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.5-ab-shallow-independent-risk2R'
+VERSION = 'v31.7-ab-shallow-safe-batch2R'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -96,6 +96,25 @@ def _save_db(x, alert_text, code):
          x['entry'],x.get('ote62'),x.get('ote79'),x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
          x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None))
     c.commit(); c.close()
+
+def _entry_cancel_after_sec():
+    """Broker-side expiry for resting ENTRY limits.
+
+    TradersPost supports ``cancelAfter`` from 1 to 3600 seconds.  By default the
+    broker clock is kept identical to the model's FILL_WIN_MIN, so a 10-minute
+    model no-fill cannot remain resting at the broker for the rest of the day.
+    EXEC_CANCEL_AFTER_SEC may override the value explicitly.
+    """
+    try:
+        raw = os.environ.get('EXEC_CANCEL_AFTER_SEC', '').strip()
+        if raw:
+            sec = int(round(float(raw)))
+        else:
+            sec = int(round(float(os.environ.get('FILL_WIN_MIN', '10') or 10) * 60.0))
+    except Exception:
+        sec = 600
+    return max(1, min(3600, sec))
+
 
 def _exec_order(x, text=None):
     """Route 2 (semi-auto): wyślij PRE-STAGED zlecenie bracket do TradersPost (EXEC_WEBHOOK).
@@ -204,7 +223,7 @@ def _exec_order(x, text=None):
         except Exception as _pe:
             print('EXEC partial split err (single bracket fallback)', _pe, flush=True)
         x['_legs'] = [{"qty": q_, "tp": _t(t_ + off)} for q_, t_ in legs]
-        st = None; body = ''; sent_any = False
+        st = None; body = ''; leg_results = []; accepted_legs = 0
         for _i, (q_, t_) in enumerate(legs):
             payload = {
                 "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
@@ -214,19 +233,27 @@ def _exec_order(x, text=None):
                 "quantity": q_,
                 "takeProfit": {"limitPrice": _t(t_ + off)},
                 "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
-                # 'day' (default) — a GTC entry limit outlived every model window (shadow no_fill=4h,
-                # manage cancel=2h) and could fill overnight AFTER the guard freed the slot -> stacked
-                # positions no guard sees. EXEC_TIF=gtc restores the old behaviour if you really want it.
                 "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
+                "cancelAfter": _entry_cancel_after_sec(),
             }
-            if text and _i == 0: payload["text"] = text   # relay /stage: one message, not one per leg
-            r = requests.post(url, json=payload, timeout=10)
-            st = getattr(r, 'status_code', None)
-            try: body = (r.text or '')[:200]
-            except Exception: body = ''
-            sent_any = True
+            if text and _i == 0: payload["text"] = text
+            try:
+                r = requests.post(url, json=payload, timeout=10)
+                st = getattr(r, 'status_code', None)
+                try: body = (r.text or '')[:200]
+                except Exception: body = ''
+                ok_leg = st is not None and 200 <= int(st) < 300
+            except Exception as e:
+                st = None; body = str(e)[:200]; ok_leg = False
+            leg_results.append({"leg": _i + 1, "status": st, "ok": ok_leg, "qty": q_})
+            if ok_leg: accepted_legs += 1
             print('EXEC', st, ('leg %d/%d' % (_i + 1, len(legs))), payload, flush=True)
-        return {"sent": sent_any, "status": st, "resp": body, "legs": len(legs),
+            if not ok_leg:
+                break                         # never send later legs after a failed sibling/partial leg
+        all_ok = len(leg_results) == len(legs) and accepted_legs == len(legs)
+        return {"sent": all_ok, "accepted_any": accepted_legs > 0,
+                "accepted_legs": accepted_legs, "status": st, "resp": body,
+                "legs": len(legs), "leg_results": leg_results,
                 "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": qty}
     except Exception as ex:
         print('EXEC err', ex, flush=True)
@@ -253,13 +280,16 @@ def _signal_bar_close(x):
     return None
 
 def _prepare_ab_siblings(repx):
-    """Build deep A/B and the causal A/B-shallow sibling.
+    """Build one causal setup group: normal A/B plus optional A/B-shallow.
 
-    Deep A/B uses ``RISK_PCT``.  The sibling uses its own
-    ``AB_SHALLOW_RISK_PCT`` and therefore can bring the combined setup exposure
-    to 1.0% when both are configured at 0.5% and both fill.
+    The group is guarded once. Its siblings are never passed separately through
+    ``position_open``/duplicate checks, so the one-position rule blocks OTHER
+    setups, not the second leg of this same A/B signal.
     """
     repx['_strat'] = repx.get('_strat', 'A/B')
+    acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
+    deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
+    repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
     if repx['_strat'] != 'A/B' or not ab_shallow.enabled():
         return [repx]
     if repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
@@ -275,25 +305,55 @@ def _prepare_ab_siblings(repx):
     try:
         shallow = ab_shallow.build_shallow_signal(repx)
         meta = ab_shallow.risk_metadata(repx, shallow)
+        planned = float(meta.get('combined_max_budget') or 0.0)
         repx['_ab_risk_meta'] = meta
         shallow['_ab_risk_meta'] = meta
+        repx['_planned_group_risk_usd'] = planned
+        shallow['_planned_group_risk_usd'] = planned
+        repx['_batch_sibling'] = True
+        shallow['_batch_sibling'] = True
         return [repx, shallow]
     except Exception as e:
         repx['_shallow_skip'] = str(e)
         print('A/B-shallow build skip:', e, flush=True)
         return [repx]
 
-def _exec_sibling_batch(items, base_text):
-    """Send siblings as one fail-closed batch.
 
-    If any sibling fails after another was accepted, flatten+cancel the ticker.
-    The guard permits only one active setup, so this is safer than leaving a
-    partially created pair at the broker.
+def _batch_group_id(items):
+    for item in items:
+        if item.get('_setup_group_id'):
+            return str(item['_setup_group_id'])
+    return 'single_' + live_emit.key(items[0])
+
+
+def _exec_sibling_batch(items, base_text):
+    """Send one setup group with a persistent fail-closed reservation.
+
+    The guard is called once for the whole setup, therefore A/B and
+    A/B-shallow do not block each other. If one relay call succeeds and a later
+    sibling fails, the system sends CANCEL then EXIT. A rollback without 2xx
+    relay confirmation creates a hard kill because broker state is uncertain.
     """
+    if not items:
+        return False, [], {'ok': False, 'reason': 'empty_batch'}
+    gid = _batch_group_id(items)
+    planned = max(float(i.get('_planned_group_risk_usd') or 0.0) for i in items)
+    # Preflight every sibling before the first network call.
+    for item in items:
+        try:
+            float(item['entry']); float(item['SL']); float(item['TP'])
+            if item.get('dir') not in ('LONG', 'SHORT'):
+                raise ValueError('bad direction')
+        except Exception as e:
+            return False, [(item, {'sent': False, 'reason': 'preflight:' + str(e)}, '')], {'ok': True, 'reason': 'preflight'}
+    if not guardrails.begin_sibling_batch(gid, planned, [i.get('_strat', 'A/B') for i in items]):
+        return False, [], {'ok': False, 'reason': 'batch_reservation_failed'}
     results = []
+    accepted = []
     for item in items:
         itxt = base_text if item.get('_strat', 'A/B') == 'A/B' else live_emit.to_alert(item)
         item['_alert_txt'] = itxt
+        item['_batch_group_id'] = gid
         res = _exec_order(item, itxt)
         item['_sent_qty'] = res.get('qty')
         results.append((item, res, itxt))
@@ -301,12 +361,20 @@ def _exec_sibling_batch(items, base_text):
             ok = bool(res.get('sent')) and 200 <= int(res.get('status') or 0) < 300
         except Exception:
             ok = False
-        if not ok:
-            if any(bool(r.get('sent')) for _, r, _ in results[:-1]):
-                try: guardrails.flatten_all('ab_sibling_partial_send')
-                except Exception as e: print('A/B sibling rollback err', e, flush=True)
-            return False, results
-    return True, results
+        if ok:
+            accepted.append(item)
+            guardrails.touch_sibling_batch(gid, item.get('_strat', 'A/B'), res.get('status'))
+            continue
+        accepted_any = bool(res.get('accepted_any') or accepted)
+        if accepted_any:
+            rb = guardrails.rollback_sibling_batch(gid, 'partial_send')
+            for a in accepted:
+                a['_batch_accepted_then_rollback'] = True
+                a['_rollback_confirmed'] = bool(rb.get('ok'))
+            return False, results, rb
+        guardrails.finish_sibling_batch(gid, 'failed_before_accept')
+        return False, results, {'ok': True, 'reason': 'nothing_accepted'}
+    return True, results, {'ok': True, 'group_id': gid}
 
 def _seed_buffer():
     if os.path.exists(BUF) or not os.path.exists(SEED_CSV): return
@@ -528,66 +596,66 @@ def _process_new(now_ms=None):
             continue
         _book_items = [repx]
         if os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':   # FX services: MetaApi, no webhook
-            _QUIET = ('duplicate', 'monday_skip', 'monday_prem')  # routine skips -> NO Telegram (kills dup alerts)
-            # v27.1: TG_BLOCKED=0 (default) — blocked setups go to /guard + DB only, NOT Telegram.
-            # Telegram fires only when an order is actually placed (full summary rides on the AUTO SENT
-            # message via _alert_txt). TG_BLOCKED=1 restores the old behaviour (every non-quiet block alerted).
+            _QUIET = ('duplicate', 'monday_skip', 'monday_prem')
             _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
-            repx['_alert_txt'] = txt                              # guardrails._trade_alert appends this on SENT
+            repx['_alert_txt'] = txt
+            _gmode = guardrails.exec_mode()                       # auto | manual | off
+            # Prepare the COMPLETE group before the one and only guard decision.
+            # Siblings are sent by one batch path and never block each other.
+            if _gmode == 'auto':
+                guardrails.ramp_qty(repx)
+            _book_items = _prepare_ab_siblings(repx)
+
             def _blocked_items(_why):
-                items = _prepare_ab_siblings(repx)
-                for item in items:
+                for item in _book_items:
                     item['_alert_txt'] = txt if item.get('_strat', 'A/B') == 'A/B' else live_emit.to_alert(item)
                     guardrails.note(item, 'blocked', _why)
                 if _TG_BLOCKED and _why not in _QUIET and not str(_why).startswith('session') and WEBHOOK_URL:
-                    live_emit.post_webhook(txt, WEBHOOK_URL)       # informational only, NO order — you still see it (+ on /guard)
-                return items
-            _gmode = guardrails.exec_mode()                       # auto | manual | off  (flip at /guard/mode)
-            if _gmode == 'off':
-                _book_items = _blocked_items('mode_off'); code = 'guard:off'
-                if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)   # OFF still shows you the setup
-            def _exec_ok(_res):
-                """True only when the relay ACCEPTED the order (2xx). Booking 'sent' on a 401/timeout
-                used to burn day counters + ramp + tell Telegram AUTO SENT for an order that never existed."""
-                try: return bool(_res.get('sent')) and 200 <= int(_res.get('status') or 0) < 300
-                except Exception: return False
+                    live_emit.post_webhook(txt, WEBHOOK_URL)
+                return _book_items
+
             def _exec_fail_alert(_res, _tag):
-                m = ('\U0001f534 EXEC FAILED (%s) — order NOT at broker: %s' % (_tag, json.dumps(_res)[:180]))
+                m = ('🔴 EXEC FAILED (%s): %s' % (_tag, json.dumps(_res)[:240]))
                 print(m, flush=True)
                 if WEBHOOK_URL:
                     try: live_emit.post_webhook(m + '\n' + txt, WEBHOOK_URL)
                     except Exception: pass
+
             if _gmode == 'off':
-                pass
-            elif _gmode == 'manual':                              # YOUR tap-to-approve semi-auto
+                _blocked_items('mode_off'); code = 'guard:off'
+                if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)
+            elif _gmode == 'manual':
                 _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
                 if _gok:
-                    _book_items = _prepare_ab_siblings(repx)
-                    _batch_ok, _batch = _exec_sibling_batch(_book_items, txt)
+                    _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
                     if _batch_ok:
                         for _item, _res, _itxt in _batch: guardrails.note(_item, 'manual')
+                        guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'manual_sent')
                         code = 'exec-manual'
                     else:
-                        for _item in _book_items: guardrails.note(_item, 'blocked', 'sibling_batch_failed')
-                        _exec_fail_alert((_batch[-1][1] if _batch else {}), 'manual-batch'); code = 'exec-failed'
+                        _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
+                        for _item in _book_items: guardrails.note(_item, 'blocked', _why)
+                        _exec_fail_alert({'batch': (_batch[-1][1] if _batch else {}), 'rollback': _rb}, 'manual-batch')
+                        code = 'exec-failed'
                 else:
-                    _book_items = _blocked_items(_gwhy); code = 'guard:' + _gwhy
-            else:                                                 # auto — full guardrails
+                    _blocked_items(_gwhy); code = 'guard:' + _gwhy
+            else:
                 _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(),
                                                   market_open=_market_open_now(), news_hard=hard,
                                                   cal_age_h=_cal_age_h())
                 if _gok:
-                    guardrails.ramp_qty(repx)                     # first N trades -> 1 contract
-                    _book_items = _prepare_ab_siblings(repx)
-                    _batch_ok, _batch = _exec_sibling_batch(_book_items, txt)
+                    _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
                     if _batch_ok:
                         for _item, _res, _itxt in _batch: guardrails.note(_item, 'sent')
+                        guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'sent')
                         code = 'exec'
                     else:
-                        for _item in _book_items: guardrails.note(_item, 'blocked', 'sibling_batch_failed')
-                        _exec_fail_alert((_batch[-1][1] if _batch else {}), 'auto-batch'); code = 'exec-failed'
+                        _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
+                        for _item in _book_items: guardrails.note(_item, 'blocked', _why)
+                        _exec_fail_alert({'batch': (_batch[-1][1] if _batch else {}), 'rollback': _rb}, 'auto-batch')
+                        code = 'exec-failed'
                 else:
-                    _book_items = _blocked_items(_gwhy); code = 'guard:' + _gwhy
+                    _blocked_items(_gwhy); code = 'guard:' + _gwhy
         else:
             _book_items = _prepare_ab_siblings(repx)
             code=live_emit.post_webhook(txt, WEBHOOK_URL) if WEBHOOK_URL else 'no-url'
@@ -874,12 +942,14 @@ def status():
                feed_ok=bool(_age<=STALE_MIN or not _mkt),          # OK = swiezy LUB rynek zamkniety
                auto_mode=_amode, auto_live=_alive,                 # v26: is the AUTO executor live?
                heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')),
+               exec_cancel_after_sec=_entry_cancel_after_sec(),
                ab_shallow_enabled=ab_shallow.enabled(),
                ab_shallow_fraction=float(os.environ.get('AB_SHALLOW_FRACTION','0.25') or 0.25),
                ab_shallow_rr=float(os.environ.get('AB_SHALLOW_RR','2') or 2),
                ab_shallow_risk_pct=float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5),
                ab_shallow_combined_max_risk_pct=(float(os.environ.get('RISK_PCT','0.5') or 0.5) +
-                                                  float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5)))
+                                                  float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5)),
+               projected_dd_check=os.environ.get('DD_PROJECTED_RISK','1') == '1')
     if _wants_html(): return _kv_page('Status', _body)
     return jsonify(_body)
 
@@ -1082,8 +1152,10 @@ def _heartbeat_loop():
             if _hc and requests is not None:               # ping co cykl = dowod ze AGENT zyje; gdy padnie, brak pingu -> zewn. alarm
                 try: requests.get(_hc, timeout=4)
                 except Exception: pass
-            try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health (fires even if HEARTBEAT off)
+            try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health
             except Exception: pass
+            try: guardrails.news_calendar_check(_cal_age_h(), _market_open_now())
+            except Exception as e: print('[heartbeat] news calendar check err', e, flush=True)
             try:                                                        # holiday early-close -> move flatten + entry cutoff up
                 import cme_calendar as _cmec
                 _hm = _cmec.EARLY_CLOSE.get(dt.datetime.now(_cmec.CT).date())
