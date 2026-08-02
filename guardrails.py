@@ -26,7 +26,8 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
   AUTO_SUBMIT=0            master switch (agent checks it; 1 = actually stage)
   AUTO_SESSIONS=NYAM,NYPM,PM_AH   only auto-fire these (his green sessions; London/Asia/PREM excluded)
   MAX_TRADES_DAY=3        stop over-trading a chop day
-  DAY_LOSS_N=2           halt+latch after N losing SENT trades today  (primary floor guard)
+  DAY_LOSS_N=2           daily stop after N losing setup groups today (A/B + shallow = one setup)
+  DAY_LOSS_COUNT_MODE=group  group | leg (group is the production default)
   DAY_LOSS_USD=1000      halt+latch after -$ modeled loss today       (secondary)
   DAY_TARGET_USD=1500    profit-lock: stop for the day after +$ (keeps best day < 50% of $6k => consistency-safe)
   DD_FLOOR=97000         MFF trailing max-loss level (READ IT off MFF; update as it trails up)
@@ -574,33 +575,49 @@ def _today_sent():
 
 def _day_stats():
     sent = _today_sent()
-    # A/B and A/B-shallow are sibling rows of one signal group.  MAX_TRADES_DAY counts the
-    # setup once, while loss limits count each independently-risked losing sibling.  Net P&L
-    # always sums both rows.
+    # A/B and A/B-shallow are sibling rows of one signal group.  The setup counts once for
+    # MAX_TRADES_DAY and, by default, once for DAY_LOSS_N.  DAY_LOSS_USD still sums the
+    # realized/modelled P&L of every leg, so independent 0.5% risks remain fully represented.
     grouped = {}
     for t in sent:
         grouped.setdefault(t.get('setup_group_id') or t.get('key'), []).append(t)
     n_trades = 0; losses = 0; net = 0.0
+    loss_mode = _env('DAY_LOSS_COUNT_MODE', 'group').strip().lower()
+    if loss_mode not in ('group', 'leg'):
+        loss_mode = 'group'
     exth = _envf('EXT_OPEN_H', 4) * 3600000
     openpos = False
     for grows in grouped.values():
         consumed_risk = False
+        group_open = False
+        group_net = 0.0
+        group_leg_losses = 0
         for t in grows:
             oc = t.get('outcome')
             if oc not in ('canceled', 'no_fill', 'missed', 'open', None, ''):
                 consumed_risk = True
             if oc == 'loss':
-                losses += 1
+                group_leg_losses += 1
             if oc in ('win', 'loss', 'timeout'):
-                net += float(t.get('net') or 0)
+                leg_net = float(t.get('net') or 0)
+                group_net += leg_net
+                net += leg_net
             if oc == 'open':
+                group_open = True
                 if t.get('strat', 'A/B') not in ('A/B', 'A/B-shallow') and not t.get('ext_outcome'):
-                    if (_now_ms() - int(t.get('ts') or 0)) < exth: openpos = True
+                    if (_now_ms() - int(t.get('ts') or 0)) < exth:
+                        openpos = True
                 else:
                     openpos = True
         if consumed_risk:
             n_trades += 1
-    return dict(sent=n_trades, losses=losses, net=net, openpos=openpos)
+            if loss_mode == 'leg':
+                losses += group_leg_losses
+            elif not group_open and group_net < 0:
+                # One setup is one losing trade even when both independently-sized siblings lose.
+                # Mixed win/loss siblings are classified by their combined P&L.
+                losses += 1
+    return dict(sent=n_trades, losses=losses, net=net, openpos=openpos, loss_mode=loss_mode)
 
 # ---------- the gate ----------
 def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None):
@@ -1043,7 +1060,7 @@ def register(app):
                        openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
                        be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL'),
                        trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
-                       losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2),
+                       losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2), loss_count_mode=d.get('loss_mode','group'),
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
                        pending_group=_active_pending_group(s),

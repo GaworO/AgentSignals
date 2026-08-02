@@ -47,7 +47,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.7-ab-shallow-safe-batch2R'
+VERSION = 'v31.8-ab-shallow-group-dailystop2R'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -949,7 +949,8 @@ def status():
                ab_shallow_risk_pct=float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5),
                ab_shallow_combined_max_risk_pct=(float(os.environ.get('RISK_PCT','0.5') or 0.5) +
                                                   float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5)),
-               projected_dd_check=os.environ.get('DD_PROJECTED_RISK','1') == '1')
+               projected_dd_check=os.environ.get('DD_PROJECTED_RISK','1') == '1',
+               day_loss_count_mode=os.environ.get('DAY_LOSS_COUNT_MODE','group'))
     if _wants_html(): return _kv_page('Status', _body)
     return jsonify(_body)
 
