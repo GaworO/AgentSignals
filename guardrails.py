@@ -31,7 +31,7 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
   DAY_LOSS_USD=1000      halt+latch after -$ modeled loss today       (secondary)
   DAY_TARGET_USD=1500    profit-lock: stop for the day after +$ (keeps best day < 50% of $6k => consistency-safe)
   DD_FLOOR=97000         MFF trailing max-loss level (READ IT off MFF; update as it trails up)
-  DD_BUFFER=800          halt+latch when modeled equity is within $ of the floor
+  DD_BUFFER=800          proximity threshold; behavior set by DD_PROXIMITY_MODE
   RAMP_TRADES=3          first N SENT trades run at qty=1 (prove routing) then normal size
   START_EQUITY=99887     modeled equity seed until first /guard/sync
   STALE_MIN=20           block if the bar feed is older than this (market hours)
@@ -40,6 +40,7 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
 Hardening (2026-07-19 review):
   NEWS_GUARD=1           block auto sends inside ±30min of high-impact events (agent passes the flag)
   MIN_SL_PTS=5           skip degenerate tight-SL setups (absurd qty + slippage beyond -1R)
+  DD_PROXIMITY_MODE=soft  off | soft (block one setup) | hard (legacy latch+flatten)
   DD_TRAIL_USD=3000      auto-trailing floor: max(DD_FLOOR, highest synced equity - this)
   DD_FLOOR_CAP=0         optional cap where the trail locks (MFF locks at start balance)
   GUARD_FLATTEN=1        loss/DD/manual latches also send exit+cancel to EXEC_WEBHOOK (stop the bleeding)
@@ -74,6 +75,16 @@ RISK_DOLLAR = 500.0                                     # 1R at 0.5%/$100k (disp
 def _env(k, d):        return os.environ.get(k, d)
 def _envf(k, d):       return float(os.environ.get(k, str(d)))
 def _envi(k, d):       return int(float(os.environ.get(k, str(d))))
+
+def _dd_proximity_mode():
+    """off | soft | hard.
+
+    off  = do not pre-emptively block on modeled proximity; hard DD breach still latches.
+    soft = block only the current setup and auto-resume; never flatten or persist a halt.
+    hard = legacy behavior: persistent hard halt + flatten/cancel.
+    """
+    m = _env('DD_PROXIMITY_MODE', 'soft').strip().lower()
+    return m if m in ('off', 'soft', 'hard') else 'soft'
 
 def _now_ms():         return int(time.time() * 1000)
 def _et(ms):
@@ -169,6 +180,16 @@ def _state():
     if corrupt:                                    # corrupted state -> HARD kill until a human looks
         s = dict(_DEF_STATE); s.update(kill=True, kill_hard=True, kill_reason='state_corrupt',
                                        kill_day=_today())
+    # v31.9 migration: legacy dd_proximity was a persistent hard halt.  In soft/off mode
+    # clear ONLY that legacy latch automatically.  A real dd_breached, manual kill, state
+    # corruption or uncertain sibling batch remains hard and requires operator review.
+    if (not corrupt and s.get('kill') and s.get('kill_reason') == 'dd_proximity'
+            and _dd_proximity_mode() != 'hard'):
+        s['kill'] = False; s['kill_hard'] = False; s['kill_reason'] = ''; s['kill_day'] = ''
+        s['last_auto_clear_reason'] = 'legacy_dd_proximity'
+        s['last_auto_clear_ms'] = _now_ms()
+        _save(GSTATE, s)
+        print('[guard] auto-cleared legacy dd_proximity latch (%s mode)' % _dd_proximity_mode(), flush=True)
     if s.get('equity') is None: s['equity'] = _envf('START_EQUITY', 99887.0)
     return s
 def _set_state(s): _save(GSTATE, s)
@@ -701,8 +722,15 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         eq = s.get('equity', _envf('START_EQUITY', 99887.0)) + d['net']             # modeled; keep honest via /guard/sync
         buffer_now = eq - _dd_floor()
         dd_buffer = _envf('DD_BUFFER', 800)
-        if buffer_now < dd_buffer:
-            _latch('dd_proximity', hard=True);  return (False, 'dd_proximity')
+        prox_mode = _dd_proximity_mode()
+        x['_dd_buffer_now'] = round(buffer_now, 2)
+        x['_dd_proximity_mode'] = prox_mode
+        if prox_mode != 'off' and buffer_now < dd_buffer:
+            if prox_mode == 'hard':
+                _latch('dd_proximity', hard=True)
+            # soft mode blocks only this setup. It does NOT persist a halt, flatten, or
+            # count blocked/session signals as trades; it auto-resumes once the buffer recovers.
+            return (False, 'dd_proximity')
         if _env('DD_PROJECTED_RISK', '1') == '1':
             planned = float(x.get('_planned_group_risk_usd') or 0.0)
             if planned <= 0:
@@ -1065,6 +1093,7 @@ def register(app):
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
                        pending_group=_active_pending_group(s),
                        projected_dd_check=_env('DD_PROJECTED_RISK', '1') == '1',
+                       dd_proximity_mode=_dd_proximity_mode(),
                        fired=fired_n, filled=filled_n,
                        health=health(), pine_days=book_days(), book=book)
 

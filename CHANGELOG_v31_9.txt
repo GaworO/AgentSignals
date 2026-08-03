@@ -1,0 +1,7 @@
+v31.9-dd-proximity-soft-groupstop2R
+- dd_proximity supports off/soft/hard modes.
+- off and soft automatically clear only a legacy dd_proximity hard latch after deployment.
+- soft blocks one setup without persistent halt or broker flatten.
+- off disables modeled proximity blocking; true dd_breached remains hard.
+- blocked session rows remain excluded from sent-trade, loss, and P&L counters.
+- /guard/data exposes dd_proximity_mode.
