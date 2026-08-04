@@ -14,8 +14,9 @@ min 2 trading days · own-account automation allowed.
 The eval-killer is the $3k trailing drawdown. Because the agent has NO broker fill-feedback, the
 hard protection is COUNT-BASED (one position, max trades/day, halt after N losses) — those bound the
 worst realistic day to ~-2R regardless of what equity the model thinks it has. The $-based
-DD-proximity guard runs on a MODELED equity that you keep honest with /guard/sync?equity=<real MFF
-balance> (5 seconds, do it after each session). Reuses shadow.py's resolver for outcomes so this and
+DD-proximity guard runs on a MODELED equity. /guard/sync?equity=<real MFF equity> stores an
+absolute broker snapshot and only P&L accrued AFTER that sync is added, preventing same-day
+double-counting while preserving intraday modeling between syncs. Reuses shadow.py's resolver for outcomes so this and
 the shadow tab always agree.
 
 Wire (agent.py):  import guardrails  (top, next to `import shadow`)
@@ -174,7 +175,8 @@ def is_duplicate(x):
 
 # ---------- state ----------
 _DEF_STATE = {'kill': False, 'kill_reason': '', 'kill_day': '', 'kill_hard': False,
-              'sent_total': 0, 'equity': None, 'equity_ts': 0}
+              'sent_total': 0, 'equity': None, 'equity_ts': 0,
+              'equity_sync_day': '', 'equity_day_net_at_sync': 0.0}
 def _state():
     s, corrupt = _load_failclosed(GSTATE, dict(_DEF_STATE))
     if corrupt:                                    # corrupted state -> HARD kill until a human looks
@@ -534,16 +536,35 @@ def manual_ok(x, feed_age_min=None, market_open=None):
     except Exception as e:
         print('[guard] manual_ok EXC (fail-closed):', e, flush=True); return (False, 'guard_error')
 
-# ---------- eval progress counter (where the account stands) ----------
+# ---------- modeled equity + eval progress counter ----------
+def _modeled_equity(s=None, d=None):
+    """Return current modeled equity without double-counting today's P&L.
+
+    `state.equity` is the absolute broker equity supplied to /guard/sync. During the same
+    trading day we add only the change in guard day-net since that snapshot. On a later
+    trading day the full current-day net is added to the last absolute broker snapshot.
+
+    Legacy state files without sync metadata retain the old `equity + day_net` behavior
+    until the operator performs one fresh /guard/sync after deploying this version.
+    """
+    s = s or _state()
+    d = d or _day_stats()
+    base = float(s.get('equity', _envf('START_EQUITY', 99887.0)))
+    sync_day = str(s.get('equity_sync_day') or '')
+    if sync_day and sync_day == _today():
+        at_sync = float(s.get('equity_day_net_at_sync') or 0.0)
+        return base + float(d.get('net') or 0.0) - at_sync
+    return base + float(d.get('net') or 0.0)
+
 def eval_progress():
-    """Where the MFF eval stands. Uses synced real equity + today's modeled net.
+    """Where the MFF eval stands. Uses absolute synced equity plus only post-sync P&L.
     passed = hit the profit target (+6%); breached = broke the trailing drawdown floor."""
     try:
         s = _state(); d = _day_stats()
         start  = _envf('START_BALANCE', 100000.0)                 # eval starting balance
         target = _envf('TARGET_BALANCE', start + 6000.0)          # +$6,000 = +6%
         floor  = _dd_floor()                                      # auto-trails with synced equity highs
-        eq     = float(s.get('equity', _envf('START_EQUITY', 99887.0))) + d['net']   # modeled; /guard/sync keeps it real
+        eq     = _modeled_equity(s, d)
         return dict(equity=round(eq), start=round(start), target=round(target), floor=round(floor),
                     pnl=round(eq - start), to_target=round(target - eq), buffer=round(eq - floor),
                     pct=round(100.0 * (eq - start) / 6000.0, 1),      # % of the $6k target reached
@@ -719,7 +740,7 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         if d['net']    >=  _envf('DAY_TARGET_USD', 1500):
             _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
 
-        eq = s.get('equity', _envf('START_EQUITY', 99887.0)) + d['net']             # modeled; keep honest via /guard/sync
+        eq = _modeled_equity(s, d)                                              # absolute sync + post-sync delta
         buffer_now = eq - _dd_floor()
         dd_buffer = _envf('DD_BUFFER', 800)
         prox_mode = _dd_proximity_mode()
@@ -1090,6 +1111,9 @@ def register(app):
                        trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2), loss_count_mode=d.get('loss_mode','group'),
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
+                       equity_synced=round(float(s.get('equity') or 0), 2),
+                       equity_sync_day=s.get('equity_sync_day', ''),
+                       equity_day_net_at_sync=round(float(s.get('equity_day_net_at_sync') or 0), 2),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
                        pending_group=_active_pending_group(s),
                        projected_dd_check=_env('DD_PROJECTED_RISK', '1') == '1',
@@ -1106,11 +1130,18 @@ def register(app):
     def _sync():
         if not _authed(): return jsonify(ok=False, err='auth'), 401
         try:
+            # The caller always supplies ABSOLUTE broker equity. Record today's guard P&L
+            # alongside it, so eval_progress adds only P&L accrued after this snapshot.
             v = float(request.args.get('equity'))
+            d = _day_stats()
             s = _state(); s['equity'] = v; s['equity_ts'] = _now_ms()
+            s['equity_sync_day'] = _today()
+            s['equity_day_net_at_sync'] = float(d.get('net') or 0.0)
             s['eq_high'] = max(float(s.get('eq_high') or 0), v)   # feeds the auto-trailing DD floor
             _set_state(s)
-            return jsonify(ok=True, equity=v, eq_high=s['eq_high'], floor=_dd_floor())
+            return jsonify(ok=True, equity=v, modeled_equity=round(_modeled_equity(s, d), 2),
+                           day_net_at_sync=round(s['equity_day_net_at_sync'], 2),
+                           sync_day=s['equity_sync_day'], eq_high=s['eq_high'], floor=_dd_floor())
         except Exception as e:
             return jsonify(ok=False, err=str(e)), 400
 
