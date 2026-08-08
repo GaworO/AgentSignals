@@ -486,7 +486,7 @@ def stale_abort(feed_age_min):
         return True
 
 def exec_mode():
-    """'auto' = guarded full-auto · 'manual' = your tap-to-approve semi-auto · 'off' = alerts only.
+    """'auto' = guarded full-auto · 'manual' = review-only/no broker send · 'off' = alerts only.
     Runtime state (flip via /guard/mode) beats EXEC_MODE env beats AUTO_SUBMIT."""
     s = _state()
     m = (s.get('mode') or os.environ.get('EXEC_MODE', '')).strip().lower()
@@ -514,8 +514,8 @@ def is_live():
         return False
 
 def manual_ok(x, feed_age_min=None, market_open=None):
-    """Light gate for MANUAL mode: the non-negotiables (dup, Monday, stale, market, hard kill).
-    Trade selection is yours (approve buttons) — the count/loss/DD guards don't block here."""
+    """Light gate for MANUAL review mode. MANUAL never calls the execution webhook in v31.11.
+    This function only decides whether a candidate may be shown/logged for operator review."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
         s = _state()
@@ -1332,12 +1332,12 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 .fillp{height:100%;border-radius:5px;min-width:3px}
 .bn{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700}</style></head><body>
 <h1>Auto-Executor — Guard <span id=mode class=pill></span> <span id=kill class=pill></span> <span id=health class=pill></span></h1>
-<div class=sub>MFF Pro-100k eval · resting-limit A/B · fail-closed · stale-data aborts the send · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN · health JSON: /guard/health</span></div>
+<div class=sub>MFF Pro-100k eval · resting-limit A/B · fail-closed · MANUAL = review only / no broker orders · stale-data aborts AUTO send · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN · health JSON: /guard/health</span></div>
 <div id=healthbar class=sub style="margin:-6px 0 12px;font-weight:600"></div>
 <div class=modebar>
  <span class=lb>MODE</span>
  <a class="btn mauto" href="/guard/mode?set=auto" onclick="return flip('auto')">AUTO</a>
- <a class="btn mmanual" href="/guard/mode?set=manual" onclick="return flip('manual')">MANUAL (tap-to-approve)</a>
+ <a class="btn mmanual" href="/guard/mode?set=manual" onclick="return flip('manual')">MANUAL (review only — no orders)</a>
  <a class="btn moff" href="/guard/mode?set=off" onclick="return flip('off')">OFF</a>
  <a class="btn arms" href="#" onclick="return doarm()" title="Clear a HALT latch — re-arm the executor">▶ ARM</a>
  <a class="btn kills" href="#" onclick="return dokill()" title="Stop &amp; latch — places no orders until you ARM">■ HALT</a>
