@@ -1202,7 +1202,13 @@ def _health_alert(status, summary):
     except Exception as e:
         print('[guard] health alert err', e, flush=True)
 
-# ---------- Pine export (draw the AUTO trades on TradingView) ----------
+# ---------- Pine export (draw AUTO decisions on TradingView) ----------
+def _pine_text(value, limit=96):
+    """Escape dynamic guard-book text for a Pine string literal."""
+    text = str(value or '').replace('\\', '/').replace('"', "'")
+    text = text.replace('\r', ' ').replace('\n', ' ').strip()
+    return text[:limit]
+
 def _pine_one(r):
     """One booked order -> Pine box(SL)/box(TP)/entry+SL+TP lines/label at its bar time."""
     try:
@@ -1228,26 +1234,59 @@ def _pine_one(r):
         'label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.aqua,20), textcolor=color.white, size=size.small)' % (left, hi, txt),
     ]
 
+def _pine_blocked(r):
+    """One rejected signal -> red marker only; never draw execution/SL/TP lines."""
+    try:
+        entry = float(r.get('entry'))
+    except Exception:
+        return []
+    ts = int(r.get('bar_ms') or r.get('ts') or 0)
+    if not ts or not entry:
+        return []
+    prices = [entry]
+    for name in ('sl', 'SL', 'tp'):
+        try:
+            prices.append(float(r.get(name)))
+        except Exception:
+            pass
+    y = max(prices)
+    strat = _pine_text(r.get('strat') or 'A/B', 32)
+    sess = _pine_text(r.get('sess'), 16)
+    direction = _pine_text(r.get('dir'), 12)
+    reason = _pine_text(r.get('reason') or 'guard', 72)
+    detail = ' '.join(v for v in (strat, sess, direction) if v)
+    txt = 'BLOCKED\\n%s\\n%s' % (detail, reason)
+    dp = _envi('GUARD_PRICE_DP', 2)
+    return [
+        'label.new(%d, %.*f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.red,0), textcolor=color.white, size=size.small)' %
+        (ts, dp, y, txt),
+    ]
+
 def pine_book(day=''):
-    """Full Pine indicator for the AUTO trades in the guard book (decision sent/manual).
-    day='' = all booked trades; else only that YYYY-MM-DD. Paste into TradingView Pine Editor -> Add to chart."""
-    rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual')]
+    """Pine indicator for sent/manual and guard-blocked AUTO decisions.
+
+    Executed decisions keep their entry/SL/TP drawings. Blocked decisions get
+    only a red BLOCKED marker with the guard reason, so they cannot be mistaken
+    for orders that reached the broker.
+    """
+    rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual', 'blocked')]
     if day: rows = [g for g in rows if g.get('date') == day]
     body = []
     for r in rows:
-        body += ['    ' + ln for ln in _pine_one(r)]
-    ttl = ('AUTO trades %s' % day) if day else 'AUTO trades'
+        lines = _pine_blocked(r) if r.get('decision') == 'blocked' else _pine_one(r)
+        body += ['    ' + ln for ln in lines]
+    ttl = ('AUTO decisions %s' % day) if day else 'AUTO decisions'
     head = ['//@version=5',
             'indicator("%s", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)' % ttl,
             'if barstate.islast']
     if not body:
-        body = ['    label.new(bar_index, high, "no AUTO trades", style=label.style_label_down)']
+        body = ['    label.new(bar_index, high, "no AUTO decisions", style=label.style_label_down)']
     return '\n'.join(head + body)
 
 def book_days():
-    """Distinct days that have booked AUTO trades, newest first (for the Pine day picker)."""
+    """Distinct days with sent/manual/blocked AUTO decisions, newest first."""
     ds = sorted({g.get('date') for g in _load(GLOG, [])
-                 if g.get('decision') in ('sent', 'manual') and g.get('date')}, reverse=True)
+                 if g.get('decision') in ('sent', 'manual', 'blocked') and g.get('date')}, reverse=True)
     return ds
 
 # ---------- HTTP: /guard (page), /guard/data, /guard/sync, /guard/kill, /guard/health, /guard/pine ----------
@@ -1338,7 +1377,7 @@ def register(app):
         return jsonify(**h), code
 
     def _pine():
-        """Pine script for the AUTO trades (draw them on TradingView). ?day=YYYY-MM-DD or omit for all."""
+        """Pine for sent and blocked AUTO decisions. ?day=YYYY-MM-DD or omit for all."""
         return Response(pine_book(request.args.get('day', '')), mimetype='text/plain')
 
     def _extlog():
@@ -1529,7 +1568,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <div id="rectab"></div>
 </div>
 <div class="pinep">
- <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
+ <div class="ph">📈 <b>Pine for TradingView</b> — see sent trades and BLOCKED signals on your chart
   <select id="pineday" onchange="loadPine()"></select>
   <button class="cpy" onclick="copyPine(this)">Copy script</button>
   <span class="g">paste into TradingView → Pine Editor → Add to chart</span>
