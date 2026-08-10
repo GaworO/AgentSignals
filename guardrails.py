@@ -1235,29 +1235,41 @@ def _pine_one(r):
     ]
 
 def _pine_blocked(r):
-    """One rejected signal -> red marker only; never draw execution/SL/TP lines."""
+    """One rejected signal -> clearly hypothetical entry/SL/TP geometry + red marker."""
     try:
         entry = float(r.get('entry'))
+        sl = float(r.get('sl') if r.get('sl') is not None else r.get('SL'))
     except Exception:
         return []
     ts = int(r.get('bar_ms') or r.get('ts') or 0)
-    if not ts or not entry:
+    if not ts or not entry or not sl:
         return []
-    prices = [entry]
-    for name in ('sl', 'SL', 'tp'):
-        try:
-            prices.append(float(r.get(name)))
-        except Exception:
-            pass
-    y = max(prices)
+    try: tp = float(r.get('tp'))
+    except Exception: tp = entry + 2 * (entry - sl)
+    left = ts; right = ts + 90 * 60 * 1000
+    y = max(entry, sl, tp)
     strat = _pine_text(r.get('strat') or 'A/B', 32)
     sess = _pine_text(r.get('sess'), 16)
     direction = _pine_text(r.get('dir'), 12)
     reason = _pine_text(r.get('reason') or 'guard', 72)
     detail = ' '.join(v for v in (strat, sess, direction) if v)
-    txt = 'BLOCKED\\n%s\\n%s' % (detail, reason)
     dp = _envi('GUARD_PRICE_DP', 2)
+    def _f(p): return ('%.*f' % (dp, p))
+    txt = 'BLOCKED\\n%s\\n%s\\nE %s | SL %s | TP %s' % (
+        detail, reason, _f(entry), _f(sl), _f(tp))
     return [
+        # Dashed borders and lighter fills distinguish a hypothetical blocked
+        # setup from the solid geometry used for an order sent to the broker.
+        'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.red,45), border_style=line.style_dashed, bgcolor=color.new(color.red,95))' %
+        (left, _f(max(entry, sl)), right, _f(min(entry, sl))),
+        'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.green,45), border_style=line.style_dashed, bgcolor=color.new(color.green,95))' %
+        (left, _f(max(entry, tp)), right, _f(min(entry, tp))),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.new(color.orange,15), width=1, style=line.style_dashed)' %
+        (left, _f(entry), right, _f(entry)),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.new(color.red,25), width=1, style=line.style_dashed)' %
+        (left, _f(sl), right, _f(sl)),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.new(color.green,25), width=1, style=line.style_dashed)' %
+        (left, _f(tp), right, _f(tp)),
         'label.new(%d, %.*f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.red,0), textcolor=color.white, size=size.small)' %
         (ts, dp, y, txt),
     ]
@@ -1265,9 +1277,10 @@ def _pine_blocked(r):
 def pine_book(day=''):
     """Pine indicator for sent/manual and guard-blocked AUTO decisions.
 
-    Executed decisions keep their entry/SL/TP drawings. Blocked decisions get
-    only a red BLOCKED marker with the guard reason, so they cannot be mistaken
-    for orders that reached the broker.
+    Executed decisions keep their solid entry/SL/TP drawings. Blocked decisions
+    get dashed, more transparent hypothetical entry/SL/TP geometry plus a red
+    BLOCKED marker and guard reason, so they cannot be mistaken for orders that
+    reached the broker.
     """
     rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual', 'blocked')]
     if day: rows = [g for g in rows if g.get('date') == day]
@@ -1568,7 +1581,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <div id="rectab"></div>
 </div>
 <div class="pinep">
- <div class="ph">📈 <b>Pine for TradingView</b> — see sent trades and BLOCKED signals on your chart
+ <div class="ph">📈 <b>Pine for TradingView</b> — sent trades plus dashed BLOCKED entry/SL/TP setups
   <select id="pineday" onchange="loadPine()"></select>
   <button class="cpy" onclick="copyPine(this)">Copy script</button>
   <span class="g">paste into TradingView → Pine Editor → Add to chart</span>
