@@ -1,6 +1,6 @@
 """
 AGENT live — challenge-safe A/B + A/B-shallow only.
-- TV (alert co domkniety bar 1m) -> POST /bars?t=<BARS_TOKEN>
+- TV (alert co domkniety bar 1m) -> POST /bars
 - agent trzyma bufor, liczy det_v10.py (LIVE), i TYLKO nowe potwierdzone setupy -> POST na WEBHOOK_URL (Telegram)
 - na starcie oznacza istniejace setupy jako 'widziane' (zero zalewania historia)
 - AUTO wymaga świeżego /broker/sync oraz lifecycle /broker/callback z istniejącego
@@ -50,7 +50,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v32.6-challenge-safe-ab-autoexecutor-pine-filters'
+VERSION = 'v32.7-challenge-safe-ab-bars-no-token'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -706,17 +706,8 @@ def _process_new(now_ms=None):
     _save_sent(sentn)
     return {'nowe': nfired}
 
-def _bars_authed():
-    return intake_guard.token_ok(os.environ.get('BARS_TOKEN', ''), request.headers,
-                                 request.args.get('t', ''))
-
-
 @app.route('/bars', methods=['POST'])
 def bars():
-    if not os.environ.get('BARS_TOKEN'):
-        return jsonify(ok=False, error='BARS_TOKEN not configured; intake fail-closed'), 503
-    if not _bars_authed():
-        return jsonify(ok=False, error='auth'), 401
     try:
         b, now_ms = _normalize_bar(request.get_json(force=True, silent=False) or {})
     except Exception as exc:
