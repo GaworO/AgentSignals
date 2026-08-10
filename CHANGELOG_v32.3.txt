@@ -1,0 +1,22 @@
+v32.3-challenge-safe-ab-only-autoexecutor-risk-0.70-group-loss
+
+- hard scope: A/B, B/DIB and A/B-shallow only
+- deterministic pre-guard execution plan; no post-guard quantity mutations
+- challenge mode disables all upsizing paths
+- exact combined projected risk after final quantities and execution costs
+- authenticated broker snapshot and order lifecycle ledger
+- fail-closed stale/unknown broker state and live-commitment gate
+- authenticated, validated, chronological and idempotent /bars intake
+- verified 2xx cancel/exit retries and callback-confirmed EOD completion
+- atomic guard writes; persistence failure blocks/rolls back execution
+- minimum-day, consistency and broker-status-aware PASS logic
+- A/B + shallow count as one setup and one loss toward DAY_LOSS_N
+- challenge mode forces group-loss counting even if Railway still says leg
+- projected daily-loss gate includes the full planned stop of the next group
+- 100K trailing-floor cap corrected to $100,100
+- risk profile set to 0.35% A/B + 0.35% shallow (0.70% combined maximum)
+- missing frozen group-risk plan blocks execution instead of using an estimate
+- existing /all/trades UI and allview.py are unchanged and remain registered
+- existing EXEC_WEBHOOK value/payload route is retained
+- integration test verifies frozen plan -> Auto-Executor send and /all/trades registration
+- tests discoverable with plain `python3 -m unittest discover -v`

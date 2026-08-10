@@ -82,7 +82,7 @@ def build_shallow_signal(
     if max_sl > 0 and risk_pts > max_sl:
         raise ValueError("A/B-shallow stop exceeds AB_SHALLOW_MAX_SL_PTS")
 
-    risk_pct = _float(e, "AB_SHALLOW_RISK_PCT", _float(e, "RISK_PCT", 0.5))
+    risk_pct = _float(e, "AB_SHALLOW_RISK_PCT", _float(e, "RISK_PCT", 0.35))
     if risk_pct <= 0:
         raise ValueError("AB_SHALLOW_RISK_PCT must be positive")
 
@@ -135,7 +135,7 @@ def risk_metadata(
 ) -> dict[str, float]:
     e = os.environ if env is None else env
     account = _float(e, "ACCOUNT", 100000.0)
-    deep_pct = _float(e, "RISK_PCT", 0.5)
+    deep_pct = _float(e, "RISK_PCT", 0.35)
     shallow_pct = _float(e, "AB_SHALLOW_RISK_PCT", deep_pct)
     point_value = _float(e, "POINT_VALUE", 2.0)
     return {

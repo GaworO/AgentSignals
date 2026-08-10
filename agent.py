@@ -1,11 +1,13 @@
 """
-AGENT live (osobny serwis — NIE wrzucac do NQsignals).
-- TV (alert co domkniety bar 1m) -> POST /bars  [CICHO, bez Telegrama]
+AGENT live — challenge-safe A/B + A/B-shallow only.
+- TV (alert co domkniety bar 1m) -> POST /bars?t=<BARS_TOKEN>
 - agent trzyma bufor, liczy det_v10.py (LIVE), i TYLKO nowe potwierdzone setupy -> POST na WEBHOOK_URL (Telegram)
 - na starcie oznacza istniejace setupy jako 'widziane' (zero zalewania historia)
+- AUTO wymaga świeżego /broker/sync oraz lifecycle /broker/callback z istniejącego
+  relaya/brokera; read-only ekran All Trades pozostaje niezależny
 
 ENV:
-  WEBHOOK_URL  = https://nqsignals-production.up.railway.app/webhook?secret=nqscout2024
+  WEBHOOK_URL  = optional notification relay URL supplied through environment
   PORT         = 8000 (Railway ustawia sam)
   BUFFER_BARS  = 14000 (~10 dni 1m)
 Uruchom: python3 agent.py    (lokalnie/VPS/osobny serwis Railway)
@@ -21,17 +23,18 @@ import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
 import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + trasy /pnl; nie rusza intake'u/detektora
 import how_ab      # A/B "how it works" page at /how — izolowany dodatek (ORB /how style), nie rusza detektora
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
-import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
+import dashboard   # existing home shell; kept unchanged
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
-import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
-import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
-import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
+import allview     # existing read-only /all/trades + /all/candidates view; kept unchanged
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 import ab_shallow  # causal A/B-shallow sibling; independent risk budget
+import execution_plan  # exact post-rounding quantity/risk before the guard decision
+import broker_feedback # authenticated broker lifecycle + account truth
+import intake_guard    # auth, OHLC validation and idempotent bar sequencing
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
-NY = ZoneInfo('Etc/GMT+4')   # sztywne UTC-4 (jak TFO/wykres), bez DST
+NY = ZoneInfo('America/New_York')
 PUBLIC_URL = os.environ.get('PUBLIC_URL','').rstrip('/')   # np. https://agentsignals-production.up.railway.app
 NO_TRADE_SUPPRESS = os.environ.get('NO_TRADE_SUPPRESS','') == '1'   # 1 = twarde wyciszenie przy high-impact
 DATA_DIR = os.environ.get('DATA_DIR', HERE)   # ustaw na /data (Railway Volume) by przetrwac restart
@@ -47,7 +50,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.11-manual-review-safe-groupstop2R'
+VERSION = 'v32.3-challenge-safe-ab-only-autoexecutor-risk-0.70-group-loss'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -74,7 +77,7 @@ HEARTBEAT_EVERY = float(os.environ.get('HEARTBEAT_EVERY_SEC', '300'))    # how o
 _sat = {'C': {'ok_at': None, 'alerted': False},
         'F': {'ok_at': None, 'alerted': False}}
 SAT_STALE_MIN = float(os.environ.get('SAT_STALE_MIN', '20'))   # min without an accepted bar = satellite stale
-SAT_WATCH     = os.environ.get('SAT_WATCH', '1') != '0'        # default ON; SAT_WATCH=0 to silence C/F alerts
+SAT_WATCH     = False                                           # challenge build: C/F/AMD are hard-disabled
 
 def _init_db():
     c=sqlite3.connect(DB)
@@ -117,147 +120,66 @@ def _entry_cancel_after_sec():
 
 
 def _exec_order(x, text=None):
-    """Route 2 (semi-auto): wyślij PRE-STAGED zlecenie bracket do TradersPost (EXEC_WEBHOOK).
-    Z auto-submit OFF w TradersPost zlecenie czeka na Twoje 1-klik zatwierdzenie (MFF: nadzór nad
-    każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście.
-    EXEC_QTY='auto' (domyślnie) = ryzyko jak w alercie (size_for); liczba = sztywno; EXEC_MAX_QTY = limit."""
-    if os.environ.get('EXEC_FX', '') == '1':          # FX services: MetaApi/MT5 adapter (exec_fx.py)
-        try:
-            import exec_fx
-            return exec_fx.place(x, text)
-        except Exception as _fe:
-            print('EXEC_FX import/place err', _fe, flush=True)
-            return {"sent": False, "error": str(_fe)}
+    """Serialize one precomputed plan without changing its quantity.
+
+    There are deliberately no Magnet, Select, dynamic-equity or fixed-qty paths
+    here.  A timeout is treated as an uncertain acceptance and triggers the
+    sibling rollback/hard-stop path; it is never retried as a new order.
+    """
     url = os.environ.get('EXEC_WEBHOOK', '')
-    if not url or requests is None: return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
+    if not url or requests is None:
+        return {'sent': False, 'accepted_any': False,
+                'reason': 'EXEC_WEBHOOK not set' if not url else 'requests missing'}
     try:
-        off = float(os.environ.get('PRICE_OFFSET', '0'))
-        bull = x['dir'] == 'LONG'; e = float(x['entry']); sl = float(x['SL']); R = abs(e - sl)
-        tp = (e + 2*R) if bull else (e - 2*R)
-        # Wielkosc: 'auto' (domyslnie) = ryzyko jak w alercie (size_for: RISK_PCT% z ACCOUNT, MNQ $2/pkt),
-        # ta sama liczba kontraktow co w linii "Ryzyko: N kontr.". Liczba w EXEC_QTY = sztywno.
-        # EXEC_MAX_QTY = opcjonalny limit (np. regula max kontraktow MFF / eval).
-        _q = os.environ.get('EXEC_QTY', 'auto').strip().lower()
-        _risk_override = x.get('_risk_pct_override')
-        _strict_risk = bool(x.get('_strict_risk_budget'))
-        if _strict_risk:
-            try:
-                _sf = live_emit.size_for(e, sl, _risk_override)
-                qty = int(_sf[0]) if _sf else 0
-            except Exception:
-                qty = 0
-        elif _q.isdigit() and int(_q) > 0:
-            qty = int(_q)
-        else:
-            try:
-                _sf = live_emit.size_for(e, sl, _risk_override)
-                qty = int(_sf[0]) if _sf else 0
-            except Exception:
-                qty = 0
-        if _strict_risk and qty < 1:
-            return {"sent": False, "reason": "risk_budget_below_one_contract", "qty": 0}
-        if qty < 1:
-            qty = 1
-        if not _strict_risk:
-            qty = int(round(qty * float(x.get('_size_mult', 1.0))))   # 🧲 normal A/B size-up path
-        try:      # ⭐ SELECT size skew: T4 setups (~+0.30R live vs +0.195R baseline) get more size. Off by default.
-            _ssm = float(os.environ.get('SELECT_SIZE_MULT', '1') or 1)
-            if (not _strict_risk) and x.get('_select') and _ssm != 1.0: qty = max(1, int(round(qty * _ssm)))
+        plan = execution_plan.attach(x)
+        if not broker_feedback.register_plan(plan):
+            return {'sent': False, 'accepted_any': False, 'reason': 'execution_plan_not_persisted'}
+    except Exception as exc:
+        return {'sent': False, 'accepted_any': False, 'reason': 'plan:' + str(exc)}
+
+    payload = {
+        'ticker': plan['ticker'],
+        'action': 'buy' if plan['direction'] == 'LONG' else 'sell',
+        'orderType': 'limit',
+        'limitPrice': plan['entry'],
+        'quantity': plan['qty'],
+        'takeProfit': {'limitPrice': plan['target']},
+        'stopLoss': {'type': 'stop', 'stopPrice': plan['stop']},
+        'timeInForce': os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
+        'cancelAfter': plan['cancel_after_sec'],
+    }
+    marker = '[execution_id=%s]' % plan['execution_id']
+    payload['text'] = marker + (('\n' + str(text)) if text else '')
+    x['_legs'] = [{'qty': plan['qty'], 'tp': plan['target']}]
+    x['_sent_qty'] = plan['qty']
+    x['_execution_id'] = plan['execution_id']
+    status = None; body = ''; uncertain = False
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        status = getattr(response, 'status_code', None)
+        try: body = (response.text or '')[:300]
+        except Exception: body = ''
+        accepted = status is not None and 200 <= int(status) < 300
+        broker_feedback.mark_relay_result(plan['execution_id'], accepted, status, body)
+    except Exception as exc:
+        # The request may have reached the relay before the timeout.  Persist it
+        # as an active/uncertain commitment so rollback is mandatory.
+        body = str(exc)[:300]; uncertain = True; accepted = False
+        try: broker_feedback.mark_relay_result(plan['execution_id'], True, None, 'uncertain:' + body)
         except Exception: pass
-        try:      # 🌙 per-session size multiplier — overnight test sessions run reduced size until proven.
-                  # SESSION_SIZE_MULT='ASIA:0.5,LO:0.5' default; '' disables; e.g. 'ASIA:0.25,LO:0.5,PREM:0.75'
-            _smv = os.environ.get('SESSION_SIZE_MULT', 'ASIA:0.5,LO:0.5')
-            if _smv:
-                _ss = guardrails._sess_of(x)
-                for _kv in _smv.split(','):
-                    _k, _v = _kv.split(':')
-                    if _k.strip() == _ss:
-                        qty = max(1, int(round(qty * float(_v)))); break
-        except Exception: pass
-        try:      # 📈 GUARD_DYN_RISK=1: scale size with the DD cushion — never above base while the buffer
-                  # is thin, up to DYN_RISK_MAX_MULT× once the buffer outgrows DYN_RISK_BASE_BUF ($).
-                  # Rationale: worst guarded day = 2 losses; keep 2R well under ~1/3 of the live buffer.
-            if (not _strict_risk) and os.environ.get('GUARD_DYN_RISK', '0') == '1':
-                _buf = float(guardrails.eval_progress().get('buffer') or 0)
-                _base = float(os.environ.get('DYN_RISK_BASE_BUF', '3000'))
-                _mx = float(os.environ.get('DYN_RISK_MAX_MULT', '2'))
-                if _buf > _base: qty = int(round(qty * min(_mx, _buf / _base)))
-        except Exception: pass
-        if x.get('_exec_qty_override') is not None:
-            qty = int(x['_exec_qty_override'])            # guardrails min-size ramp (first N live trades = 1)
-        if x.get('_mon_quarter'):
-            qty = max(1, int(round(qty * 0.5)))           # Monday quarter-size (0.5% -> 0.25%) if MONDAY_MODE=quarter
-        _cap = os.environ.get('EXEC_MAX_QTY', '15').strip()   # default HARD cap: a 5-pt SL used to compute 50 micros
-        if _cap.isdigit() and int(_cap) > 0:
-            qty = min(qty, int(_cap))
-        qty = max(1, int(qty))
-        _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
-        def _t(p):                                                 # sees them (OTE math emits 29043.43;
-            return round(round(p / _tk) * _tk, 6) if _tk > 0 else round(p, 2)   # MNQ trades in 0.25s)
-        x['_exec_entry'] = _t(e + off)  # tp is recomputed from the POST-ENTRY_OFFSET_PTS entry; x['TP']
-                                        # is the detector's PRE-offset value (3 pts apart at offset=1).
-        # ---- v30: 1R partial. Split ONE signal into TWO brackets at the broker:
-        #   leg A ("banker"):  PARTIAL_ACCT_PCT of the account realized at exactly +1R
-        #                      (0.2% at RISK_PCT 0.5 -> 40% of the contracts, TP = entry +/- 1R)
-        #   leg B ("runner"):  the rest, TP = the detector's target (v30 swing level / 2R).
-        # Same entry limit, same stop, same TIF on both -> they fill and stop together; only the
-        # targets differ. Entirely broker-side: no dependency on the agent being awake mid-trade.
-        # PARTIAL_AT_1R=0 disables (single bracket, exactly the v29 behaviour). qty=1 cannot split.
-        # v30: the runner's target is the DETECTOR's TP (swing level or 2R fallback), not a local
-        # 2R recompute. The old inline `tp = e ± 2R` above stays only as a fallback for records
-        # without a TP field. (Caught by the executor test: leg B was going to 2R while the
-        # detector aimed at the swing level.)
-        try: tp = float(x['TP']) if x.get('TP') is not None else tp
-        except Exception: pass
-        x['_exec_tp'] = _t(tp + off)   # the book/shadow must score the target the broker actually receives
-        legs = [(qty, tp)]
-        try:
-            if os.environ.get('PARTIAL_AT_1R', '0') == '1' and qty >= 2:   # v30.1: default OFF (measured: costs ~14%/yr for little protection); PARTIAL_AT_1R=1 re-enables
-                _rp  = float(_risk_override if _risk_override is not None else os.environ.get('RISK_PCT', '0.5') or 0.5)
-                _pp  = float(os.environ.get('PARTIAL_ACCT_PCT', '0.2') or 0.2)
-                _fr  = max(0.0, min(0.9, _pp / _rp)) if _rp > 0 else 0.0
-                qa   = int(round(qty * _fr))
-                if 0 < qa < qty:
-                    r1 = (e + R) if bull else (e - R)
-                    legs = [(qa, r1), (qty - qa, tp)]
-        except Exception as _pe:
-            print('EXEC partial split err (single bracket fallback)', _pe, flush=True)
-        x['_legs'] = [{"qty": q_, "tp": _t(t_ + off)} for q_, t_ in legs]
-        st = None; body = ''; leg_results = []; accepted_legs = 0
-        for _i, (q_, t_) in enumerate(legs):
-            payload = {
-                "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
-                "action": "buy" if bull else "sell",
-                "orderType": "limit",
-                "limitPrice": _t(e + off),
-                "quantity": q_,
-                "takeProfit": {"limitPrice": _t(t_ + off)},
-                "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
-                "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
-                "cancelAfter": _entry_cancel_after_sec(),
-            }
-            if text and _i == 0: payload["text"] = text
-            try:
-                r = requests.post(url, json=payload, timeout=10)
-                st = getattr(r, 'status_code', None)
-                try: body = (r.text or '')[:200]
-                except Exception: body = ''
-                ok_leg = st is not None and 200 <= int(st) < 300
-            except Exception as e:
-                st = None; body = str(e)[:200]; ok_leg = False
-            leg_results.append({"leg": _i + 1, "status": st, "ok": ok_leg, "qty": q_})
-            if ok_leg: accepted_legs += 1
-            print('EXEC', st, ('leg %d/%d' % (_i + 1, len(legs))), payload, flush=True)
-            if not ok_leg:
-                break                         # never send later legs after a failed sibling/partial leg
-        all_ok = len(leg_results) == len(legs) and accepted_legs == len(legs)
-        return {"sent": all_ok, "accepted_any": accepted_legs > 0,
-                "accepted_legs": accepted_legs, "status": st, "resp": body,
-                "legs": len(legs), "leg_results": leg_results,
-                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": qty}
-    except Exception as ex:
-        print('EXEC err', ex, flush=True)
-        return {"sent": False, "error": str(ex), "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}
+    return {
+        'sent': bool(accepted),
+        'accepted_any': bool(accepted or uncertain),
+        'uncertain': uncertain,
+        'status': status,
+        'resp': body,
+        'qty': plan['qty'],
+        'execution_id': plan['execution_id'],
+        'projected_risk_usd': plan['projected_risk_usd'],
+        'legs': 1,
+        'leg_results': [{'leg': 1, 'status': status, 'ok': bool(accepted), 'qty': plan['qty']}],
+    }
+
 
 def _signal_bar_close(x):
     """Return the close of the detector BOS bar from the same rolling buffer.
@@ -279,6 +201,37 @@ def _signal_bar_close(x):
         print('A/B-shallow signal close lookup err', e, flush=True)
     return None
 
+def _plan_ab_items(items):
+    """Attach exact final plans and one summed group-risk reservation."""
+    try:
+        for item in items:
+            item['sess'] = guardrails._sess_of(item)
+            if guardrails._wd(item) == 0 and os.environ.get('MONDAY_MODE', 'nyam').lower() == 'quarter':
+                item['_mon_quarter'] = True
+        ep = guardrails.eval_progress()
+        if ep.get('target_reached') and not ep.get('consistency_met'):
+            reduced = float(os.environ.get('POST_TARGET_RISK_PCT', '0.10') or 0.10)
+            for item in items:
+                item['_risk_pct_override'] = min(
+                    float(item.get('_risk_pct_override') if item.get('_risk_pct_override') is not None
+                          else os.environ.get('RISK_PCT', '0.35')),
+                    reduced,
+                )
+        for item in items:
+            execution_plan.attach(item)
+        planned = execution_plan.group_risk(items)
+        if planned <= 0:
+            raise execution_plan.PlanError('empty projected risk')
+        for item in items:
+            item['_planned_group_risk_usd'] = planned
+        return items
+    except Exception as exc:
+        for item in items:
+            item['_plan_error'] = str(exc)
+            item['_planned_group_risk_usd'] = 0.0
+        return items
+
+
 def _prepare_ab_siblings(repx):
     """Build one causal setup group: normal A/B plus optional A/B-shallow.
 
@@ -287,18 +240,15 @@ def _prepare_ab_siblings(repx):
     setups, not the second leg of this same A/B signal.
     """
     repx['_strat'] = repx.get('_strat', 'A/B')
-    acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
-    deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
-    repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
     if repx['_strat'] != 'A/B' or not ab_shallow.enabled():
-        return [repx]
+        return _plan_ab_items([repx])
     if repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
         repx['_shallow_skip'] = 'ramp'
-        return [repx]
+        return _plan_ab_items([repx])
     close = _signal_bar_close(repx)
     if close is None:
         repx['_shallow_skip'] = 'signal_close_missing'
-        return [repx]
+        return _plan_ab_items([repx])
     repx['_signal_close'] = close
     gid = ab_shallow.setup_group_id(repx)
     repx['_setup_group_id'] = gid
@@ -308,15 +258,13 @@ def _prepare_ab_siblings(repx):
         planned = float(meta.get('combined_max_budget') or 0.0)
         repx['_ab_risk_meta'] = meta
         shallow['_ab_risk_meta'] = meta
-        repx['_planned_group_risk_usd'] = planned
-        shallow['_planned_group_risk_usd'] = planned
         repx['_batch_sibling'] = True
         shallow['_batch_sibling'] = True
-        return [repx, shallow]
+        return _plan_ab_items([repx, shallow])
     except Exception as e:
         repx['_shallow_skip'] = str(e)
         print('A/B-shallow build skip:', e, flush=True)
-        return [repx]
+        return _plan_ab_items([repx])
 
 
 def _batch_group_id(items):
@@ -344,6 +292,10 @@ def _exec_sibling_batch(items, base_text):
             float(item['entry']); float(item['SL']); float(item['TP'])
             if item.get('dir') not in ('LONG', 'SHORT'):
                 raise ValueError('bad direction')
+            if item.get('_strat', 'A/B') not in execution_plan.ALLOWED_STRATEGIES:
+                raise ValueError('strategy_not_allowed')
+            if item.get('_plan_error') or not item.get('_execution_plan'):
+                raise ValueError(item.get('_plan_error') or 'execution plan missing')
         except Exception as e:
             return False, [(item, {'sent': False, 'reason': 'preflight:' + str(e)}, '')], {'ok': True, 'reason': 'preflight'}
     if not guardrails.begin_sibling_batch(gid, planned, [i.get('_strat', 'A/B') for i in items]):
@@ -363,7 +315,9 @@ def _exec_sibling_batch(items, base_text):
             ok = False
         if ok:
             accepted.append(item)
-            guardrails.touch_sibling_batch(gid, item.get('_strat', 'A/B'), res.get('status'))
+            if not guardrails.touch_sibling_batch(gid, item.get('_strat', 'A/B'), res.get('status')):
+                rb = guardrails.rollback_sibling_batch(gid, 'reservation_update_failed')
+                return False, results, rb
             continue
         accepted_any = bool(res.get('accepted_any') or accepted)
         if accepted_any:
@@ -385,11 +339,17 @@ def _seed_buffer():
     d[COLS].tail(BUFFER_BARS).to_csv(BUF,index=False)
 
 def _load_sent():
-    try: return set(json.load(open(SENT)))
+    try:
+        with open(SENT, encoding='utf-8') as handle: return set(json.load(handle))
     except Exception: return set()
-def _save_sent(s): json.dump(sorted(s), open(SENT,'w'))
+def _save_sent(s):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = SENT + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as handle:
+        json.dump(sorted(s), handle); handle.flush(); os.fsync(handle.fileno())
+    os.replace(tmp, SENT)
 
-def _append_bar(b):
+def _append_bar_legacy_disabled(b):
     ts=str(b['ts_event']).strip()
     if '+' not in ts and 'Z' not in ts: ts=ts+'+00:00'   # spojny format z seedem (UTC, +00:00)
     row=[ts,b['open'],b['high'],b['low'],b['close'],b.get('volume',0)]
@@ -412,6 +372,64 @@ def _append_bar(b):
     with open(BUF) as f: rows=f.readlines()
     if len(rows) > BUFFER_BARS+1:
         with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
+
+
+def _last_buffer_bar():
+    if not os.path.exists(BUF):
+        return None
+    try:
+        with open(BUF, newline='', encoding='utf-8') as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            return None
+        row = rows[-1]
+        return {k: row.get(k) for k in COLS}
+    except Exception:
+        return None
+
+
+def _normalize_bar(raw):
+    return intake_guard.normalize_bar(raw, os.environ.get('BAR_REQUIRE_MINUTE', '1') == '1')
+
+
+def _same_bar(a, b):
+    return intake_guard.same_bar(a, b)
+
+
+def _atomic_lines(path, lines):
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8', newline='') as handle:
+        handle.writelines(lines)
+        handle.flush(); os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def _append_bar(b):
+    """Idempotently append one already-validated bar and fsync both ledgers."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    row = [b[k] for k in COLS]
+    last = _last_buffer_bar()
+    if last and str(last.get('ts_event')).replace('Z', '+00:00') == str(b['ts_event']).replace('Z', '+00:00'):
+        if _same_bar(last, b):
+            return False
+        raise ValueError('conflicting duplicate bar')
+    if last:
+        last_ms = int(dt.datetime.fromisoformat(str(last['ts_event']).replace('Z', '+00:00')).timestamp() * 1000)
+        now_ms = int(dt.datetime.fromisoformat(str(b['ts_event']).replace('Z', '+00:00')).timestamp() * 1000)
+        if now_ms < last_ms:
+            raise ValueError('out-of-order bar')
+    for path in (ARCHIVE, BUF):
+        new = not os.path.exists(path)
+        with open(path, 'a', newline='', encoding='utf-8') as handle:
+            writer = csv.writer(handle)
+            if new: writer.writerow(COLS)
+            writer.writerow(row)
+            handle.flush(); os.fsync(handle.fileno())
+    with open(BUF, encoding='utf-8') as handle:
+        lines = handle.readlines()
+    if len(lines) > BUFFER_BARS + 1:
+        _atomic_lines(BUF, [lines[0]] + lines[-BUFFER_BARS:])
+    return True
     # przytnij bufor do ostatnich BUFFER_BARS
     with open(BUF) as f: rows=f.readlines()
     if len(rows) > BUFFER_BARS+1:
@@ -571,14 +589,16 @@ def _process_new(now_ms=None):
             import select_tag as _sel
             _st=_sel.tagline(repx, members)
             if _st: txt=_st+txt
-            if not _sel.why_not(repx, members): repx['_select']=True   # ⭐ mark T4 for SELECT_SIZE_MULT sizing
+            if os.environ.get('CHALLENGE_MODE', '1') != '1' and not _sel.why_not(repx, members):
+                repx['_select']=True
         except Exception as _se: print('select_tag err', _se, flush=True)
         try:                                                                                # 🧲 magnet size-up tag (isolated, read-only — never changes entry/SL/TP/direction)
             import magnet as _mag, sqlite3 as _sq3
             _recent=[r[0] for r in _sq3.connect(DB).execute("SELECT dir FROM signals ORDER BY logged_at DESC LIMIT 5").fetchall()][::-1]
             _mres=_mag.check(repx, *(_mag.load_buffer(BUF) or (None,None,None)), _recent)
             if _mres['magnet']:
-                txt=_mres['tag']+'\n'+txt; repx['_size_mult']=_mres['size_mult']
+                txt=_mres['tag']+'\n'+txt
+                if os.environ.get('CHALLENGE_MODE', '1') != '1': repx['_size_mult']=_mres['size_mult']
         except Exception as _me: print('magnet err', _me, flush=True)
         if len(members)>1:
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
@@ -595,7 +615,7 @@ def _process_new(now_ms=None):
             for kk in allkeys: sentn.add(kk)
             continue
         _book_items = [repx]
-        if os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':   # FX services: MetaApi, no webhook
+        if guardrails._exec_ready():
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')
             _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
             repx['_alert_txt'] = txt
@@ -638,15 +658,26 @@ def _process_new(now_ms=None):
                 else:
                     _blocked_items(_gwhy); code = 'guard:' + _gwhy
             else:
-                _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(),
-                                                  market_open=_market_open_now(), news_hard=hard,
-                                                  cal_age_h=_cal_age_h())
+                if any(i.get('_plan_error') for i in _book_items):
+                    _gok, _gwhy = False, 'execution_plan:' + str(next(
+                        i.get('_plan_error') for i in _book_items if i.get('_plan_error')))
+                else:
+                    _gok, _gwhy = guardrails.guard_ok(repx, feed_age_min=_feed_age_min(),
+                                                      market_open=_market_open_now(), news_hard=hard,
+                                                      cal_age_h=_cal_age_h())
                 if _gok:
                     _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
                     if _batch_ok:
-                        for _item, _res, _itxt in _batch: guardrails.note(_item, 'sent')
-                        guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'sent')
-                        code = 'exec'
+                        _notes_ok = all(guardrails.note(_item, 'sent') for _item, _res, _itxt in _batch)
+                        _finish_ok = _notes_ok and guardrails.finish_sibling_batch(
+                            _batch_group_id(_book_items), 'sent')
+                        if _finish_ok:
+                            code = 'exec'
+                        else:
+                            _rb = guardrails.rollback_sibling_batch(
+                                _batch_group_id(_book_items), 'post_send_persistence_failed')
+                            _exec_fail_alert({'rollback': _rb}, 'post-send-persistence')
+                            code = 'exec-failed'
                     else:
                         _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
                         for _item in _book_items: guardrails.note(_item, 'blocked', _why)
@@ -675,14 +706,38 @@ def _process_new(now_ms=None):
     _save_sent(sentn)
     return {'nowe': nfired}
 
+def _bars_authed():
+    return intake_guard.token_ok(os.environ.get('BARS_TOKEN', ''), request.headers,
+                                 request.args.get('t', ''))
+
+
 @app.route('/bars', methods=['POST'])
 def bars():
-    b=request.get_json(force=True, silent=True) or {}
-    if 'close' not in b: return jsonify(error='brak OHLC'), 400
-    ts=str(b.get('ts_event','')).strip()
-    try: now_ms=int(dt.datetime.fromisoformat(ts if ('+' in ts or 'Z' in ts) else ts+'+00:00').timestamp()*1000)
-    except Exception: now_ms=int(dt.datetime.utcnow().timestamp()*1000)   # fail-safe: zawsze "teraz", strażnik nigdy nie wyłączony
+    if not os.environ.get('BARS_TOKEN'):
+        return jsonify(ok=False, error='BARS_TOKEN not configured; intake fail-closed'), 503
+    if not _bars_authed():
+        return jsonify(ok=False, error='auth'), 401
+    try:
+        b, now_ms = _normalize_bar(request.get_json(force=True, silent=False) or {})
+    except Exception as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+    server_ms = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)
+    fresh_error = intake_guard.freshness_error(
+        now_ms, server_ms, float(os.environ.get('BAR_MAX_FUTURE_SEC', '30')),
+        float(os.environ.get('BAR_MAX_DELAY_SEC', '180')))
+    if fresh_error:
+        return jsonify(ok=False, error=fresh_error), 409
     with _lock:
+        last = _last_buffer_bar()
+        sequence = intake_guard.sequence_decision(last, b)
+        if sequence == 'duplicate':
+            return jsonify(ok=True, duplicate=True, processed=False)
+        if sequence == 'conflict':
+            try: guardrails._latch('bar_conflict', hard=True)
+            except Exception: pass
+            return jsonify(ok=False, error='conflicting duplicate bar; AUTO halted'), 409
+        if sequence == 'out_of_order':
+            return jsonify(ok=False, error='out-of-order bar'), 409
         _append_bar(b)
         res=_process_new(now_ms)
         try:                                              # sledzenie 1R/3R — nie moze ruszyc intake'u
@@ -702,25 +757,6 @@ def bars():
                      setups_seen=res.get('nowe', res.get('primed')),
                      processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
-    # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; POZA lockiem; NIE wplywa na A/B) ---
-    _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
-    if _furl and requests is not None:
-        try:
-            _rf = requests.post(_furl, json=b, timeout=3)
-            if getattr(_rf, 'status_code', 0) == 200: _sat['F']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = F health signal
-        except Exception: pass
-    # --- Strategy C: DOKŁADNIE jak F — przekaz bar do serwisu C (fire-and-forget; NIE wplywa na A/B) ---
-    _curl = os.environ.get('STRAT_C_FORWARD_URL', '')
-    if _curl and requests is not None:
-        try:
-            _rc = requests.post(_curl, json=b, timeout=3)
-            if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = C health signal
-        except Exception: pass
-    # --- Strategy AMD: DOKŁADNIE jak F/C — przekaz bar do serwisu AMD (fire-and-forget; NIE wplywa na A/B) ---
-    _amdurl = os.environ.get('STRAT_AMD_FORWARD_URL', '')
-    if _amdurl and requests is not None:
-        try: requests.post(_amdurl, json=b, timeout=3)
-        except Exception: pass
     return jsonify(ok=True, **res)
 
 def _wants_html():
@@ -738,17 +774,10 @@ _VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui
  "tr:hover td{background:#161616}tr.new td{background:#102a1a}tr.new td:first-child{border-left:2px solid #4ade80}"
  ".bdg{background:#4ade80;color:#04210f;font:8px monospace;padding:1px 5px;border-radius:3px;margin-right:6px;text-transform:uppercase}"
  ".empty{padding:20px;color:#555;font:12px monospace}</style>")
-_F_URL = os.environ.get('STRAT_F_URL', 'https://strategy-f-production.up.railway.app').rstrip('/')
-_ORB_URL = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
-_VIEW_NAV = ("<div class='nav'><a href='/'>home</a><a href='/pnl'>P&amp;L</a><a href='/journal'>journal</a><a href='/candidates'>candidates</a><a href='/how'>how</a><a href='/all/trades'>all·trades</a><a href='/all/reconcile'>reconcile</a>"
- "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;F:</span>"
- f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
- f"<a href='{_F_URL}/performance_f'>F·perf</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;ORB:</span>"
- f"<a href='{_ORB_URL}/'>ORB·dashboard</a><a href='{_ORB_URL}/how'>ORB·how</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;C:</span>"
- "<a href='/c'>C·dashboard</a><a href='/c/candidates'>C·candidates</a><a href='/c/performance'>C·perf</a></div>")
+_VIEW_NAV = ("<div class='nav'><a href='/'>home</a><a href='/pnl'>P&amp;L</a>"
+ "<a href='/journal'>journal</a><a href='/candidates'>A/B candidates</a><a href='/how'>A/B how</a>"
+ "<a href='/guard'>guard</a><a href='/broker/status'>broker</a>"
+ "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
 _PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','magnet','result','pnl','rr']
 
@@ -944,11 +973,12 @@ def status():
                ab_shallow_enabled=ab_shallow.enabled(),
                ab_shallow_fraction=float(os.environ.get('AB_SHALLOW_FRACTION','0.25') or 0.25),
                ab_shallow_rr=float(os.environ.get('AB_SHALLOW_RR','2') or 2),
-               ab_shallow_risk_pct=float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5),
-               ab_shallow_combined_max_risk_pct=(float(os.environ.get('RISK_PCT','0.5') or 0.5) +
-                                                  float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5)),
+               ab_shallow_risk_pct=float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.35')) or 0.35),
+               ab_shallow_combined_max_risk_pct=(float(os.environ.get('RISK_PCT','0.35') or 0.35) +
+                                                  float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.35')) or 0.35)),
                projected_dd_check=os.environ.get('DD_PROJECTED_RISK','1') == '1',
-               day_loss_count_mode=os.environ.get('DAY_LOSS_COUNT_MODE','group'))
+               day_loss_count_mode=('group' if os.environ.get('CHALLENGE_MODE','0') == '1'
+                                    else os.environ.get('DAY_LOSS_COUNT_MODE','group')))
     if _wants_html(): return _kv_page('Status', _body)
     return jsonify(_body)
 
@@ -962,6 +992,8 @@ def exectest():
     """Route 2 test: wyślij PRZYKŁADOWE zlecenie do TradersPost (EXEC_WEBHOOK) + ping Telegram.
     Wymaga EXEC_TEST_SECRET (env) i ?secret=. Bezpieczne: TradersPost (manual submit) trzyma je jako
     oczekujące dopóki nie zatwierdzisz. Param: ?dir=LONG&entry=29700&sl=29690"""
+    if os.environ.get('CHALLENGE_MODE', '1') == '1':
+        return jsonify(ok=False, error='execution test endpoint disabled in challenge mode'), 403
     sec = os.environ.get('EXEC_TEST_SECRET', '')
     if not sec or request.args.get('secret', '') != sec:
         return jsonify(error='ustaw EXEC_TEST_SECRET (env) i podaj ?secret=...'), 401
@@ -1224,12 +1256,11 @@ def _heartbeat_loop():
 _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 how_ab.register(app)                        # /how — A/B explainer page (ORB /how style, isolated add-on)
-dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
+dashboard.register(app)                     # / — existing home shell; no All Trades UI changes
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
-forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
-fxguard.register(app)                       # /fxguard - joined forex Auto-Executor (isolated add-on)
-allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
+broker_feedback.register(app)               # /broker/callback + /broker/sync + /broker/status
+allview.register(app)                       # /all/trades + /all/candidates — existing read-only view
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
@@ -1240,16 +1271,7 @@ if HEARTBEAT:
 @app.route('/c', defaults={'_p': ''})
 @app.route('/c/<path:_p>')
 def _c_proxy(_p):
-    from flask import Response, request as _rq
-    base = os.environ.get('C_URL', '')
-    if not base: return ('Ustaw C_URL = wewnętrzny adres serwisu C (np. http://strategy-c.railway.internal:8080)', 503)
-    if requests is None: return ('requests missing', 503)
-    try:
-        r = requests.get(base.rstrip('/') + '/' + _p, params=_rq.args, timeout=15)
-        return Response(r.content, status=r.status_code,
-                        content_type=r.headers.get('content-type', 'text/html; charset=utf-8'))
-    except Exception as _e:
-        return ('Strategy C nieosiągalny (' + str(_e) + ')', 502)
+    return ('Strategy C is disabled in the A/B-only challenge build.', 404)
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))

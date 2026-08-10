@@ -1,0 +1,35 @@
+AgentSignals v32.3 Auto-Executor 0.70% group-loss update manifest
+
+REPLACE:
+- agent.py
+- guardrails.py
+- shadow.py
+- ab_shallow.py
+- tests/test_guard_shallow_group_v31_5.py
+
+ADD:
+- broker_feedback.py
+- execution_plan.py
+- intake_guard.py
+- tests/__init__.py
+- tests/test_agent_intake_v32.py
+- tests/test_auto_executor_wiring_v32_3.py
+- tests/test_challenge_safety_v32.py
+- RAILWAY_VARIABLES_CHALLENGE_SAFE_AB_v32.txt
+- DEPLOY_CHALLENGE_SAFE_AB_v32_PL.md
+- CHANGELOG_v32.3.txt
+
+UNCHANGED STRATEGY CORE:
+- det_v11.py and detcore/*
+- live_emit.py
+- allview.py (the existing /all/trades and /all/candidates UI)
+- dashboard.py and existing All Trades data
+- requirements.txt
+
+EXECUTION ROUTE:
+- the existing EXEC_WEBHOOK value and relay remain active
+- safety changes run before the relay call in the Auto-Executor path
+
+This is an overlay update for the current AgentSignals project, not a standalone
+repository. Copy these files over the current project and preserve all unchanged
+detector files plus runtime state in /data.
