@@ -1274,8 +1274,8 @@ def _pine_blocked(r):
         (ts, dp, y, txt),
     ]
 
-def pine_book(day=''):
-    """Pine indicator for sent/manual and guard-blocked AUTO decisions.
+def pine_book(day='', view='all'):
+    """Pine indicator filtered independently by decision type and date.
 
     Executed decisions keep their solid entry/SL/TP drawings. Blocked decisions
     get dashed, more transparent hypothetical entry/SL/TP geometry plus a red
@@ -1283,12 +1283,18 @@ def pine_book(day=''):
     reached the broker.
     """
     rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual', 'blocked')]
+    view = view if view in ('all', 'blocked', 'done') else 'all'
+    if view == 'blocked':
+        rows = [g for g in rows if g.get('decision') == 'blocked']
+    elif view == 'done':
+        rows = [g for g in rows if g.get('decision') in ('sent', 'manual')]
     if day: rows = [g for g in rows if g.get('date') == day]
     body = []
     for r in rows:
         lines = _pine_blocked(r) if r.get('decision') == 'blocked' else _pine_one(r)
         body += ['    ' + ln for ln in lines]
-    ttl = ('AUTO decisions %s' % day) if day else 'AUTO decisions'
+    view_title = {'all': 'all trades', 'blocked': 'blocked trades', 'done': 'done trades'}[view]
+    ttl = ('AUTO %s %s' % (view_title, day)) if day else ('AUTO %s' % view_title)
     head = ['//@version=5',
             'indicator("%s", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)' % ttl,
             'if barstate.islast']
@@ -1390,8 +1396,9 @@ def register(app):
         return jsonify(**h), code
 
     def _pine():
-        """Pine for sent and blocked AUTO decisions. ?day=YYYY-MM-DD or omit for all."""
-        return Response(pine_book(request.args.get('day', '')), mimetype='text/plain')
+        """Pine for AUTO decisions. Filter with ?view=all|blocked|done and optional ?day=YYYY-MM-DD."""
+        return Response(pine_book(request.args.get('day', ''), request.args.get('view', 'all')),
+                        mimetype='text/plain')
 
     def _extlog():
         """POST: a satellite strategy (C, ...) sharing this account registers its SEND, or updates
@@ -1582,11 +1589,18 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 </div>
 <div class="pinep">
  <div class="ph">📈 <b>Pine for TradingView</b> — sent trades plus dashed BLOCKED entry/SL/TP setups
+  <label for="pineview" class="g">Trade view</label>
+  <select id="pineview" onchange="loadPine()">
+   <option value="all">All trades</option>
+   <option value="blocked">Blocked</option>
+   <option value="done">Done trades</option>
+  </select>
+  <label for="pineday" class="g">Date</label>
   <select id="pineday" onchange="loadPine()"></select>
   <button class="cpy" onclick="copyPine(this)">Copy script</button>
   <span class="g">paste into TradingView → Pine Editor → Add to chart</span>
  </div>
- <textarea id="pinebox" readonly placeholder="pick a day (or 'all trades') → the Pine appears here"></textarea>
+ <textarea id="pinebox" readonly placeholder="choose trade view and date → the Pine appears here"></textarea>
 </div>
 <script>
 async function load(){
@@ -1638,7 +1652,7 @@ async function load(){
  window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._book=d.book||[];
  renderBook();
  let ps=document.getElementById('pineday');
- let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
+ let opts='<option value="">All dates</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
  if(ps.dataset.sig!==opts){let cur=ps.value;ps.innerHTML=opts;ps.dataset.sig=opts;if(cur)ps.value=cur;loadPine();}
 }
 let _filter='all';
@@ -1691,8 +1705,8 @@ async function doRec(btn){let b=document.getElementById('recbox').value.trim();l
  }catch(e){o.textContent='⚠ '+e;}
  btn.textContent='Reconcile';load();return false;}
 async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
-async function loadPine(){let day=document.getElementById('pineday').value;
- let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
+async function loadPine(){let view=document.getElementById('pineview').value;let day=document.getElementById('pineday').value;
+ let t=await (await fetch('/guard/pine?view='+encodeURIComponent(view)+'&day='+encodeURIComponent(day),{cache:'no-store'})).text();
  document.getElementById('pinebox').value=t;}
 function copyPine(btn){let b=document.getElementById('pinebox');b.select();navigator.clipboard.writeText(b.value);
  btn.textContent='Copied ✓';setTimeout(()=>{btn.textContent='Copy script';},1200);}
