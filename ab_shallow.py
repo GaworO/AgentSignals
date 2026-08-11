@@ -1,12 +1,13 @@
-"""Causal A/B-shallow sibling entry for the v31.4 AgentSignals codebase.
+"""Causal A/B-shallow sibling entry with one shared setup risk budget.
 
 The sibling is built only from information known when the A/B signal bar closes.
 It does not use the retrospective target-before-entry label.
 
 Production rules:
-- ordinary A/B keeps its normal ``RISK_PCT`` sizing;
-- A/B-shallow has its own ``AB_SHALLOW_RISK_PCT`` budget;
-- if both fill, the maximum planned setup exposure is the sum of both budgets;
+- A/B and A/B-shallow share one absolute ``SETUP_GROUP_RISK_USD`` budget;
+- the budget is split equally and unused sibling capacity is not reallocated;
+- final integer quantities must keep the combined planned stop loss and configured
+  round-trip costs at or below the setup-group budget;
 - both orders use the detector's structural stop;
 - shallow target is fixed 2R by default (3R is optional);
 - both orders use the same normal fill window managed by the existing system.
@@ -18,6 +19,7 @@ import os
 from typing import Any, Mapping
 
 TICK_DEFAULT = 0.25
+GROUP_SHARE = 0.50
 
 
 def enabled(env: Mapping[str, str] | None = None) -> bool:
@@ -36,6 +38,16 @@ def tick_align(value: float, tick: float) -> float:
     if tick <= 0:
         raise ValueError("tick must be positive")
     return round(round(float(value) / tick) * tick, 10)
+
+
+def setup_group_budget_usd(env: Mapping[str, str] | None = None) -> float:
+    """Return the one absolute risk ceiling shared by both A/B siblings."""
+    e = os.environ if env is None else env
+    return max(0.0, _float(e, "SETUP_GROUP_RISK_USD", 900.0))
+
+
+def setup_group_leg_budget_usd(env: Mapping[str, str] | None = None) -> float:
+    return setup_group_budget_usd(env) * GROUP_SHARE
 
 
 def setup_group_id(signal: Mapping[str, Any]) -> str:
@@ -82,17 +94,18 @@ def build_shallow_signal(
     if max_sl > 0 and risk_pts > max_sl:
         raise ValueError("A/B-shallow stop exceeds AB_SHALLOW_MAX_SL_PTS")
 
-    risk_pct = _float(e, "AB_SHALLOW_RISK_PCT", _float(e, "RISK_PCT", 0.5))
-    if risk_pct <= 0:
-        raise ValueError("AB_SHALLOW_RISK_PCT must be positive")
-
-    # Refuse a sibling that cannot fit even one MNQ contract inside its own risk budget.
+    # Refuse a sibling that cannot fit even one MNQ contract inside its equal
+    # share of the setup-group budget. Costs are included so a nominal $900
+    # ceiling is not silently exceeded by commissions/slippage allowance.
     account = _float(e, "ACCOUNT", 100000.0)
     point_value = _float(e, "POINT_VALUE", 2.0)
     if point_value <= 0:
         raise ValueError("POINT_VALUE must be positive")
-    budget = account * risk_pct / 100.0
-    risk_per_contract = risk_pts * point_value
+    budget = setup_group_leg_budget_usd(e)
+    risk_pct = 100.0 * budget / account if account > 0 else 0.0
+    risk_per_contract = risk_pts * point_value + max(
+        0.0, _float(e, "SETUP_GROUP_RT_COST_USD", 2.24)
+    )
     if risk_per_contract > budget:
         raise ValueError("A/B-shallow risk budget cannot fit one contract")
 
@@ -116,9 +129,10 @@ def build_shallow_signal(
         "_shallow_rr": rr,
         "_deep_entry": deep_entry,
         "_signal_close": signal_close,
+        "_risk_budget_usd": budget,
         "_risk_pct_override": risk_pct,
         "_strict_risk_budget": True,
-        "_risk_mode": "independent",
+        "_risk_mode": "shared_group",
     })
     # Do not inherit size-up tags from the deep sibling.  Reductions such as
     # Monday/session sizing are still applied by the normal executor, but the
@@ -128,6 +142,34 @@ def build_shallow_signal(
     return child
 
 
+def apply_shared_group_budget(
+    deep_signal: dict[str, Any],
+    shallow_signal: dict[str, Any] | None,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, float]:
+    """Stamp the equal shared budget on the final siblings.
+
+    The deep sibling is made strict too, which disables every size-up path. A
+    later executor cap may reduce quantity, but it may never raise it above the
+    quantity implied by this budget.
+    """
+    e = os.environ if env is None else env
+    meta = risk_metadata(deep_signal, shallow_signal or deep_signal, e)
+    account = max(0.0, _float(e, "ACCOUNT", 100000.0))
+    leg_budget = float(meta["deep_budget"])
+    risk_pct = 100.0 * leg_budget / account if account > 0 else 0.0
+    for item in (deep_signal, shallow_signal):
+        if item is None:
+            continue
+        item["_risk_budget_usd"] = leg_budget
+        item["_risk_pct_override"] = risk_pct
+        item["_strict_risk_budget"] = True
+        item["_risk_mode"] = "shared_group"
+        item.pop("_size_mult", None)
+        item.pop("_select", None)
+    return meta
+
+
 def risk_metadata(
     deep_signal: Mapping[str, Any],
     shallow_signal: Mapping[str, Any],
@@ -135,16 +177,19 @@ def risk_metadata(
 ) -> dict[str, float]:
     e = os.environ if env is None else env
     account = _float(e, "ACCOUNT", 100000.0)
-    deep_pct = _float(e, "RISK_PCT", 0.5)
-    shallow_pct = _float(e, "AB_SHALLOW_RISK_PCT", deep_pct)
+    group_budget = setup_group_budget_usd(e)
+    deep_budget = group_budget * GROUP_SHARE
+    shallow_budget = group_budget - deep_budget
+    deep_pct = 100.0 * deep_budget / account if account > 0 else 0.0
+    shallow_pct = 100.0 * shallow_budget / account if account > 0 else 0.0
     point_value = _float(e, "POINT_VALUE", 2.0)
     return {
         "deep_risk_pct": deep_pct,
         "shallow_risk_pct": shallow_pct,
         "combined_max_risk_pct": deep_pct + shallow_pct,
-        "deep_budget": account * deep_pct / 100.0,
-        "shallow_budget": account * shallow_pct / 100.0,
-        "combined_max_budget": account * (deep_pct + shallow_pct) / 100.0,
+        "deep_budget": deep_budget,
+        "shallow_budget": shallow_budget,
+        "combined_max_budget": group_budget,
         "deep_risk_per_contract": abs(float(deep_signal["entry"]) - float(deep_signal["SL"])) * point_value,
         "shallow_risk_per_contract": abs(float(shallow_signal["entry"]) - float(shallow_signal["SL"])) * point_value,
     }

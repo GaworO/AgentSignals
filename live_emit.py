@@ -71,6 +71,38 @@ def size_for(entry, sl, risk_pct=None):
     except Exception:
         return None
 
+
+def size_for_budget(entry, sl, risk_usd, round_trip_cost=None):
+    """Size from an absolute dollar budget, including per-contract costs.
+
+    This is the authoritative sizing path for a shared A/B setup group. It
+    rounds down and therefore cannot spend more than ``risk_usd``.
+    """
+    try:
+        acct = float(os.environ.get('ACCOUNT', '100000'))
+        ptval = float(os.environ.get('POINT_VALUE', '2'))
+        budget = float(risk_usd)
+        rt_cost = float(
+            round_trip_cost
+            if round_trip_cost is not None
+            else os.environ.get('SETUP_GROUP_RT_COST_USD', '2.24')
+        )
+        slpts = abs(float(entry) - float(sl))
+        per_contract = slpts * ptval + max(0.0, rt_cost)
+        if slpts <= 0 or ptval <= 0 or budget <= 0 or per_contract <= 0:
+            return None
+        qty = int(budget // per_contract)
+        real = qty * per_contract
+        return (
+            qty,
+            round(slpts, 2),
+            round(per_contract, 2),
+            round(real, 2),
+            round(real / acct * 100, 3) if acct > 0 else 0.0,
+        )
+    except Exception:
+        return None
+
 def to_alert(x):
     emoji = '🟢' if x['dir']=='LONG' else '🔴'
     model = 'Reversal' if x['model']=='Reversal' else 'Cont'
@@ -112,10 +144,13 @@ def to_alert(x):
                  f"\n🎯 TP3 {tp3_d} · +{tp3pts} pkt (3R — opcjonalny runner, niezweryfikowany)")
 
     rp = x.get('_risk_pct_override')
-    sf = size_for(x['entry'], x['SL'], rp)
+    budget = x.get('_risk_budget_usd')
+    sf = (size_for_budget(x['entry'], x['SL'], budget)
+          if budget is not None else size_for(x['entry'], x['SL'], rp))
     if sf:
         qty, slpts, perc, real, pct = sf
-        base += f"\n📐 Ryzyko: {qty} kontr. (SL {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
+        label = 'SL+koszty' if budget is not None else 'SL'
+        base += f"\n📐 Ryzyko: {qty} kontr. ({label} {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
     return base
 
 def post_webhook(text,url):

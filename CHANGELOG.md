@@ -1,11 +1,16 @@
-## v31.5.1 — Railway mixed ISO-8601 timestamp fix (2026-08-11)
+## v31.12 — shared $900 floor-aware setup budget (2026-08-11)
 
-- Accepts both Databento seed timestamps (`YYYY-MM-DD HH:MM:SS+00:00`) and live webhook timestamps (`YYYY-MM-DDTHH:MM:SS+00:00`).
-- Prevents pandas 2.x from inferring the seed format and crashing when the first live-format row appears in the persistent buffer.
-- Applies the same strict ISO-8601 parsing to the detector, regime monitor, and magnet tag reader.
-- Adds a regression test covering space-separated, `T`-separated, and trailing-`Z` UTC timestamps.
+- Replaces independent 0.5% + 0.5% sizing with one absolute $900 setup-group ceiling.
+- Splits the group budget equally: $450 A/B and $450 A/B-shallow; unused capacity is not reallocated.
+- Includes the configured round-trip cost allowance when calculating integer quantities.
+- Makes both siblings strict-risk orders, disables every size-up path, and caps the final executor quantity.
+- Scales the setup budget to `equity - active floor - $100` when the real floor cushion is smaller.
+- AUTO now requires an equity/floor sync no older than 24 hours by default.
+- Guard logs the per-leg planned risk, requested group budget, and floor-limited group allowance.
 
-## v31.5 — A/B-shallow with independent 0.5% risk (2026-07-31)
+Production files: `ab_shallow.py`, `live_emit.py`, `agent.py`, `guardrails.py`.
+
+## v31.5 — A/B-shallow with independent 0.5% risk (2026-07-31; superseded)
 
 Built directly on the operator-provided **v31.4** repository. No v32 modules or
 `execution_plan.py` dependency are introduced.

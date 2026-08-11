@@ -32,7 +32,7 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
   DAY_LOSS_USD=1000      halt+latch after -$ modeled loss today       (secondary)
   DAY_TARGET_USD=1500    profit-lock: stop for the day after +$ (keeps best day < 50% of $6k => consistency-safe)
   DD_FLOOR=97000         MFF trailing max-loss level (READ IT off MFF; update as it trails up)
-  DD_BUFFER=800          proximity threshold; behavior set by DD_PROXIMITY_MODE
+  DD_BUFFER=100          reserve kept above the active Starter trailing floor
   RAMP_TRADES=3          first N SENT trades run at qty=1 (prove routing) then normal size
   START_EQUITY=99887     modeled equity seed until first /guard/sync
   STALE_MIN=20           block if the bar feed is older than this (market hours)
@@ -47,7 +47,7 @@ Hardening (2026-07-19 review):
   GUARD_FLATTEN=1        loss/DD/manual latches also send exit+cancel to EXEC_WEBHOOK (stop the bleeding)
   EOD_FLATTEN_ET=16:04   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
   GUARD_LAST_ENTRY_ET=15:30  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
-  GUARD_SYNC_MAX_H=0     >0 = AUTO refuses to trade if real equity wasn't synced within N hours
+  GUARD_SYNC_MAX_H=24    AUTO requires a recent real equity/floor sync
   GUARD_TOKEN=           set -> /guard/sync|kill|mode require ?t=<token> (open /guard?t=... for buttons)
   SKIP_SESSIONS default is now LO,ASIA,PREM,NYL (was LO,ASIA — PREM/NYL used to auto-fire)
   state writes are atomic; a CORRUPT state file now latches HARD (was: silently reset to defaults)
@@ -71,7 +71,7 @@ except Exception:
 DATA_DIR = os.environ.get('DATA_DIR', '.')
 GLOG     = os.path.join(DATA_DIR, 'guard_log.json')    # every decision (sent/blocked) — the /guard book
 GSTATE   = os.path.join(DATA_DIR, 'guard_state.json')  # kill-latch, ramp counter, synced equity
-RISK_DOLLAR = 500.0                                     # 1R at 0.5%/$100k (display only)
+RISK_DOLLAR = 450.0                                     # one sibling share of the $900 group (display only)
 
 def _env(k, d):        return os.environ.get(k, d)
 def _envf(k, d):       return float(os.environ.get(k, str(d)))
@@ -109,7 +109,9 @@ def _sess_of(x):
     return '?'
 
 def _load(p, d):
-    try: return json.load(open(p))
+    try:
+        with open(p) as handle:
+            return json.load(handle)
     except Exception: return d
 def _load_failclosed(p, d):
     """Like _load, but a file that EXISTS yet won't parse is treated as corruption -> caller must
@@ -486,7 +488,7 @@ def stale_abort(feed_age_min):
         return True
 
 def exec_mode():
-    """'auto' = guarded full-auto · 'manual' = your tap-to-approve semi-auto · 'off' = alerts only.
+    """'auto' = guarded full-auto · 'manual' = review-only/no broker send · 'off' = alerts only.
     Runtime state (flip via /guard/mode) beats EXEC_MODE env beats AUTO_SUBMIT."""
     s = _state()
     m = (s.get('mode') or os.environ.get('EXEC_MODE', '')).strip().lower()
@@ -514,8 +516,8 @@ def is_live():
         return False
 
 def manual_ok(x, feed_age_min=None, market_open=None):
-    """Light gate for MANUAL mode: the non-negotiables (dup, Monday, stale, market, hard kill).
-    Trade selection is yours (approve buttons) — the count/loss/DD guards don't block here."""
+    """Light gate for MANUAL review mode. MANUAL never calls the execution webhook in v31.11.
+    This function only decides whether a candidate may be shown/logged for operator review."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
         s = _state()
@@ -573,6 +575,43 @@ def eval_progress():
         print('[guard] eval_progress err', e, flush=True)
         return dict(equity=0, start=100000, target=106000, floor=97000, pnl=0, to_target=6000,
                     buffer=0, pct=0.0, passed=False, breached=False)
+
+
+def setup_group_risk_capacity(requested_risk_usd=None):
+    """Return the causal dollar budget available to the next setup group.
+
+    Capacity uses only the current modeled equity and active trailing floor.
+    It never borrows the $100 floor reserve. ``guard_ok`` separately enforces
+    equity-sync freshness before any order can be sent.
+    """
+    try:
+        requested = max(
+            0.0,
+            float(
+                requested_risk_usd
+                if requested_risk_usd is not None
+                else _envf('SETUP_GROUP_RISK_USD', 900.0)
+            ),
+        )
+        reserve = max(0.0, _envf('SETUP_GROUP_FLOOR_RESERVE_USD', 100.0))
+        s = _state()
+        d = _day_stats()
+        equity = float(_modeled_equity(s, d))
+        floor = float(_dd_floor())
+        cushion = equity - floor
+        allowed = min(requested, max(0.0, cushion - reserve - 0.01))
+        return dict(
+            requested=round(requested, 2),
+            allowed=round(allowed, 2),
+            reserve=round(reserve, 2),
+            equity=round(equity, 2),
+            floor=round(floor, 2),
+            cushion=round(cushion, 2),
+        )
+    except Exception as e:
+        print('[guard] setup_group_risk_capacity err', e, flush=True)
+        return dict(requested=0.0, allowed=0.0, reserve=0.0, equity=0.0,
+                    floor=0.0, cushion=0.0, error=str(e))
 
 # ---------- today's SENT book (from guard_log) + outcomes (from shadow) ----------
 def _shadow_by_key():
@@ -704,7 +743,7 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
                 return (False, 'sl_too_tight')
         except Exception:
             return (False, 'bad_levels')
-        mah = _envf('GUARD_SYNC_MAX_H', 0)      # >0 = in AUTO require a real-equity sync fresher than N hours
+        mah = _envf('GUARD_SYNC_MAX_H', 24)     # AUTO requires a recent real-equity/floor sync
         if mah > 0:
             et_ts = s.get('equity_ts', 0)
             if not et_ts or (_now_ms() - int(et_ts)) > mah * 3600000:
@@ -740,9 +779,11 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         if d['net']    >=  _envf('DAY_TARGET_USD', 1500):
             _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
 
+        if x.get('_setup_group_budget_unavailable'):
+            return (False, 'setup_group_budget_too_small')
         eq = _modeled_equity(s, d)                                              # absolute sync + post-sync delta
         buffer_now = eq - _dd_floor()
-        dd_buffer = _envf('DD_BUFFER', 800)
+        dd_buffer = _envf('DD_BUFFER', _envf('SETUP_GROUP_FLOOR_RESERVE_USD', 100))
         prox_mode = _dd_proximity_mode()
         x['_dd_buffer_now'] = round(buffer_now, 2)
         x['_dd_proximity_mode'] = prox_mode
@@ -844,7 +885,10 @@ def note(x, decision, reason=''):
                          tp=(x.get('_exec_tp') if x.get('_exec_tp') is not None else x.get('TP')),
                          qty=(x.get('_sent_qty') if x.get('_sent_qty') is not None
                                               else x.get('_exec_qty_override')),
+                         planned_leg_risk_usd=x.get('_planned_leg_risk_usd'),
                          planned_group_risk_usd=x.get('_planned_group_risk_usd'),
+                         setup_group_budget_usd=x.get('_setup_group_budget_usd'),
+                         setup_group_allowed_usd=x.get('_setup_group_allowed_usd'),
                          projected_buffer_after_risk=x.get('_projected_buffer_after_risk'),
                          batch_group_id=x.get('_batch_group_id'),
                          rollback_confirmed=x.get('_rollback_confirmed'),
@@ -986,7 +1030,10 @@ def health(feed_age_min=None, market_open=None):
             add('equity_sync', 'warn', 'equity never synced — DD guard on MODELED equity (GET /guard/sync?equity=<real MFF bal>)')
         else:
             ah = (_mins_since(et) or 0) / 60.0
-            add('equity_sync', 'warn' if ah > 36 else 'ok', 'synced %.0fh ago' % ah)
+            max_h = _envf('GUARD_SYNC_MAX_H', 24)
+            stale = bool(max_h > 0 and ah > max_h)
+            add('equity_sync', 'critical' if stale and mode == 'auto' else ('warn' if stale else 'ok'),
+                'synced %.0fh ago%s' % (ah, (' > %.0fh limit — AUTO blocks' % max_h) if stale else ''))
         # 6 DD_FLOOR actually set to a real level
         add('dd_floor', 'ok' if os.environ.get('DD_FLOOR') else 'critical',
             ('DD_FLOOR=' + os.environ['DD_FLOOR']) if os.environ.get('DD_FLOOR') else 'DD_FLOOR NOT set — drawdown guard is blind')
@@ -1332,12 +1379,12 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 .fillp{height:100%;border-radius:5px;min-width:3px}
 .bn{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700}</style></head><body>
 <h1>Auto-Executor — Guard <span id=mode class=pill></span> <span id=kill class=pill></span> <span id=health class=pill></span></h1>
-<div class=sub>MFF Pro-100k eval · resting-limit A/B · fail-closed · stale-data aborts the send · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN · health JSON: /guard/health</span></div>
+<div class=sub>MFF Pro-100k eval · resting-limit A/B · fail-closed · MANUAL = review only / no broker orders · stale-data aborts AUTO send · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN · health JSON: /guard/health</span></div>
 <div id=healthbar class=sub style="margin:-6px 0 12px;font-weight:600"></div>
 <div class=modebar>
  <span class=lb>MODE</span>
  <a class="btn mauto" href="/guard/mode?set=auto" onclick="return flip('auto')">AUTO</a>
- <a class="btn mmanual" href="/guard/mode?set=manual" onclick="return flip('manual')">MANUAL (tap-to-approve)</a>
+ <a class="btn mmanual" href="/guard/mode?set=manual" onclick="return flip('manual')">MANUAL (review only — no orders)</a>
  <a class="btn moff" href="/guard/mode?set=off" onclick="return flip('off')">OFF</a>
  <a class="btn arms" href="#" onclick="return doarm()" title="Clear a HALT latch — re-arm the executor">▶ ARM</a>
  <a class="btn kills" href="#" onclick="return dokill()" title="Stop &amp; latch — places no orders until you ARM">■ HALT</a>

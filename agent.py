@@ -27,7 +27,7 @@ import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
-import ab_shallow  # causal A/B-shallow sibling; independent risk budget
+import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +47,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.10-absolute-equity-sync-groupstop2R'
+VERSION = 'v31.12-shared-900-floor-aware'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -139,10 +139,13 @@ def _exec_order(x, text=None):
         # EXEC_MAX_QTY = opcjonalny limit (np. regula max kontraktow MFF / eval).
         _q = os.environ.get('EXEC_QTY', 'auto').strip().lower()
         _risk_override = x.get('_risk_pct_override')
+        _risk_budget_usd = x.get('_risk_budget_usd')
         _strict_risk = bool(x.get('_strict_risk_budget'))
         if _strict_risk:
             try:
-                _sf = live_emit.size_for(e, sl, _risk_override)
+                _sf = (live_emit.size_for_budget(e, sl, _risk_budget_usd)
+                       if _risk_budget_usd is not None
+                       else live_emit.size_for(e, sl, _risk_override))
                 qty = int(_sf[0]) if _sf else 0
             except Exception:
                 qty = 0
@@ -190,6 +193,10 @@ def _exec_order(x, text=None):
         _cap = os.environ.get('EXEC_MAX_QTY', '15').strip()   # default HARD cap: a 5-pt SL used to compute 50 micros
         if _cap.isdigit() and int(_cap) > 0:
             qty = min(qty, int(_cap))
+        if x.get('_group_qty_cap') is not None:
+            qty = min(qty, int(x['_group_qty_cap']))
+        if _strict_risk and qty < 1:
+            return {"sent": False, "reason": "risk_budget_below_one_contract", "qty": 0}
         qty = max(1, int(qty))
         _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
         def _t(p):                                                 # sees them (OTE math emits 29043.43;
@@ -302,21 +309,68 @@ def _prepare_ab_siblings(repx):
     repx['_signal_close'] = close
     gid = ab_shallow.setup_group_id(repx)
     repx['_setup_group_id'] = gid
+    requested = ab_shallow.setup_group_budget_usd()
+    capacity = guardrails.setup_group_risk_capacity(requested)
+    allowed = float(capacity.get('allowed') or 0.0)
+    dynamic_env = dict(os.environ)
+    dynamic_env['SETUP_GROUP_RISK_USD'] = str(allowed)
+    repx['_setup_group_budget_usd'] = requested
+    repx['_setup_group_allowed_usd'] = allowed
+    repx['_setup_group_floor_capacity'] = capacity
+    repx['_risk_budget_usd'] = allowed * 0.5
+    repx['_risk_pct_override'] = (100.0 * repx['_risk_budget_usd'] / acct) if acct > 0 else 0.0
+    repx['_strict_risk_budget'] = True
+    repx['_risk_mode'] = 'shared_group'
+    repx.pop('_size_mult', None)
+    repx.pop('_select', None)
     try:
-        shallow = ab_shallow.build_shallow_signal(repx)
-        meta = ab_shallow.risk_metadata(repx, shallow)
-        planned = float(meta.get('combined_max_budget') or 0.0)
+        shallow = ab_shallow.build_shallow_signal(repx, dynamic_env)
+        meta = ab_shallow.apply_shared_group_budget(repx, shallow, dynamic_env)
         repx['_ab_risk_meta'] = meta
         shallow['_ab_risk_meta'] = meta
-        repx['_planned_group_risk_usd'] = planned
-        shallow['_planned_group_risk_usd'] = planned
         repx['_batch_sibling'] = True
         shallow['_batch_sibling'] = True
-        return [repx, shallow]
+        items = [repx, shallow]
     except Exception as e:
         repx['_shallow_skip'] = str(e)
         print('A/B-shallow build skip:', e, flush=True)
+        items = [repx]
+
+    # Calculate the exact integer quantities before the guard decision. The
+    # executor may reduce these quantities, but `_group_qty_cap` prevents any
+    # later multiplier or override from increasing them.
+    viable = []
+    planned = 0.0
+    for item in items:
+        sf = live_emit.size_for_budget(item['entry'], item['SL'], item.get('_risk_budget_usd'))
+        max_qty = int(sf[0]) if sf else 0
+        if item.get('_exec_qty_override') is not None:
+            max_qty = min(max_qty, int(item['_exec_qty_override']))
+        try:
+            cap = int(os.environ.get('EXEC_MAX_QTY', '15') or 15)
+            if cap > 0:
+                max_qty = min(max_qty, cap)
+        except Exception:
+            pass
+        if max_qty < 1:
+            item['_risk_budget_skip'] = 'below_one_contract'
+            continue
+        per_contract = float(sf[2])
+        leg_risk = max_qty * per_contract
+        item['_group_qty_cap'] = max_qty
+        item['_planned_leg_risk_usd'] = round(leg_risk, 2)
+        item['_setup_group_budget_usd'] = requested
+        item['_setup_group_allowed_usd'] = allowed
+        viable.append(item)
+        planned += leg_risk
+    if not viable:
+        repx['_setup_group_budget_unavailable'] = True
+        repx['_planned_group_risk_usd'] = 0.0
         return [repx]
+    planned = min(planned, allowed, requested)
+    for item in viable:
+        item['_planned_group_risk_usd'] = round(planned, 2)
+    return viable
 
 
 def _batch_group_id(items):
@@ -562,6 +616,15 @@ def _process_new(now_ms=None):
                 _es = 1 if repx.get('dir') == 'LONG' else -1
                 repx['entry'] = round(float(repx['entry']) + _es * _eo, 2)
         except Exception as _eoe: print('entry_offset err', _eoe, flush=True)
+        # The human-facing alert is built before the floor-aware group is
+        # prepared. Stamp the maximum equal sibling allocation now so it never
+        # displays the obsolete $500/0.5% deep-leg sizing. The executor may
+        # reduce it further when the live floor cushion is tight.
+        if repx.get('_strat', 'A/B') == 'A/B' and ab_shallow.enabled():
+            _preview_budget = ab_shallow.setup_group_leg_budget_usd()
+            _preview_acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
+            repx['_risk_budget_usd'] = _preview_budget
+            repx['_risk_pct_override'] = (100.0 * _preview_budget / _preview_acct) if _preview_acct > 0 else 0.0
         fl, hard = flags_for(rep)
         txt=live_emit.to_alert(repx)
         _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci
@@ -625,18 +688,16 @@ def _process_new(now_ms=None):
                 _blocked_items('mode_off'); code = 'guard:off'
                 if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)
             elif _gmode == 'manual':
+                # v31.11 SAFETY: MANUAL is review-only. It must NEVER call EXEC_WEBHOOK.
+                # The prior implementation mislabeled an actually-sent TradersPost batch as "ARMED",
+                # which could auto-submit at the broker when the TradersPost subscription had Auto Submit ON.
                 _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
                 if _gok:
-                    _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
-                    if _batch_ok:
-                        for _item, _res, _itxt in _batch: guardrails.note(_item, 'manual')
-                        guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'manual_sent')
-                        code = 'exec-manual'
-                    else:
-                        _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
-                        for _item in _book_items: guardrails.note(_item, 'blocked', _why)
-                        _exec_fail_alert({'batch': (_batch[-1][1] if _batch else {}), 'rollback': _rb}, 'manual-batch')
-                        code = 'exec-failed'
+                    _blocked_items('manual_review_only')
+                    if WEBHOOK_URL:
+                        try: live_emit.post_webhook('🟦 MANUAL REVIEW — NO ORDER SENT\n' + txt, WEBHOOK_URL)
+                        except Exception: pass
+                    code = 'manual-review'
                 else:
                     _blocked_items(_gwhy); code = 'guard:' + _gwhy
             else:
@@ -946,9 +1007,14 @@ def status():
                ab_shallow_enabled=ab_shallow.enabled(),
                ab_shallow_fraction=float(os.environ.get('AB_SHALLOW_FRACTION','0.25') or 0.25),
                ab_shallow_rr=float(os.environ.get('AB_SHALLOW_RR','2') or 2),
-               ab_shallow_risk_pct=float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5),
-               ab_shallow_combined_max_risk_pct=(float(os.environ.get('RISK_PCT','0.5') or 0.5) +
-                                                  float(os.environ.get('AB_SHALLOW_RISK_PCT', os.environ.get('RISK_PCT','0.5')) or 0.5)),
+               setup_group_risk_usd=ab_shallow.setup_group_budget_usd(),
+               setup_group_leg_risk_usd=ab_shallow.setup_group_leg_budget_usd(),
+               setup_group_floor_reserve_usd=float(os.environ.get('SETUP_GROUP_FLOOR_RESERVE_USD','100') or 100),
+               guard_sync_max_h=float(os.environ.get('GUARD_SYNC_MAX_H','24') or 24),
+               ab_shallow_risk_pct=round(100.0 * ab_shallow.setup_group_leg_budget_usd() /
+                                         float(os.environ.get('ACCOUNT','100000') or 100000), 3),
+               ab_shallow_combined_max_risk_pct=round(100.0 * ab_shallow.setup_group_budget_usd() /
+                                                       float(os.environ.get('ACCOUNT','100000') or 100000), 3),
                projected_dd_check=os.environ.get('DD_PROJECTED_RISK','1') == '1',
                day_loss_count_mode=os.environ.get('DAY_LOSS_COUNT_MODE','group'))
     if _wants_html(): return _kv_page('Status', _body)
