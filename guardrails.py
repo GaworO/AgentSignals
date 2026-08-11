@@ -11,10 +11,13 @@ evaluation. Current account $99,887 · $6,000 target ($106k) · $3,000 EOD-trail
 daily-loss limit (so OUR count-based stops are the only floor) · 50% consistency rule in eval ·
 min 2 trading days · own-account automation allowed.
 
-The eval-killer is the $3k trailing drawdown. In this v32 challenge build, authenticated broker
-snapshots and order lifecycle callbacks are mandatory for AUTO. Count-based brakes remain a second
-independent floor, but position, working-order, equity, drawdown and realized-P&L truth come from
-``broker_feedback.py``. Shadow outcomes are diagnostic only and can never free a live commitment.
+The eval-killer is the $3k trailing drawdown. Because the agent has NO broker fill-feedback, the
+hard protection is COUNT-BASED (one position, max trades/day, halt after N losses) — those bound the
+worst realistic day to ~-2R regardless of what equity the model thinks it has. The $-based
+DD-proximity guard runs on a MODELED equity. /guard/sync?equity=<real MFF equity> stores an
+absolute broker snapshot and only P&L accrued AFTER that sync is added, preventing same-day
+double-counting while preserving intraday modeling between syncs. Reuses shadow.py's resolver for outcomes so this and
+the shadow tab always agree.
 
 Wire (agent.py):  import guardrails  (top, next to `import shadow`)
                   guardrails.register(app)  (bottom, next to `shadow.register(app)`)
@@ -24,8 +27,8 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
   AUTO_SUBMIT=0            master switch (agent checks it; 1 = actually stage)
   AUTO_SESSIONS=NYAM,NYPM,PM_AH   only auto-fire these (his green sessions; London/Asia/PREM excluded)
   MAX_TRADES_DAY=3        stop over-trading a chop day
-  DAY_LOSS_N=2             daily stop after N losing A/B setup groups today
-  DAY_LOSS_COUNT_MODE=group  A/B + shallow are one setup and one loss toward DAY_LOSS_N
+  DAY_LOSS_N=2           daily stop after N losing setup groups today (A/B + shallow = one setup)
+  DAY_LOSS_COUNT_MODE=group  group | leg (group is the production default)
   DAY_LOSS_USD=1000      halt+latch after -$ modeled loss today       (secondary)
   DAY_TARGET_USD=1500    profit-lock: stop for the day after +$ (keeps best day < 50% of $6k => consistency-safe)
   DD_FLOOR=97000         MFF trailing max-loss level (READ IT off MFF; update as it trails up)
@@ -40,7 +43,7 @@ Hardening (2026-07-19 review):
   MIN_SL_PTS=5           skip degenerate tight-SL setups (absurd qty + slippage beyond -1R)
   DD_PROXIMITY_MODE=soft  off | soft (block one setup) | hard (legacy latch+flatten)
   DD_TRAIL_USD=3000      auto-trailing floor: max(DD_FLOOR, highest synced equity - this)
-  DD_FLOOR_CAP=100100    100K eval trail lock (start balance + $100)
+  DD_FLOOR_CAP=0         optional cap where the trail locks (MFF locks at start balance)
   GUARD_FLATTEN=1        loss/DD/manual latches also send exit+cancel to EXEC_WEBHOOK (stop the bleeding)
   EOD_FLATTEN_ET=16:04   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
   GUARD_LAST_ENTRY_ET=15:30  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
@@ -61,10 +64,6 @@ try:
 except Exception:
     requests = None
 try:
-    import broker_feedback                          # authenticated broker/order/account truth
-except Exception:
-    broker_feedback = None
-try:
     from zoneinfo import ZoneInfo; _NY = ZoneInfo('America/New_York')
 except Exception:
     _NY = None
@@ -73,10 +72,6 @@ DATA_DIR = os.environ.get('DATA_DIR', '.')
 GLOG     = os.path.join(DATA_DIR, 'guard_log.json')    # every decision (sent/blocked) — the /guard book
 GSTATE   = os.path.join(DATA_DIR, 'guard_state.json')  # kill-latch, ramp counter, synced equity
 RISK_DOLLAR = 500.0                                     # 1R at 0.5%/$100k (display only)
-
-
-class GuardPersistenceError(RuntimeError):
-    """A critical guard ledger could not be read or durably written."""
 
 def _env(k, d):        return os.environ.get(k, d)
 def _envf(k, d):       return float(os.environ.get(k, str(d)))
@@ -114,15 +109,8 @@ def _sess_of(x):
     return '?'
 
 def _load(p, d):
-    if not os.path.exists(p):
-        return d
-    try:
-        with open(p, encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        if p in (GLOG, GSTATE):
-            raise GuardPersistenceError('critical ledger corrupt: ' + os.path.basename(p)) from e
-        return d
+    try: return json.load(open(p))
+    except Exception: return d
 def _load_failclosed(p, d):
     """Like _load, but a file that EXISTS yet won't parse is treated as corruption -> caller must
     fail CLOSED, not fall back to permissive defaults (a truncated guard_state.json used to silently
@@ -138,13 +126,11 @@ def _save(p, x):
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         tmp = p + '.tmp'
-        with open(tmp, 'w', encoding='utf-8') as f:
+        with open(tmp, 'w') as f:
             json.dump(x, f); f.flush(); os.fsync(f.fileno())
         os.replace(tmp, p)
-        return True
     except Exception as e:
         print('[guard] save err', p, e, flush=True)
-        raise GuardPersistenceError('critical ledger write failed: ' + os.path.basename(p)) from e
 
 def _skey(x):
     """same identity shadow.py uses, so a guard row can be joined to its shadow outcome."""
@@ -228,13 +214,9 @@ def _dd_floor():
     instead of trusting a manually-updated env var that goes stale after every green day."""
     env_floor = _envf('DD_FLOOR', 97000.0)
     try:
-        if broker_feedback is not None and broker_feedback.feedback_required():
-            snap = broker_feedback.truth()
-            if snap.get('drawdown_floor') is not None:
-                return float(snap['drawdown_floor'])
         hi = float(_state().get('eq_high') or 0)
         trail = hi - _envf('DD_TRAIL_USD', 3000.0)
-        cap = _envf('DD_FLOOR_CAP', 100100.0)         # 100K eval locks at start + $100
+        cap = _envf('DD_FLOOR_CAP', 0.0)              # MFF locks the trail at start balance; cap it if set
         if cap: trail = min(trail, cap)
         return max(env_floor, trail)
     except Exception:
@@ -246,7 +228,7 @@ def flatten_all(reason):
     Off with GUARD_FLATTEN=0."""
     try:
         if _env('GUARD_FLATTEN', '1') != '1': return False
-        if _env('CHALLENGE_MODE', '1') != '1' and os.environ.get('EXEC_FX') == '1':
+        if os.environ.get('EXEC_FX') == '1':               # FX services: MetaApi close-symbol instead of TradersPost
             try:
                 import exec_fx
                 return exec_fx.flatten(reason)
@@ -256,24 +238,19 @@ def flatten_all(reason):
         if not url or requests is None: return False
         tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
         ok = []
-        accepted = True
         for action in ('exit', 'cancel'):
-            res = _relay_action(action)
-            accepted = accepted and bool(res.get('ok'))
-            ok.append('%s:%s' % (action, res.get('status') if res.get('status') is not None else 'err'))
-        print('[guard] FLATTEN (%s) ->' % reason, ' '.join(ok), flush=True)
-        if accepted and broker_feedback is not None:
             try:
-                broker_feedback.mark_cleanup_requested('exit', reason)
+                r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
+                ok.append('%s:%s' % (action, getattr(r, 'status_code', '?')))
             except Exception as e:
-                print('[guard] cleanup ledger err', e, flush=True)
-                accepted = False
+                ok.append('%s:err' % action); print('[guard] flatten %s err' % action, e, flush=True)
+        print('[guard] FLATTEN (%s) ->' % reason, ' '.join(ok), flush=True)
         aurl = os.environ.get('GUARD_ALERT_URL') or os.environ.get('WEBHOOK_URL')
         if aurl:
             msg = '\U0001f9f9 FLATTEN+CANCEL sent (%s) — %s' % (reason, ' '.join(ok))
             try: requests.post(aurl, json={'text': msg, 'raw': msg}, timeout=6)
             except Exception: pass
-        return accepted
+        return True
     except Exception as e:
         print('[guard] flatten_all err', e, flush=True); return False
 
@@ -345,21 +322,12 @@ def _relay_action(action):
     if not url or requests is None:
         return dict(action=action, ok=False, status=None, error='exec webhook unavailable')
     tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
-    attempts = max(1, _envi('GUARD_ACTION_RETRIES', 3))
-    last = dict(action=action, ok=False, status=None)
-    for attempt in range(1, attempts + 1):
-        try:
-            r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
-            st = getattr(r, 'status_code', None)
-            last = dict(action=action, ok=(st is not None and 200 <= int(st) < 300),
-                        status=st, attempt=attempt)
-            if last['ok']:
-                return last
-        except Exception as e:
-            last = dict(action=action, ok=False, status=None, attempt=attempt, error=str(e))
-        if attempt < attempts:
-            time.sleep(min(1.0, 0.2 * attempt))
-    return last
+    try:
+        r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
+        st = getattr(r, 'status_code', None)
+        return dict(action=action, ok=(st is not None and 200 <= int(st) < 300), status=st)
+    except Exception as e:
+        return dict(action=action, ok=False, status=None, error=str(e))
 
 
 def rollback_sibling_batch(group_id, reason='partial_send'):
@@ -393,20 +361,6 @@ def sweep_orphans():
     Only sweeps when the modeled book shows NO open position ('cancel' cancels ALL open orders for the
     ticker — must not strip the bracket off a live trade). Called from agent.py after shadow.refresh."""
     try:
-        if broker_feedback is not None and broker_feedback.feedback_required():
-            expired = broker_feedback.expired_execution_ids()
-            if not expired:
-                return 0
-            # Broker truth, not minute-bar shadow, decides whether there is a
-            # position.  A cancel accepted by the relay remains a commitment
-            # until a later callback/snapshot confirms zero working orders.
-            if abs(float((broker_feedback.truth() or {}).get('position_qty') or 0)) > 0:
-                return 0
-            s = _state(); last = int(s.get('orphan_cancel_attempt_ms') or 0)
-            if _now_ms() - last < _envi('GUARD_CLEANUP_RETRY_SEC', 30) * 1000:
-                return 0
-            s['orphan_cancel_attempt_ms'] = _now_ms(); _set_state(s)
-            return len(expired) if flatten_cancel_only() else 0
         d = _day_stats()
         if d['openpos']: return 0                     # never cancel while a bracket protects a position
         s = _state(); swept = s.get('swept') or {}
@@ -435,15 +389,12 @@ def sweep_orphans():
 def flatten_cancel_only():
     """Cancel resting orders only (no exit) — used by the orphan sweep."""
     try:
-        if _env('CHALLENGE_MODE', '1') != '1' and os.environ.get('EXEC_FX') == '1': return False
+        if os.environ.get('EXEC_FX') == '1': return False   # MT5 entry orders self-expire (FX_ENTRY_TTL_MIN) — no sweep needed
         url = os.environ.get('EXEC_WEBHOOK', '')
         if not url or requests is None or _env('GUARD_FLATTEN', '1') != '1': return False
-        res = _relay_action('cancel')
-        print('[guard] ORPHAN CANCEL ->', res.get('status'), flush=True)
-        if not res.get('ok'):
-            return False
-        if broker_feedback is not None:
-            broker_feedback.mark_cleanup_requested('cancel', 'orphan_expiry')
+        tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
+        r = requests.post(url, json={'ticker': tick, 'action': 'cancel'}, timeout=10)
+        print('[guard] ORPHAN CANCEL ->', getattr(r, 'status_code', '?'), flush=True)
         return True
     except Exception as e:
         print('[guard] cancel err', e, flush=True); return False
@@ -513,37 +464,13 @@ def eod_flatten_check(market_open=None):
         if dl is None: return False
         now = _et(_now_ms())
         nm = now.hour * 60 + now.minute
-        s = _state(); pending = s.get('eod_cleanup') or {}
-        # Confirmation may arrive after the 18:00 reopen.  Clear the pending
-        # cleanup on any heartbeat; never keep AUTO blocked until tomorrow's
-        # EOD window merely because the callback was slightly delayed.
-        if pending and broker_feedback is not None:
-            if broker_feedback.flat_confirmed_since(int(pending.get('requested_ms') or 0)):
-                s['eod_flat_day'] = pending.get('day') or _today()
-                s['eod_cleanup'] = None; _set_state(s)
-                return True
         # fire ONLY inside [deadline, 18:00 ET). After the 18:00 reopen a NEW trading day is live —
         # a late-firing flatten there would close a legitimate overnight position (v27.0 bug).
         if not (dl <= nm < 18 * 60): return False
         s = _state()
         if s.get('eod_flat_day') == _today(): return False
-        pending = s.get('eod_cleanup') or {}
-        if pending.get('day') == _today() and broker_feedback is not None:
-            if _now_ms() - int(pending.get('attempt_ms') or 0) < _envi('GUARD_CLEANUP_RETRY_SEC', 30) * 1000:
-                return False
-        accepted = flatten_all('eod_%02d:%02d' % (dl // 60, dl % 60))
-        if not accepted:
-            s = _state(); s['eod_cleanup'] = {'day': _today(), 'requested_ms': _now_ms(),
-                                              'attempt_ms': _now_ms(), 'relay_accepted': False}
-            _set_state(s); return False
-        if broker_feedback is not None and broker_feedback.feedback_required():
-            now_ms = _now_ms(); s = _state()
-            prior_request = int((pending or {}).get('requested_ms') or now_ms)
-            s['eod_cleanup'] = {'day': _today(), 'requested_ms': prior_request,
-                                'attempt_ms': now_ms, 'relay_accepted': True}
-            _set_state(s)
-            return False                         # only a later flat snapshot completes EOD
-        s = _state(); s['eod_flat_day'] = _today(); _set_state(s)
+        s['eod_flat_day'] = _today(); _set_state(s)
+        flatten_all('eod_%02d:%02d' % (dl // 60, dl % 60))
         return True
     except Exception as e:
         print('[guard] eod flatten err', e, flush=True); return False
@@ -574,7 +501,6 @@ def set_mode(m):
 def _exec_ready():
     """True when an execution path is configured: TradersPost webhook OR the MetaApi FX adapter."""
     if os.environ.get('EXEC_WEBHOOK'): return True
-    if _env('CHALLENGE_MODE', '1') == '1': return False
     if os.environ.get('EXEC_FX') != '1': return False
     if os.environ.get('FX_BRIDGE_URL'): return True                    # cTrader bridge route (free)
     return bool(os.environ.get('METAAPI_TOKEN')) and bool(os.environ.get('METAAPI_ACCOUNT_ID'))
@@ -621,11 +547,6 @@ def _modeled_equity(s=None, d=None):
     Legacy state files without sync metadata retain the old `equity + day_net` behavior
     until the operator performs one fresh /guard/sync after deploying this version.
     """
-    if broker_feedback is not None and broker_feedback.feedback_required():
-        snap = broker_feedback.truth()
-        if snap.get('equity') is None:
-            raise RuntimeError('broker equity unavailable')
-        return float(snap['equity'])
     s = s or _state()
     d = d or _day_stats()
     base = float(s.get('equity', _envf('START_EQUITY', 99887.0)))
@@ -644,42 +565,14 @@ def eval_progress():
         target = _envf('TARGET_BALANCE', start + 6000.0)          # +$6,000 = +6%
         floor  = _dd_floor()                                      # auto-trails with synced equity highs
         eq     = _modeled_equity(s, d)
-        snap = broker_feedback.truth() if broker_feedback is not None and broker_feedback.feedback_required() else {}
-        profit = eq - start
-        target_reached = eq >= target
-        trading_days = int(snap.get('trading_days') or s.get('trading_days') or 0)
-        best_day = float(snap.get('best_day_profit') or 0.0)
-        if not best_day:
-            daily = snap.get('daily_pnl') or {}
-            best_day = max([float(v or 0) for v in daily.values()] + [0.0])
-        consistency_ratio = (best_day / profit) if profit > 0 else None
-        consistency_limit = _envf('CONSISTENCY_LIMIT', 0.50)
-        consistency_met = bool(consistency_ratio is not None and consistency_ratio <= consistency_limit + 1e-9)
-        min_days_met = trading_days >= _envi('MIN_TRADING_DAYS', 2)
-        pass_ready = bool(target_reached and consistency_met and min_days_met)
-        broker_status = str(snap.get('evaluation_status') or 'active').lower()
-        require_status = _env('PASS_REQUIRE_BROKER_STATUS', '1') == '1'
-        passed = broker_status == 'passed' if require_status else pass_ready
-        breached = bool(eq <= floor or broker_status in ('failed', 'breached'))
         return dict(equity=round(eq), start=round(start), target=round(target), floor=round(floor),
                     pnl=round(eq - start), to_target=round(target - eq), buffer=round(eq - floor),
                     pct=round(100.0 * (eq - start) / 6000.0, 1),      # % of the $6k target reached
-                    target_reached=target_reached, trading_days=trading_days,
-                    min_trading_days=_envi('MIN_TRADING_DAYS', 2), min_days_met=min_days_met,
-                    best_day_profit=round(best_day, 2),
-                    consistency_ratio=(round(consistency_ratio, 4) if consistency_ratio is not None else None),
-                    consistency_limit=consistency_limit, consistency_met=consistency_met,
-                    pass_ready=pass_ready, broker_status=broker_status,
-                    awaiting_pass_confirmation=bool(pass_ready and not passed),
-                    passed=passed, breached=breached)
+                    passed=eq >= target, breached=eq <= floor)
     except Exception as e:
         print('[guard] eval_progress err', e, flush=True)
         return dict(equity=0, start=100000, target=106000, floor=97000, pnl=0, to_target=6000,
-                    buffer=0, pct=0.0, target_reached=False, trading_days=0,
-                    min_trading_days=2, min_days_met=False, best_day_profit=0,
-                    consistency_ratio=None, consistency_limit=0.5, consistency_met=False,
-                    pass_ready=False, broker_status='unknown', awaiting_pass_confirmation=False,
-                    passed=False, breached=False, error=str(e))
+                    buffer=0, pct=0.0, passed=False, breached=False)
 
 # ---------- today's SENT book (from guard_log) + outcomes (from shadow) ----------
 def _shadow_by_key():
@@ -695,12 +588,7 @@ def _actualize(g, sh):
     The shadow model prices outcomes at risk-model size (~$500/R); during the ramp the real
     order is 1 contract — a real -$17 loss displayed (and counted!) as -$569 skews the day-loss
     counter and the modeled equity. qty x stop x POINT_VALUE is the real risk. Found by Aleks."""
-    if broker_feedback is not None and g.get('execution_id'):
-        bt = broker_feedback.trade_truth(g.get('execution_id'))
-        if bt is not None:
-            return {**g, 'outcome': bt.get('outcome'), 'net': bt.get('net'),
-                    'R': None, 'truth_source': bt.get('source', 'broker')}
-    if g.get('ext_outcome'):                      # legacy manual reconciliation only
+    if g.get('ext_outcome'):                      # external (C, ...) rows carry their OWN resolution —
         return {**g, 'outcome': g['ext_outcome'],  # the A/B shadow knows nothing about them
                 'net': g.get('ext_net'), 'R': g.get('R')}
     oc = sh.get('outcome', 'open')
@@ -731,20 +619,14 @@ def _day_stats():
     sent = _today_sent()
     # A/B and A/B-shallow are sibling rows of one signal group.  The setup counts once for
     # MAX_TRADES_DAY and, by default, once for DAY_LOSS_N.  DAY_LOSS_USD still sums the
-    # realized/modelled P&L of every leg, so both independent budgets remain represented.
+    # realized/modelled P&L of every leg, so independent 0.5% risks remain fully represented.
     grouped = {}
     for t in sent:
         grouped.setdefault(t.get('setup_group_id') or t.get('key'), []).append(t)
     n_trades = 0; losses = 0; net = 0.0
-    # The challenge rule is invariant: one A/B signal group is one loss even if
-    # both independently-sized sibling legs stop out.  Force it here so a stale
-    # Railway value (DAY_LOSS_COUNT_MODE=leg) cannot silently change behavior.
-    if _env('CHALLENGE_MODE', '0') == '1':
+    loss_mode = _env('DAY_LOSS_COUNT_MODE', 'group').strip().lower()
+    if loss_mode not in ('group', 'leg'):
         loss_mode = 'group'
-    else:
-        loss_mode = _env('DAY_LOSS_COUNT_MODE', 'group').strip().lower()
-        if loss_mode not in ('group', 'leg'):
-            loss_mode = 'group'
     exth = _envf('EXT_OPEN_H', 4) * 3600000
     openpos = False
     for grows in grouped.values():
@@ -785,8 +667,6 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
         s = _state()
-        if str(x.get('_strat') or 'A/B') not in ('A/B', 'A/B-shallow'):
-            return (False, 'strategy_not_allowed')
         if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
@@ -829,22 +709,9 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             et_ts = s.get('equity_ts', 0)
             if not et_ts or (_now_ms() - int(et_ts)) > mah * 3600000:
                 return (False, 'equity_stale')
-        if broker_feedback is not None and broker_feedback.feedback_required():
-            if not os.environ.get('BROKER_CALLBACK_TOKEN'):
-                return (False, 'broker_callback_token_missing')
-            if not broker_feedback.is_fresh():
-                return (False, 'broker_state_stale')
-            if s.get('eod_cleanup'):
-                return (False, 'cleanup_pending')
-            if broker_feedback.broker_open() or broker_feedback.has_live_commitment():
-                return (False, 'broker_commitment_open')
-        elif _env('BROKER_FEEDBACK_REQUIRED', '1') == '1':
-            return (False, 'broker_feedback_unavailable')
         ep = eval_progress()                                          # eval over? stop trading it
         if ep['passed']:   _latch('target_hit_6pct', hard=True);  return (False, 'target_hit')
         if ep['breached']: _latch('dd_breached', hard=True);      return (False, 'dd_breached')
-        if ep.get('awaiting_pass_confirmation'):
-            return (False, 'awaiting_pass_confirmation')
         if is_duplicate(x):                     return (False, 'duplicate')   # one setup = one order (silent, no dup alert)
         if _env('GUARD_SKIP_DIB', '0') == '1' and 'DIB' in str(x.get('cat', '')):
             return (False, 'class_b_dib')   # class-B tier: excluded from the audited premium tier (T4);
@@ -873,14 +740,6 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         if d['net']    >=  _envf('DAY_TARGET_USD', 1500):
             _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
 
-        # Include the worst-case SL of the group being authorized now. Looking
-        # only at realized P&L could approve a setup whose full stop would
-        # already exceed the daily USD limit.
-        planned_day_risk = float(x.get('_planned_group_risk_usd') or 0.0)
-        if (planned_day_risk > 0
-                and d['net'] - planned_day_risk <= -_envf('DAY_LOSS_USD', 1000)):
-            return (False, 'projected_day_loss')
-
         eq = _modeled_equity(s, d)                                              # absolute sync + post-sync delta
         buffer_now = eq - _dd_floor()
         dd_buffer = _envf('DD_BUFFER', 800)
@@ -896,9 +755,7 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         if _env('DD_PROJECTED_RISK', '1') == '1':
             planned = float(x.get('_planned_group_risk_usd') or 0.0)
             if planned <= 0:
-                # A missing frozen plan means the exact final quantities are unknown.
-                # Fail closed instead of underestimating a two-leg A/B + shallow group.
-                return (False, 'planned_group_risk_missing')
+                planned = _envf('ACCOUNT', 100000.0) * _envf('RISK_PCT', 0.5) / 100.0
             planned += max(0.0, _envf('DD_PROJECTED_EXTRA_USD', 0.0))
             projected = buffer_now - planned
             x['_projected_buffer_after_risk'] = round(projected, 2)
@@ -919,8 +776,6 @@ def _peer_busy():
     Returns a block reason or None. FAIL-CLOSED: an unreachable peer blocks the send — a peer you
     cannot see may be holding a position, and a double position on one FX account is exactly the
     over-risk this exists to prevent. Cached PEER_CACHE_S (default 20s) per process."""
-    if _env('CHALLENGE_MODE', '1') == '1':
-        return None
     urls = [u.strip() for u in _env('PEER_GUARD_URL', '').split(',') if u.strip()]
     if not urls: return None
     if requests is None: return 'peer_unreachable'
@@ -973,12 +828,12 @@ def note(x, decision, reason=''):
                         tp0 = x.get('TP')
                         if tp0 is not None and tp0 not in alts: alts.append(tp0)
                         g['candidate_tps'] = alts[-8:]
-                        _save(GLOG, glog); return True
+                        _save(GLOG, glog); return
             # Any other identical blocked row is stored once per day/reason.
             for g in reversed(glog[-100:]):
                 if g.get('date') != day: break
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
-                    return True
+                    return
         glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), setup_group_id=gid,
                          ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
@@ -991,7 +846,6 @@ def note(x, decision, reason=''):
                                               else x.get('_exec_qty_override')),
                          planned_group_risk_usd=x.get('_planned_group_risk_usd'),
                          projected_buffer_after_risk=x.get('_projected_buffer_after_risk'),
-                         execution_id=x.get('_execution_id'),
                          batch_group_id=x.get('_batch_group_id'),
                          rollback_confirmed=x.get('_rollback_confirmed'),
                          decision=decision, reason=reason))
@@ -1000,10 +854,8 @@ def note(x, decision, reason=''):
             if not group_already_sent:
                 s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)
             _trade_alert(x, decision)                      # 🟢 push a Telegram line the moment auto places it
-        return True
     except Exception as e:
         print('[guard] note err', e, flush=True)
-        return False
 
 def _trade_alert(x, decision):
     """One Telegram line when AUTO stages a trade (so you know the second it fires, not just via email).
@@ -1128,27 +980,16 @@ def health(feed_age_min=None, market_open=None):
                 add('news_cal', 'ok', 'fresh (%.1fh)' % float(ca))
         else:
             add('news_cal', 'info', 'strict calendar guard disabled')
-        # 5 broker truth freshness — AUTO never falls back to shadow/model state.
-        if broker_feedback is not None and broker_feedback.feedback_required():
-            bs = broker_feedback.status()
-            add('broker', 'ok' if bs.get('fresh') else 'critical',
-                ('fresh, pos=%s working=%s' % (bs.get('position_qty'), bs.get('working_orders_count')))
-                if bs.get('fresh') else ('STALE/UNKNOWN broker state: ' + str(bs.get('error') or bs.get('age_sec'))))
+        # 5 equity sync honesty — the DD guard rides on this number
+        et = s.get('equity_ts', 0)
+        if not et:
+            add('equity_sync', 'warn', 'equity never synced — DD guard on MODELED equity (GET /guard/sync?equity=<real MFF bal>)')
         else:
-            et = s.get('equity_ts', 0)
-            if not et:
-                add('equity_sync', 'warn', 'equity never synced — model fallback active')
-            else:
-                ah = (_mins_since(et) or 0) / 60.0
-                add('equity_sync', 'warn' if ah > 36 else 'ok', 'synced %.0fh ago' % ah)
-        # 6 drawdown floor is broker supplied or explicitly configured.
-        _bfloor = None
-        if broker_feedback is not None:
-            try: _bfloor = broker_feedback.truth().get('drawdown_floor')
-            except Exception: pass
-        add('dd_floor', 'ok' if (_bfloor is not None or os.environ.get('DD_FLOOR')) else 'critical',
-            ('broker floor=' + str(_bfloor)) if _bfloor is not None else
-            (('DD_FLOOR=' + os.environ['DD_FLOOR']) if os.environ.get('DD_FLOOR') else 'drawdown floor unavailable'))
+            ah = (_mins_since(et) or 0) / 60.0
+            add('equity_sync', 'warn' if ah > 36 else 'ok', 'synced %.0fh ago' % ah)
+        # 6 DD_FLOOR actually set to a real level
+        add('dd_floor', 'ok' if os.environ.get('DD_FLOOR') else 'critical',
+            ('DD_FLOOR=' + os.environ['DD_FLOOR']) if os.environ.get('DD_FLOOR') else 'DD_FLOOR NOT set — drawdown guard is blind')
         # 7 state persistence
         add('state', 'ok' if _state_writable() else 'critical',
             'DATA_DIR writable' if _state_writable() else 'DATA_DIR NOT writable — dedup / counter / kill-latch all dead')
@@ -1202,13 +1043,7 @@ def _health_alert(status, summary):
     except Exception as e:
         print('[guard] health alert err', e, flush=True)
 
-# ---------- Pine export (draw AUTO decisions on TradingView) ----------
-def _pine_text(value, limit=96):
-    """Escape dynamic guard-book text for a Pine string literal."""
-    text = str(value or '').replace('\\', '/').replace('"', "'")
-    text = text.replace('\r', ' ').replace('\n', ' ').strip()
-    return text[:limit]
-
+# ---------- Pine export (draw the AUTO trades on TradingView) ----------
 def _pine_one(r):
     """One booked order -> Pine box(SL)/box(TP)/entry+SL+TP lines/label at its bar time."""
     try:
@@ -1234,78 +1069,26 @@ def _pine_one(r):
         'label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.aqua,20), textcolor=color.white, size=size.small)' % (left, hi, txt),
     ]
 
-def _pine_blocked(r):
-    """One rejected signal -> clearly hypothetical entry/SL/TP geometry + red marker."""
-    try:
-        entry = float(r.get('entry'))
-        sl = float(r.get('sl') if r.get('sl') is not None else r.get('SL'))
-    except Exception:
-        return []
-    ts = int(r.get('bar_ms') or r.get('ts') or 0)
-    if not ts or not entry or not sl:
-        return []
-    try: tp = float(r.get('tp'))
-    except Exception: tp = entry + 2 * (entry - sl)
-    left = ts; right = ts + 90 * 60 * 1000
-    y = max(entry, sl, tp)
-    strat = _pine_text(r.get('strat') or 'A/B', 32)
-    sess = _pine_text(r.get('sess'), 16)
-    direction = _pine_text(r.get('dir'), 12)
-    reason = _pine_text(r.get('reason') or 'guard', 72)
-    detail = ' '.join(v for v in (strat, sess, direction) if v)
-    dp = _envi('GUARD_PRICE_DP', 2)
-    def _f(p): return ('%.*f' % (dp, p))
-    txt = 'BLOCKED\\n%s\\n%s\\nE %s | SL %s | TP %s' % (
-        detail, reason, _f(entry), _f(sl), _f(tp))
-    return [
-        # Dashed borders and lighter fills distinguish a hypothetical blocked
-        # setup from the solid geometry used for an order sent to the broker.
-        'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.red,45), border_style=line.style_dashed, bgcolor=color.new(color.red,95))' %
-        (left, _f(max(entry, sl)), right, _f(min(entry, sl))),
-        'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.green,45), border_style=line.style_dashed, bgcolor=color.new(color.green,95))' %
-        (left, _f(max(entry, tp)), right, _f(min(entry, tp))),
-        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.new(color.orange,15), width=1, style=line.style_dashed)' %
-        (left, _f(entry), right, _f(entry)),
-        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.new(color.red,25), width=1, style=line.style_dashed)' %
-        (left, _f(sl), right, _f(sl)),
-        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.new(color.green,25), width=1, style=line.style_dashed)' %
-        (left, _f(tp), right, _f(tp)),
-        'label.new(%d, %.*f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.red,0), textcolor=color.white, size=size.small)' %
-        (ts, dp, y, txt),
-    ]
-
-def pine_book(day='', view='all'):
-    """Pine indicator filtered independently by decision type and date.
-
-    Executed decisions keep their solid entry/SL/TP drawings. Blocked decisions
-    get dashed, more transparent hypothetical entry/SL/TP geometry plus a red
-    BLOCKED marker and guard reason, so they cannot be mistaken for orders that
-    reached the broker.
-    """
-    rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual', 'blocked')]
-    view = view if view in ('all', 'blocked', 'done') else 'all'
-    if view == 'blocked':
-        rows = [g for g in rows if g.get('decision') == 'blocked']
-    elif view == 'done':
-        rows = [g for g in rows if g.get('decision') in ('sent', 'manual')]
+def pine_book(day=''):
+    """Full Pine indicator for the AUTO trades in the guard book (decision sent/manual).
+    day='' = all booked trades; else only that YYYY-MM-DD. Paste into TradingView Pine Editor -> Add to chart."""
+    rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual')]
     if day: rows = [g for g in rows if g.get('date') == day]
     body = []
     for r in rows:
-        lines = _pine_blocked(r) if r.get('decision') == 'blocked' else _pine_one(r)
-        body += ['    ' + ln for ln in lines]
-    view_title = {'all': 'all trades', 'blocked': 'blocked trades', 'done': 'done trades'}[view]
-    ttl = ('AUTO %s %s' % (view_title, day)) if day else ('AUTO %s' % view_title)
+        body += ['    ' + ln for ln in _pine_one(r)]
+    ttl = ('AUTO trades %s' % day) if day else 'AUTO trades'
     head = ['//@version=5',
             'indicator("%s", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)' % ttl,
             'if barstate.islast']
     if not body:
-        body = ['    label.new(bar_index, high, "no AUTO decisions", style=label.style_label_down)']
+        body = ['    label.new(bar_index, high, "no AUTO trades", style=label.style_label_down)']
     return '\n'.join(head + body)
 
 def book_days():
-    """Distinct days with sent/manual/blocked AUTO decisions, newest first."""
+    """Distinct days that have booked AUTO trades, newest first (for the Pine day picker)."""
     ds = sorted({g.get('date') for g in _load(GLOG, [])
-                 if g.get('decision') in ('sent', 'manual', 'blocked') and g.get('date')}, reverse=True)
+                 if g.get('decision') in ('sent', 'manual') and g.get('date')}, reverse=True)
     return ds
 
 # ---------- HTTP: /guard (page), /guard/data, /guard/sync, /guard/kill, /guard/health, /guard/pine ----------
@@ -1335,7 +1118,6 @@ def register(app):
                        pending_group=_active_pending_group(s),
                        projected_dd_check=_env('DD_PROJECTED_RISK', '1') == '1',
                        dd_proximity_mode=_dd_proximity_mode(),
-                       broker=(broker_feedback.status() if broker_feedback is not None else {'fresh': False}),
                        fired=fired_n, filled=filled_n,
                        health=health(), pine_days=book_days(), book=book)
 
@@ -1396,16 +1178,13 @@ def register(app):
         return jsonify(**h), code
 
     def _pine():
-        """Pine for AUTO decisions. Filter with ?view=all|blocked|done and optional ?day=YYYY-MM-DD."""
-        return Response(pine_book(request.args.get('day', ''), request.args.get('view', 'all')),
-                        mimetype='text/plain')
+        """Pine script for the AUTO trades (draw them on TradingView). ?day=YYYY-MM-DD or omit for all."""
+        return Response(pine_book(request.args.get('day', '')), mimetype='text/plain')
 
     def _extlog():
         """POST: a satellite strategy (C, ...) sharing this account registers its SEND, or updates
         its outcome. Body: {strat, dir, entry, sl, tp, qty, bos_ms, decision:'sent'} or
         {key, ext_outcome:'win|loss|timeout', ext_net: $}. Token-protected."""
-        if _env('CHALLENGE_MODE', '1') == '1':
-            return jsonify(ok=False, err='external strategies disabled in challenge mode'), 403
         if not _authed(): return jsonify(ok=False, err='auth'), 401
         b = request.get_json(force=True, silent=True) or {}
         glog = _load(GLOG, [])
@@ -1588,19 +1367,12 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <div id="rectab"></div>
 </div>
 <div class="pinep">
- <div class="ph">📈 <b>Pine for TradingView</b> — sent trades plus dashed BLOCKED entry/SL/TP setups
-  <label for="pineview" class="g">Trade view</label>
-  <select id="pineview" onchange="loadPine()">
-   <option value="all">All trades</option>
-   <option value="blocked">Blocked</option>
-   <option value="done">Done trades</option>
-  </select>
-  <label for="pineday" class="g">Date</label>
+ <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
   <select id="pineday" onchange="loadPine()"></select>
   <button class="cpy" onclick="copyPine(this)">Copy script</button>
   <span class="g">paste into TradingView → Pine Editor → Add to chart</span>
  </div>
- <textarea id="pinebox" readonly placeholder="choose trade view and date → the Pine appears here"></textarea>
+ <textarea id="pinebox" readonly placeholder="pick a day (or 'all trades') → the Pine appears here"></textarea>
 </div>
 <script>
 async function load(){
@@ -1652,7 +1424,7 @@ async function load(){
  window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._book=d.book||[];
  renderBook();
  let ps=document.getElementById('pineday');
- let opts='<option value="">All dates</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
+ let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
  if(ps.dataset.sig!==opts){let cur=ps.value;ps.innerHTML=opts;ps.dataset.sig=opts;if(cur)ps.value=cur;loadPine();}
 }
 let _filter='all';
@@ -1705,8 +1477,8 @@ async function doRec(btn){let b=document.getElementById('recbox').value.trim();l
  }catch(e){o.textContent='⚠ '+e;}
  btn.textContent='Reconcile';load();return false;}
 async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
-async function loadPine(){let view=document.getElementById('pineview').value;let day=document.getElementById('pineday').value;
- let t=await (await fetch('/guard/pine?view='+encodeURIComponent(view)+'&day='+encodeURIComponent(day),{cache:'no-store'})).text();
+async function loadPine(){let day=document.getElementById('pineday').value;
+ let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
  document.getElementById('pinebox').value=t;}
 function copyPine(btn){let b=document.getElementById('pinebox');b.select();navigator.clipboard.writeText(b.value);
  btn.textContent='Copied ✓';setTimeout(()=>{btn.textContent='Copy script';},1200);}

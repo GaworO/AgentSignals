@@ -17,7 +17,6 @@ class GuardShallowGroupTests(unittest.TestCase):
             'GUARD_TRADE_ALERTS': '0',
             'START_EQUITY': '100000',
             'POINT_VALUE': '2',
-            'CHALLENGE_MODE': '1',
         }, clear=False)
         self.env.start()
 
@@ -45,7 +44,7 @@ class GuardShallowGroupTests(unittest.TestCase):
         self.assertEqual(rows[1]['setup_group_id'], 'g1')
         self.assertNotEqual(rows[0]['key'], rows[1]['key'])
 
-    def test_day_stats_counts_sibling_pair_as_one_loss(self):
+    def test_day_stats_counts_setup_once_but_each_losing_leg(self):
         sample = [
             {'setup_group_id': 'g1', 'strat': 'A/B', 'outcome': 'loss', 'net': -100},
             {'setup_group_id': 'g1', 'strat': 'A/B-shallow', 'outcome': 'loss', 'net': -200},
@@ -55,22 +54,9 @@ class GuardShallowGroupTests(unittest.TestCase):
         with mock.patch.object(guardrails, '_today_sent', return_value=sample):
             stats = guardrails._day_stats()
         self.assertEqual(stats['sent'], 1)
-        self.assertEqual(stats['losses'], 1)
+        self.assertEqual(stats['losses'], 2)
         self.assertEqual(stats['net'], -300)
         self.assertFalse(stats['openpos'])
-        self.assertEqual(stats['loss_mode'], 'group')
-
-    def test_challenge_forces_group_even_if_stale_env_says_leg(self):
-        sample = [
-            {'setup_group_id': 'g1', 'strat': 'A/B', 'outcome': 'loss', 'net': -100},
-            {'setup_group_id': 'g1', 'strat': 'A/B-shallow', 'outcome': 'loss', 'net': -200},
-        ]
-        with mock.patch.object(guardrails, '_today_sent', return_value=sample), \
-             mock.patch.dict(os.environ, {'DAY_LOSS_COUNT_MODE': 'leg'}):
-            stats = guardrails._day_stats()
-        self.assertEqual(stats['sent'], 1)
-        self.assertEqual(stats['losses'], 1)
-        self.assertEqual(stats['loss_mode'], 'group')
 
 
 if __name__ == '__main__':

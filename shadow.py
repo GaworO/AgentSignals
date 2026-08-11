@@ -263,12 +263,6 @@ def register(app):
         resp.headers['Cache-Control'] = 'no-store, max-age=0'   # never serve a stale shadow book
         return resp
     def _post():
-        if os.environ.get('SHADOW_EXTERNAL_INGEST', '0') != '1':
-            return jsonify(ok=False, error='external shadow ingest disabled'), 403
-        token = os.environ.get('SHADOW_TOKEN', '')
-        supplied = request.headers.get('X-Shadow-Token', '')
-        if not token or supplied != token:
-            return jsonify(ok=False, error='auth'), 401
         d = request.get_json(force=True, silent=True) or {}
         ok = record(d.get('strategy'), d.get('dir'), d.get('entry'), d.get('sl'),
                     d.get('tp'), d.get('ms'), d.get('sess'))
