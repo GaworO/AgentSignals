@@ -26,7 +26,12 @@ def load(cfg):
 
     # ---- LOADER ----
     df = pd.read_csv(cfg.data_csv)
-    ts = pd.to_datetime(df.ts_event, utc=True).dt.as_unit('ns')   # pandas3 = us -> force ns
+    # The seeded Databento rows use ``YYYY-MM-DD HH:MM:SS+00:00`` while live
+    # webhook rows can use the equally valid ``YYYY-MM-DDTHH:MM:SS+00:00``.
+    # pandas >= 2 infers one exact format from the first row unless told that
+    # the column contains general ISO-8601 values, causing the detector to die
+    # as soon as the other representation appears in the persistent buffer.
+    ts = pd.to_datetime(df.ts_event, utc=True, format='ISO8601').dt.as_unit('ns')
     df = df.assign(ts=ts).sort_values('ts').reset_index(drop=True); ts = df.ts
     df['dt'] = ts.dt.tz_convert('Etc/GMT+4')   # fixed UTC-4 (like TFO), no DST
     c.df = df; c.ts = ts
