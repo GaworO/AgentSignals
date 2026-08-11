@@ -44,7 +44,7 @@ class GuardShallowGroupTests(unittest.TestCase):
         self.assertEqual(rows[1]['setup_group_id'], 'g1')
         self.assertNotEqual(rows[0]['key'], rows[1]['key'])
 
-    def test_day_stats_counts_setup_once_but_each_losing_leg(self):
+    def test_day_stats_counts_losing_group_once(self):
         sample = [
             {'setup_group_id': 'g1', 'strat': 'A/B', 'outcome': 'loss', 'net': -100},
             {'setup_group_id': 'g1', 'strat': 'A/B-shallow', 'outcome': 'loss', 'net': -200},
@@ -54,9 +54,23 @@ class GuardShallowGroupTests(unittest.TestCase):
         with mock.patch.object(guardrails, '_today_sent', return_value=sample):
             stats = guardrails._day_stats()
         self.assertEqual(stats['sent'], 1)
-        self.assertEqual(stats['losses'], 2)
+        self.assertEqual(stats['losses'], 1)
         self.assertEqual(stats['net'], -300)
         self.assertFalse(stats['openpos'])
+
+    def test_floor_capacity_keeps_100_reserve(self):
+        with mock.patch.object(guardrails, '_state', return_value={'equity': 100450}), \
+             mock.patch.object(guardrails, '_day_stats', return_value={'net': 0}), \
+             mock.patch.object(guardrails, '_modeled_equity', return_value=100450.0), \
+             mock.patch.object(guardrails, '_dd_floor', return_value=100000.0), \
+             mock.patch.dict(os.environ, {
+                 'SETUP_GROUP_RISK_USD': '900',
+                 'SETUP_GROUP_FLOOR_RESERVE_USD': '100',
+             }, clear=False):
+            cap = guardrails.setup_group_risk_capacity()
+        self.assertEqual(cap['requested'], 900.0)
+        self.assertEqual(cap['allowed'], 349.99)
+        self.assertEqual(cap['reserve'], 100.0)
 
 
 if __name__ == '__main__':

@@ -26,7 +26,8 @@ class ABShallowTests(unittest.TestCase):
             "AB_SHALLOW_ENABLED": "1",
             "AB_SHALLOW_FRACTION": "0.25",
             "AB_SHALLOW_RR": "2",
-            "AB_SHALLOW_RISK_PCT": "0.5",
+            "SETUP_GROUP_RISK_USD": "900",
+            "SETUP_GROUP_RT_COST_USD": "2.24",
             "RISK_PCT": "0.5",
             "ACCOUNT": "100000",
             "POINT_VALUE": "2",
@@ -44,8 +45,10 @@ class ABShallowTests(unittest.TestCase):
         self.assertEqual(child["SL"], 28576.0)
         self.assertEqual(child["TP"], 28333.0)
         self.assertEqual(child["tp_src"], "shallow_2R")
-        self.assertEqual(child["_risk_pct_override"], 0.5)
+        self.assertEqual(child["_risk_budget_usd"], 450.0)
+        self.assertEqual(child["_risk_pct_override"], 0.45)
         self.assertTrue(child["_strict_risk_budget"])
+        self.assertEqual(child["_risk_mode"], "shared_group")
 
     def test_long_shallow_entry_and_3r_target(self):
         child = ab_shallow.build_shallow_signal(
@@ -56,15 +59,29 @@ class ABShallowTests(unittest.TestCase):
         self.assertEqual(child["TP"], 28838.0)
         self.assertEqual(child["tp_src"], "shallow_3R")
 
-    def test_independent_risk_metadata(self):
+    def test_shared_risk_metadata(self):
         deep = self.base_signal("SHORT")
         child = ab_shallow.build_shallow_signal(deep, self.env())
         meta = ab_shallow.risk_metadata(deep, child, self.env())
-        self.assertEqual(meta["deep_risk_pct"], 0.5)
-        self.assertEqual(meta["shallow_risk_pct"], 0.5)
-        self.assertEqual(meta["combined_max_risk_pct"], 1.0)
-        self.assertEqual(meta["deep_budget"], 500.0)
-        self.assertEqual(meta["shallow_budget"], 500.0)
+        self.assertEqual(meta["deep_risk_pct"], 0.45)
+        self.assertEqual(meta["shallow_risk_pct"], 0.45)
+        self.assertEqual(meta["combined_max_risk_pct"], 0.9)
+        self.assertEqual(meta["deep_budget"], 450.0)
+        self.assertEqual(meta["shallow_budget"], 450.0)
+        self.assertEqual(meta["combined_max_budget"], 900.0)
+
+    def test_combined_integer_risk_never_exceeds_900(self):
+        deep = self.base_signal("SHORT")
+        child = ab_shallow.build_shallow_signal(deep, self.env())
+        ab_shallow.apply_shared_group_budget(deep, child, self.env())
+        sized = [
+            live_emit.size_for_budget(x["entry"], x["SL"], x["_risk_budget_usd"])
+            for x in (deep, child)
+        ]
+        self.assertTrue(all(x and x[0] >= 1 for x in sized))
+        self.assertLessEqual(sum(x[3] for x in sized), 900.0)
+        self.assertTrue(deep["_strict_risk_budget"])
+        self.assertNotIn("_size_mult", deep)
 
     def test_refuses_one_contract_over_budget(self):
         sig = self.base_signal("SHORT")
@@ -79,6 +96,14 @@ class ABShallowTests(unittest.TestCase):
         self.assertEqual(per_contract, 40)
         self.assertEqual(real, 480)
         self.assertEqual(pct, 0.48)
+
+    def test_size_for_absolute_budget_includes_cost(self):
+        qty, slpts, per_contract, real, pct = live_emit.size_for_budget(100.0, 120.0, 450.0, 2.24)
+        self.assertEqual(qty, 10)
+        self.assertEqual(slpts, 20.0)
+        self.assertEqual(per_contract, 42.24)
+        self.assertEqual(real, 422.4)
+        self.assertEqual(pct, 0.422)
 
 
 if __name__ == "__main__":
