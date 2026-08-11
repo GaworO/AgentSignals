@@ -47,7 +47,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.11-manual-review-safe-groupstop2R'
+VERSION = 'v31.10-absolute-equity-sync-groupstop2R'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -625,16 +625,18 @@ def _process_new(now_ms=None):
                 _blocked_items('mode_off'); code = 'guard:off'
                 if WEBHOOK_URL: live_emit.post_webhook(txt, WEBHOOK_URL)
             elif _gmode == 'manual':
-                # v31.11 SAFETY: MANUAL is review-only. It must NEVER call EXEC_WEBHOOK.
-                # The prior implementation mislabeled an actually-sent TradersPost batch as "ARMED",
-                # which could auto-submit at the broker when the TradersPost subscription had Auto Submit ON.
                 _gok, _gwhy = guardrails.manual_ok(repx, _feed_age_min(), _market_open_now())
                 if _gok:
-                    _blocked_items('manual_review_only')
-                    if WEBHOOK_URL:
-                        try: live_emit.post_webhook('🟦 MANUAL REVIEW — NO ORDER SENT\n' + txt, WEBHOOK_URL)
-                        except Exception: pass
-                    code = 'manual-review'
+                    _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
+                    if _batch_ok:
+                        for _item, _res, _itxt in _batch: guardrails.note(_item, 'manual')
+                        guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'manual_sent')
+                        code = 'exec-manual'
+                    else:
+                        _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
+                        for _item in _book_items: guardrails.note(_item, 'blocked', _why)
+                        _exec_fail_alert({'batch': (_batch[-1][1] if _batch else {}), 'rollback': _rb}, 'manual-batch')
+                        code = 'exec-failed'
                 else:
                     _blocked_items(_gwhy); code = 'guard:' + _gwhy
             else:
