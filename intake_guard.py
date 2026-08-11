@@ -26,7 +26,9 @@ def normalize_bar(raw: Mapping[str, Any], require_minute: bool = True) -> tuple[
     stamp = str(raw["ts_event"]).strip().replace("Z", "+00:00")
     parsed = dt.datetime.fromisoformat(stamp)
     if parsed.tzinfo is None:
-        raise ValueError("ts_event must include timezone")
+        # Backward compatibility with the original TradingView feed, which
+        # formats time_close in UTC but omits the trailing ``Z``/offset.
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
     parsed = parsed.astimezone(dt.timezone.utc)
     if require_minute and (parsed.second or parsed.microsecond):
         raise ValueError("ts_event must be aligned to a closed 1-minute bar")
