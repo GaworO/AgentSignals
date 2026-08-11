@@ -33,7 +33,7 @@ def load_buffer(buf_path):
         if not (hcol and lcol and tcol): return None
         hi = df[hcol].astype(float).values
         lo = df[lcol].astype(float).values
-        _t = pd.to_datetime(df[tcol], utc=True)
+        _t = pd.to_datetime(df[tcol], utc=True, format='ISO8601')
         try: ts = pd.DatetimeIndex(_t).as_unit('ms').asi8
         except Exception: ts = (_t.astype('int64').values // 10**6)
         return hi, lo, ts

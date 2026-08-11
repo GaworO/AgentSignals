@@ -66,7 +66,8 @@ def regime_stats(buf_path, here, window=20, sl_min=10.0, sl_max=30.0):
     except Exception as ex:
         return {'ok': False, 'err': f'{type(ex).__name__}: {ex}'}
     try:
-        df = pd.read_csv(buf_path); ts = pd.to_datetime(df.ts_event, utc=True)
+        df = pd.read_csv(buf_path)
+        ts = pd.to_datetime(df.ts_event, utc=True, format='ISO8601')
         df = df.assign(ts=ts).sort_values('ts').reset_index(drop=True)
         hi = df.high.values; lo = df.low.values; cl = df.close.values; n = len(df)
     except Exception:

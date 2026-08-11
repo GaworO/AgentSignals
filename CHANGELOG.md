@@ -1,3 +1,10 @@
+## v31.5.1 — Railway mixed ISO-8601 timestamp fix (2026-08-11)
+
+- Accepts both Databento seed timestamps (`YYYY-MM-DD HH:MM:SS+00:00`) and live webhook timestamps (`YYYY-MM-DDTHH:MM:SS+00:00`).
+- Prevents pandas 2.x from inferring the seed format and crashing when the first live-format row appears in the persistent buffer.
+- Applies the same strict ISO-8601 parsing to the detector, regime monitor, and magnet tag reader.
+- Adds a regression test covering space-separated, `T`-separated, and trailing-`Z` UTC timestamps.
+
 ## v31.5 — A/B-shallow with independent 0.5% risk (2026-07-31)
 
 Built directly on the operator-provided **v31.4** repository. No v32 modules or
