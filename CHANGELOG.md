@@ -1,3 +1,18 @@
+## v31.13 — time-safe broker reconcile + blocked/date Pine export (2026-08-24)
+
+- Reconcile normalizes Tradovate Performance timestamps from `RECONCILE_CSV_TZ`
+  (`Europe/Copenhagen` by default) into New York time and requires the same guard trading date.
+- Matching now uses time, direction, weighted entry and quantity instead of price/direction alone.
+- Nearby partial executions are aggregated before matching, so split fills such as `1 + 7`
+  contracts can reconcile to one booked `8`-contract order.
+- The result table separates matched, unmatched and full broker totals and displays broker/book
+  timestamps in ET. Malformed CSV rows are counted instead of disappearing silently.
+- Pine export supports `All decisions`, `Blocked only` and `Fired only`, with an ET trading-date
+  picker. Blocked setups use orange labels containing their block reason.
+- Pine exports are capped at 150 newest decisions by default (`PINE_MAX_ROWS`) to stay inside
+  TradingView's 500-object limits; selecting a date narrows the export.
+- No detector, entry, stop, target, execution or `$900` setup-group risk behavior changed.
+
 ## v31.12 — shared $900 floor-aware setup budget (2026-08-11)
 
 - Replaces independent 0.5% + 0.5% sizing with one absolute $900 setup-group ceiling.
