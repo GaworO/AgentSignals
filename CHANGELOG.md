@@ -1,3 +1,17 @@
+## v31.14 — reconcile + blocked/date Pine + PREM stop-width filter (2026-08-24)
+
+- Built on `v31.13-reconcile-pine`; the broker reconciliation and Pine export are retained.
+- Applies the stop filter only to PREM A/B setup groups, using the final broker entry and SL.
+- `<=25` points keeps the normal setup-group budget.
+- `>25` and `<=28` points multiplies the whole group budget by `0.5`
+  (default `$900 -> $450`, split `$225 + $225`).
+- `>28` points blocks the complete A/B + A/B-shallow group with `prem_stop_too_wide`.
+- The decision, stop width and multiplier are recorded in the guard book and alert/status output.
+- Config: `PREM_STOP_FILTER`, `PREM_STOP_FULL_MAX_PTS`, `PREM_STOP_HARD_MAX_PTS`,
+  `PREM_STOP_MID_RISK_MULT`.
+
+Production files: `agent.py`, `guardrails.py`, `live_emit.py`.
+
 ## v31.13 — time-safe broker reconcile + blocked/date Pine export (2026-08-24)
 
 - Reconcile normalizes Tradovate Performance timestamps from `RECONCILE_CSV_TZ`

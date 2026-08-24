@@ -48,6 +48,10 @@ Hardening (2026-07-19 review):
   EOD_FLATTEN_ET=16:04   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
   GUARD_LAST_ENTRY_ET=15:30  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
   GUARD_SYNC_MAX_H=24    AUTO requires a recent real equity/floor sync
+  PREM_STOP_FILTER=1     PREM A/B stop policy: <=25 full risk, 25-28 half risk, >28 block
+  PREM_STOP_FULL_MAX_PTS=25
+  PREM_STOP_HARD_MAX_PTS=28
+  PREM_STOP_MID_RISK_MULT=0.5
   GUARD_TOKEN=           set -> /guard/sync|kill|mode require ?t=<token> (open /guard?t=... for buttons)
   SKIP_SESSIONS default is now LO,ASIA,PREM,NYL (was LO,ASIA — PREM/NYL used to auto-fire)
   state writes are atomic; a CORRUPT state file now latches HARD (was: silently reset to defaults)
@@ -107,6 +111,58 @@ def _sess_of(x):
         try: return shadow._sess(_et(int(x.get('bos_ms') or _now_ms())))
         except Exception: pass
     return '?'
+
+def prem_stop_policy(x):
+    """Return the causal PREM stop-width decision for an A/B setup group.
+
+    The policy is evaluated from the final entry and SL that will be sent to the
+    broker (after detector STOP_CAP and ENTRY_OFFSET_PTS).  It applies only to
+    PREM A/B groups; other sessions and strategies are unchanged.
+
+    ``full``  -> normal setup-group budget
+    ``scale`` -> multiply the whole group budget by ``risk_mult``
+    ``block`` -> do not send any sibling in the group
+    """
+    base = {
+        'enabled': _env('PREM_STOP_FILTER', '1') == '1',
+        'applies': False,
+        'action': 'pass',
+        'reason': '',
+        'risk_mult': 1.0,
+        'stop_pts': None,
+    }
+    if not base['enabled']:
+        return base
+    if _sess_of(x) != 'PREM':
+        return base
+    if str(x.get('_strat', 'A/B')) not in ('A/B', 'A/B-shallow'):
+        return base
+    base['applies'] = True
+    try:
+        stop_pts = abs(float(x.get('entry')) - float(x.get('SL')))
+        full_max = _envf('PREM_STOP_FULL_MAX_PTS', 25.0)
+        hard_max = _envf('PREM_STOP_HARD_MAX_PTS', 28.0)
+        mid_mult = _envf('PREM_STOP_MID_RISK_MULT', 0.5)
+        if stop_pts <= 0 or full_max <= 0 or hard_max < full_max or not (0 < mid_mult <= 1):
+            raise ValueError('invalid PREM stop filter configuration')
+        base.update(
+            stop_pts=round(stop_pts, 4),
+            full_max_pts=full_max,
+            hard_max_pts=hard_max,
+            mid_risk_mult=mid_mult,
+        )
+        if stop_pts > hard_max:
+            base.update(action='block', reason='prem_stop_too_wide', risk_mult=0.0)
+        elif stop_pts > full_max:
+            base.update(action='scale', reason='prem_stop_mid_band', risk_mult=mid_mult)
+        else:
+            base.update(action='full', risk_mult=1.0)
+        return base
+    except Exception as exc:
+        # A malformed risk policy must never silently permit an unattended order.
+        base.update(action='block', reason='prem_stop_filter_config', risk_mult=0.0,
+                    error=str(exc))
+        return base
 
 def _load(p, d):
     try:
@@ -760,6 +816,15 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         # PREM + NYL were auto-firing on the old 'LO,ASIA' default. Env still overrides.
         skip = [w.strip() for w in _env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL').split(',') if w.strip()]
         if sess in skip:                        return (False, 'session:' + sess)   # London/Asia (+NYL) excluded by firing time
+        prem_stop = prem_stop_policy(x)
+        if prem_stop.get('applies'):
+            x['_prem_stop_filter_action'] = prem_stop.get('action')
+            x['_prem_stop_risk_mult'] = prem_stop.get('risk_mult')
+            x['_prem_stop_pts'] = prem_stop.get('stop_pts')
+            x['_prem_stop_full_max_pts'] = prem_stop.get('full_max_pts')
+            x['_prem_stop_hard_max_pts'] = prem_stop.get('hard_max_pts')
+        if prem_stop.get('action') == 'block':
+            return (False, prem_stop.get('reason') or 'prem_stop_too_wide')
         mm = _env('MONDAY_MODE', 'nyam').lower()                              # nyam=Monday starts at NYAM (skip PREM) | skip | quarter | full
         if _wd(x) == 0:
             if mm == 'skip':                    return (False, 'monday_skip')
@@ -889,6 +954,13 @@ def note(x, decision, reason=''):
                          planned_group_risk_usd=x.get('_planned_group_risk_usd'),
                          setup_group_budget_usd=x.get('_setup_group_budget_usd'),
                          setup_group_allowed_usd=x.get('_setup_group_allowed_usd'),
+                         stop_pts=(round(abs(float(x.get('entry')) - float(x.get('SL'))), 4)
+                                   if x.get('entry') is not None and x.get('SL') is not None else None),
+                         prem_stop_filter_action=x.get('_prem_stop_filter_action'),
+                         prem_stop_risk_mult=x.get('_prem_stop_risk_mult'),
+                         prem_stop_pts=x.get('_prem_stop_pts'),
+                         prem_stop_full_max_pts=x.get('_prem_stop_full_max_pts'),
+                         prem_stop_hard_max_pts=x.get('_prem_stop_hard_max_pts'),
                          projected_buffer_after_risk=x.get('_projected_buffer_after_risk'),
                          batch_group_id=x.get('_batch_group_id'),
                          rollback_confirmed=x.get('_rollback_confirmed'),
