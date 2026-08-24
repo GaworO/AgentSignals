@@ -1,13 +1,17 @@
-## v31.13 — PREM stop-width risk filter (2026-08-24)
+## v31.13 — time-safe broker reconcile + blocked/date Pine export (2026-08-24)
 
-- Applies only to PREM A/B setup groups, using the final broker entry and SL after `STOP_CAP` and `ENTRY_OFFSET_PTS`.
-- `<=25` points keeps the normal setup-group budget.
-- `>25` and `<=28` points multiplies the whole group budget by `0.5` (default `$900 -> $450`, split `$225 + $225`).
-- `>28` points blocks the complete A/B + A/B-shallow group with `prem_stop_too_wide`.
-- The decision, stop width and multiplier are recorded in the guard book and exposed in the alert/status output.
-- Config: `PREM_STOP_FILTER`, `PREM_STOP_FULL_MAX_PTS`, `PREM_STOP_HARD_MAX_PTS`, `PREM_STOP_MID_RISK_MULT`.
-
-Production files: `agent.py`, `guardrails.py`, `live_emit.py`.
+- Reconcile normalizes Tradovate Performance timestamps from `RECONCILE_CSV_TZ`
+  (`Europe/Copenhagen` by default) into New York time and requires the same guard trading date.
+- Matching now uses time, direction, weighted entry and quantity instead of price/direction alone.
+- Nearby partial executions are aggregated before matching, so split fills such as `1 + 7`
+  contracts can reconcile to one booked `8`-contract order.
+- The result table separates matched, unmatched and full broker totals and displays broker/book
+  timestamps in ET. Malformed CSV rows are counted instead of disappearing silently.
+- Pine export supports `All decisions`, `Blocked only` and `Fired only`, with an ET trading-date
+  picker. Blocked setups use orange labels containing their block reason.
+- Pine exports are capped at 150 newest decisions by default (`PINE_MAX_ROWS`) to stay inside
+  TradingView's 500-object limits; selecting a date narrows the export.
+- No detector, entry, stop, target, execution or `$900` setup-group risk behavior changed.
 
 ## v31.12 — shared $900 floor-aware setup budget (2026-08-11)
 

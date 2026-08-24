@@ -151,17 +151,6 @@ def to_alert(x):
         qty, slpts, perc, real, pct = sf
         label = 'SL+koszty' if budget is not None else 'SL'
         base += f"\n📐 Ryzyko: {qty} kontr. ({label} {slpts} pkt = ${perc}/kontr · ${real} ≈ {pct}%)"
-    if x.get('_prem_stop_filter_applies'):
-        action = x.get('_prem_stop_filter_action')
-        pts = x.get('_prem_stop_pts')
-        if action == 'block':
-            hard_max = x.get('_prem_stop_hard_max_pts') or 28
-            base += f"\n⛔ PREM stop filter: {pts} pkt > {hard_max:g} pkt — BLOCK prem_stop_too_wide"
-        elif action == 'scale':
-            mult = float(x.get('_prem_stop_risk_mult') or 0.5)
-            base += f"\n⚖️ PREM stop filter: {pts} pkt — ryzyko grupy ×{mult:.2f}"
-        elif action == 'full':
-            base += f"\n✅ PREM stop filter: {pts} pkt — pełne ryzyko"
     return base
 
 def post_webhook(text,url):
