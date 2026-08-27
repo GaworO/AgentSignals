@@ -12,7 +12,7 @@ from .entries import get_entry_v10
 from .exits import exceeds_risk_cap
 
 
-def _trc(ctx, trigger, dr, model, name, stage, disp=None):
+def _trc(ctx, trigger, dr, model, name, stage, disp=None, details=None):
     if not ctx.cfg.debug_trace: return
     df = ctx.df
     r = dict(cat=name, model=model, dir=dr, trig=df.dt[trigger].strftime('%Y-%m-%d %H:%M'),
@@ -20,6 +20,8 @@ def _trc(ctx, trigger, dr, model, name, stage, disp=None):
     if disp is not None:
         r['disp_end'] = df.dt[disp['u']].strftime('%H:%M')
         r['fvg'] = [round(disp['fvg'][0], 1), round(disp['fvg'][1], 1)]
+    if details:
+        r.update(details)
     ctx._TRC.append(r)
 
 
@@ -55,10 +57,9 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
     # rather than deleting the setup).
     if exceeds_risk_cap(ctx, e.get('risk_ce', e['risk'])):
         _trc(ctx, t, dr, model, name, f'odciety cap (R={e["risk"]:.0f}pkt)', disp); return
-    _trc(ctx, t, dr, model, name, 'POTWIERDZONY', disp)
     b, pdv = bias_for(ctx, su['bos_bar'])
     align = 'Y' if b.replace('?', '') == dr else ('?' if '?' in b or b == 'niejasny' else 'N')
-    out.append(dict(brk=ctx.cur_break, date=str(dates[su['bos_bar']]), model=model, cat=name, dir=dr,
+    record = dict(brk=ctx.cur_break, date=str(dates[su['bos_bar']]), model=model, cat=name, dir=dr,
         cls=('B' if '+DIB' in name else 'A'), entry=e['entry'], SL=e['sl'], TP=e['tp'], risk=e['risk'], kind=e['kind'],
         bias=b, bias_align=align, bos=df.dt[su['bos_bar']].strftime('%H:%M'),
         s=int(disp['s']), u=int(disp['u']), fvg_lo=round(disp['fvg'][0], 2), fvg_hi=round(disp['fvg'][1], 2),
@@ -78,7 +79,18 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
                  if int(e['start_bar']) < ctx.n
                  else int(df.dt[su['bos_bar']].timestamp() * 1000) + 60000 * (int(e['start_bar']) - int(su['bos_bar'])),
         bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
-        bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000)))
+        bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000))
+    # The combined candidate page needs the real confirmed levels and the BOS
+    # close used by production to derive A/B-shallow.  This enriches DEBUG_TRACE
+    # only; the detector's output record and trading logic remain unchanged.
+    _trc(ctx, t, dr, model, name, 'POTWIERDZONY', disp, details={
+        'date': record['date'], 'bos': record['bos'], 'bos_ms': record['bos_ms'],
+        'entry': record['entry'], 'SL': record['SL'], 'TP': record['TP'],
+        'risk': record['risk'], 'sl_src': record.get('sl_src'),
+        'tp_src': record.get('tp_src'),
+        'signal_close': round(float(ctx.cl[su['bos_bar']]), 10),
+    })
+    out.append(record)
 
 
 def emit_orphan(ctx, o):
