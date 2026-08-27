@@ -61,11 +61,19 @@ class ABCandidatesViewTests(unittest.TestCase):
         self.assertIn("AB_SHALLOW_ENABLED", row["shallow"]["reason"])
 
     def test_page_contains_two_pipelines_and_legend(self):
-        page = ab_candidates_view.render_page(self.confirmed_trace(), 12, self.env())
+        page = ab_candidates_view.render_page(
+            self.confirmed_trace(), 12, self.env(),
+            live_status={"updated_at": "2026-08-27T12:00:00Z", "age_sec": 4,
+                         "last_bar": "2026-08-27T11:59:00Z", "refresh_seconds": 15,
+                         "version": "v31.13-live-ab-candidates-no-orb-amd"},
+        )
         self.assertIn("A/B Strategy", page)
         self.assertIn("A/B Shallow", page)
         self.assertIn("What each step means", page)
         self.assertIn("Shallow is not an independent signal", page)
+        self.assertIn('http-equiv="refresh" content="15"', page)
+        self.assertIn('liveflag ok">LIVE', page)
+        self.assertIn("v31.13-live-ab-candidates-no-orb-amd", page)
 
     def test_dashboard_uses_combined_page_and_hides_orb_amd(self):
         page = dashboard.render_home()
