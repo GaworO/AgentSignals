@@ -6,19 +6,16 @@ ISOLATED add-on (same pattern as pnl.py / how_ab.py): adds ONE GET "/" route tha
 shell FEDERATING the pages that already exist. It runs no detector / intake / journal code.
 
   General   : P&L=/pnl - Regime=/regime - Monitor=/monitor - News (static) - Income (static)
-  A/B       : Candidates=/candidates - Journal=/journal - How=/how
+  A/B       : Candidates=/ab/candidates - Journal=/journal - How=/how
   C         : Dashboard=/c - How=/c/how
   F  (ext)  : How (inline) - Candidates - Log - Performance
-  ORB (ext) : Dashboard - How
 
 Wire into agent.py (next to pnl.register):  import dashboard ; dashboard.register(app)
-Env (optional): STRAT_F_URL, STRAT_ORB_URL.
+Env (optional): STRAT_F_URL.
 """
 import os
 
 _F   = os.environ.get('STRAT_F_URL',  'https://strategy-f-production.up.railway.app').rstrip('/')
-_ORB = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
-_AMD = os.environ.get('STRAT_AMD_URL', 'https://strategy-amd-production.up.railway.app').rstrip('/')
 # --- Forex observe-only services (public URLs of forex-eur / forex-jpy) ---
 _EUR = os.environ.get('FX_EUR_URL', 'https://forex-eur-production.up.railway.app').rstrip('/')
 _JPY = os.environ.get('FX_JPY_URL', 'https://forex-jpy-production.up.railway.app').rstrip('/')
@@ -91,7 +88,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
 function toggleMenu(){document.body.classList.toggle('nomenu');try{localStorage.setItem('deskmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}
 try{if(localStorage.getItem('deskmenu')==='0')document.body.classList.add('nomenu');}catch(e){}
-var F="__F__", ORB="__ORB__", EUR="__EUR__", JPY="__JPY__", AMD="__AMD__";
+var F="__F__", EUR="__EUR__", JPY="__JPY__";
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
  pnl:'<svg '+S+'><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
@@ -120,13 +117,6 @@ var F_HOW='<h2>Strategy F - first-presentation FVG</h2>'+
  '<li><b>First touch.</b> Price returns to that gap for the first time - the entry.</li>'+
  '<li><b>Order.</b> Limit at the gap, fixed R target.</li></ol></div>'+
  '<div class="card mut">Honest note (from the F audit): the FVG mechanics are right but F lacks bias / draw-on-liquidity / premium-discount - its edge is <b>momentum continuation, not textbook ICT</b>. Realistic additive &asymp; +0.045R. Its own service has the live candidates / log / performance.</div>';
-
-var AMD_HOW='<h2>Strategy AMD - Accumulation → Manipulation → Distribution</h2>'+
- '<div class="card mut">NY-PM short only, on days whose morning was a genuine accumulation.<ol>'+
- '<li><b>Accumulation.</b> Morning (08:00-12:00 ET) range &le; 1.2&times; its own 20-day average.</li>'+
- '<li><b>Manipulation.</b> In NY-PM, a sweep of a significant-swing / session high (equal-highs excluded).</li>'+
- '<li><b>Distribution.</b> Aligned HTF FVG &rarr; 1m IFVG &rarr; CISD &rarr; SHORT. 2R target, BE@1R.</li></ol></div>'+
- '<div class="card mut">Backtest 4yr: <b>+0.44R, PF 2.39, t=3.21, ~21 trades/yr, 5/5 positive years</b>, maxDD -5.2R. A reversal engine that only works in a reversal session - NY-AM / London ports were tested and dead. Own service = live candidates / journal / Gate-0.</div>';
 
 var COMPARE_HTML='<h2>Strategy scorecard - timing, win rate &amp; frequency</h2>'+
  '<div class="card mut">Real trade logs, 4yr MNQ. Your strategies <b>tile the trading day</b>; AMD owns the NY-PM slot with the #2 per-trade edge. Sorted by expectancy. (A/B: log=6,569 signals, ~1,181 finals/yr traded.)</div>'+
@@ -158,18 +148,16 @@ var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut"><b>Summary = would-be results.</b> Every setup the detector confirms is modeled to its outcome (win +2R / breakeven 0 / loss -1R): <b>n</b> = how many trades would have been taken, <b>total_R</b> = would-be P&L in R (&times; your risk-per-trade = money), <b>exp_R</b> = per-trade edge, <b>win_pct</b> = hit rate. Backtest reference: EUR/USD +0.23R, USD/JPY +0.18R net.</div>'+
  '<div class="card mut"><b>Candidates &amp; setups</b> = the live funnel right now (which levels armed, which displaced, which confirmed). In-sample backtest; live fills are the open question.</div>';
 var STRAT={
- ab:{name:'A/B',sub:'Displacement → FVG → 50% hold → BOS',tabs:[['candidates','Candidates','/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
+ ab:{name:'A/B + Shallow',sub:'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
- orb:{name:'ORB',sub:'Opening-range breakout · momentum',ext:ORB,tabs:[['how','How it works',ORB+'/how','help'],['dash','Dashboard',ORB+'/','grid']]},
- amd:{name:'AMD',sub:'Accumulation → Manipulation → Distribution · NY-PM short',ext:AMD,tabs:[['how','How it works',{html:AMD_HOW},'help'],['dash','Dashboard',AMD+'/','grid'],['stats','Gate 0',AMD+'/stats','chart']]},
  eur:{name:'EUR/USD',sub:'Forex · observe only · EURUSD-calibrated',ext:EUR,tabs:[['sum','Summary',EUR+'/performance','chart'],['trades','Trades',EUR+'/outcomes','book'],['pine','Pine for TV',EUR+'/pine','file'],['cand','Candidates & setups',EUR+'/candidates','list'],['status','Status',EUR+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  jpy:{name:'USD/JPY',sub:'Forex · observe only · JPY-calibrated (×100)',ext:JPY,tabs:[['sum','Summary',JPY+'/performance','chart'],['trades','Trades',JPY+'/outcomes','book'],['pine','Pine for TV',JPY+'/pine','file'],['cand','Candidates & setups',JPY+'/candidates','list'],['status','Status',JPY+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]},
  fxg:{name:'Forex - Auto-Executor',sub:'EUR/USD + USD/JPY joined guard · each pair has its own counters & kill-latch',tabs:[['joined','Joined','/fxguard','grid'],['eurg','EUR/USD guard',EUR+'/guard','grid'],['jpyg','USD/JPY guard',JPY+'/guard','grid'],['eurh','EUR health',EUR+'/guard/health?format=txt','help'],['jpyh','JPY health',JPY+'/guard/health?format=txt','help']]}
 };
 var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],/* hidden: ['gen/news','News','news'],['gen/income','Income','income'], */['gen/guard','Auto-Executor','grid']]],
-         ['Strategies',[['ab','A/B','ab'],['c','C','c'],['f','F','f'],['orb','ORB','orb'],['amd','AMD','amd']]],
+         ['Strategies',[['ab','A/B + Shallow','ab'],['c','C','c'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),
@@ -399,8 +387,8 @@ load();
 
 
 def render_home():
-    return (PAGE.replace('__F__', _F).replace('__ORB__', _ORB)
-                .replace('__EUR__', _EUR).replace('__JPY__', _JPY).replace('__AMD__', _AMD))
+    return (PAGE.replace('__F__', _F)
+                .replace('__EUR__', _EUR).replace('__JPY__', _JPY))
 
 
 def _shadow_html():

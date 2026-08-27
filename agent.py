@@ -28,6 +28,7 @@ import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
+import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +48,7 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.14-reconcile-pine-prem-stop'
+VERSION = 'v31.12-shared-900-floor-aware'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -286,34 +287,6 @@ def _signal_bar_close(x):
         print('A/B-shallow signal close lookup err', e, flush=True)
     return None
 
-def _apply_prem_stop_policy(x):
-    """Stamp PREM stop policy and, for a single A/B leg, enforce reduced risk."""
-    policy = guardrails.prem_stop_policy(x)
-    x['_prem_stop_filter_enabled'] = bool(policy.get('enabled'))
-    x['_prem_stop_filter_applies'] = bool(policy.get('applies'))
-    x['_prem_stop_filter_action'] = policy.get('action')
-    x['_prem_stop_risk_mult'] = float(policy.get('risk_mult', 1.0) or 0.0)
-    x['_prem_stop_pts'] = policy.get('stop_pts')
-    x['_prem_stop_full_max_pts'] = policy.get('full_max_pts')
-    x['_prem_stop_hard_max_pts'] = policy.get('hard_max_pts')
-    if policy.get('action') == 'block':
-        x['_prem_stop_filter_block_reason'] = policy.get('reason') or 'prem_stop_too_wide'
-        x['_planned_group_risk_usd'] = 0.0
-    elif policy.get('action') == 'scale' and not ab_shallow.enabled():
-        # Without shallow there is no shared-group sizing pass, so make the
-        # reduced dollar budget strict here. This also prevents EXEC_QTY and
-        # size-up tags from bypassing the PREM filter.
-        acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
-        base_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
-        budget = max(0.0, acct * base_pct / 100.0 * x['_prem_stop_risk_mult'])
-        x['_risk_budget_usd'] = budget
-        x['_risk_pct_override'] = (100.0 * budget / acct) if acct > 0 else 0.0
-        x['_strict_risk_budget'] = True
-        x['_risk_mode'] = 'prem_stop_scaled'
-        x.pop('_size_mult', None)
-        x.pop('_select', None)
-    return policy
-
 def _prepare_ab_siblings(repx):
     """Build one causal setup group: normal A/B plus optional A/B-shallow.
 
@@ -322,13 +295,9 @@ def _prepare_ab_siblings(repx):
     setups, not the second leg of this same A/B signal.
     """
     repx['_strat'] = repx.get('_strat', 'A/B')
-    policy = _apply_prem_stop_policy(repx)
-    risk_mult = float(policy.get('risk_mult', 1.0) or 0.0)
     acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
     deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
-    repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0 * risk_mult)
-    if policy.get('action') == 'block':
-        return [repx]
+    repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
     if repx['_strat'] != 'A/B' or not ab_shallow.enabled():
         return [repx]
     if repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
@@ -341,14 +310,12 @@ def _prepare_ab_siblings(repx):
     repx['_signal_close'] = close
     gid = ab_shallow.setup_group_id(repx)
     repx['_setup_group_id'] = gid
-    base_requested = ab_shallow.setup_group_budget_usd()
-    requested = base_requested * risk_mult
+    requested = ab_shallow.setup_group_budget_usd()
     capacity = guardrails.setup_group_risk_capacity(requested)
     allowed = float(capacity.get('allowed') or 0.0)
     dynamic_env = dict(os.environ)
     dynamic_env['SETUP_GROUP_RISK_USD'] = str(allowed)
     repx['_setup_group_budget_usd'] = requested
-    repx['_setup_group_base_budget_usd'] = base_requested
     repx['_setup_group_allowed_usd'] = allowed
     repx['_setup_group_floor_capacity'] = capacity
     repx['_risk_budget_usd'] = allowed * 0.5
@@ -394,7 +361,6 @@ def _prepare_ab_siblings(repx):
         item['_group_qty_cap'] = max_qty
         item['_planned_leg_risk_usd'] = round(leg_risk, 2)
         item['_setup_group_budget_usd'] = requested
-        item['_setup_group_base_budget_usd'] = base_requested
         item['_setup_group_allowed_usd'] = allowed
         viable.append(item)
         planned += leg_risk
@@ -655,10 +621,8 @@ def _process_new(now_ms=None):
         # prepared. Stamp the maximum equal sibling allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
         # reduce it further when the live floor cushion is tight.
-        _prem_stop_policy = _apply_prem_stop_policy(repx)
         if repx.get('_strat', 'A/B') == 'A/B' and ab_shallow.enabled():
-            _preview_budget = (ab_shallow.setup_group_leg_budget_usd() *
-                               float(_prem_stop_policy.get('risk_mult', 1.0) or 0.0))
+            _preview_budget = ab_shallow.setup_group_leg_budget_usd()
             _preview_acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
             repx['_risk_budget_usd'] = _preview_budget
             repx['_risk_pct_override'] = (100.0 * _preview_budget / _preview_acct) if _preview_acct > 0 else 0.0
@@ -1047,10 +1011,6 @@ def status():
                setup_group_risk_usd=ab_shallow.setup_group_budget_usd(),
                setup_group_leg_risk_usd=ab_shallow.setup_group_leg_budget_usd(),
                setup_group_floor_reserve_usd=float(os.environ.get('SETUP_GROUP_FLOOR_RESERVE_USD','100') or 100),
-               prem_stop_filter=os.environ.get('PREM_STOP_FILTER','1') == '1',
-               prem_stop_full_max_pts=float(os.environ.get('PREM_STOP_FULL_MAX_PTS','25') or 25),
-               prem_stop_hard_max_pts=float(os.environ.get('PREM_STOP_HARD_MAX_PTS','28') or 28),
-               prem_stop_mid_risk_mult=float(os.environ.get('PREM_STOP_MID_RISK_MULT','0.5') or 0.5),
                guard_sync_max_h=float(os.environ.get('GUARD_SYNC_MAX_H','24') or 24),
                ab_shallow_risk_pct=round(100.0 * ab_shallow.setup_group_leg_budget_usd() /
                                          float(os.environ.get('ACCOUNT','100000') or 100000), 3),
@@ -1147,11 +1107,9 @@ def journal():
     if _wants_html(): return _page('Journal', _table(rows))
     return jsonify(signals=rows)
 
-@app.route('/candidates')
-def candidates():
+def _scan_ab_candidates(hours):
+    """Run the live A/B detector once and return its recent diagnostic trace."""
     import json as _json
-    from collections import Counter
-    hours=float(request.args.get('hours','12'))
     tout='/tmp/cand_trace.json'   # v22-fix: /tmp is always writable — a stuck/locked /data file can no longer freeze this page
     gated = os.environ.get('REGIME_GATE','')=='1'
     det_file = os.environ.get('DET_FILE', 'det_v11.py')   # v20: v11 (detcore) = live detector; DET_FILE nadpisuje
@@ -1182,6 +1140,14 @@ def candidates():
                     _cm=_mag.check(_cr, _mbuf[0], _mbuf[1], _mbuf[2], _mrec)
                     if _cm['magnet']: _cr['magnet']=_cm['badge']
     except Exception as _me: print('[candidates] magnet err', _me, flush=True)
+    return rec
+
+
+@app.route('/candidates')
+def candidates():
+    from collections import Counter
+    hours=float(request.args.get('hours','12'))
+    rec = _scan_ab_candidates(hours)
     if _wants_html():
         _summ=' · '.join("%s: %s"%(k,v) for k,v in Counter(r['stage'] for r in rec).items())
         _legend=("<div style='font-size:12px;line-height:1.7;color:#9aa6b2;border:1px solid #334;"
@@ -1195,6 +1161,17 @@ def candidates():
         return _page('Candidates (%gh)'%hours, _legend + "<div class='sum'>etapy: %s</div>"%_summ + _table(rec))
     return jsonify(hours=hours, liczba=len(rec),
                    podsumowanie=dict(Counter(r['stage'] for r in rec)), kandydaci=rec)
+
+
+@app.route('/ab/candidates')
+def ab_combined_candidates():
+    """Human-readable two-leg funnel; JSON is available with Accept: application/json."""
+    try: hours=max(1.0, min(168.0, float(request.args.get('hours','12'))))
+    except Exception: hours=12.0
+    rec = _scan_ab_candidates(hours)
+    if not _wants_html():
+        return jsonify(ab_candidates_view.payload(rec, hours, os.environ))
+    return ab_candidates_view.render_page(rec, hours, os.environ)
 
 # ====== MONITOR REŻIMU (logika w regime.py — rdzen det_v10.py nietkniety) ======
 @app.route('/regime')
