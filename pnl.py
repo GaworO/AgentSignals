@@ -1,7 +1,7 @@
 """
 pnl.py  —  UNIFIED P&L JOURNAL (isolated add-on; does NOT touch intake / detector / signals logic).
 
-Why this exists: A/B, C, F, ORB (+ PREM/S1/S2 backtests) each track *modeled* R on their own
+Why this exists: A/B, C and F (+ PREM/S1/S2 backtests) each track *modeled* R on their own
 service. Nothing recorded (a) whether Aleks actually TOOK a trade, or (b) her REAL broker fill.
 This module adds ONE new table `fills` to journal.db and a /pnl dashboard where she logs real
 trades (by hand or by importing a broker CSV), tags Taken yes/no, and sees a cross-strategy P&L
@@ -22,17 +22,16 @@ Routes added:
 """
 import os, csv, io, json, sqlite3, datetime as dt
 
-STRATEGIES = ['A/B', 'C', 'F', 'ORB', 'Other']   # PREM is a catalyst inside A/B, not a separate strategy
+STRATEGIES = ['A/B', 'C', 'F', 'Other']   # PREM is a catalyst inside A/B, not a separate strategy
 
 # Backtest reference — the edge your LIVE numbers should track. COMPUTED from the project's own
-# 4-yr trade logs (not memory): ab_trades.csv, modelC_trades.csv, orb_trades.csv (real_R),
+# 4-yr trade logs (not memory): ab_trades.csv, modelC_trades.csv,
 # prem_trades_4y.csv (net) / PREM_ANALYSIS headline, strategy_f results (net F.P. first-touch),
 # s1_trades.csv, s2_trades.csv. EDIT if you re-run with a different config.
 BACKTEST_REF = {
     'A/B':  {'exp_r': 0.195, 'win_pct': 31.2, 'pf': 1.49, 'n': 6569},  # ab_trades.csv, all rows (PREM catalyst included)
     'C':    {'exp_r': 0.679, 'win_pct': 50.0, 'pf': 3.28, 'n': 56},    # modelC_trades.csv (net)
     'F':    {'exp_r': 0.125, 'win_pct': 27.0, 'pf': 1.31, 'n': 378},   # F.P. first-touch, NET (realistic)
-    'ORB':  {'exp_r': 0.227, 'win_pct': 46.4, 'pf': 1.46, 'n': 491},   # orb_trades.csv, real_R (realistic)
 }
 _COLS = ['id', 'logged_at', 'date', 'time', 'strategy', 'setup', 'side', 'taken',
          'entry', 'exit', 'size', 'risk_usd', 'pnl_usd', 'pnl_r', 'result', 'fees',
@@ -199,7 +198,7 @@ def _log_alert(DB, d):
 
 
 def _recent_alerts(DB, n=25):
-    """Unified 'which strategy fired' feed: alerts table (F/ORB/C/… via /pnl/fire) + A/B signals
+    """Unified 'which strategy fired' feed: alerts table (F/C/… via /pnl/fire) + A/B signals
     from the existing signals table, tagged A/B. Sorted newest first. Read-only."""
     out = []
     try:
@@ -582,7 +581,7 @@ def _ref_table_html():
             "<th title='avg R per trade'>Exp R (edge)</th><th>Win rate</th>"
             "<th title='gross win / gross loss'>Profit factor</th><th>Backtest trades</th>"
             "</tr></thead><tbody>%s</tbody></table></div>"
-            "<div class='sub'>Computed from the project's ~4-yr trade logs (A/B incl. PREM catalyst, C, F net, ORB realistic). "
+            "<div class='sub'>Computed from the project's ~4-yr trade logs (A/B incl. PREM catalyst, C and F net). "
             "This is the edge each strategy showed in testing — your live numbers above should track it. "
             "Edit BACKTEST_REF in pnl.py to change.</div>" % pr)
 

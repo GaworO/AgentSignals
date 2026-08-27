@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """
-allview.py — JOINED "All trades" + "All candidates" across strategies A/B, C, F, ORB.
+allview.py — JOINED "All trades" + "All candidates" across strategies A/B, C, F.
 
 Isolated add-on (same pattern as pnl.py / forex_pnl.py): adds read-only routes on the MAIN agent:
     /all/trades      — every strategy's modeled trades in one table + a PER-DAY Pine export
     /all/candidates  — every strategy's live candidates in one table
 
 It NEVER touches detector logic. A/B is read locally (outcomes.json + signals key for /chart);
-C / F / ORB are fetched over HTTP from their own services (server-side, no CORS) using env URLs:
+C / F are fetched over HTTP from their own services (server-side, no CORS) using env URLs:
 
     STRAT_C_URL   = https://<model-c service>        (reads  <url>/journal , <url>/candidates)
     STRAT_F_URL   = https://<strategy-f service>     (reads  <url>/performance_f , <url>/candidates?format=json)
-    STRAT_ORB_URL = https://<orb service>            (reads  <url>/trades , <url>/api/state)
-
 Any URL left unset is skipped — the view degrades gracefully to whatever is reachable.
 
 Wire into agent.py (next to the other registers):
@@ -24,12 +22,6 @@ try:
     import requests
 except Exception:
     requests = None
-try:
-    from zoneinfo import ZoneInfo
-    _ET = ZoneInfo('America/New_York')
-except Exception:
-    _ET = None
-
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
 _OUTCOMES = os.path.join(_DATA_DIR, 'outcomes.json')
@@ -70,8 +62,6 @@ STRAT_COLORS = {
     'AB':  ('color.aqua',    '#22d3ee'),
     'C':   ('color.lime',    '#4ade80'),
     'F':   ('color.orange',  '#f59e0b'),
-    'ORB': ('color.fuchsia', '#c084fc'),
-    'AMD': ('color.red',     '#ef4444'),
 }
 
 
@@ -172,49 +162,6 @@ def _f_trades():
     return res
 
 
-def _orb_ms(date, brk):
-    try:
-        h, m = str(brk).split(':')
-        d = dt.date.fromisoformat(str(date))
-        naive = dt.datetime(d.year, d.month, d.day, int(h), int(m))
-        if _ET is not None:
-            return int(naive.replace(tzinfo=_ET).timestamp() * 1000)
-        return int(naive.timestamp() * 1000)          # fallback: no tz (approx)
-    except Exception:
-        return 0
-
-
-def _orb_trades():
-    j = _get(os.environ.get('STRAT_ORB_URL', ''), '/trades')
-    if not isinstance(j, list):
-        return []
-    res = []
-    for t in j:
-        if not isinstance(t, dict):
-            continue
-        e = _f(t.get('entry')); sl = _f(t.get('SL', t.get('sl')))
-        if e is None or sl is None:
-            continue
-        ts = _orb_ms(t.get('date'), t.get('brk_time'))
-        res.append(_norm('ORB', ts, t.get('dir'), 'ORB', e, sl, t.get('R'),
-                         t.get('result', t.get('status'))))
-    return res
-
-
-def _amd_trades():
-    j = _get(os.environ.get('STRAT_AMD_URL', ''), '/stats')
-    if not isinstance(j, dict):
-        return []
-    res = []
-    for t in j.get('trades', []) or []:
-        e = _f(t.get('entry')); sl = _f(t.get('SL', t.get('sl')))
-        if e is None or sl is None:
-            continue
-        ts = t.get('bar_ms') or _iso_ms(t.get('alert_ts'))
-        res.append(_norm('AMD', ts, t.get('dir'), 'AMD', e, sl, t.get('R'), t.get('status')))
-    return res
-
-
 def _dedup_key(t):
     """Same setup fired under several catalysts/models => identical geometry. Collapse on it.
     (strat, day, dir, entry@0.1, sl@0.1) — two genuinely different trades never share all five."""
@@ -250,7 +197,7 @@ def _dedup(rows):
 
 def _all_trades():
     out = []
-    for fn in (_ab_trades, _c_trades, _f_trades, _orb_trades, _amd_trades):
+    for fn in (_ab_trades, _c_trades, _f_trades):
         try:
             out += fn()
         except Exception:
@@ -332,7 +279,7 @@ def _num(x):
 
 def _strat_filter_bar(present):
     """Checkbox row (one per strategy present) that filters the table + the day Pine."""
-    order = [s for s in ('AB', 'C', 'F', 'ORB') if s in present]
+    order = [s for s in ('AB', 'C', 'F') if s in present]
     boxes = ''.join(
         "<label style='display:inline-flex;align-items:center;gap:5px'>"
         "<input type='checkbox' class='fstrat' value='%s' checked onchange='rebuild()'>%s</label>"
@@ -380,7 +327,7 @@ def render_trades():
             _rcell(r['r']), chart, pine, took, cbtn)
 
     body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
-            _NAV + "<h1>All trades — A/B · C · F · ORB</h1>"
+            _NAV + "<h1>All trades — A/B · C · F</h1>"
             "<div class='sub'>modeled outcomes across every strategy · read-only · " + _reach_note() + "</div>"
             + _strat_filter_bar(present) +
             "<div class='bar'><b>Per-day Pine for TradingView:</b>"
@@ -407,7 +354,7 @@ def render_trades():
 
 def _reach_note():
     have = ['A/B(local)']
-    for lbl, env in (('C', 'STRAT_C_URL'), ('F', 'STRAT_F_URL'), ('ORB', 'STRAT_ORB_URL'), ('AMD', 'STRAT_AMD_URL')):
+    for lbl, env in (('C', 'STRAT_C_URL'), ('F', 'STRAT_F_URL')):
         have.append(lbl + ('✓' if os.environ.get(env) else '✗'))
     return ' '.join(have)
 
@@ -445,21 +392,9 @@ def _f_candidates():
     return res
 
 
-def _amd_candidates():
-    j = _get(os.environ.get('STRAT_AMD_URL', ''), '/candidates')
-    if not isinstance(j, dict):
-        return []
-    res = []
-    arr = (j.get('candidates') if isinstance(j, dict) else j) or []
-    for x in arr:
-        res.append(dict(strat='AMD', day=x.get('day', ''), time=x.get('time', ''),
-                        dir=x.get('dir', ''), stage=x.get('stage', ''), note=x.get('note', '')))
-    return res
-
-
 def render_candidates():
     rows = []
-    for fn in (_ab_candidates, _c_candidates, _f_candidates, _amd_candidates):
+    for fn in (_ab_candidates, _c_candidates, _f_candidates):
         try:
             rows += fn()
         except Exception:

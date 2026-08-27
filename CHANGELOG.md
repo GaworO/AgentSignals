@@ -1,31 +1,37 @@
-## v31.14 — reconcile + blocked/date Pine + PREM stop-width filter (2026-08-24)
+## v31.13 — live A/B + Shallow candidate funnel; ORB/AMD removed (2026-08-27)
 
-- Built on `v31.13-reconcile-pine`; the broker reconciliation and Pine export are retained.
-- Applies the stop filter only to PREM A/B setup groups, using the final broker entry and SL.
-- `<=25` points keeps the normal setup-group budget.
-- `>25` and `<=28` points multiplies the whole group budget by `0.5`
-  (default `$900 -> $450`, split `$225 + $225`).
-- `>28` points blocks the complete A/B + A/B-shallow group with `prem_stop_too_wide`.
-- The decision, stop width and multiplier are recorded in the guard book and alert/status output.
-- Config: `PREM_STOP_FILTER`, `PREM_STOP_FULL_MAX_PTS`, `PREM_STOP_HARD_MAX_PTS`,
-  `PREM_STOP_MID_RISK_MULT`.
+### A/B + A/B-shallow candidates
 
-Production files: `agent.py`, `guardrails.py`, `live_emit.py`.
+- Adds `/ab/candidates`: one combined candidate page with separate, step-by-step A/B and A/B-shallow pipelines for every setup.
+- Shows displacement/FVG, 50% hold + BOS, entry/stop/risk validation and confirmed/ready status.
+- Shows the calculated Entry, SL and TP for both legs plus the shallow leg's shared-risk budget.
+- Makes the dependency explicit: A/B-shallow waits for the parent A/B setup and cannot become ready independently.
+- Adds a full legend explaining every stage, summary counters and 6h/12h/24h/48h history windows.
+- Adds equivalent JSON output with A/B, shallow and live-feed status metadata.
 
-## v31.13 — time-safe broker reconcile + blocked/date Pine export (2026-08-24)
+### Continuous status and observability
 
-- Reconcile normalizes Tradovate Performance timestamps from `RECONCILE_CSV_TZ`
-  (`Europe/Copenhagen` by default) into New York time and requires the same guard trading date.
-- Matching now uses time, direction, weighted entry and quantity instead of price/direction alone.
-- Nearby partial executions are aggregated before matching, so split fills such as `1 + 7`
-  contracts can reconcile to one booked `8`-contract order.
-- The result table separates matched, unmatched and full broker totals and displays broker/book
-  timestamps in ET. Malformed CSV rows are counted instead of disappearing silently.
-- Pine export supports `All decisions`, `Blocked only` and `Fired only`, with an ET trading-date
-  picker. Blocked setups use orange labels containing their block reason.
-- Pine exports are capped at 150 newest decisions by default (`PINE_MAX_ROWS`) to stay inside
-  TradingView's 500-object limits; selecting a date narrows the export.
-- No detector, entry, stop, target, execution or `$900` setup-group risk behavior changed.
+- The normal detector run after every closed 1-minute market bar now also refreshes `candidate_trace.json`.
+- Trace replacement is atomic, so the Candidates page never reads a partially written JSON document.
+- The page checks the latest trace every 15 seconds by default (`CANDIDATE_REFRESH_SEC`) without starting another detector process on every page refresh.
+- Adds LIVE/STALE status, last detector update, last received market bar and a manual **Run detector now** action.
+- Enriches confirmed detector traces with Entry/SL/TP, BOS time, stop/target source and the exact BOS close used to calculate A/B-shallow.
+- Pine remains available as a chart/export aid; the server trace is the authoritative source for live candidate status.
+
+### Dashboard and strategy cleanup
+
+- Replaces the old A/B strategy item with **A/B + Shallow** and points its Candidates tab to `/ab/candidates`.
+- Removes ORB and AMD from the Strategies menu.
+- Removes ORB/AMD trade and candidate fetches from the joined views; `/all/trades` and `/all/candidates` now cover A/B, C and F only.
+- Removes AMD bar forwarding, ORB service URLs/navigation and ORB from the active P&L strategy choices/reference cards.
+- Deletes the ORB and AMD live backend implementations and AMD deployment configuration.
+
+### Files
+
+- New: `ab_candidates_view.py`, `tests/test_ab_candidates_view.py`.
+- Updated: `agent.py`, `dashboard.py`, `allview.py`, `pnl.py`, `detcore/emit.py`, `det_v10.py`, `CHANGELOG.md`.
+- Deleted: `orb_live.py`, `amd_live.py`, `config/amd.yaml`, `README_AMD_DEPLOY.md`.
+- Verification: all 16 unit tests pass; the desktop and responsive Candidates layouts were visually checked.
 
 ## v31.12 — shared $900 floor-aware setup budget (2026-08-11)
 

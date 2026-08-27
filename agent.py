@@ -19,13 +19,13 @@ import live_emit   # to_alert, post_webhook, key
 import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza intake'u
 import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
 import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + trasy /pnl; nie rusza intake'u/detektora
-import how_ab      # A/B "how it works" page at /how — izolowany dodatek (ORB /how style), nie rusza detektora
+import how_ab      # A/B "how it works" page at /how — isolated add-on, does not touch the detector
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
-import allview     # /all/trades + /all/candidates - joined view across A/B/C/F/ORB (isolated add-on)
+import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
@@ -45,10 +45,11 @@ DB   = os.path.join(DATA_DIR, 'journal.db')
 TRADES = os.path.join(DATA_DIR, 'trades.json')   # otwarte trady do sledzenia 1R/3R
 ARCHIVE = os.path.join(DATA_DIR, 'archive.csv')  # pelna historia barow — NIGDY nie przycinana (backtesty / odswiezenie seed.csv)
 OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety trade -> /performance
+CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the normal live detector on every bar
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.12-shared-900-floor-aware'
+VERSION = 'v31.13-live-ab-candidates-no-orb-amd'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -495,11 +496,15 @@ def _eod_flag():
 def _detect():
     gated = os.environ.get('REGIME_GATE', '') == '1'            # REGIME_GATE=1 -> wlacza EOD_INTRADAY; detektor i tak = v11
     det_file = os.environ.get('DET_FILE', 'det_v11.py')   # v20: v11 (detcore) = live detector; DET_FILE nadpisuje
-    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=OUT, CUTOFF='')   # CUTOFF pusty = bez filtra dat
+    trace_work = CAND_TRACE + '.live'
+    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL=OUT, CUTOFF='',
+             DEBUG_TRACE='1', TRACE_OUT=trace_work)   # one detector run also refreshes the live candidate page
     if gated:
         env['EOD_INTRADAY'] = '1' if _eod_flag() else ''        # regime-gated: ON w choppy, OFF w trend
-    subprocess.run(['python3', os.path.join(HERE, det_file)], env=env,
-                   capture_output=True, timeout=180)
+    _det = subprocess.run(['python3', os.path.join(HERE, det_file)], env=env,
+                          capture_output=True, timeout=180)
+    if _det.returncode == 0 and os.path.exists(trace_work):
+        os.replace(trace_work, CAND_TRACE)             # readers never see a half-written JSON trace
     import pickle
     try: conf=pickle.load(open(OUT,'rb'))
     except Exception: conf=[]
@@ -780,11 +785,6 @@ def bars():
             _rc = requests.post(_curl, json=b, timeout=3)
             if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = C health signal
         except Exception: pass
-    # --- Strategy AMD: DOKŁADNIE jak F/C — przekaz bar do serwisu AMD (fire-and-forget; NIE wplywa na A/B) ---
-    _amdurl = os.environ.get('STRAT_AMD_FORWARD_URL', '')
-    if _amdurl and requests is not None:
-        try: requests.post(_amdurl, json=b, timeout=3)
-        except Exception: pass
     return jsonify(ok=True, **res)
 
 def _wants_html():
@@ -803,14 +803,11 @@ _VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui
  ".bdg{background:#4ade80;color:#04210f;font:8px monospace;padding:1px 5px;border-radius:3px;margin-right:6px;text-transform:uppercase}"
  ".empty{padding:20px;color:#555;font:12px monospace}</style>")
 _F_URL = os.environ.get('STRAT_F_URL', 'https://strategy-f-production.up.railway.app').rstrip('/')
-_ORB_URL = os.environ.get('STRAT_ORB_URL', 'https://strategy-orb-production.up.railway.app').rstrip('/')
 _VIEW_NAV = ("<div class='nav'><a href='/'>home</a><a href='/pnl'>P&amp;L</a><a href='/journal'>journal</a><a href='/candidates'>candidates</a><a href='/how'>how</a><a href='/all/trades'>all·trades</a><a href='/all/reconcile'>reconcile</a>"
  "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a>"
  "<span style='color:#444'>&nbsp;|&nbsp;F:</span>"
  f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
  f"<a href='{_F_URL}/performance_f'>F·perf</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;ORB:</span>"
- f"<a href='{_ORB_URL}/'>ORB·dashboard</a><a href='{_ORB_URL}/how'>ORB·how</a>"
  "<span style='color:#444'>&nbsp;|&nbsp;C:</span>"
  "<a href='/c'>C·dashboard</a><a href='/c/candidates'>C·candidates</a><a href='/c/performance'>C·perf</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
@@ -1107,26 +1104,44 @@ def journal():
     if _wants_html(): return _page('Journal', _table(rows))
     return jsonify(signals=rows)
 
-def _scan_ab_candidates(hours):
-    """Run the live A/B detector once and return its recent diagnostic trace."""
+_cand_scan_lock = threading.Lock()
+
+
+def _scan_ab_candidates(hours, force=False):
+    """Read the trace produced by the normal per-bar detector.
+
+    An on-demand detector run is only a startup/manual fallback.  Normal page
+    refreshes are therefore cheap and cannot start a detector subprocess every
+    15 seconds.
+    """
     import json as _json
-    tout='/tmp/cand_trace.json'   # v22-fix: /tmp is always writable — a stuck/locked /data file can no longer freeze this page
-    gated = os.environ.get('REGIME_GATE','')=='1'
-    det_file = os.environ.get('DET_FILE', 'det_v11.py')   # v20: v11 (detcore) = live detector; DET_FILE nadpisuje
-    env=dict(os.environ, DATA_CSV=BUF, OUT_PKL='/tmp/cand_out.pkl',
-             CUTOFF='', DEBUG_TRACE='1', TRACE_OUT=tout)
-    if gated: env['EOD_INTRADAY']='1' if _eod_flag() else ''
-    # /candidates = DIAGNOSTYKA: ten SAM detektor co live (det_v11 gdy REGIME_GATE=1), z DEBUG_TRACE. Nie dotyka alertow.
-    try:                                                   # v22-fix: bigger timeout + surface the error instead of swallowing it
-        _r = subprocess.run(['python3', os.path.join(HERE,det_file)], env=env, capture_output=True, timeout=600)
-        if _r.returncode != 0:
-            print('[candidates] det rc=%s STDERR:\n%s' % (_r.returncode, (_r.stderr or b'').decode('utf-8','replace')[-3000:]), flush=True)
-    except subprocess.TimeoutExpired:
-        print('[candidates] det TIMEOUT >600s — trace not refreshed', flush=True)
-    except Exception as _e:
-        print('[candidates] det EXC:', _e, flush=True)
-    try: tr=_json.load(open(tout))
-    except Exception: tr=[]
+    tr=[]; loaded=False
+    try:
+        tr=_json.load(open(CAND_TRACE)); loaded=True
+    except Exception:
+        pass
+    if force or not loaded:
+        with _cand_scan_lock:
+            tout='/tmp/cand_trace_on_demand.json'   # writable fallback; the live trace remains owned by _detect()
+            gated = os.environ.get('REGIME_GATE','')=='1'
+            det_file = os.environ.get('DET_FILE', 'det_v11.py')
+            env=dict(os.environ, DATA_CSV=BUF, OUT_PKL='/tmp/cand_out.pkl',
+                     CUTOFF='', DEBUG_TRACE='1', TRACE_OUT=tout)
+            if gated: env['EOD_INTRADAY']='1' if _eod_flag() else ''
+            try:
+                _r = subprocess.run(['python3', os.path.join(HERE,det_file)], env=env, capture_output=True, timeout=600)
+                if _r.returncode != 0:
+                    print('[candidates] det rc=%s STDERR:\n%s' % (_r.returncode, (_r.stderr or b'').decode('utf-8','replace')[-3000:]), flush=True)
+            except subprocess.TimeoutExpired:
+                print('[candidates] det TIMEOUT >600s — trace not refreshed', flush=True)
+            except Exception as _e:
+                print('[candidates] det EXC:', _e, flush=True)
+            try:
+                tr=_json.load(open(tout))
+                staged=CAND_TRACE + '.ondemand'
+                with open(staged, 'w') as _f: _json.dump(tr, _f)
+                os.replace(staged, CAND_TRACE)
+            except Exception: tr=[]
     cut=int((dt.datetime.utcnow().timestamp()-hours*3600)*1000)
     rec=[r for r in tr if r.get('trig_ms',0)>=cut]
     rec.sort(key=lambda r:r.get('trig_ms',0), reverse=True)   # newest first
@@ -1143,11 +1158,24 @@ def _scan_ab_candidates(hours):
     return rec
 
 
+def _candidate_trace_status():
+    try:
+        stamp = dt.datetime.utcfromtimestamp(os.path.getmtime(CAND_TRACE))
+        updated = stamp.isoformat(timespec='seconds') + 'Z'
+        age_sec = max(0, int((dt.datetime.utcnow() - stamp).total_seconds()))
+    except Exception:
+        updated, age_sec = None, None
+    try: refresh_sec=max(5, min(60, int(os.environ.get('CANDIDATE_REFRESH_SEC', '15') or 15)))
+    except Exception: refresh_sec=15
+    return dict(updated_at=updated, age_sec=age_sec, last_bar=_last.get('last_bar'),
+                refresh_seconds=refresh_sec, version=VERSION)
+
+
 @app.route('/candidates')
 def candidates():
     from collections import Counter
     hours=float(request.args.get('hours','12'))
-    rec = _scan_ab_candidates(hours)
+    rec = _scan_ab_candidates(hours, force=request.args.get('refresh') == '1')
     if _wants_html():
         _summ=' · '.join("%s: %s"%(k,v) for k,v in Counter(r['stage'] for r in rec).items())
         _legend=("<div style='font-size:12px;line-height:1.7;color:#9aa6b2;border:1px solid #334;"
@@ -1168,10 +1196,13 @@ def ab_combined_candidates():
     """Human-readable two-leg funnel; JSON is available with Accept: application/json."""
     try: hours=max(1.0, min(168.0, float(request.args.get('hours','12'))))
     except Exception: hours=12.0
-    rec = _scan_ab_candidates(hours)
+    rec = _scan_ab_candidates(hours, force=request.args.get('refresh') == '1')
+    live_status = _candidate_trace_status()
     if not _wants_html():
-        return jsonify(ab_candidates_view.payload(rec, hours, os.environ))
-    return ab_candidates_view.render_page(rec, hours, os.environ)
+        body = ab_candidates_view.payload(rec, hours, os.environ)
+        body['live'] = live_status
+        return jsonify(body)
+    return ab_candidates_view.render_page(rec, hours, os.environ, live_status=live_status)
 
 # ====== MONITOR REŻIMU (logika w regime.py — rdzen det_v10.py nietkniety) ======
 @app.route('/regime')
@@ -1309,7 +1340,7 @@ def _heartbeat_loop():
 
 _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
-how_ab.register(app)                        # /how — A/B explainer page (ORB /how style, isolated add-on)
+how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
