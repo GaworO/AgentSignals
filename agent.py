@@ -49,7 +49,7 @@ CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the 
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.13-live-ab-candidates-no-orb-amd'
+VERSION = 'v31.14-dual-auto-executor-builder50'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -785,6 +785,17 @@ def bars():
             _rc = requests.post(_curl, json=b, timeout=3)
             if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = C health signal
         except Exception: pass
+    # --- Builder 50K: forward the SAME closed 1-minute bar to the second account process. ---
+    # Only the existing 100K service gets BUILDER50_URL.  The Builder service must leave it
+    # unset, which prevents a loop.  This shares market data only: detection, Guard state,
+    # risk counters, execution webhook and journals all remain local to each service.
+    _burl = os.environ.get('BUILDER50_URL', '').rstrip('/')
+    if (_burl and os.environ.get('BUILDER50_FORWARD_BARS', '1') == '1'
+            and requests is not None):
+        try:
+            requests.post(_burl + '/bars', json=b, timeout=3)
+        except Exception as e:
+            print('[builder50] bar fanout failed:', e, flush=True)
     return jsonify(ok=True, **res)
 
 def _wants_html():

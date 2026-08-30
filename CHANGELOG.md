@@ -1,3 +1,34 @@
+## v31.14 — separate Builder 50K Auto-Executor dashboard (2026-08-30)
+
+### Builder account profile
+
+- Makes the Guard and Trading Desk account-aware instead of hard-coding Pro 100K / $106K.
+- Adds the `ACCOUNT_PLAN`, `ACCOUNT_LABEL` and `ACCOUNT_PHASE` profile fields.
+- Corrects target progress to use `TARGET_BALANCE - START_BALANCE`; Builder $51,500 now displays as 50% of its $3,000 target rather than 25% of a hard-coded $6,000 target.
+- Shows Builder rules directly in Auto-Executor: $3,000 target, $2,000 EOD MLL, $1,000 soft pause, 40 MNQ cap, no evaluation consistency and one minimum trading day.
+- Validates the live Builder environment and shows a visible warning for an incorrect start, target, floor, EOD trail, floor lock, risk budget or contract cap.
+
+### Activity and execution journal
+
+- Adds a 7-calendar-day inactivity countdown anchored to the last confirmed fill or `ACCOUNT_STARTED_ON`.
+- A resting order that was only sent and a MANUAL/review-only row do not count as an executed trade.
+- Prefers broker-reconciled fills and labels shadow-resolved fills as model-confirmed.
+- Adds all-time sent setup, confirmed setup, win/loss, open-order and broker-reconciliation summaries while preserving the detailed decision ledger.
+- Expands the session display into full New York time windows; `PREM` is now explained as 05:00-09:30 ET rather than left as an unexplained code.
+
+### Isolated deployment
+
+- Adds `RAILWAY_VARIABLES_BUILDER50.txt` for a second Railway service with its own `DATA_DIR`, Guard token and Builder-only TradersPost webhook.
+- Adds a dedicated **Auto-Executors** section to Trading Desk. The existing **100K Challenge** and the new **Builder 50K** are visible at the same time rather than relabelling one dashboard.
+- Both accounts expose the same account-level tabs: Guard & trades, Candidates, All trades, Reconcile, P&L, Health and Pine export.
+- Adds a read-only `/builder50/data` bridge so the 100K Trading Desk can show Builder's live status card without sharing any execution commands or secrets.
+- Forwards the same closed one-minute `/bars` payload from the 100K service to Builder, so both account processes evaluate the same market independently without requiring a duplicate TradingView alert.
+- Adds `BUILDER50_URL` as the only account-link variable on the existing 100K service. The Builder process still has a separate state directory, Guard token and TradersPost webhook.
+- Expands the Builder legend with EOD floor behavior, max minis/micros, overnight/news rules and funded/payout rules.
+- Adds `BUILDER50_DUAL_DASHBOARD_DEPLOY.md` and `RAILWAY_VARIABLES_100K_DASHBOARD_LINK.txt` with the two-service wiring and isolation check.
+
+Files: `guardrails.py`, `dashboard.py`, `RAILWAY_VARIABLES_BUILDER50.txt`, `RAILWAY_VARIABLES_100K_DASHBOARD_LINK.txt`, `BUILDER50_DUAL_DASHBOARD_DEPLOY.md`, `tests/test_builder50_dashboard.py`, `CHANGELOG.md`.
+
 ## v31.13 — live A/B + Shallow candidate funnel; ORB/AMD removed (2026-08-27)
 
 ### A/B + A/B-shallow candidates

@@ -19,6 +19,10 @@ _F   = os.environ.get('STRAT_F_URL',  'https://strategy-f-production.up.railway.
 # --- Forex observe-only services (public URLs of forex-eur / forex-jpy) ---
 _EUR = os.environ.get('FX_EUR_URL', 'https://forex-eur-production.up.railway.app').rstrip('/')
 _JPY = os.environ.get('FX_JPY_URL', 'https://forex-jpy-production.up.railway.app').rstrip('/')
+_ACCOUNT_LABEL = os.environ.get('ACCOUNT_LABEL', '').strip() or '100K Challenge'
+# A second, fully isolated AgentSignals/Railway service.  It runs the same Guard code with
+# Builder-specific variables, storage and TradersPost webhook; this dashboard only federates it.
+_BUILDER50 = os.environ.get('BUILDER50_URL', '').strip().rstrip('/')
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading desk</title>
@@ -72,7 +76,8 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
   <aside>
     <div class="brand"><span class="ic" id="brandic"></span> Trading desk</div>
     <div id="sidenav"></div>
-    <a id="autocard" class="autocard" href="#/gen/guard" title="Open the Auto-Executor guard"></a>
+    <a id="autocard" class="autocard" href="#/account100/guard" title="Open the 100K Auto-Executor guard"></a>
+    <a id="buildercard" class="autocard" href="#/builder50/guard" title="Open the separate Builder 50K Auto-Executor"></a>
     <a id="fxcard" class="autocard" href="#/fxg" title="Open the joined Forex Auto-Executor"></a>
   </aside>
   <main>
@@ -88,7 +93,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
 function toggleMenu(){document.body.classList.toggle('nomenu');try{localStorage.setItem('deskmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}
 try{if(localStorage.getItem('deskmenu')==='0')document.body.classList.add('nomenu');}catch(e){}
-var F="__F__", EUR="__EUR__", JPY="__JPY__";
+var F="__F__", EUR="__EUR__", JPY="__JPY__", ACCOUNT_LABEL="__ACCOUNT_LABEL__", BUILDER50="__BUILDER50__";
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
  pnl:'<svg '+S+'><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
@@ -141,13 +146,26 @@ var GEN={
  'news':{t:'News',html:'<h2>News &amp; high-impact suppression</h2><div class="card mut">The agent pulls the ForexFactory high-impact calendar (CPI, NFP, FOMC, PCE, ISM, PPI, GDP, Powell). Trades within &plusmn;30 min are flagged. <b>NO_TRADE_SUPPRESS=1</b> mutes them entirely - ON for funded accounts.</div>'},
  'income':{t:'Income',html:'<h2>Income &amp; scaling</h2><div class="card mut">Funded-account scaling toward the weekly target across multi-firm accounts. <b>Gate 0 for every strategy: prove &ge; +0.15R over 30-50 live trades before sizing up.</b></div>'},
  'compare':{t:'Compare',html:COMPARE_HTML},
- 'shadow':{t:'Shadow Executor',frame:'/shadow'}, 'guard':{t:'Auto-Executor Guard',frame:'/guard'}
+ 'shadow':{t:'Shadow Executor',frame:'/shadow'}, 'guard':{t:ACCOUNT_LABEL+' Auto-Executor',frame:'/guard'}
 };
 var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut">Same detector as A/B (displacement &rarr; FVG &rarr; 50% hold &rarr; BOS), volatility-recalibrated per instrument. <b>Alert-only</b> - no execution, no contact with the MNQ agent. Fed live 1-min bars from TradingView.</div>'+
  '<div class="card mut"><b>Summary = would-be results.</b> Every setup the detector confirms is modeled to its outcome (win +2R / breakeven 0 / loss -1R): <b>n</b> = how many trades would have been taken, <b>total_R</b> = would-be P&L in R (&times; your risk-per-trade = money), <b>exp_R</b> = per-trade edge, <b>win_pct</b> = hit rate. Backtest reference: EUR/USD +0.23R, USD/JPY +0.18R net.</div>'+
  '<div class="card mut"><b>Candidates &amp; setups</b> = the live funnel right now (which levels armed, which displaced, which confirmed). In-sample backtest; live fills are the open question.</div>';
 var STRAT={
+ account100:{name:ACCOUNT_LABEL+' — Auto-Executor',sub:'Current $100K challenge · its existing Guard, state, risk and TradersPost route',
+   tabs:[['guard','Guard & trades','/guard','grid'],['candidates','Candidates','/all/candidates','list'],
+         ['alltrades','All trades','/all/trades','book'],['reconcile','Reconcile','/all/reconcile','book'],
+         ['pnl','P&L','/pnl','pnl'],['health','Health','/guard/health?format=txt','help'],
+         ['pine','Pine for trades','/guard/pine','file']]},
+ builder50:{name:'Builder 50K — Auto-Executor',sub:'Independent $50K MFF Builder account · separate Guard, state, risk and TradersPost webhook',ext:BUILDER50,
+   tabs:[['guard','Guard & trades',BUILDER50?BUILDER50+'/guard':{html:'<h2>Builder 50K is not connected yet</h2><div class="card mut">Set <b>BUILDER50_URL</b> in the existing 100K Railway service to the public URL of the new Builder service. The two services must use separate DATA_DIR, EXEC_WEBHOOK and GUARD_TOKEN values.</div>'},'grid'],
+         ['candidates','Candidates',BUILDER50?BUILDER50+'/all/candidates':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'list'],
+         ['alltrades','All trades',BUILDER50?BUILDER50+'/all/trades':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'book'],
+         ['reconcile','Reconcile',BUILDER50?BUILDER50+'/all/reconcile':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'book'],
+         ['pnl','P&L',BUILDER50?BUILDER50+'/pnl':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'pnl'],
+         ['health','Health',BUILDER50?BUILDER50+'/guard/health?format=txt':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'help'],
+         ['pine','Pine for trades',BUILDER50?BUILDER50+'/guard/pine':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'file']]},
  ab:{name:'A/B + Shallow',sub:'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
@@ -156,7 +174,8 @@ var STRAT={
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]},
  fxg:{name:'Forex - Auto-Executor',sub:'EUR/USD + USD/JPY joined guard · each pair has its own counters & kill-latch',tabs:[['joined','Joined','/fxguard','grid'],['eurg','EUR/USD guard',EUR+'/guard','grid'],['jpyg','USD/JPY guard',JPY+'/guard','grid'],['eurh','EUR health',EUR+'/guard/health?format=txt','help'],['jpyh','JPY health',JPY+'/guard/health?format=txt','help']]}
 };
-var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor'],/* hidden: ['gen/news','News','news'],['gen/income','Income','income'], */['gen/guard','Auto-Executor','grid']]],
+var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
+         ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
          ['Strategies',[['ab','A/B + Shallow','ab'],['c','C','c'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
@@ -166,23 +185,27 @@ var frame=document.getElementById('frame'), stat=document.getElementById('static
 document.getElementById('brandic').innerHTML=ICONS.chart;
 function showFrame(src){stat.style.display='none';frame.style.display='block';frame.src=src;openEl.style.display='inline-flex';openEl.href=src;openEl.innerHTML='open '+'↗';}
 function showHtml(html){frame.style.display='none';frame.removeAttribute('src');stat.style.display='block';stat.innerHTML=html;openEl.style.display='none';}
-function setActive(top){document.querySelectorAll('.nav').forEach(function(n){n.classList.toggle('on',n.dataset.r.split('/')[0]===top);});}
+function setActive(route){document.querySelectorAll('.nav').forEach(function(n){
+ var nr=n.dataset.r||'';var on=nr.indexOf('/')>=0?nr===route:nr===route.split('/')[0];n.classList.toggle('on',on);
+});}
 function buildNav(){
  var h='';
  NAV.forEach(function(g){ h+='<div class="grp">'+g[0]+'</div>';
    g[1].forEach(function(n){ h+='<div class="nav'+(g[0]==='Strategies'?'':'')+'" data-r="'+n[0]+'">'+ic(n[2])+'<span>'+n[1]+'</span></div>'; });
-   if(g[0]==='Strategies') h+='<div id="slot-mnq"></div>';        // MNQ Auto-Executor card under STRATEGIES
+   if(g[0]==='Auto-Executors') h+='<div id="slot-mnq"></div><div id="slot-builder"></div>';
    if(g[0].indexOf('Forex')===0) h+='<div id="slot-fx"></div>';   // joined FX card under FOREX (bottom)
  });
  document.getElementById('sidenav').innerHTML=h;
  var _sm=document.getElementById('slot-mnq'), _ac=document.getElementById('autocard');
  if(_sm&&_ac) _sm.appendChild(_ac);
+ var _sb=document.getElementById('slot-builder'), _bc=document.getElementById('buildercard');
+ if(_sb&&_bc) _sb.appendChild(_bc);
  var _sf=document.getElementById('slot-fx'), _fc=document.getElementById('fxcard');
  if(_sf&&_fc) _sf.appendChild(_fc);
  document.querySelectorAll('.nav').forEach(function(n){n.onclick=function(){location.hash='#/'+n.dataset.r;};});
 }
 function render(){
- var hh=(location.hash.replace(/^#\//,'')||'gen/pnl'); var p=hh.split('/'); var top=p[0]; setActive(top); tabsEl.innerHTML='';
+ var hh=(location.hash.replace(/^#\//,'')||'gen/pnl'); var p=hh.split('/'); var top=p[0]; setActive(hh); tabsEl.innerHTML='';
  if(top==='gen'){ var g=GEN[p[1]||'pnl']; ttl.textContent=g.t; sub.textContent='General'; if(g.frame) showFrame(g.frame); else showHtml(g.html); return; }
  var s=STRAT[top]; if(!s){location.hash='#/ab';return;}
  ttl.textContent=s.name; sub.textContent=s.sub;
@@ -201,13 +224,34 @@ buildNav(); window.addEventListener('hashchange',render); render();
     var e=d.eval||{},m=d.mode||'off',c=col(m),ac=document.getElementById('autocard');if(!ac)return;
     var pct=Math.max(3,Math.min(100,e.pct||0)),bc=e.breached?'#f87171':e.passed?'#4ade80':((e.pnl||0)<0?'#e0a93b':'#7ab8f5');
     var st=e.passed?'PASS ✓':e.breached?'BREACH ✕':(d.kill?'HALTED':'armed');
-    ac.innerHTML='<div class=ah><span class=dot style="background:'+c+'"></span>Auto-Executor'+
+    var label=((d.profile||{}).label)||ACCOUNT_LABEL;
+    ac.innerHTML='<div class=ah><span class=dot style="background:'+c+'"></span>'+label+
       '<span class=mode style="background:'+c+'22;color:'+c+'">'+String(m).toUpperCase()+'</span></div>'+
       '<div class=track><div class=fill style="width:'+pct+'%;background:'+bc+'"></div></div>'+
-      '<div class=kv><span>Eval &rarr; $106k</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
+      '<div class=kv><span>Eval &rarr; $'+Number(e.target||0).toLocaleString()+'</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
       '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
-      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>';
+      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
+      '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
   }).catch(function(){});}
+  function accountCard(el,d,fallback){
+    var e=d.eval||{},m=d.mode||'off',c=col(m);if(!el)return;
+    var pct=Math.max(3,Math.min(100,e.pct||0)),bc=e.breached?'#f87171':e.passed?'#4ade80':((e.pnl||0)<0?'#e0a93b':'#7ab8f5');
+    var st=e.passed?'PASS ✓':e.breached?'BREACH ✕':(d.kill?'HALTED':'armed');
+    var label=((d.profile||{}).label)||fallback;
+    el.innerHTML='<div class=ah><span class=dot style="background:'+c+'"></span>'+label+
+      '<span class=mode style="background:'+c+'22;color:'+c+'">'+String(m).toUpperCase()+'</span></div>'+
+      '<div class=track><div class=fill style="width:'+pct+'%;background:'+bc+'"></div></div>'+
+      '<div class=kv><span>Eval &rarr; $'+Number(e.target||0).toLocaleString()+'</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
+      '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
+      '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
+      '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
+  }
+  function loadBuilder(){var bc=document.getElementById('buildercard');if(!bc)return;
+    if(!BUILDER50){bc.innerHTML='<div class=ah><span class=dot style="background:#828a99"></span>Builder 50K<span class=mode style="background:#82879922;color:#a8afc0">SETUP</span></div><div class=kv><span>Separate service</span><b>set BUILDER50_URL</b></div>';return;}
+    fetch('/builder50/data',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('offline');return r.json();})
+      .then(function(d){accountCard(bc,d,'Builder 50K');})
+      .catch(function(){bc.innerHTML='<div class=ah><span class=dot style="background:#f87171"></span>Builder 50K<span class=mode style="background:#f8717122;color:#f87171">OFFLINE</span></div><div class=kv><span>Separate service</span><b>unreachable</b></div>';});
+  }
   function loadFx(){fetch('/fxguard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
     var fc=document.getElementById('fxcard');if(!fc)return;
     var ps=(j.pairs||[]).filter(function(p){return p.data;});
@@ -230,7 +274,7 @@ buildNav(); window.addEventListener('hashchange',render); render();
       '<div class=kv><span>P&amp;L (joined)</span><b>'+(pnl>=0?'+$':'-$')+Math.abs(pnl).toLocaleString()+'</b></div>'+
       '<div class=kv><span>Today (both)</span><b>'+tr+'/'+mx+' &middot; '+ls+'L</b></div>';
   }).catch(function(){});}
-  loadAuto(); loadFx(); setInterval(function(){loadAuto();loadFx();},30000);
+  loadAuto(); loadBuilder(); loadFx(); setInterval(function(){loadAuto();loadBuilder();loadFx();},30000);
 })();
 </script></body></html>"""
 
@@ -388,7 +432,9 @@ load();
 
 def render_home():
     return (PAGE.replace('__F__', _F)
-                .replace('__EUR__', _EUR).replace('__JPY__', _JPY))
+                .replace('__EUR__', _EUR).replace('__JPY__', _JPY)
+                .replace('__ACCOUNT_LABEL__', _ACCOUNT_LABEL.replace('"', '\\"'))
+                .replace('__BUILDER50__', _BUILDER50.replace('"', '\\"')))
 
 
 def _shadow_html():
@@ -405,8 +451,25 @@ def register(app, path='/'):
         return Response(render_home(), mimetype='text/html')
     def _dash_shadow():
         return Response(_shadow_html(), mimetype='text/html')
+    def _builder50_data():
+        """Same-origin read-only bridge for the second service's sidebar card.
+
+        Mutating Guard actions stay on the Builder service itself, so its token,
+        execution state and webhook never pass through the 100K process.
+        """
+        if not _BUILDER50:
+            return {'ok': False, 'configured': False, 'error': 'BUILDER50_URL is not set'}, 503
+        try:
+            import requests
+            r = requests.get(_BUILDER50 + '/guard/data', timeout=6)
+            r.raise_for_status()
+            return Response(r.content, status=r.status_code,
+                            content_type=r.headers.get('Content-Type', 'application/json'))
+        except Exception as exc:
+            return {'ok': False, 'configured': True, 'error': str(exc)}, 502
     app.add_url_rule(path, 'dash_home', _dash_home)
     app.add_url_rule('/shadow', 'dash_shadow', _dash_shadow)
+    app.add_url_rule('/builder50/data', 'dash_builder50_data', _builder50_data)
     return app
 
 

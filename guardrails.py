@@ -48,10 +48,6 @@ Hardening (2026-07-19 review):
   EOD_FLATTEN_ET=16:04   daily flatten+cancel (MFF auto-liquidates 16:10 ET; holidays are manual!). '0'=off
   GUARD_LAST_ENTRY_ET=15:30  no new auto sends at/after this ET time (late entries meet the 16:10 forced flat)
   GUARD_SYNC_MAX_H=24    AUTO requires a recent real equity/floor sync
-  PREM_STOP_FILTER=1     PREM A/B stop policy: <=25 full risk, 25-28 half risk, >28 block
-  PREM_STOP_FULL_MAX_PTS=25
-  PREM_STOP_HARD_MAX_PTS=28
-  PREM_STOP_MID_RISK_MULT=0.5
   GUARD_TOKEN=           set -> /guard/sync|kill|mode require ?t=<token> (open /guard?t=... for buttons)
   SKIP_SESSIONS default is now LO,ASIA,PREM,NYL (was LO,ASIA — PREM/NYL used to auto-fire)
   state writes are atomic; a CORRUPT state file now latches HARD (was: silently reset to defaults)
@@ -70,7 +66,7 @@ except Exception:
 try:
     from zoneinfo import ZoneInfo; _NY = ZoneInfo('America/New_York')
 except Exception:
-    ZoneInfo = None; _NY = None
+    _NY = None
 
 DATA_DIR = os.environ.get('DATA_DIR', '.')
 GLOG     = os.path.join(DATA_DIR, 'guard_log.json')    # every decision (sent/blocked) — the /guard book
@@ -80,6 +76,85 @@ RISK_DOLLAR = 450.0                                     # one sibling share of t
 def _env(k, d):        return os.environ.get(k, d)
 def _envf(k, d):       return float(os.environ.get(k, str(d)))
 def _envi(k, d):       return int(float(os.environ.get(k, str(d))))
+
+_SESSION_WINDOWS = {
+    'ASIA': '18:00-02:00 ET (Asia / Globex)',
+    'LO': '02:00-05:00 ET (London)',
+    'PREM': '05:00-09:30 ET (przed otwarciem rynku USA)',
+    'NYAM': '09:30-11:00 ET (New York morning)',
+    'NYL': '11:00-13:30 ET (New York lunch)',
+    'NYPM': '13:30-16:00 ET (New York afternoon)',
+    'PM_AH': '16:00-18:00 ET (po regularnej sesji)',
+}
+
+
+def account_profile():
+    """Return the account/rule profile rendered by the Guard and Trading Desk.
+
+    The execution engine remains one-profile-per-process.  A Builder deployment
+    therefore gets its own environment, state directory and EXEC_WEBHOOK while a
+    running Pro-100K process can stay pinned to its existing configuration.
+    """
+    start = _envf('START_BALANCE', 100000.0)
+    target = _envf('TARGET_BALANCE', start + 6000.0)
+    plan = _env('ACCOUNT_PLAN', '').strip().lower()
+    if not plan:
+        plan = 'builder50' if abs(start - 50000.0) < 0.01 and abs(target - 53000.0) < 0.01 else 'pro100'
+    default_label = 'Builder 50K' if plan == 'builder50' else ('Rapid EOD 50K' if plan == 'rapid_eod50' else 'Pro 100K')
+    label = _env('ACCOUNT_LABEL', default_label).strip() or default_label
+    phase = _env('ACCOUNT_PHASE', 'evaluation').strip().lower() or 'evaluation'
+    skip = [s.strip() for s in _env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL').split(',') if s.strip()]
+    active = [dict(code=s, description=_SESSION_WINDOWS[s]) for s in _SESSION_WINDOWS if s not in skip]
+    risk = _envf('SETUP_GROUP_RISK_USD', start * _envf('RISK_PCT', 0.5) / 100.0)
+    leg_cap = _envi('EXEC_MAX_QTY', 15)
+    warnings = []
+    if plan == 'builder50':
+        expected = [
+            ('START_BALANCE', start, 50000.0), ('TARGET_BALANCE', target, 53000.0),
+            ('DD_FLOOR', _envf('DD_FLOOR', 97000.0), 48000.0),
+            ('DD_TRAIL_USD', _envf('DD_TRAIL_USD', 3000.0), 2000.0),
+            ('DD_FLOOR_CAP', _envf('DD_FLOOR_CAP', 0.0), 50100.0),
+        ]
+        for key, actual, wanted in expected:
+            if abs(actual - wanted) > 0.01:
+                warnings.append('%s=%s; Builder 50K expected %s' % (key, actual, wanted))
+        if risk > 500.0 + 0.01:
+            warnings.append('SETUP_GROUP_RISK_USD %.0f exceeds the reviewed $500 Builder budget' % risk)
+        if leg_cap * 2 > 40:
+            warnings.append('two A/B sibling legs could exceed Builder limit 40 MNQ')
+        started_on = _env('ACCOUNT_STARTED_ON', '').strip()
+        try:
+            dt.date.fromisoformat(started_on)
+        except Exception:
+            warnings.append('ACCOUNT_STARTED_ON must be the real Builder start date (YYYY-MM-DD)')
+        if _envf('DAY_LOSS_USD', 1000.0) > 1000.0:
+            warnings.append('DAY_LOSS_USD exceeds the Builder $1,000 daily threshold')
+        if _env('EXEC_TIF', 'day').strip().lower() != 'day':
+            warnings.append('EXEC_TIF must be day; Builder positions cannot be held overnight')
+        rules = dict(profit_target=3000, max_eod_loss=2000, daily_soft_pause=1000,
+                     max_micros=40, consistency='none during evaluation', min_trading_days=1,
+                     inactivity_days=_envi('INACTIVITY_DAYS', 7), drawdown_mode='EOD trailing',
+                     starting_floor=48000, floor_locks_at=50100, max_minis=4,
+                     micro_scaling='10:1', news_trading='allowed', overnight='not allowed',
+                     activation_fee='none', recurring_fee='none',
+                     funded_consistency='50% per payout cycle', funded_buffer=2100,
+                     payout_min=500, payout_max=2000, payout_split='80/20',
+                     payout_wait_days=2)
+    elif plan == 'rapid_eod50':
+        rules = dict(profit_target=3000, max_eod_loss=2000, daily_soft_pause=None,
+                     max_micros=30, consistency='30% during evaluation', min_trading_days=4,
+                     inactivity_days=_envi('INACTIVITY_DAYS', 7))
+    else:
+        rules = dict(profit_target=round(target - start), max_eod_loss=_envf('DD_TRAIL_USD', 3000),
+                     daily_soft_pause=None, max_micros=60, consistency='50% during evaluation',
+                     min_trading_days=2, inactivity_days=_envi('INACTIVITY_DAYS', 0))
+    return dict(plan=plan, label=label, phase=phase, rules=rules,
+                configured_group_risk=round(risk, 2), per_leg_contract_cap=leg_cap,
+                internal_day_loss_usd=_envf('DAY_LOSS_USD', 1000.0),
+                internal_day_loss_n=_envi('DAY_LOSS_N', 2),
+                skipped_sessions=skip, active_sessions=active,
+                monday_mode=_env('MONDAY_MODE', 'nyam'), config_ok=not warnings,
+                config_warnings=warnings)
 
 def _dd_proximity_mode():
     """off | soft | hard.
@@ -111,58 +186,6 @@ def _sess_of(x):
         try: return shadow._sess(_et(int(x.get('bos_ms') or _now_ms())))
         except Exception: pass
     return '?'
-
-def prem_stop_policy(x):
-    """Return the causal PREM stop-width decision for an A/B setup group.
-
-    The policy is evaluated from the final entry and SL that will be sent to the
-    broker (after detector STOP_CAP and ENTRY_OFFSET_PTS).  It applies only to
-    PREM A/B groups; other sessions and strategies are unchanged.
-
-    ``full``  -> normal setup-group budget
-    ``scale`` -> multiply the whole group budget by ``risk_mult``
-    ``block`` -> do not send any sibling in the group
-    """
-    base = {
-        'enabled': _env('PREM_STOP_FILTER', '1') == '1',
-        'applies': False,
-        'action': 'pass',
-        'reason': '',
-        'risk_mult': 1.0,
-        'stop_pts': None,
-    }
-    if not base['enabled']:
-        return base
-    if _sess_of(x) != 'PREM':
-        return base
-    if str(x.get('_strat', 'A/B')) not in ('A/B', 'A/B-shallow'):
-        return base
-    base['applies'] = True
-    try:
-        stop_pts = abs(float(x.get('entry')) - float(x.get('SL')))
-        full_max = _envf('PREM_STOP_FULL_MAX_PTS', 25.0)
-        hard_max = _envf('PREM_STOP_HARD_MAX_PTS', 28.0)
-        mid_mult = _envf('PREM_STOP_MID_RISK_MULT', 0.5)
-        if stop_pts <= 0 or full_max <= 0 or hard_max < full_max or not (0 < mid_mult <= 1):
-            raise ValueError('invalid PREM stop filter configuration')
-        base.update(
-            stop_pts=round(stop_pts, 4),
-            full_max_pts=full_max,
-            hard_max_pts=hard_max,
-            mid_risk_mult=mid_mult,
-        )
-        if stop_pts > hard_max:
-            base.update(action='block', reason='prem_stop_too_wide', risk_mult=0.0)
-        elif stop_pts > full_max:
-            base.update(action='scale', reason='prem_stop_mid_band', risk_mult=mid_mult)
-        else:
-            base.update(action='full', risk_mult=1.0)
-        return base
-    except Exception as exc:
-        # A malformed risk policy must never silently permit an unattended order.
-        base.update(action='block', reason='prem_stop_filter_config', risk_mult=0.0,
-                    error=str(exc))
-        return base
 
 def _load(p, d):
     try:
@@ -616,21 +639,25 @@ def _modeled_equity(s=None, d=None):
 
 def eval_progress():
     """Where the MFF eval stands. Uses absolute synced equity plus only post-sync P&L.
-    passed = hit the profit target (+6%); breached = broke the trailing drawdown floor."""
+    passed = hit the configured profit target; breached = broke the trailing drawdown floor."""
     try:
         s = _state(); d = _day_stats()
         start  = _envf('START_BALANCE', 100000.0)                 # eval starting balance
         target = _envf('TARGET_BALANCE', start + 6000.0)          # +$6,000 = +6%
         floor  = _dd_floor()                                      # auto-trails with synced equity highs
         eq     = _modeled_equity(s, d)
+        target_profit = max(0.01, target - start)
+        target_pct = 100.0 * target_profit / start if start else 0.0
         return dict(equity=round(eq), start=round(start), target=round(target), floor=round(floor),
                     pnl=round(eq - start), to_target=round(target - eq), buffer=round(eq - floor),
-                    pct=round(100.0 * (eq - start) / 6000.0, 1),      # % of the $6k target reached
+                    pct=round(100.0 * (eq - start) / target_profit, 1),
+                    target_profit=round(target_profit), target_pct=round(target_pct, 2),
                     passed=eq >= target, breached=eq <= floor)
     except Exception as e:
         print('[guard] eval_progress err', e, flush=True)
         return dict(equity=0, start=100000, target=106000, floor=97000, pnl=0, to_target=6000,
-                    buffer=0, pct=0.0, passed=False, breached=False)
+                    buffer=0, pct=0.0, target_profit=6000, target_pct=6.0,
+                    passed=False, breached=False)
 
 
 def setup_group_risk_capacity(requested_risk_usd=None):
@@ -702,6 +729,85 @@ def _actualize(g, sh):
     except Exception:
         pass
     return out
+
+
+def trade_summary(rows):
+    """Summarize orders honestly: MANUAL is review-only, SENT is a broker order.
+
+    A/B and A/B-shallow sibling rows share one setup_group_id, so setup totals are
+    de-duplicated while order totals still expose both broker brackets.
+    """
+    sent = [r for r in rows if r.get('decision') == 'sent']
+    manual = [r for r in rows if r.get('decision') == 'manual']
+    confirmed = [r for r in sent if r.get('outcome') in ('win', 'loss', 'timeout')]
+    def _groups(items):
+        return {r.get('setup_group_id') or r.get('key') for r in items}
+    broker_rows = [r for r in confirmed if r.get('reconciled')]
+    return dict(
+        sent_orders=len(sent), sent_setups=len(_groups(sent)), manual_reviews=len(manual),
+        confirmed_orders=len(confirmed), confirmed_setups=len(_groups(confirmed)),
+        open_orders=sum(r.get('outcome') == 'open' for r in sent),
+        wins=sum(r.get('outcome') == 'win' for r in confirmed),
+        losses=sum(r.get('outcome') == 'loss' for r in confirmed),
+        timeouts=sum(r.get('outcome') == 'timeout' for r in confirmed),
+        model_net=round(sum(float(r.get('model_net') if r.get('reconciled')
+                                  and r.get('model_net') is not None else r.get('net') or 0)
+                            for r in confirmed), 2),
+        broker_net=round(sum(float(r.get('net') or 0) for r in broker_rows), 2),
+        broker_reconciled_orders=len(broker_rows),
+    )
+
+
+def inactivity_status(rows=None, now=None):
+    """Conservative 7-calendar-day activity tracker based on confirmed fills.
+
+    A submitted resting order is not counted as a trade.  Broker-reconciled rows
+    are preferred; otherwise a resolved shadow fill is labelled as model-confirmed.
+    ACCOUNT_STARTED_ON supplies the anchor before the first confirmed fill.
+    """
+    profile = account_profile()
+    limit = max(0, _envi('INACTIVITY_DAYS', profile['rules'].get('inactivity_days') or 0))
+    if not limit:
+        return dict(enabled=False, status='off', limit_days=0, days_without_trade=None,
+                    days_left=None, last_trade_date=None, deadline=None,
+                    source='disabled', message='inactivity tracking disabled for this profile')
+    now_et = now or _et(_now_ms())
+    today = now_et.date() if hasattr(now_et, 'date') else dt.date.today()
+    rows = list(rows or [])
+    confirmed = [r for r in rows if r.get('decision') == 'sent'
+                 and r.get('outcome') in ('win', 'loss', 'timeout')]
+    dated = []
+    for row in confirmed:
+        raw = str(row.get('date') or str(row.get('et') or '')[:10])
+        try: dated.append((dt.date.fromisoformat(raw), row))
+        except Exception: pass
+    if dated:
+        anchor, last = max(dated, key=lambda item: item[0])
+        source = 'broker' if last.get('reconciled') else 'model-confirmed fill'
+    else:
+        raw = _env('ACCOUNT_STARTED_ON', '').strip()
+        try: anchor = dt.date.fromisoformat(raw); last = None; source = 'account start'
+        except Exception:
+            return dict(enabled=True, status='unknown', limit_days=limit,
+                        days_without_trade=None, days_left=None, last_trade_date=None,
+                        deadline=None, source='missing',
+                        message='set ACCOUNT_STARTED_ON or reconcile the first broker trade')
+    days = max(0, (today - anchor).days)
+    left = max(0, limit - days)
+    deadline = anchor + dt.timedelta(days=limit)
+    status = 'due' if days >= limit else ('critical' if days >= limit - 1
+                                          else ('warn' if days >= limit - 2 else 'ok'))
+    msg = ('activity deadline reached — verify the MFF account now' if status == 'due'
+           else '%s calendar day%s left before the conservative activity deadline' %
+                (left, '' if left == 1 else 's'))
+    return dict(enabled=True, status=status, limit_days=limit,
+                days_without_trade=days, days_left=left,
+                last_trade_date=(anchor.isoformat() if dated else None),
+                anchor_date=anchor.isoformat(), deadline=deadline.isoformat(),
+                source=source, message=msg,
+                last_trade=(dict(date=anchor.isoformat(), et=last.get('et'), strat=last.get('strat'),
+                                 direction=last.get('dir'), qty=last.get('qty'),
+                                 outcome=last.get('outcome'), net=last.get('net')) if last else None))
 
 def _today_sent():
     glog = _load(GLOG, []); sm = _shadow_by_key(); day = _today(); out = []
@@ -816,15 +922,6 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         # PREM + NYL were auto-firing on the old 'LO,ASIA' default. Env still overrides.
         skip = [w.strip() for w in _env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL').split(',') if w.strip()]
         if sess in skip:                        return (False, 'session:' + sess)   # London/Asia (+NYL) excluded by firing time
-        prem_stop = prem_stop_policy(x)
-        if prem_stop.get('applies'):
-            x['_prem_stop_filter_action'] = prem_stop.get('action')
-            x['_prem_stop_risk_mult'] = prem_stop.get('risk_mult')
-            x['_prem_stop_pts'] = prem_stop.get('stop_pts')
-            x['_prem_stop_full_max_pts'] = prem_stop.get('full_max_pts')
-            x['_prem_stop_hard_max_pts'] = prem_stop.get('hard_max_pts')
-        if prem_stop.get('action') == 'block':
-            return (False, prem_stop.get('reason') or 'prem_stop_too_wide')
         mm = _env('MONDAY_MODE', 'nyam').lower()                              # nyam=Monday starts at NYAM (skip PREM) | skip | quarter | full
         if _wd(x) == 0:
             if mm == 'skip':                    return (False, 'monday_skip')
@@ -954,13 +1051,6 @@ def note(x, decision, reason=''):
                          planned_group_risk_usd=x.get('_planned_group_risk_usd'),
                          setup_group_budget_usd=x.get('_setup_group_budget_usd'),
                          setup_group_allowed_usd=x.get('_setup_group_allowed_usd'),
-                         stop_pts=(round(abs(float(x.get('entry')) - float(x.get('SL'))), 4)
-                                   if x.get('entry') is not None and x.get('SL') is not None else None),
-                         prem_stop_filter_action=x.get('_prem_stop_filter_action'),
-                         prem_stop_risk_mult=x.get('_prem_stop_risk_mult'),
-                         prem_stop_pts=x.get('_prem_stop_pts'),
-                         prem_stop_full_max_pts=x.get('_prem_stop_full_max_pts'),
-                         prem_stop_hard_max_pts=x.get('_prem_stop_hard_max_pts'),
                          projected_buffer_after_risk=x.get('_projected_buffer_after_risk'),
                          batch_group_id=x.get('_batch_group_id'),
                          rollback_confirmed=x.get('_rollback_confirmed'),
@@ -1062,6 +1152,19 @@ def health(feed_age_min=None, market_open=None):
         # 1 mode
         add('mode', 'ok' if mode == 'auto' else 'info',
             'AUTO' if mode == 'auto' else (mode.upper() + ' — auto is off by choice'))
+        profile = account_profile()
+        add('account', 'ok' if profile.get('config_ok') else ('critical' if mode == 'auto' else 'warn'),
+            ('%s configuration matches the selected profile' % profile.get('label')
+             if profile.get('config_ok') else '; '.join(profile.get('config_warnings') or [])))
+        try:
+            sm0 = _shadow_by_key()
+            rows0 = [_actualize(g, sm0.get(g.get('key'), {})) for g in _load(GLOG, [])]
+            ia = inactivity_status(rows0)
+            if ia.get('enabled'):
+                lvl = 'warn' if ia.get('status') in ('critical', 'due', 'unknown') else 'ok'
+                add('inactivity', lvl, ia.get('message') or ia.get('status'))
+        except Exception as ie:
+            add('inactivity', 'warn', 'tracker unavailable: %s' % ie)
         # 2 webhook wired (only matters in auto)
         if mode == 'auto':
             add('webhook', 'ok' if webhook else 'critical',
@@ -1164,7 +1267,7 @@ def _health_alert(status, summary):
 
 # ---------- Pine export (draw the AUTO trades on TradingView) ----------
 def _pine_one(r):
-    """One guard decision -> Pine box(SL)/box(TP)/entry+SL+TP lines/label at its bar time."""
+    """One booked order -> Pine box(SL)/box(TP)/entry+SL+TP lines/label at its bar time."""
     try:
         e = float(r.get('entry')); sl = float(r.get('sl') if r.get('sl') is not None else r.get('SL'))
     except Exception:
@@ -1174,246 +1277,41 @@ def _pine_one(r):
     try: tp = float(r.get('tp'))
     except Exception: tp = e + 2 * (e - sl)
     left = ts; right = ts + 90 * 60 * 1000
-    q = r.get('qty'); qtxt = (' x%s' % q) if q else ''
-    blocked = r.get('decision') not in ('sent', 'manual')
-    status = ('BLOCKED: %s' % (r.get('reason') or '?')) if blocked else 'FIRED'
-    txt = ('%s %s %s %s%s' % (status, r.get('strat', 'A/B'), r.get('sess', ''),
-                               (r.get('dir') or ''), qtxt)).replace('"', '')
+    q = r.get('qty'); qtxt = ('%s' % q) if q else 'rs'
+    txt = ('AUTO %s %s x%s' % (r.get('sess', ''), (r.get('dir') or ''), qtxt)).replace('"', '')
     hi = max(e, sl, tp)
-    entry_color = 'color.orange' if blocked else 'color.aqua'
-    label_color = 'color.new(color.orange,20)' if blocked else 'color.new(color.aqua,20)'
     dp = _envi('GUARD_PRICE_DP', 2)                     # Pine at instrument precision (EURUSD 5dp, JPY 3dp)
     def _f(p): return ('%.*f' % (dp, p))
     return [
         'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.red,70), bgcolor=color.new(color.red,88))' % (left, _f(max(e, sl)), right, _f(min(e, sl))),
         'box.new(%d, %s, %d, %s, xloc=xloc.bar_time, border_color=color.new(color.green,70), bgcolor=color.new(color.green,88))' % (left, _f(max(e, tp)), right, _f(min(e, tp))),
-        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=%s, width=1, style=line.style_dashed)' % (left, _f(e), right, _f(e), entry_color),
+        'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.aqua, width=1, style=line.style_dashed)' % (left, _f(e), right, _f(e)),
         'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.red, width=2)' % (left, _f(sl), right, _f(sl)),
         'line.new(%d, %s, %d, %s, xloc=xloc.bar_time, color=color.green, width=2)' % (left, _f(tp), right, _f(tp)),
-        'label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=%s, textcolor=color.white, size=size.small)' % (left, hi, txt, label_color),
+        'label.new(%d, %.2f, "%s", xloc=xloc.bar_time, style=label.style_label_down, color=color.new(color.aqua,20), textcolor=color.white, size=size.small)' % (left, hi, txt),
     ]
 
-def pine_book(day='', show='fired'):
-    """Full Pine indicator for guard decisions.
-
-    ``show`` = fired | blocked | all. ``day`` is the guard trading date (YYYY-MM-DD),
-    or empty for all dates. The API default remains ``fired`` for backward compatibility.
-    """
-    show = (show or 'fired').strip().lower()
-    if show not in ('fired', 'blocked', 'all'): show = 'fired'
-    rows = _load(GLOG, [])
-    if show == 'fired':
-        rows = [g for g in rows if g.get('decision') in ('sent', 'manual')]
-    elif show == 'blocked':
-        rows = [g for g in rows if g.get('decision') == 'blocked']
-    else:
-        rows = [g for g in rows if g.get('decision') in ('sent', 'manual', 'blocked')]
+def pine_book(day=''):
+    """Full Pine indicator for the AUTO trades in the guard book (decision sent/manual).
+    day='' = all booked trades; else only that YYYY-MM-DD. Paste into TradingView Pine Editor -> Add to chart."""
+    rows = [g for g in _load(GLOG, []) if g.get('decision') in ('sent', 'manual')]
     if day: rows = [g for g in rows if g.get('date') == day]
-    rows.sort(key=lambda g: int(g.get('bar_ms') or g.get('ts') or 0))
-    max_rows = max(1, min(160, _envi('PINE_MAX_ROWS', 150)))
-    truncated = len(rows) > max_rows
-    if truncated: rows = rows[-max_rows:]
     body = []
     for r in rows:
         body += ['    ' + ln for ln in _pine_one(r)]
-    what = {'fired': 'fired', 'blocked': 'blocked', 'all': 'all decisions'}[show]
-    ttl = ('Guard %s %s' % (what, day)) if day else ('Guard %s' % what)
+    ttl = ('AUTO trades %s' % day) if day else 'AUTO trades'
     head = ['//@version=5',
             'indicator("%s", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)' % ttl,
-            '// %s%s' % (what, ('; newest %d rows only — choose a date to narrow the export' % max_rows) if truncated else ''),
             'if barstate.islast']
     if not body:
-        body = ['    label.new(bar_index, high, "no guard decisions for this filter", style=label.style_label_down)']
+        body = ['    label.new(bar_index, high, "no AUTO trades", style=label.style_label_down)']
     return '\n'.join(head + body)
 
-def book_days(show='all'):
-    """Distinct guard trading days, newest first, optionally filtered by Pine scope."""
-    show = (show or 'all').strip().lower()
-    allowed = ('sent', 'manual') if show == 'fired' else ('blocked',) if show == 'blocked' else ('sent', 'manual', 'blocked')
+def book_days():
+    """Distinct days that have booked AUTO trades, newest first (for the Pine day picker)."""
     ds = sorted({g.get('date') for g in _load(GLOG, [])
-                 if g.get('decision') in allowed and g.get('date')}, reverse=True)
+                 if g.get('decision') in ('sent', 'manual') and g.get('date')}, reverse=True)
     return ds
-
-# ---------- broker reconciliation helpers ----------
-def _reconcile_zone():
-    """Timezone used by the timestamps in the downloaded Tradovate Performance CSV.
-
-    Tradovate exports the user's display timezone without an offset. Maria's exports are
-    Europe/Copenhagen (the 11:41 CSV row is 05:41 New York). Override with
-    RECONCILE_CSV_TZ if the broker profile uses another timezone.
-    """
-    name = _env('RECONCILE_CSV_TZ', 'Europe/Copenhagen').strip() or 'Europe/Copenhagen'
-    if ZoneInfo is not None:
-        try: return ZoneInfo(name), name
-        except Exception: pass
-    return _NY, 'America/New_York'
-
-def _reconcile_trading_day(d):
-    d = d.astimezone(_NY) if (_NY is not None and d.tzinfo is not None) else d
-    if d.hour >= 18: d = d + dt.timedelta(days=1)
-    return d.strftime('%Y-%m-%d')
-
-def _parse_reconcile_ts(value):
-    value = (value or '').strip()
-    for fmt in ('%m/%d/%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S'):
-        try: return dt.datetime.strptime(value, fmt)
-        except ValueError: pass
-    raise ValueError('unsupported timestamp %r' % value)
-
-def _parse_reconcile_csv(raw):
-    """Parse Tradovate performance rows and normalize their opening time to New York."""
-    import csv as _csv, io as _io
-    zone, zone_name = _reconcile_zone()
-    fills = []; skipped = 0
-    for row_no, r in enumerate(_csv.DictReader(_io.StringIO(raw)), 2):
-        try:
-            qty = int(float(r.get('qty') or 0))
-            if qty <= 0: raise ValueError('qty must be positive')
-            bp, sp = float(r['buyPrice']), float(r['sellPrice'])
-            pnl_s = (r.get('pnl') or '').replace('$', '').replace(',', '').strip()
-            pnl = -float(pnl_s.strip('()')) if pnl_s.startswith('(') else float(pnl_s or 0)
-            bt = _parse_reconcile_ts(r.get('boughtTimestamp'))
-            st = _parse_reconcile_ts(r.get('soldTimestamp'))
-            short = st < bt
-            opened = min(bt, st)
-            aware = opened.replace(tzinfo=zone) if zone is not None else opened.replace(tzinfo=dt.timezone.utc)
-            opened_et = aware.astimezone(_NY) if _NY is not None else aware
-            fills.append(dict(
-                row_id=row_no, qty=qty, dir='SHORT' if short else 'LONG',
-                entry=(sp if short else bp), exit=(bp if short else sp), pnl=pnl,
-                t_ms=int(opened_et.timestamp() * 1000),
-                t=opened_et.strftime('%Y-%m-%d %H:%M:%S ET'),
-                trading_date=_reconcile_trading_day(opened_et),
-                raw_t=opened.strftime('%Y-%m-%d %H:%M:%S'),
-                symbol=(r.get('symbol') or r.get('contract') or '').strip(),
-            ))
-        except Exception as fe:
-            skipped += 1
-            print('[guard] reconcile row %s skip: %s' % (row_no, fe), flush=True)
-    return fills, skipped, zone_name
-
-def _combine_reconcile_fills(rows):
-    qty = sum(int(r['qty']) for r in rows)
-    if qty <= 0: raise ValueError('combined qty must be positive')
-    return dict(
-        indices=tuple(sorted(int(r['row_id']) for r in rows)),
-        qty=qty,
-        dir=rows[0]['dir'],
-        entry=sum(float(r['entry']) * int(r['qty']) for r in rows) / qty,
-        exit=sum(float(r['exit']) * int(r['qty']) for r in rows) / qty,
-        pnl=sum(float(r['pnl']) for r in rows),
-        t_ms=min(int(r['t_ms']) for r in rows),
-        t=min(rows, key=lambda r: int(r['t_ms']))['t'],
-        trading_date=rows[0]['trading_date'],
-        symbol=rows[0].get('symbol', ''),
-        fill_count=len(rows),
-    )
-
-def _reconcile_fill_groups(fills):
-    """Return single fills plus plausible same-order partial-fill combinations."""
-    rows = sorted(fills, key=lambda r: (int(r['t_ms']), int(r['row_id'])))
-    sec = max(1.0, _envf('RECONCILE_PARTIAL_SEC', 120.0))
-    px = max(0.0, _envf('RECONCILE_PARTIAL_ENTRY_PTS', 4.0))
-    groups = {}; max_parts = max(2, min(8, _envi('RECONCILE_PARTIAL_MAX', 8)))
-    for r in rows:
-        a = _combine_reconcile_fills([r]); groups[a['indices']] = a
-    for i, first in enumerate(rows):
-        selected = [first]
-        for other in rows[i + 1:]:
-            if (int(other['t_ms']) - int(first['t_ms'])) > sec * 1000: break
-            if other['dir'] != first['dir'] or other['trading_date'] != first['trading_date']: continue
-            if first.get('symbol') and other.get('symbol') and first['symbol'] != other['symbol']: continue
-            trial = selected + [other]
-            entries = [float(x['entry']) for x in trial]
-            if max(entries) - min(entries) > px: continue
-            selected = trial
-            if len(selected) >= 2:
-                a = _combine_reconcile_fills(selected); groups[a['indices']] = a
-            if len(selected) >= max_parts: break
-    return list(groups.values())
-
-def _reconcile_book_time_ms(g):
-    try: return int(g.get('ts') or g.get('bar_ms') or 0)
-    except Exception: return 0
-
-def _reconcile_match(raw, glog, shadow_by_key=None):
-    """Match broker fills to guard rows using date, time, direction, entry and quantity.
-
-    Partial broker rows can form one match when their combined quantity equals the booked
-    quantity. Every raw broker row and every guard row is consumed at most once.
-    """
-    fills, skipped, zone_name = _parse_reconcile_csv(raw)
-    groups = _reconcile_fill_groups(fills)
-    sm = shadow_by_key or {}
-    entry_tol = max(0.0, _envf('RECONCILE_ENTRY_PTS', 2.0))
-    time_limit_ms = max(1.0, _envf('RECONCILE_MATCH_MIN', 90.0)) * 60000.0
-    candidates = []
-    for gi, g in enumerate(glog):
-        if g.get('decision') not in ('sent', 'manual'): continue
-        if g.get('ext_outcome') == 'canceled' or g.get('entry') is None: continue
-        book_ms = _reconcile_book_time_ms(g)
-        if not book_ms: continue
-        try: book_qty = int(g.get('qty') or 0)
-        except Exception: book_qty = 0
-        for a in groups:
-            if a['dir'] != g.get('dir'): continue
-            if g.get('date') and a['trading_date'] != g.get('date'): continue
-            time_delta = abs(float(a['t_ms']) - book_ms)
-            if time_delta > time_limit_ms: continue
-            dpx = abs(float(g['entry']) - float(a['entry']))
-            if dpx > entry_tol: continue
-            if a['fill_count'] > 1 and not book_qty: continue
-            if book_qty and int(a['qty']) > book_qty: continue
-            qty_exact = bool(book_qty and int(a['qty']) == book_qty)
-            qty_penalty = 0.0 if qty_exact else (6.0 + abs(book_qty - int(a['qty'])) / float(max(1, book_qty))) if book_qty else 2.0
-            score = qty_penalty + dpx + time_delta / time_limit_ms - (0.05 * (a['fill_count'] - 1) if qty_exact else 0)
-            candidates.append((score, -a['fill_count'], time_delta, gi, a))
-    candidates.sort(key=lambda x: (x[0], x[1], x[2], -x[3]))
-    used_books = set(); used_fills = set(); chosen = []
-    for _, _, _, gi, a in candidates:
-        if gi in used_books or any(idx in used_fills for idx in a['indices']): continue
-        used_books.add(gi); used_fills.update(a['indices']); chosen.append((gi, a))
-
-    matched = []
-    for gi, a in sorted(chosen, key=lambda x: x[1]['t_ms']):
-        g = glog[gi]
-        prior = _actualize(g, sm.get(g.get('key'), {}))
-        if not g.get('reconciled'):
-            g['model_outcome'] = prior.get('outcome'); g['model_net'] = prior.get('net')
-        broker_pnl = round(float(a['pnl']))
-        outcome = 'win' if a['pnl'] > 0 else ('loss' if a['pnl'] < 0 else 'timeout')
-        g['ext_outcome'] = outcome; g['ext_net'] = broker_pnl
-        g['outcome'] = outcome; g['reconciled'] = True
-        g['broker_qty'] = a['qty']; g['broker_entry'] = round(a['entry'], 5)
-        g['broker_time_et'] = a['t']; g['broker_fill_count'] = a['fill_count']
-        matched.append(dict(
-            key=g.get('key'), et=g.get('et'), broker_t=a['t'], broker_pnl=broker_pnl,
-            dir=a['dir'], broker_entry=round(a['entry'], 5), qty=a['qty'], fill_count=a['fill_count'],
-            outcome=outcome, was_outcome=g.get('model_outcome'), was_net=g.get('model_net'),
-        ))
-
-    leftovers = [f for f in fills if int(f['row_id']) not in used_fills]
-    # Coalesce obvious leftover partial fills for a readable audit table; this does not alter matching.
-    unmatched = []
-    left_ids = {int(f['row_id']) for f in leftovers}
-    for a in sorted(_reconcile_fill_groups(leftovers), key=lambda x: (-x['fill_count'], x['t_ms'])):
-        if not all(idx in left_ids for idx in a['indices']): continue
-        if a['fill_count'] > 1:
-            left_ids.difference_update(a['indices'])
-        else:
-            left_ids.discard(a['indices'][0])
-        unmatched.append(dict(t=a['t'], dir=a['dir'], qty=a['qty'], entry=round(a['entry'], 5),
-                              pnl=round(a['pnl']), fill_count=a['fill_count']))
-    matched_total = round(sum(float(m['broker_pnl']) for m in matched))
-    broker_total = round(sum(float(f['pnl']) for f in fills))
-    unmatched_total = round(broker_total - matched_total)
-    summary = dict(
-        matched_total=matched_total, unmatched_total=unmatched_total, broker_total=broker_total,
-        broker_rows=len(fills), matched_fill_rows=len(used_fills),
-        unmatched_fill_rows=len(fills) - len(used_fills), skipped_rows=skipped,
-        csv_timezone=zone_name,
-    )
-    return matched, unmatched, summary
 
 # ---------- HTTP: /guard (page), /guard/data, /guard/sync, /guard/kill, /guard/health, /guard/pine ----------
 def register(app):
@@ -1422,13 +1320,17 @@ def register(app):
 
     def _data():
         s = _state(); d = _day_stats(); sm = _shadow_by_key()
-        book = [_actualize(g, sm.get(g.get('key'), {})) for g in reversed(_load(GLOG, []))][:80]
+        all_rows = [_actualize(g, sm.get(g.get('key'), {})) for g in _load(GLOG, [])]
+        book = list(reversed(all_rows))[:80]
         # fired vs actually-filled, all-time over the visible book (v27.3c): 'fired' = every SENT/ARMED
         # row; 'filled' = those that really held a position (win/loss/timeout incl. reconciled)
         _sent_rows = [b for b in book if b.get('decision') in ('sent', 'manual')]
         fired_n = len(_sent_rows)
         filled_n = sum(1 for b in _sent_rows if b.get('outcome') in ('win', 'loss', 'timeout'))
-        return jsonify(mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
+        summary = trade_summary(all_rows)
+        return jsonify(profile=account_profile(), inactivity=inactivity_status(all_rows),
+                       trade_summary=summary,
+                       mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
                        openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
                        be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL'),
@@ -1502,9 +1404,8 @@ def register(app):
         return jsonify(**h), code
 
     def _pine():
-        """Pine for guard decisions. ?day=YYYY-MM-DD&show=fired|blocked|all."""
-        return Response(pine_book(request.args.get('day', ''), request.args.get('show', 'fired')),
-                        mimetype='text/plain')
+        """Pine script for the AUTO trades (draw them on TradingView). ?day=YYYY-MM-DD or omit for all."""
+        return Response(pine_book(request.args.get('day', '')), mimetype='text/plain')
 
     def _extlog():
         """POST: a satellite strategy (C, ...) sharing this account registers its SEND, or updates
@@ -1533,22 +1434,60 @@ def register(app):
         return jsonify(ok=True)
 
     def _reconcile():
-        """Paste a Tradovate Performance CSV and replace model outcomes with broker truth.
-
-        Rows are normalized from RECONCILE_CSV_TZ to New York, partial executions are aggregated,
-        and matching requires trading date + time window + direction + entry tolerance. Quantity
-        equality is strongly preferred. User ``canceled`` stamps remain final.
-        """
+        """v27.3 — paste the Tradovate Performance CSV, the book overwrites MODEL outcomes with BROKER
+        reality. POST /guard/reconcile?t=<token>, body = raw CSV text (or form field 'csv').
+        Matching: direction from fill order (sold-first = SHORT), entry = first-leg price; a book SENT
+        row matches when |entry diff| <= 2.0 pts (qty equality preferred). Matched rows get
+        ext_outcome win/loss (pnl sign) + ext_net = broker pnl — from then on day counters, the
+        2-loss halt and modeled equity run on real fills, not the touch-fill model. User 'canceled'
+        stamps are preserved. Returns matched / unmatched so nothing fails silently."""
         if not _authed(): return jsonify(ok=False, err='auth'), 401
         try:
             raw = (request.form.get('csv') or request.get_data(as_text=True) or '').strip()
             if not raw: return jsonify(ok=False, err='empty body'), 400
-            glog = _load(GLOG, [])
-            matched, unmatched, summary = _reconcile_match(raw, glog, _shadow_by_key())
+            import csv as _csv, io as _io, datetime as _dt
+            fills = []
+            for r in _csv.DictReader(_io.StringIO(raw)):
+                try:
+                    qty = int(float(r.get('qty') or 0))
+                    bp, sp = float(r['buyPrice']), float(r['sellPrice'])
+                    pnl_s = (r.get('pnl') or '').replace('$', '').replace(',', '').strip()
+                    pnl = -float(pnl_s.strip('()')) if pnl_s.startswith('(') else float(pnl_s or 0)
+                    bt = _dt.datetime.strptime(r['boughtTimestamp'], '%m/%d/%Y %H:%M:%S')
+                    st = _dt.datetime.strptime(r['soldTimestamp'], '%m/%d/%Y %H:%M:%S')
+                    short = st < bt
+                    fills.append(dict(qty=qty, dir='SHORT' if short else 'LONG',
+                                      entry=(sp if short else bp), exit=(bp if short else sp),
+                                      pnl=pnl, t=min(bt, st).isoformat()))
+                except Exception as fe:
+                    print('[guard] reconcile row skip:', fe, flush=True)
+            glog = _load(GLOG, []); matched = []; unmatched = []
+            sm = _shadow_by_key()                     # so the summary can show model->broker deltas
+            used = set()
+            for f in fills:
+                best = None; bestd = 99.0
+                for i in range(len(glog) - 1, -1, -1):
+                    g = glog[i]
+                    if i in used or g.get('decision') not in ('sent', 'manual'): continue
+                    if g.get('ext_outcome') == 'canceled': continue
+                    if g.get('dir') != f['dir'] or g.get('entry') is None: continue
+                    dpx = abs(float(g['entry']) - f['entry'])
+                    if dpx > 2.0: continue
+                    score = dpx + (0 if (g.get('qty') and int(g['qty']) == f['qty']) else 0.5)
+                    if score < bestd: bestd = score; best = i
+                if best is None:
+                    unmatched.append(f); continue
+                g = glog[best]; used.add(best)
+                prior = _actualize(g, sm.get(g.get('key'), {}))        # model verdict BEFORE overwrite
+                g['model_outcome'] = prior.get('outcome'); g['model_net'] = prior.get('net')  # keep BOTH:
+                g['ext_outcome'] = 'win' if f['pnl'] > 0 else ('loss' if f['pnl'] < 0 else 'timeout')
+                g['ext_net'] = round(f['pnl']); g['outcome'] = g['ext_outcome']; g['reconciled'] = True
+                matched.append(dict(key=g.get('key'), et=g.get('et'), broker_pnl=round(f['pnl']),
+                                    outcome=g['ext_outcome'],
+                                    was_outcome=prior.get('outcome'), was_net=prior.get('net')))
             _save(GLOG, glog)
-            print('[guard] reconcile: %d matched groups, %d unmatched groups; broker total %s' %
-                  (len(matched), len(unmatched), summary['broker_total']), flush=True)
-            return jsonify(ok=True, matched=matched, unmatched=unmatched, summary=summary,
+            print('[guard] reconcile: %d matched, %d unmatched' % (len(matched), len(unmatched)), flush=True)
+            return jsonify(ok=True, matched=matched, unmatched=unmatched,
                            note='matched rows now carry BROKER outcomes; sync equity too: /guard/sync?equity=<real>')
         except Exception as e:
             return jsonify(ok=False, err=str(e)), 500
@@ -1605,22 +1544,25 @@ h1{font-size:15px;margin-bottom:2px}.sub{color:#888;font-size:11px;margin-bottom
 .btn.kills{color:#e66;border-color:#d03b3b55}.btn.arms{color:#3ecb3e;border-color:#3ecb3e55;margin-left:auto}
 .pinep{margin-top:16px;border-top:1px solid #ffffff14;padding-top:12px}
 .pinep .ph{display:flex;gap:8px;align-items:center;font-size:12px;color:#bbb;flex-wrap:wrap;margin-bottom:6px}
-.pinep select,.pinep input[type=date]{background:#1a1a19;color:#ddd;border:1px solid #333;border-radius:5px;padding:4px 8px;font-size:12px;color-scheme:dark}
+.pinep select{background:#1a1a19;color:#ddd;border:1px solid #333;border-radius:5px;padding:4px 8px;font-size:12px}
 .cpy{cursor:pointer;border:1px solid #22d3ee55;background:#22d3ee18;color:#22d3ee;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600}
 #pinebox{width:100%;height:26vh;background:#0d0d0d;color:#cfefff;border:1px solid #222;border-radius:8px;padding:9px;font:11px/1.4 monospace;box-sizing:border-box;margin-top:2px}
 table{border-collapse:collapse;width:100%;font-size:12px}th{color:#888;text-align:left;font-weight:500;padding:5px;border-bottom:1px solid #333;font-size:10px;text-transform:uppercase}
 td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums}
 .sent{color:#3ecb3e;font-weight:600}.blk{color:#e88}.win{color:#3ecb3e}.loss{color:#e66}.open{color:#e0a93b}
 .g{color:#888}
+.rulebar{background:#121923;border:1px solid #263247;border-radius:10px;padding:10px 12px;margin-bottom:12px;color:#aeb8c8;font-size:11px;line-height:1.55}
+.rulebar b{color:#e6e9ef}.rulebar .bad{color:#e66}.rulebar .good{color:#3ecb3e}.rulebar .warn{color:#e0a93b}
 .evalbar{background:#1a1a19;border:1px solid #ffffff1a;border-radius:10px;padding:12px 14px;margin-bottom:12px}
 .evalbar .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;font-size:12px}
 .evalbar .ttl{color:#888}.evalbar .st{font-weight:700}
 .trackp{position:relative;height:20px;background:#282826;border-radius:5px;overflow:hidden}
 .fillp{height:100%;border-radius:5px;min-width:3px}
 .bn{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700}</style></head><body>
-<h1>Auto-Executor — Guard <span id=mode class=pill></span> <span id=kill class=pill></span> <span id=health class=pill></span></h1>
-<div class=sub>MFF Pro-100k eval · resting-limit A/B · fail-closed · MANUAL = review only / no broker orders · stale-data aborts AUTO send · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN · health JSON: /guard/health</span></div>
+<h1>Auto-Executor — <span id=account_name>Account</span> <span id=mode class=pill></span> <span id=kill class=pill></span> <span id=health class=pill></span></h1>
+<div class=sub><span id=account_sub></span> · resting-limit A/B + Shallow · fail-closed · MANUAL = review only / no broker orders · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN</span></div>
 <div id=healthbar class=sub style="margin:-6px 0 12px;font-weight:600"></div>
+<div id=rulebar class=rulebar></div>
 <div class=modebar>
  <span class=lb>MODE</span>
  <a class="btn mauto" href="/guard/mode?set=auto" onclick="return flip('auto')">AUTO</a>
@@ -1654,18 +1596,39 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <div id="rectab"></div>
 </div>
 <div class="pinep">
- <div class="ph">📈 <b>Pine for TradingView</b> — fired and blocked guard decisions
-  <select id="pineshow" onchange="loadPine()"><option value="all">All decisions</option><option value="blocked">Blocked only</option><option value="fired">Fired only</option></select>
-  <input type="date" id="pineday" onchange="loadPine()" title="Guard trading date (ET)">
-  <button class="cpy" onclick="return clearPineDate()">All dates</button>
+ <div class="ph">📈 <b>Pine for TradingView</b> — see the AUTO trades on your chart
+  <select id="pineday" onchange="loadPine()"></select>
   <button class="cpy" onclick="copyPine(this)">Copy script</button>
-  <span class="g">orange label = BLOCKED · date = guard trading date ET</span>
+  <span class="g">paste into TradingView → Pine Editor → Add to chart</span>
  </div>
- <textarea id="pinebox" readonly placeholder="choose Fired/Blocked/All and optionally a date"></textarea>
+ <textarea id="pinebox" readonly placeholder="pick a day (or 'all trades') → the Pine appears here"></textarea>
 </div>
 <script>
 async function load(){
  let d=await (await fetch('/guard/data',{cache:'no-store'})).json();
+ let p=d.profile||{},rules=p.rules||{},ia=d.inactivity||{},ts=d.trade_summary||{};
+ document.getElementById('account_name').textContent=p.label||'Account';
+ document.getElementById('account_sub').textContent='MFF '+(p.label||'account')+' · '+(p.phase||'evaluation');
+ let active=(p.active_sessions||[]).map(function(s){return s.code+' '+s.description;}).join(' · ')||'none configured';
+ let warns=(p.config_warnings||[]);
+ let ic=ia.status=='due'||ia.status=='critical'?'bad':ia.status=='warn'||ia.status=='unknown'?'warn':'good';
+ let iaText=ia.enabled?('<span class='+ic+'><b>Inactivity:</b> '+(ia.message||ia.status)+
+   (ia.anchor_date?' · anchor '+ia.anchor_date:'')+'</span>'):'<span class=good>Inactivity tracker disabled for this profile</span>';
+ let builderExtra=p.plan==='builder50'?('<br><b>Builder EOD MLL:</b> starts at $'+Number(rules.starting_floor||0).toLocaleString()+
+  ' · trails at end of day · locks at $'+Number(rules.floor_locks_at||0).toLocaleString()+
+  '<br><b>Trading:</b> max '+(rules.max_minis||4)+' minis / '+(rules.max_micros||40)+' MNQ ('+(rules.micro_scaling||'10:1')+')'+
+  ' · news '+(rules.news_trading||'?')+' · overnight '+(rules.overnight||'?')+
+  ' · internal daily stop $'+Number(p.internal_day_loss_usd||0).toLocaleString()+' / '+(p.internal_day_loss_n||'?')+' losing setup(s)'+
+  '<br><b>Funded / payout:</b> $'+Number(rules.funded_buffer||0).toLocaleString()+' buffer · '+(rules.funded_consistency||'?')+
+  ' · '+(rules.payout_wait_days||'?')+' trading days · $'+Number(rules.payout_min||0).toLocaleString()+'–$'+Number(rules.payout_max||0).toLocaleString()+
+  ' · split '+(rules.payout_split||'?')+' · no activation or recurring fee'):'';
+ document.getElementById('rulebar').innerHTML='<b>Evaluation rules:</b> target $'+Number(rules.profit_target||0).toLocaleString()+
+  ' · EOD max loss $'+Number(rules.max_eod_loss||0).toLocaleString()+
+  (rules.daily_soft_pause?' · daily soft pause $'+Number(rules.daily_soft_pause).toLocaleString():' · no firm daily loss limit')+
+  ' · max '+(rules.max_micros||'?')+' MNQ · consistency '+(rules.consistency||'?')+
+  ' · min '+(rules.min_trading_days||'?')+' trading day(s)'+builderExtra+'<br><b>Active time windows:</b> '+active+
+  ' · Monday mode '+(p.monday_mode||'?')+'<br>'+iaText+
+  (warns.length?'<br><span class=bad><b>CONFIG WARNING:</b> '+warns.join(' · ')+'</span>':'');
  let mp=document.getElementById('mode');mp.textContent=d.mode.toUpperCase();mp.className='pill '+(d.mode=='auto'?'on':d.mode=='manual'?'manual':'off');
  document.querySelectorAll('.btn.mauto,.btn.mmanual,.btn.moff').forEach(b=>b.classList.remove('act'));
  let ab=document.querySelector('.btn.m'+d.mode);if(ab)ab.classList.add('act');
@@ -1680,18 +1643,20 @@ async function load(){
  let e=d.eval||{};
  let ef=document.getElementById('ev_fill');ef.style.width=Math.max(3,Math.min(100,e.pct||0))+'%';
  ef.style.background=e.breached?'#d03b3b':e.passed?'#0ca30c':((e.pnl||0)<0?'#e0a93b':'#3987e5');
- document.getElementById('ev_head').textContent='Eval progress — $'+(e.start||0).toLocaleString()+' → $'+(e.target||0).toLocaleString()+' (+6%)';
+ document.getElementById('ev_head').textContent='Eval progress — $'+(e.start||0).toLocaleString()+' → $'+(e.target||0).toLocaleString()+' (+'+(e.target_pct||0)+'%) · floor $'+(e.floor||0).toLocaleString();
  document.getElementById('ev_state').innerHTML=e.passed?'<span class=bn style="background:#0ca30c22;color:#3ecb3e">✓ TARGET HIT — PASS</span>':e.breached?'<span class=bn style="background:#d03b3b22;color:#e66">✕ DRAWDOWN BREACHED — halted</span>':('$'+(e.to_target||0).toLocaleString()+' to target · '+(e.pct||0)+'%');
  let bufc=(e.buffer||0)<1200?'#e66':'#3ecb3e';
  document.getElementById('cards').innerHTML=[
   ['Equity (modeled)','$'+(e.equity||0).toLocaleString()],
   ['P&L vs start','<span style=color:'+((e.pnl||0)>=0?'#3ecb3e':'#e0a93b')+'>'+((e.pnl||0)>=0?'+':'')+'$'+(e.pnl||0).toLocaleString()+'</span>'],
-  ['% to +6% target',(e.pct||0)+'%'],['DD buffer','<span style=color:'+bufc+'>$'+(e.buffer||0).toLocaleString()+'</span>'],
+  ['% of target completed',(e.pct||0)+'%'],['DD buffer','<span style=color:'+bufc+'>$'+(e.buffer||0).toLocaleString()+'</span>'],
   ['Trades today',d.trades+' / '+d.max_trades],['Losses today',d.losses+' / '+d.loss_n],
   ['Day P&L','$'+d.day_net+' / '+d.day_target],
   ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')],
-  ['Fired · Filled',(d.fired||0)+' · '+(d.filled||0)+' <span style="font-size:11px;color:#8a93a6">('+
-    (d.fired?Math.round(100*(d.filled||0)/d.fired):0)+'% fill)</span>']
+  ['Sent setups · confirmed',(ts.sent_setups||0)+' · '+(ts.confirmed_setups||0)],
+  ['Wins · losses',(ts.wins||0)+' · '+(ts.losses||0)],
+  ['Broker reconciled',ts.broker_reconciled_orders||0],
+  ['Inactivity',ia.enabled?((ia.days_without_trade==null?'unknown':ia.days_without_trade+'d')+' · '+(ia.days_left==null?'?':ia.days_left)+'d left'):'off']
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
   if(!v)return '<span style="color:#6b7688">—</span>';
@@ -1712,9 +1677,9 @@ async function load(){
  let fired=x=>x.decision=='sent'||x.decision=='manual';
  window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._book=d.book||[];
  renderBook();
- let pd=document.getElementById('pineday'),pdays=d.pine_days||[];
- if(pdays.length){pd.max=pdays[0];pd.min=pdays[pdays.length-1];}
- if(!pd.dataset.ready){pd.dataset.ready='1';loadPine();}
+ let ps=document.getElementById('pineday');
+ let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
+ if(ps.dataset.sig!==opts){let cur=ps.value;ps.innerHTML=opts;ps.dataset.sig=opts;if(cur)ps.value=cur;loadPine();}
 }
 let _filter='all';
 function setf(f){_filter=f;document.querySelectorAll('.btn.fall,.btn.fsent,.btn.fblk').forEach(b=>b.classList.remove('act'));
@@ -1752,28 +1717,22 @@ async function doRec(btn){let b=document.getElementById('recbox').value.trim();l
  btn.textContent='...';
  try{let r=await (await fetch('/guard/reconcile?x=1'+(_t||''),{method:'POST',body:b,cache:'no-store'})).json();
   if(r.ok){
-   let s=r.summary||{};
-   o.textContent='✓ matched '+r.matched.length+' groups / '+(s.matched_fill_rows||0)+' broker rows · unmatched '+(s.unmatched_fill_rows||0)+' · CSV '+(s.csv_timezone||'?')+' → ET — now sync real equity!';
-   let rows=r.matched.map(m=>'<tr><td>'+(m.broker_t||'')+'</td><td>'+(m.et||'')+'</td>'+ 
-     '<td>'+m.dir+' '+m.qty+'× @ '+m.broker_entry+(m.fill_count>1?(' · '+m.fill_count+' partial fills'):'')+'</td>'+ 
-     '<td>'+(m.was_outcome||'?')+' → <b>'+m.outcome+'</b></td>'+ 
+   o.textContent='✓ matched '+r.matched.length+' · unmatched broker fills '+r.unmatched.length+' — now sync real equity!';
+   let tot=r.matched.reduce((a,m)=>a+(m.broker_pnl||0),0);
+   let rows=r.matched.map(m=>'<tr><td>'+m.et+'</td><td>'+(m.was_outcome||'?')+' → <b>'+m.outcome+'</b></td>'+
      '<td style="text-align:right">'+(m.was_net!=null?('('+m.was_net+')'):'—')+' → <b>'+m.broker_pnl+'</b></td></tr>').join('');
-   let un=r.unmatched.map(u=>'<tr><td>'+(u.t||'')+'</td><td>—</td><td>'+u.dir+' '+u.qty+'× @ '+u.entry+(u.fill_count>1?(' · '+u.fill_count+' partial fills'):'')+'</td>'+ 
-     '<td style="color:#e0a93b">no matching book row</td><td style="text-align:right">'+Math.round(u.pnl)+'</td></tr>').join('');
+   let un=r.unmatched.map(u=>'<tr><td>'+(u.t||'')+'</td><td>'+u.dir+' '+u.qty+'× @ '+u.entry+'</td>'+
+     '<td style="text-align:right">'+Math.round(u.pnl)+' (no book row!)</td></tr>').join('');
    document.getElementById('rectab').innerHTML='<table style="margin-top:8px;font-size:12px">'+
-     '<thead><tr><th>Broker time ET</th><th>Book time ET</th><th>Broker fill</th><th>Outcome model → broker</th><th>Net$ model → broker</th></tr></thead>'+ 
-     '<tbody>'+rows+un+'</tbody><tfoot>'+ 
-     '<tr><td></td><td></td><td></td><td><b>matched total</b></td><td style="text-align:right"><b>'+(s.matched_total||0)+'</b></td></tr>'+ 
-     '<tr><td></td><td></td><td></td><td><b>unmatched total</b></td><td style="text-align:right"><b>'+(s.unmatched_total||0)+'</b></td></tr>'+ 
-     '<tr><td></td><td></td><td></td><td><b>full broker total</b></td><td style="text-align:right"><b>'+(s.broker_total||0)+'</b></td></tr>'+ 
-     '</tfoot></table>';
+     '<thead><tr><th>Time ET</th><th>Outcome model → broker</th><th>Net$ model → broker</th></tr></thead>'+
+     '<tbody>'+rows+un+'</tbody><tfoot><tr><td></td><td><b>broker total</b></td>'+
+     '<td style="text-align:right"><b>'+Math.round(tot)+'</b></td></tr></tfoot></table>';
   } else o.textContent='⚠ '+(r.err||'failed');
  }catch(e){o.textContent='⚠ '+e;}
  btn.textContent='Reconcile';load();return false;}
 async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
-function clearPineDate(){document.getElementById('pineday').value='';loadPine();return false;}
-async function loadPine(){let day=document.getElementById('pineday').value,show=document.getElementById('pineshow').value;
- let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day)+'&show='+encodeURIComponent(show),{cache:'no-store'})).text();
+async function loadPine(){let day=document.getElementById('pineday').value;
+ let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
  document.getElementById('pinebox').value=t;}
 function copyPine(btn){let b=document.getElementById('pinebox');b.select();navigator.clipboard.writeText(b.value);
  btn.textContent='Copied ✓';setTimeout(()=>{btn.textContent='Copy script';},1200);}
