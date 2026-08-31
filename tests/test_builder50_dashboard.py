@@ -5,6 +5,9 @@ from unittest import mock
 
 import dashboard
 import guardrails
+import agent
+import ab_shallow
+import live_emit
 
 
 BUILDER_ENV = {
@@ -46,17 +49,89 @@ class Builder50DashboardTests(unittest.TestCase):
         self.assertEqual(profile['configured_group_risk'], 500)
         self.assertIn('PREM', [s['code'] for s in profile['active_sessions']])
 
+    def test_builder_rejects_bar_fanout_variables_copied_from_100k(self):
+        bad = dict(BUILDER_ENV, BUILDER50_URL='https://builder.example',
+                   STRAT_C_FORWARD_URL='https://strategy-c.example/bars')
+        with mock.patch.dict(os.environ, bad, clear=True):
+            profile = guardrails.account_profile()
+        self.assertFalse(profile['config_ok'])
+        self.assertTrue(any('BUILDER50_URL belongs only' in w for w in profile['config_warnings']))
+        self.assertTrue(any('must not fan out bars' in w for w in profile['config_warnings']))
+
+    def test_execution_route_fingerprint_detects_same_webhook_without_exposing_it(self):
+        webhook = 'https://webhooks.example/secret-route'
+        with mock.patch.dict(os.environ, {'EXEC_WEBHOOK': webhook}, clear=True):
+            route_id = guardrails._exec_route_id()
+        self.assertEqual(len(route_id), 16)
+        self.assertNotIn('secret-route', route_id)
+
+    def test_traderspost_stale_signal_guard_is_bounded(self):
+        with mock.patch.dict(os.environ, {'EXEC_REJECT_AFTER_SEC': '15'}, clear=True):
+            self.assertEqual(agent._signal_reject_after_sec(), 15)
+        with mock.patch.dict(os.environ, {'EXEC_REJECT_AFTER_SEC': '999'}, clear=True):
+            self.assertEqual(agent._signal_reject_after_sec(), 30)
+
+    def test_executor_test_signal_can_never_reach_the_broker(self):
+        response = mock.Mock(status_code=200, text='ok')
+        with mock.patch.dict(os.environ, {
+            'EXEC_WEBHOOK': 'https://webhooks.example/test', 'EXEC_TICKER': 'MNQU2026',
+            'EXEC_QTY': '1', 'PARTIAL_AT_1R': '0', 'EXEC_TIF': 'day'
+        }, clear=True), mock.patch.object(agent.requests, 'post', return_value=response) as post:
+            result = agent._exec_order({'dir': 'LONG', 'entry': 20000, 'SL': 19990,
+                                        '_test_signal': True})
+        self.assertTrue(result['sent'])
+        self.assertIs(post.call_args.kwargs['json']['test'], True)
+
+    def test_builder_ab_and_shallow_share_one_500_dollar_ceiling(self):
+        env = dict(BUILDER_ENV, AB_SHALLOW_ENABLED='1', AB_SHALLOW_FRACTION='0.25',
+                   AB_SHALLOW_RR='2', AB_SHALLOW_MIN_SL_PTS='5',
+                   SETUP_GROUP_RT_COST_USD='2.24', POINT_VALUE='2', EXEC_TICK='0.25')
+        deep = {'date': '2026-08-31', 'model': 'Reversal', 'cat': 'F.P.FVG',
+                'dir': 'SHORT', 'bos_ms': 1785505320000, 'entry': 28545.0,
+                'SL': 28576.0, 'TP': 28456.5, '_signal_close': 28478.5}
+        child = ab_shallow.build_shallow_signal(deep, env)
+        ab_shallow.apply_shared_group_budget(deep, child, env)
+        sized = [live_emit.size_for_budget(x['entry'], x['SL'], x['_risk_budget_usd'], 2.24)
+                 for x in (deep, child)]
+        self.assertLessEqual(sum(x[3] for x in sized), 500.0)
+        self.assertEqual(deep['_risk_budget_usd'], 250.0)
+        self.assertEqual(child['_risk_budget_usd'], 250.0)
+
     def test_eval_percentage_uses_configured_target_not_hardcoded_6000(self):
         with mock.patch.dict(os.environ, BUILDER_ENV, clear=False), \
              mock.patch.object(guardrails, '_state', return_value={'equity': 51500}), \
              mock.patch.object(guardrails, '_day_stats', return_value={'net': 0}), \
              mock.patch.object(guardrails, '_modeled_equity', return_value=51500.0), \
-             mock.patch.object(guardrails, '_dd_floor', return_value=49500.0):
+             mock.patch.object(guardrails, '_dd_floor', return_value=49500.0), \
+             mock.patch.object(guardrails, 'confirmed_trading_days', return_value=['2026-09-01']):
             progress = guardrails.eval_progress()
         self.assertEqual(progress['pnl'], 1500)
         self.assertEqual(progress['pct'], 50.0)
         self.assertEqual(progress['target_profit'], 3000)
         self.assertEqual(progress['target_pct'], 6.0)
+
+    def test_target_alone_is_not_pass_without_minimum_trading_day(self):
+        with mock.patch.dict(os.environ, BUILDER_ENV, clear=False), \
+             mock.patch.object(guardrails, '_state', return_value={'equity': 53000}), \
+             mock.patch.object(guardrails, '_day_stats', return_value={'net': 0}), \
+             mock.patch.object(guardrails, '_modeled_equity', return_value=53000.0), \
+             mock.patch.object(guardrails, '_dd_floor', return_value=50100.0), \
+             mock.patch.object(guardrails, 'confirmed_trading_days', return_value=[]):
+            progress = guardrails.eval_progress()
+        self.assertTrue(progress['target_reached'])
+        self.assertFalse(progress['passed'])
+        self.assertEqual(progress['trading_days'], 0)
+
+    def test_target_and_confirmed_day_mark_pass(self):
+        with mock.patch.dict(os.environ, BUILDER_ENV, clear=False), \
+             mock.patch.object(guardrails, '_state', return_value={'equity': 53000}), \
+             mock.patch.object(guardrails, '_day_stats', return_value={'net': 0}), \
+             mock.patch.object(guardrails, '_modeled_equity', return_value=53000.0), \
+             mock.patch.object(guardrails, '_dd_floor', return_value=50100.0), \
+             mock.patch.object(guardrails, 'confirmed_trading_days', return_value=['2026-09-02']):
+            progress = guardrails.eval_progress()
+        self.assertTrue(progress['passed'])
+        self.assertEqual(progress['trading_days'], 1)
 
     def test_inactivity_counts_confirmed_sent_trade_not_manual_or_open_order(self):
         rows = [
@@ -104,6 +179,8 @@ class Builder50DashboardTests(unittest.TestCase):
         self.assertIn("BUILDER50+'/all/trades'", page)
         self.assertIn("BUILDER50+'/all/candidates'", page)
         self.assertIn("Number(e.target||0).toLocaleString()", page)
+        self.assertIn('SAME WEBHOOK', page)
+        self.assertIn("routeMain===routeBuilder", page)
 
     def test_guard_page_has_account_rules_and_activity_widgets(self):
         self.assertIn('id=account_name', guardrails._HTML)
