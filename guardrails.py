@@ -1174,7 +1174,9 @@ def news_calendar_check(cal_age_h=None, market_open=None):
 
 
 def _mins_since(ms):
-    try: return (_now_ms() - int(ms or 0)) / 60000.0
+    try:
+        value = int(ms or 0)
+        return ((_now_ms() - value) / 60000.0) if value > 0 else None
     except Exception: return None
 
 def health(feed_age_min=None, market_open=None):
