@@ -5,7 +5,7 @@ AGENT live (osobny serwis — NIE wrzucac do NQsignals).
 - na starcie oznacza istniejace setupy jako 'widziane' (zero zalewania historia)
 
 ENV:
-  WEBHOOK_URL  = https://nqsignals-production.up.railway.app/webhook?secret=nqscout2024
+  WEBHOOK_URL  = https://YOUR-ALERT-RELAY/webhook?secret=CREATE_A_SECRET
   PORT         = 8000 (Railway ustawia sam)
   BUFFER_BARS  = 14000 (~10 dni 1m)
 Uruchom: python3 agent.py    (lokalnie/VPS/osobny serwis Railway)
@@ -49,7 +49,7 @@ CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the 
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.14-dual-auto-executor-builder50'
+VERSION = 'v31.15-builder-route-isolation'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -116,6 +116,15 @@ def _entry_cancel_after_sec():
     except Exception:
         sec = 600
     return max(1, min(3600, sec))
+
+
+def _signal_reject_after_sec():
+    """Maximum TradersPost queue age for a just-generated execution request."""
+    try:
+        sec = int(round(float(os.environ.get('EXEC_REJECT_AFTER_SEC', '15') or 15)))
+    except Exception:
+        sec = 15
+    return max(1, min(30, sec))
 
 
 def _exec_order(x, text=None):
@@ -244,7 +253,11 @@ def _exec_order(x, text=None):
                 "stopLoss": {"type": "stop", "stopPrice": _t(sl + off)},
                 "timeInForce": os.environ.get('EXEC_TIF', 'day').strip().lower() or 'day',
                 "cancelAfter": _entry_cancel_after_sec(),
+                "time": dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+                "rejectAfter": _signal_reject_after_sec(),
             }
+            if x.get('_test_signal'):
+                payload["test"] = True
             if text and _i == 0: payload["text"] = text
             try:
                 r = requests.post(url, json=payload, timeout=10)
@@ -1037,15 +1050,17 @@ def archive():
 @app.route('/exectest')
 def exectest():
     """Route 2 test: wyślij PRZYKŁADOWE zlecenie do TradersPost (EXEC_WEBHOOK) + ping Telegram.
-    Wymaga EXEC_TEST_SECRET (env) i ?secret=. Bezpieczne: TradersPost (manual submit) trzyma je jako
-    oczekujące dopóki nie zatwierdzisz. Param: ?dir=LONG&entry=29700&sl=29690"""
+    Wymaga EXEC_TEST_SECRET (env) i ?secret=. Payload zawsze ma test=true, więc TradersPost
+    zapisuje sygnał diagnostyczny, ale nie wysyła żadnego zlecenia do brokera.
+    Param: ?dir=LONG&entry=29700&sl=29690"""
     sec = os.environ.get('EXEC_TEST_SECRET', '')
     if not sec or request.args.get('secret', '') != sec:
         return jsonify(error='ustaw EXEC_TEST_SECRET (env) i podaj ?secret=...'), 401
     side = request.args.get('dir', 'LONG').upper()
     entry = float(request.args.get('entry', '29700'))
     sl = float(request.args.get('sl', str(entry - 10 if side == 'LONG' else entry + 10)))
-    sample = {'dir': side, 'entry': entry, 'SL': sl}
+    sample = {'dir': side, 'entry': entry, 'SL': sl,
+              '_test_signal': True, '_exec_qty_override': 1}
     relay = _exec_order(sample)   # -> relay /stage -> JEDNA wiadomość z przyciskami
     return jsonify(ok=True, exec_webhook_set=bool(os.environ.get('EXEC_WEBHOOK')), relay=relay,
                    ticker=os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),

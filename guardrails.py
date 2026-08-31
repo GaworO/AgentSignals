@@ -54,7 +54,7 @@ Hardening (2026-07-19 review):
   agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
-import os, json, time, datetime as dt
+import os, json, time, datetime as dt, hashlib
 try:
     import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
 except Exception:
@@ -76,6 +76,12 @@ RISK_DOLLAR = 450.0                                     # one sibling share of t
 def _env(k, d):        return os.environ.get(k, d)
 def _envf(k, d):       return float(os.environ.get(k, str(d)))
 def _envi(k, d):       return int(float(os.environ.get(k, str(d))))
+
+
+def _exec_route_id():
+    """Non-secret fingerprint used to detect two account services sharing one route."""
+    url = os.environ.get('EXEC_WEBHOOK', '').strip()
+    return hashlib.sha256(url.encode('utf-8')).hexdigest()[:16] if url else ''
 
 _SESSION_WINDOWS = {
     'ASIA': '18:00-02:00 ET (Asia / Globex)',
@@ -131,6 +137,12 @@ def account_profile():
             warnings.append('DAY_LOSS_USD exceeds the Builder $1,000 daily threshold')
         if _env('EXEC_TIF', 'day').strip().lower() != 'day':
             warnings.append('EXEC_TIF must be day; Builder positions cannot be held overnight')
+        if os.environ.get('BUILDER50_URL', '').strip():
+            warnings.append('BUILDER50_URL belongs only on the 100K service; remove it here to prevent a bar loop')
+        duplicate_forwards = [k for k in ('STRAT_C_FORWARD_URL', 'STRAT_F_FORWARD_URL',
+                                           'STRAT_AMD_FORWARD_URL') if os.environ.get(k, '').strip()]
+        if duplicate_forwards:
+            warnings.append('Builder must not fan out bars to strategy services; remove ' + ', '.join(duplicate_forwards))
         rules = dict(profit_target=3000, max_eod_loss=2000, daily_soft_pause=1000,
                      max_micros=40, consistency='none during evaluation', min_trading_days=1,
                      inactivity_days=_envi('INACTIVITY_DAYS', 7), drawdown_mode='EOD trailing',
@@ -637,6 +649,29 @@ def _modeled_equity(s=None, d=None):
         return base + float(d.get('net') or 0.0) - at_sync
     return base + float(d.get('net') or 0.0)
 
+
+def confirmed_trading_days():
+    """Distinct days with a resolved SENT order (MANUAL/review rows never qualify)."""
+    try:
+        sm = _shadow_by_key()
+        days = set()
+        for row in _load(GLOG, []):
+            if row.get('decision') != 'sent':
+                continue
+            actual = _actualize(row, sm.get(row.get('key'), {}))
+            if actual.get('outcome') not in ('win', 'loss', 'timeout'):
+                continue
+            day = str(actual.get('date') or str(actual.get('et') or '')[:10])
+            try:
+                dt.date.fromisoformat(day)
+                days.add(day)
+            except Exception:
+                pass
+        return sorted(days)
+    except Exception:
+        return []
+
+
 def eval_progress():
     """Where the MFF eval stands. Uses absolute synced equity plus only post-sync P&L.
     passed = hit the configured profit target; breached = broke the trailing drawdown floor."""
@@ -648,15 +683,22 @@ def eval_progress():
         eq     = _modeled_equity(s, d)
         target_profit = max(0.01, target - start)
         target_pct = 100.0 * target_profit / start if start else 0.0
+        trading_days = confirmed_trading_days()
+        minimum_days = max(0, int(account_profile()['rules'].get('min_trading_days') or 0))
+        target_reached = eq >= target
         return dict(equity=round(eq), start=round(start), target=round(target), floor=round(floor),
                     pnl=round(eq - start), to_target=round(target - eq), buffer=round(eq - floor),
                     pct=round(100.0 * (eq - start) / target_profit, 1),
                     target_profit=round(target_profit), target_pct=round(target_pct, 2),
-                    passed=eq >= target, breached=eq <= floor)
+                    target_reached=target_reached, trading_days=len(trading_days),
+                    trading_day_dates=trading_days, min_trading_days=minimum_days,
+                    passed=target_reached and len(trading_days) >= minimum_days,
+                    breached=eq <= floor)
     except Exception as e:
         print('[guard] eval_progress err', e, flush=True)
         return dict(equity=0, start=100000, target=106000, floor=97000, pnl=0, to_target=6000,
                     buffer=0, pct=0.0, target_profit=6000, target_pct=6.0,
+                    target_reached=False, trading_days=0, trading_day_dates=[], min_trading_days=0,
                     passed=False, breached=False)
 
 
@@ -1330,6 +1372,7 @@ def register(app):
         summary = trade_summary(all_rows)
         return jsonify(profile=account_profile(), inactivity=inactivity_status(all_rows),
                        trade_summary=summary,
+                       exec_route_id=_exec_route_id(),
                        mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
                        kill_reason=s.get('kill_reason', ''), day=_today(), eval=eval_progress(),
                        openpos=bool(d.get('openpos')),   # v27.2: peers sharing this broker account read this
@@ -1643,8 +1686,8 @@ async function load(){
  let e=d.eval||{};
  let ef=document.getElementById('ev_fill');ef.style.width=Math.max(3,Math.min(100,e.pct||0))+'%';
  ef.style.background=e.breached?'#d03b3b':e.passed?'#0ca30c':((e.pnl||0)<0?'#e0a93b':'#3987e5');
- document.getElementById('ev_head').textContent='Eval progress — $'+(e.start||0).toLocaleString()+' → $'+(e.target||0).toLocaleString()+' (+'+(e.target_pct||0)+'%) · floor $'+(e.floor||0).toLocaleString();
- document.getElementById('ev_state').innerHTML=e.passed?'<span class=bn style="background:#0ca30c22;color:#3ecb3e">✓ TARGET HIT — PASS</span>':e.breached?'<span class=bn style="background:#d03b3b22;color:#e66">✕ DRAWDOWN BREACHED — halted</span>':('$'+(e.to_target||0).toLocaleString()+' to target · '+(e.pct||0)+'%');
+ document.getElementById('ev_head').textContent='Eval progress — $'+(e.start||0).toLocaleString()+' → $'+(e.target||0).toLocaleString()+' (+'+(e.target_pct||0)+'%) · floor $'+(e.floor||0).toLocaleString()+' · trading days '+(e.trading_days||0)+'/'+(e.min_trading_days||0);
+ document.getElementById('ev_state').innerHTML=e.passed?'<span class=bn style="background:#0ca30c22;color:#3ecb3e">✓ TARGET + MIN DAYS — PASS</span>':e.breached?'<span class=bn style="background:#d03b3b22;color:#e66">✕ DRAWDOWN BREACHED — halted</span>':e.target_reached?'<span class=bn style="background:#e0a93b22;color:#e0a93b">TARGET HIT — waiting for minimum trading day</span>':('$'+(e.to_target||0).toLocaleString()+' to target · '+(e.pct||0)+'%');
  let bufc=(e.buffer||0)<1200?'#e66':'#3ecb3e';
  document.getElementById('cards').innerHTML=[
   ['Equity (modeled)','$'+(e.equity||0).toLocaleString()],

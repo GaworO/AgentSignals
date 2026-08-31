@@ -104,8 +104,6 @@ var ICONS={
  ab:'<svg '+S+'><rect x="5" y="8" width="5" height="8"/><path d="M7.5 4v4M7.5 16v4"/><rect x="14" y="6" width="5" height="10"/><path d="M16.5 2v4M16.5 16v4"/></svg>',
  c:'<svg '+S+'><path d="M4 20h4v-4h4v-4h4V8h4"/></svg>',
  f:'<svg '+S+'><path d="M3 17l6-6 4 4 8-8"/></svg>',
- orb:'<svg '+S+'><rect x="3" y="3" width="18" height="18" rx="2"/></svg>',
- amd:'<svg '+S+'><circle cx="12" cy="12" r="9"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>',
  list:'<svg '+S+'><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
  book:'<svg '+S+'><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
  help:'<svg '+S+'><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
@@ -123,18 +121,16 @@ var F_HOW='<h2>Strategy F - first-presentation FVG</h2>'+
  '<li><b>Order.</b> Limit at the gap, fixed R target.</li></ol></div>'+
  '<div class="card mut">Honest note (from the F audit): the FVG mechanics are right but F lacks bias / draw-on-liquidity / premium-discount - its edge is <b>momentum continuation, not textbook ICT</b>. Realistic additive &asymp; +0.045R. Its own service has the live candidates / log / performance.</div>';
 
-var COMPARE_HTML='<h2>Strategy scorecard - timing, win rate &amp; frequency</h2>'+
- '<div class="card mut">Real trade logs, 4yr MNQ. Your strategies <b>tile the trading day</b>; AMD owns the NY-PM slot with the #2 per-trade edge. Sorted by expectancy. (A/B: log=6,569 signals, ~1,181 finals/yr traded.)</div>'+
+var COMPARE_HTML='<h2>Strategy scorecard - timing, win rate &amp; frequency</h2>'+ 
+ '<div class="card mut">Real trade logs, 4yr MNQ. Active strategies only, sorted by expectancy. (A/B: log=6,569 signals, ~1,181 finals/yr traded.)</div>'+ 
  '<div class="card"><table>'+
  '<tr><th>Strategy</th><th>When / session</th><th>Win%</th><th>Exp R</th><th>PF</th><th>/yr</th><th>/mo</th><th>/wk</th></tr>'+
  '<tr><td><b>Model C</b></td><td>NY-AM + PREM</td><td>50%</td><td><b>+0.68</b></td><td>3.30</td><td>14</td><td>1.2</td><td>0.27</td></tr>'+
- '<tr><td><b>AMD</b></td><td>NY-PM 13:30-16:00</td><td>47%</td><td><b>+0.44</b></td><td>2.39</td><td>20</td><td>1.7</td><td>0.39</td></tr>'+
- '<tr><td>S2 Up-Gap Fade</td><td>Gap days (RTH open)</td><td>54%</td><td>+0.32</td><td>2.58</td><td>9</td><td>0.7</td><td>0.17</td></tr>'+
- '<tr><td>ORB</td><td>RTH open 09:30</td><td>46%</td><td>+0.23</td><td>1.46</td><td>122</td><td>10.2</td><td>2.34</td></tr>'+
+ '<tr><td>S2 Up-Gap Fade</td><td>Gap days (RTH open)</td><td>54%</td><td>+0.32</td><td>2.58</td><td>9</td><td>0.7</td><td>0.17</td></tr>'+ 
  '<tr><td>S1 Monday-Rebuy</td><td>Mondays (RTH)</td><td>62%</td><td>+0.22</td><td>2.68</td><td>16</td><td>1.3</td><td>0.31</td></tr>'+
  '<tr><td>A/B</td><td>All sessions</td><td>31%</td><td>+0.20</td><td>1.50</td><td>293</td><td>24.4</td><td>5.64</td></tr>'+
  '</table></div>'+
- '<div class="card mut"><b>Best session per strategy:</b> Model C &rarr; NY-AM (+0.84) &middot; A/B &rarr; London (+0.28) / PREM (+0.25) &middot; AMD &rarr; NY-PM (+0.44) &middot; ORB/S2 &rarr; the open &middot; S1 &rarr; Mondays.</div>'+'<h2>A/B forward &mdash; $100k @ 0.5% risk, last 12 months (ATRMULT 1.0)</h2>'+'<div class="card mut">Modeled net R per calendar month, $500 = 1R. Broad detector (all catalysts); realistically executable (~1/day) is a fraction of this. 2025-06 &amp; 2026-06 partial.</div>'+'<div class="card"><table>'+'<tr><th>Month</th><th>Net R</th><th>Net $</th></tr>'+'<tr><td>2025-06 (part)</td><td style=\"color:#17864a\">+36.4</td><td style=\"color:#17864a\">+$18,217</td></tr>'+'<tr><td>2025-07</td><td style=\"color:#c0392b\">-19.3</td><td style=\"color:#c0392b\">-$9,661</td></tr>'+'<tr><td>2025-08</td><td style=\"color:#17864a\">+45.3</td><td style=\"color:#17864a\">+$22,635</td></tr>'+'<tr><td>2025-09</td><td style=\"color:#c0392b\">-7.8</td><td style=\"color:#c0392b\">-$3,917</td></tr>'+'<tr><td>2025-10</td><td style=\"color:#17864a\">+72.3</td><td style=\"color:#17864a\">+$36,151</td></tr>'+'<tr><td>2025-11</td><td style=\"color:#17864a\">+33.9</td><td style=\"color:#17864a\">+$16,947</td></tr>'+'<tr><td>2025-12</td><td style=\"color:#17864a\">+56.8</td><td style=\"color:#17864a\">+$28,381</td></tr>'+'<tr><td>2026-01</td><td style=\"color:#17864a\">+39.3</td><td style=\"color:#17864a\">+$19,634</td></tr>'+'<tr><td>2026-02</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,347</td></tr>'+'<tr><td>2026-03</td><td style=\"color:#c0392b\">-12.4</td><td style=\"color:#c0392b\">-$6,222</td></tr>'+'<tr><td>2026-04</td><td style=\"color:#17864a\">+21.2</td><td style=\"color:#17864a\">+$10,619</td></tr>'+'<tr><td>2026-05</td><td style=\"color:#17864a\">+40.9</td><td style=\"color:#17864a\">+$20,443</td></tr>'+'<tr><td>2026-06 (part)</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,348</td></tr>'+'<tr><td><b>TOTAL</b></td><td style="color:#17864a"><b>+323.8</b></td><td style="color:#17864a"><b>+$161,921</b></td></tr>'+'</table></div>';
+ '<div class="card mut"><b>Best session per active strategy:</b> Model C &rarr; NY-AM (+0.84) &middot; A/B &rarr; London (+0.28) / PREM (+0.25) &middot; S2 &rarr; the open &middot; S1 &rarr; Mondays.</div>'+'<h2>A/B forward &mdash; $100k @ 0.5% risk, last 12 months (ATRMULT 1.0)</h2>'+'<div class="card mut">Modeled net R per calendar month, $500 = 1R. Broad detector (all catalysts); realistically executable (~1/day) is a fraction of this. 2025-06 &amp; 2026-06 partial.</div>'+'<div class="card"><table>'+'<tr><th>Month</th><th>Net R</th><th>Net $</th></tr>'+'<tr><td>2025-06 (part)</td><td style=\"color:#17864a\">+36.4</td><td style=\"color:#17864a\">+$18,217</td></tr>'+'<tr><td>2025-07</td><td style=\"color:#c0392b\">-19.3</td><td style=\"color:#c0392b\">-$9,661</td></tr>'+'<tr><td>2025-08</td><td style=\"color:#17864a\">+45.3</td><td style=\"color:#17864a\">+$22,635</td></tr>'+'<tr><td>2025-09</td><td style=\"color:#c0392b\">-7.8</td><td style=\"color:#c0392b\">-$3,917</td></tr>'+'<tr><td>2025-10</td><td style=\"color:#17864a\">+72.3</td><td style=\"color:#17864a\">+$36,151</td></tr>'+'<tr><td>2025-11</td><td style=\"color:#17864a\">+33.9</td><td style=\"color:#17864a\">+$16,947</td></tr>'+'<tr><td>2025-12</td><td style=\"color:#17864a\">+56.8</td><td style=\"color:#17864a\">+$28,381</td></tr>'+'<tr><td>2026-01</td><td style=\"color:#17864a\">+39.3</td><td style=\"color:#17864a\">+$19,634</td></tr>'+'<tr><td>2026-02</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,347</td></tr>'+'<tr><td>2026-03</td><td style=\"color:#c0392b\">-12.4</td><td style=\"color:#c0392b\">-$6,222</td></tr>'+'<tr><td>2026-04</td><td style=\"color:#17864a\">+21.2</td><td style=\"color:#17864a\">+$10,619</td></tr>'+'<tr><td>2026-05</td><td style=\"color:#17864a\">+40.9</td><td style=\"color:#17864a\">+$20,443</td></tr>'+'<tr><td>2026-06 (part)</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,348</td></tr>'+'<tr><td><b>TOTAL</b></td><td style="color:#17864a"><b>+323.8</b></td><td style="color:#17864a"><b>+$161,921</b></td></tr>'+'</table></div>';
 
 var SETTINGS_AB='<h2>A/B settings (Railway env)</h2><div class="card"><table>'+
  [['DISPWIN','30','bars to find the impulse'],['MODE','confirm','confirm | sweep'],['DISP_MODE','chain','chain (&ge;3) | orig (1-3)'],['ALLOW_SINGLE','off','single big candle (tested = wash)'],['MAX_STOP_R','40','drop wider stops (pts) — unchanged in v29'],['SL_STRUCT_MAX_R','30','v29: use the displacement-leg (struct) stop only while it fits inside this (pts); above it the stop goes to the far edge of the held FVG'],['SL_ANCHOR_BUF','0.25','v29: points beyond the chosen level (1 MNQ tick)'],['ORPHAN_WINDOW','caps','v31.2 DEFAULT caps: retwin/boswin kept inside the re-arm (sweep: removing them loses ~$9-11k regardless of lifetime). day = uncapped sequence'],['ORPHAN_LIFE','day','v31.3: day (default) — the 120-bar cap below is the binding limit, exactly as measured. session = also clip at session end'],['ORPHAN_MAX_BARS','120','v31.3 DEFAULT: zone lives 120 bars (2h) from the FVG — the sweep winner on $ (+$4,125, 6W/2L, 0 degraded months). 0 = off'],['ORPHAN_FVG','1','v31.1: every displacement FVG is watched from birth TO END OF DAY (no 20/30-bar caps); zone dies only on a body close through CE or day end; CE-holding return re-arms the full sequence (+ORPH)'],['SWING_TP','1','v30: TP = last swing low/high left of BOS (deeper than 1R), capped 3R; no level → fixed 2R. 0 = always 2R'],['SWING_TP_K','5','v30: bars on each side that confirm a swing'],['SWING_TP_MAX_R','3','v30: target cap in R (clamped)'],['PARTIAL_AT_1R','0','v30.1: OFF by default (cost ~14%/yr in test). 1 = bank PARTIAL_ACCT_PCT at +1R via a second bracket leg'],['PARTIAL_ACCT_PCT','0.2','v30: account % realized at +1R (0.2/0.5 risk = 40% of contracts)'],['NO_TRADE_SUPPRESS','1','mute &plusmn;30min around high-impact news (ON)']]
@@ -219,8 +215,18 @@ function render(){
 }
 buildNav(); window.addEventListener('hashchange',render); render();
 (function(){
+  var routeMain='',routeBuilder='';
   function col(m){return m=='auto'?'#4ade80':m=='manual'?'#7ab8f5':'#e0a93b';}
+  function checkRoutes(){
+    var same=routeMain&&routeBuilder&&routeMain===routeBuilder;
+    ['autocard','buildercard'].forEach(function(id){
+      var el=document.getElementById(id);if(!el)return;
+      var old=el.querySelector('.routewarn');if(old)old.remove();
+      if(same)el.insertAdjacentHTML('beforeend','<div class="kv routewarn" style="margin-top:6px;color:#f87171"><span>SAME WEBHOOK</span><b style="color:#f87171">DISABLE BUILDER</b></div>');
+    });
+  }
   function loadAuto(){fetch('/guard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    routeMain=d.exec_route_id||'';
     var e=d.eval||{},m=d.mode||'off',c=col(m),ac=document.getElementById('autocard');if(!ac)return;
     var pct=Math.max(3,Math.min(100,e.pct||0)),bc=e.breached?'#f87171':e.passed?'#4ade80':((e.pnl||0)<0?'#e0a93b':'#7ab8f5');
     var st=e.passed?'PASS ✓':e.breached?'BREACH ✕':(d.kill?'HALTED':'armed');
@@ -232,6 +238,7 @@ buildNav(); window.addEventListener('hashchange',render); render();
       '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
       '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
       '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
+    checkRoutes();
   }).catch(function(){});}
   function accountCard(el,d,fallback){
     var e=d.eval||{},m=d.mode||'off',c=col(m);if(!el)return;
@@ -249,7 +256,7 @@ buildNav(); window.addEventListener('hashchange',render); render();
   function loadBuilder(){var bc=document.getElementById('buildercard');if(!bc)return;
     if(!BUILDER50){bc.innerHTML='<div class=ah><span class=dot style="background:#828a99"></span>Builder 50K<span class=mode style="background:#82879922;color:#a8afc0">SETUP</span></div><div class=kv><span>Separate service</span><b>set BUILDER50_URL</b></div>';return;}
     fetch('/builder50/data',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('offline');return r.json();})
-      .then(function(d){accountCard(bc,d,'Builder 50K');})
+      .then(function(d){routeBuilder=d.exec_route_id||'';accountCard(bc,d,'Builder 50K');checkRoutes();})
       .catch(function(){bc.innerHTML='<div class=ah><span class=dot style="background:#f87171"></span>Builder 50K<span class=mode style="background:#f8717122;color:#f87171">OFFLINE</span></div><div class=kv><span>Separate service</span><b>unreachable</b></div>';});
   }
   function loadFx(){fetch('/fxguard/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(j){
