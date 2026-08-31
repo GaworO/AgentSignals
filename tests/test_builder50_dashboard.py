@@ -81,6 +81,8 @@ class Builder50DashboardTests(unittest.TestCase):
                                         '_test_signal': True})
         self.assertTrue(result['sent'])
         self.assertIs(post.call_args.kwargs['json']['test'], True)
+        self.assertIn('route_id', result)
+        self.assertNotIn('path_tail', result)
 
     def test_builder_ab_and_shallow_share_one_500_dollar_ceiling(self):
         env = dict(BUILDER_ENV, AB_SHALLOW_ENABLED='1', AB_SHALLOW_FRACTION='0.25',
