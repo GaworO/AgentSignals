@@ -194,6 +194,7 @@ class Builder50DashboardTests(unittest.TestCase):
         self.assertIn('Sent setups · confirmed', guardrails._HTML)
         self.assertIn("['Inactivity'", guardrails._HTML)
         self.assertIn('<b>Funded / payout:</b>', guardrails._HTML)
+        self.assertIn('AUTH REQUIRED', guardrails._HTML)
 
 
 if __name__ == '__main__':
