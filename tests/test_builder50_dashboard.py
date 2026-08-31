@@ -71,6 +71,10 @@ class Builder50DashboardTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {'EXEC_REJECT_AFTER_SEC': '999'}, clear=True):
             self.assertEqual(agent._signal_reject_after_sec(), 30)
 
+    def test_new_pipeline_state_does_not_report_epoch_age(self):
+        self.assertIsNone(guardrails._mins_since(0))
+        self.assertIsNone(guardrails._mins_since(None))
+
     def test_executor_test_signal_can_never_reach_the_broker(self):
         response = mock.Mock(status_code=200, text='ok')
         with mock.patch.dict(os.environ, {
