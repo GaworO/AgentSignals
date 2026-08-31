@@ -276,10 +276,10 @@ def _exec_order(x, text=None):
         return {"sent": all_ok, "accepted_any": accepted_legs > 0,
                 "accepted_legs": accepted_legs, "status": st, "resp": body,
                 "legs": len(legs), "leg_results": leg_results,
-                "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:], "qty": qty}
+                "route_id": guardrails._exec_route_id(), "qty": qty}
     except Exception as ex:
         print('EXEC err', ex, flush=True)
-        return {"sent": False, "error": str(ex), "has_secret_q": ("secret=" in url), "path_tail": url.split('?')[0][-16:]}
+        return {"sent": False, "error": str(ex), "route_id": guardrails._exec_route_id()}
 
 def _signal_bar_close(x):
     """Return the close of the detector BOS bar from the same rolling buffer.
@@ -1064,7 +1064,7 @@ def exectest():
     relay = _exec_order(sample)   # -> relay /stage -> JEDNA wiadomość z przyciskami
     return jsonify(ok=True, exec_webhook_set=bool(os.environ.get('EXEC_WEBHOOK')), relay=relay,
                    ticker=os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
-                   sample=sample, note='relay.status 200 = relay przyjął (sprawdź Telegram); 401 = zły secret w EXEC_WEBHOOK; sent:false = zły URL/sieć')
+                   sample=sample, note='status 200 + sent:true = TradersPost przyjął test; test:true oznacza brak zlecenia brokerskiego. 401/404 = zły EXEC_WEBHOOK; sent:false = błąd URL/sieci')
 
 @app.route('/health')
 def health(): return jsonify(ok=True, version=VERSION, primed=_primed, webhook=bool(WEBHOOK_URL), buffer=os.path.exists(BUF))
