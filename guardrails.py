@@ -1748,8 +1748,9 @@ function renderBook(){
 let _tok=new URLSearchParams(location.search).get('t');
 try{ if(_tok) localStorage.setItem('guard_t',_tok); else _tok=localStorage.getItem('guard_t'); }catch(e){}
 const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
-async function flip(m){await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});load();return false;}
-async function dokill(){await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});load();return false;}
+function authErr(){let h=document.getElementById('healthbar');h.textContent='AUTH REQUIRED — open this Builder Guard as /guard?t=YOUR_GUARD_TOKEN';h.style.color='#e66';}
+async function flip(m){let r=await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});if(!r.ok){authErr();return false;}load();return false;}
+async function dokill(){let r=await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});if(!r.ok){authErr();return false;}load();return false;}
 async function cancelRow(k){let r=await (await fetch('/guard/cancel?key='+k+(_t||''),{cache:'no-store'})).json();
  if(!r.ok){document.getElementById('healthbar').textContent='⚠ cancel: '+(r.err||'failed');}load();return false;}
 function recFile(files){if(!files||!files.length)return false;
@@ -1775,7 +1776,7 @@ async function doRec(btn){let b=document.getElementById('recbox').value.trim();l
   } else o.textContent='⚠ '+(r.err||'failed');
  }catch(e){o.textContent='⚠ '+e;}
  btn.textContent='Reconcile';load();return false;}
-async function doarm(){await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});load();return false;}
+async function doarm(){let r=await fetch('/guard/kill?on=0'+_t,{cache:'no-store'});if(!r.ok){authErr();return false;}load();return false;}
 async function loadPine(){let day=document.getElementById('pineday').value;
  let t=await (await fetch('/guard/pine?day='+encodeURIComponent(day),{cache:'no-store'})).text();
  document.getElementById('pinebox').value=t;}

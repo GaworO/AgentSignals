@@ -1,3 +1,18 @@
+## v31.15 — Builder routing isolation and deployment audit (2026-08-31)
+
+- Adds a non-secret execution-route fingerprint to `/guard/data` and a red `SAME WEBHOOK — DISABLE BUILDER` warning when the 100K and Builder services point to the same TradersPost strategy webhook.
+- Warns when Builder accidentally contains `BUILDER50_URL` or C/F/AMD bar-forwarding variables copied from the 100K service.
+- Expands `RAILWAY_VARIABLES_BUILDER50.txt` into the complete Builder service template, including the reviewed shared $500 setup ceiling, three-setup 1-MNQ ramp, one-loss daily stop, MFF inactivity tracking and all A/B + Shallow execution settings.
+- Documents that TradersPost position sizing remains `None` with signal overrides because Railway supplies quantity, SL and TP; the 50K subscription must use a separate strategy and webhook.
+- Adds a 15-second `time`/`rejectAfter` safeguard to every entry signal so a delayed TradersPost queue cannot execute a stale setup.
+- Makes `/exectest` send the official TradersPost `test: true` flag with a fixed 1-MNQ quantity, guaranteeing that routing diagnostics never submit an order to the broker.
+- Stops returning the tail of the private webhook URL from executor diagnostics; responses now expose only the same non-secret route fingerprint used by the dashboard.
+- Displays `pipeline: no activity yet` for a new Guard state instead of calculating millions of minutes from Unix epoch zero; disables irrelevant C/F satellite monitoring in the isolated Builder template.
+- Makes AUTO/ARM/HALT buttons display an explicit `AUTH REQUIRED` message when the dashboard was opened without the account's `GUARD_TOKEN`, instead of silently appearing to do nothing after a 401 response.
+- Removes a live alert-relay secret from the source-code example.
+
+Files: `guardrails.py`, `dashboard.py`, `agent.py`, `RAILWAY_VARIABLES_BUILDER50.txt`, `BUILDER50_DUAL_DASHBOARD_DEPLOY.md`, `tests/test_builder50_dashboard.py`, `CHANGELOG.md`.
+
 ## v31.14 — separate Builder 50K Auto-Executor dashboard (2026-08-30)
 
 ### Builder account profile
@@ -6,6 +21,7 @@
 - Adds the `ACCOUNT_PLAN`, `ACCOUNT_LABEL` and `ACCOUNT_PHASE` profile fields.
 - Corrects target progress to use `TARGET_BALANCE - START_BALANCE`; Builder $51,500 now displays as 50% of its $3,000 target rather than 25% of a hard-coded $6,000 target.
 - Shows Builder rules directly in Auto-Executor: $3,000 target, $2,000 EOD MLL, $1,000 soft pause, 40 MNQ cap, no evaluation consistency and one minimum trading day.
+- Requires both the $3,000 target and at least one resolved SENT trading day before the Guard labels the evaluation as PASS; a manual equity sync alone cannot satisfy the minimum-day rule.
 - Validates the live Builder environment and shows a visible warning for an incorrect start, target, floor, EOD trail, floor lock, risk budget or contract cap.
 
 ### Activity and execution journal
@@ -938,7 +954,7 @@ Two live services touched. **Defaults keep current behaviour** — every change 
 | `RISK_PCT` | agent | `0.5` | % risked per exec order (**eval: `0.4`** on a tight buffer) |
 | `ALLVIEW_DEDUP` | allview | `1` | `1`=one row per setup (collapse confluence dupes) / `0`=raw |
 | `TRADERSPOST_WEBHOOK` | relay | (hardcoded MFF BOT) | TradersPost strategy webhook — fires orders |
-| `WEBHOOK_SECRET` | relay | `nqscout2024` | guards `/stage`, `/cbdebug`, `/envcheck`, `/setwebhook` |
+| `WEBHOOK_SECRET` | relay | unique secret | guards `/stage`, `/cbdebug`, `/envcheck`, `/setwebhook` |
 | `TG_WEBHOOK_SECRET` | relay | (empty) | Telegram `setWebhook` secret_token header |
 | `FLAT_TICKER` | relay | (empty) | fallback ticker for 🚫 FLAT if none stored yet |
 | `ATRMULT` | detector | `1.5` | displacement-strength gate (sum-bodies ≥ ×ATR5m); **`1.0` = +65% A/B setups, WF-validated** |
