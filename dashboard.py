@@ -163,6 +163,7 @@ var STRAT={
          ['health','Health',BUILDER50?BUILDER50+'/guard/health?format=txt':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'help'],
          ['pine','Pine for trades',BUILDER50?BUILDER50+'/guard/pine':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'file']]},
  ab:{name:'A/B + Shallow',sub:'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
+ ab15:{name:'A/B + Shallow M15 → M5',sub:'M15 setup · closed-candle M5 BOS · forward shadow only · zero orders',tabs:[['candidates','Candidates','/m15/candidates','list'],['shadow','Shadow trades','/m15/shadow','book'],['examples','Graphical examples','/m15/examples','chart'],['pine','Pine for TV','/m15/pine','file'],['how','Rules & settings','/m15/how','help'],['health','Health','/m15/status','grid']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
  eur:{name:'EUR/USD',sub:'Forex · observe only · EURUSD-calibrated',ext:EUR,tabs:[['sum','Summary',EUR+'/performance','chart'],['trades','Trades',EUR+'/outcomes','book'],['pine','Pine for TV',EUR+'/pine','file'],['cand','Candidates & setups',EUR+'/candidates','list'],['status','Status',EUR+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
@@ -172,7 +173,7 @@ var STRAT={
 };
 var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
-         ['Strategies',[['ab','A/B + Shallow','ab'],['c','C','c'],['f','F','f']]],
+         ['Strategies',[['ab','A/B + Shallow','ab'],['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['c','C','c'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),

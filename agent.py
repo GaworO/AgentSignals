@@ -30,6 +30,7 @@ import allview     # /all/trades + /all/candidates - joined view across A/B/C/F 
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
+import m15_shadow_strategy  # M15 setup + M5 BOS; isolated candidates/forward shadow, no order path
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -50,7 +51,7 @@ CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the 
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.16-market-context-history'
+VERSION = 'v31.17-market-context-m15-shadow'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -259,6 +260,11 @@ def _exec_order(x, text=None):
             }
             if x.get('_test_signal'):
                 payload["test"] = True
+                payload["extras"] = {
+                    "chainTest": str(x.get('_test_label') or 'single-route-test'),
+                    "accountLabel": os.environ.get('ACCOUNT_LABEL', 'account'),
+                    "routeId": guardrails._exec_route_id(),
+                }
             if text and _i == 0: payload["text"] = text
             try:
                 r = requests.post(url, json=payload, timeout=10)
@@ -785,6 +791,16 @@ def bars():
                      setups_seen=res.get('nowe', res.get('primed')),
                      processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
+    # --- M15 -> M5 A/B + shallow: local, forward-only SHADOW. ---
+    # This hook is deliberately outside the main detector lock.  The module has no
+    # broker/webhook/Guard import; it can only update its own JSON shadow book and
+    # launch an isolated detector scan after a completed M5 candle.
+    try:
+        _m15res = m15_shadow_strategy.on_bar(b)
+        if _m15res.get('scheduled'):
+            print('[m15-shadow] M5 scan scheduled', b.get('ts_event'), flush=True)
+    except Exception as e:
+        print('[m15-shadow] on_bar err', e, flush=True)
     # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; POZA lockiem; NIE wplywa na A/B) ---
     _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
     if _furl and requests is not None:
@@ -1048,24 +1064,97 @@ def archive():
     if not os.path.exists(ARCHIVE): return jsonify(error='brak archiwum jeszcze'), 404
     return send_file(ARCHIVE, mimetype='text/csv', as_attachment=True, download_name='archive.csv')
 
-@app.route('/exectest')
+@app.route('/exectest', methods=['GET', 'POST'])
 def exectest():
     """Route 2 test: wyślij PRZYKŁADOWE zlecenie do TradersPost (EXEC_WEBHOOK) + ping Telegram.
     Wymaga EXEC_TEST_SECRET (env) i ?secret=. Payload zawsze ma test=true, więc TradersPost
     zapisuje sygnał diagnostyczny, ale nie wysyła żadnego zlecenia do brokera.
     Param: ?dir=LONG&entry=29700&sl=29690"""
     sec = os.environ.get('EXEC_TEST_SECRET', '')
-    if not sec or request.args.get('secret', '') != sec:
+    supplied = request.headers.get('X-Exec-Test-Secret', '') or request.args.get('secret', '')
+    if not sec or supplied != sec:
         return jsonify(error='ustaw EXEC_TEST_SECRET (env) i podaj ?secret=...'), 401
     side = request.args.get('dir', 'LONG').upper()
     entry = float(request.args.get('entry', '29700'))
     sl = float(request.args.get('sl', str(entry - 10 if side == 'LONG' else entry + 10)))
+    label = request.args.get('label', '').strip()[:80]
     sample = {'dir': side, 'entry': entry, 'SL': sl,
-              '_test_signal': True, '_exec_qty_override': 1}
+              '_test_signal': True, '_exec_qty_override': 1,
+              '_test_label': label or 'single-route-test'}
     relay = _exec_order(sample)   # -> relay /stage -> JEDNA wiadomość z przyciskami
     return jsonify(ok=True, exec_webhook_set=bool(os.environ.get('EXEC_WEBHOOK')), relay=relay,
                    ticker=os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
                    sample=sample, note='status 200 + sent:true = TradersPost przyjął test; test:true oznacza brak zlecenia brokerskiego. 401/404 = zły EXEC_WEBHOOK; sent:false = błąd URL/sieci')
+
+
+@app.route('/dualexectest', methods=['GET', 'POST'])
+def dualexectest():
+    """Run simultaneous test:true signals through the independent 100K and Builder routes.
+
+    This endpoint belongs on the existing 100K service. It never creates broker orders.
+    The 100K EXEC_TEST_SECRET authorizes the request; BUILDER50_TEST_SECRET is used only
+    server-to-server and is sent in a header, never returned to the caller.
+    """
+    sec = os.environ.get('EXEC_TEST_SECRET', '')
+    supplied = request.headers.get('X-Exec-Test-Secret', '') or request.args.get('secret', '')
+    if not sec or supplied != sec:
+        return jsonify(ok=False, error='auth'), 401
+    builder_url = os.environ.get('BUILDER50_URL', '').strip().rstrip('/')
+    builder_secret = os.environ.get('BUILDER50_TEST_SECRET', '').strip()
+    if not builder_url or not builder_secret:
+        return jsonify(ok=False, error='set BUILDER50_URL and BUILDER50_TEST_SECRET on the 100K service'), 503
+
+    side = request.args.get('dir', 'LONG').upper()
+    if side not in ('LONG', 'SHORT'):
+        return jsonify(ok=False, error='dir must be LONG or SHORT'), 400
+    try:
+        entry = float(request.args.get('entry', '20000'))
+        sl = float(request.args.get('sl', str(entry - 10 if side == 'LONG' else entry + 10)))
+    except Exception:
+        return jsonify(ok=False, error='entry and sl must be numbers'), 400
+    chain_id = 'dual-' + dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    sample = {'dir': side, 'entry': entry, 'SL': sl, '_test_signal': True,
+              '_exec_qty_override': 1, '_test_label': chain_id}
+
+    def local_test():
+        return _exec_order(dict(sample))
+
+    def builder_test():
+        try:
+            r = requests.post(builder_url + '/exectest', params={
+                'dir': side, 'entry': entry, 'sl': sl, 'label': chain_id,
+            }, headers={'X-Exec-Test-Secret': builder_secret}, timeout=15)
+            try:
+                body = r.json()
+            except Exception:
+                body = {'error': (r.text or '')[:200]}
+            return {'http_status': r.status_code, 'body': body}
+        except Exception as e:
+            return {'http_status': None, 'body': {'error': str(e)}}
+
+    if requests is None:
+        return jsonify(ok=False, error='requests missing'), 503
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f_local = pool.submit(local_test)
+        f_builder = pool.submit(builder_test)
+        local = f_local.result()
+        builder = f_builder.result()
+
+    builder_body = builder.get('body') or {}
+    builder_relay = builder_body.get('relay') or {}
+    local_route = local.get('route_id') or ''
+    builder_route = builder_relay.get('route_id') or ''
+    distinct = bool(local_route and builder_route and local_route != builder_route)
+    local_ok = bool(local.get('sent') and local.get('status') == 200)
+    builder_ok = bool(builder.get('http_status') == 200 and builder_body.get('ok')
+                      and builder_relay.get('sent'))
+    return jsonify(ok=bool(local_ok and builder_ok and distinct), test=True,
+                   chain_id=chain_id, routes_distinct=distinct,
+                   local={'label': os.environ.get('ACCOUNT_LABEL', '100K'), 'relay': local},
+                   builder={'label': (builder_body.get('sample') or {}).get('_account_label', 'Builder 50K'),
+                            'http_status': builder.get('http_status'), 'response': builder_body},
+                   note='Both signals use test:true and quantity 1; no broker order is created. Verify chainTest under each separate TradersPost strategy.')
 
 @app.route('/health')
 def health(): return jsonify(ok=True, version=VERSION, primed=_primed, webhook=bool(WEBHOOK_URL), buffer=os.path.exists(BUF))
@@ -1399,6 +1488,7 @@ pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unifie
 how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
+m15_shadow_strategy.register(app)           # /m15/* — M15->M5 candidates + isolated shadow-only book
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 fxguard.register(app)                       # /fxguard - joined forex Auto-Executor (isolated add-on)
