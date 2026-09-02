@@ -18,6 +18,7 @@ from flask import Flask, request, jsonify, send_file
 import live_emit   # to_alert, post_webhook, key
 import manage      # sledzenie 1R/3R (alert partial+BE) — izolowane, nie rusza intake'u
 import regime_gate # v12: regime-gated EOD on/off + Telegram przy zmianie stanu
+import market_context  # weekly regime + daily ICT bias + causal Monitor history; informational only
 import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + trasy /pnl; nie rusza intake'u/detektora
 import how_ab      # A/B "how it works" page at /how — isolated add-on, does not touch the detector
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
@@ -49,7 +50,7 @@ CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the 
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.15-builder-route-isolation'
+VERSION = 'v31.16-market-context-history'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -1231,6 +1232,16 @@ def ab_combined_candidates():
     return ab_candidates_view.render_page(rec, hours, os.environ, live_status=live_status)
 
 # ====== MONITOR REŻIMU (logika w regime.py — rdzen det_v10.py nietkniety) ======
+def _market_context_sources():
+    """Oldest -> newest; duplicate timestamps are resolved in favour of live data."""
+    custom = os.environ.get('MARKET_CONTEXT_DATA', '').strip()
+    paths = ([p for p in custom.split(os.pathsep) if p] if custom else []) + [SEED_CSV, ARCHIVE, BUF]
+    out = []
+    for path in paths:
+        if path and path not in out and os.path.exists(path): out.append(path)
+    return out
+
+
 @app.route('/regime')
 def regime():
     try: w=int(request.args.get('window','20'))
@@ -1239,6 +1250,21 @@ def regime():
     _st=_regime.regime_stats(BUF, HERE, window=w)
     if _wants_html(): return _kv_page('Reżim', _st)
     return jsonify(_st)
+
+
+@app.route('/market-context')
+def market_context_data():
+    """Weekly regime, weekly/daily bias and causal history for /monitor."""
+    try: days = max(7, min(180, int(request.args.get('days', '90'))))
+    except Exception: days = 90
+    try: weeks = max(4, min(104, int(request.args.get('weeks', '52'))))
+    except Exception: weeks = 52
+    history_file = os.path.join(DATA_DIR, market_context.HISTORY_FILE)
+    body = market_context.build_report(_market_context_sources(), daily_limit=days,
+                                       weekly_limit=weeks, snapshot_file=history_file)
+    code = 200 if body.get('ok') else 503
+    return jsonify(body), code
+
 
 @app.route('/monitor')
 def monitor():
@@ -1308,6 +1334,10 @@ def _heartbeat_loop():
             except Exception: pass
             try: guardrails.daily_digest_check()                        # ☀️ proof-of-life digest — silence = the alarm
             except Exception: pass
+            try:                                                        # Sun 18:15 ET + weekdays 08:45 ET; JSONL audit only
+                _written = market_context.record_if_due(_market_context_sources(), DATA_DIR)
+                if _written: print('[market_context] snapshots:', ','.join(x['kind'] for x in _written), flush=True)
+            except Exception as e: print('[market_context] snapshot err', e, flush=True)
             if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
             age = _feed_age_min()
             stale = age > STALE_MIN and _market_open_now()
