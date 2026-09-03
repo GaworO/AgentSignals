@@ -49,9 +49,10 @@ ARCHIVE = os.path.join(DATA_DIR, 'archive.csv')  # pelna historia barow — NIGD
 OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety trade -> /performance
 CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the normal live detector on every bar
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
+MARKET_CONTEXT_DB = os.environ.get('MARKET_CONTEXT_DB', os.path.join(HERE, market_context.DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.17-market-context-m15-shadow'
+VERSION = 'v31.18-market-intelligence-hmm-news'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -532,18 +533,21 @@ def _detect():
 
 # ====== KALENDARZ NEWSOW (ForexFactory weekly) + FLAGI NO-TRADE ======
 HIGH = {'CPI','Core CPI','Non-Farm','NFP','PPI','GDP','Core PCE','PCE','ISM','FOMC','Federal Funds','Powell'}
-_cal = {'at': None, 'events': []}   # cache eventow high-impact: lista (epoch_utc, title)
+_cal = {'at': None, 'events': [], 'raw_events': []}   # execution tuples + richer Monitor-only metadata
 def _load_calendar():
     if requests is None: return
     if _cal['at'] and (dt.datetime.utcnow()-_cal['at']).total_seconds() < 6*3600: return
     try:
         r=requests.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json', timeout=15)
-        evs=[]
+        evs=[]; raw=[]
         for e in r.json():
             if str(e.get('impact','')).lower()!='high': continue
             t=dt.datetime.fromisoformat(e['date']).timestamp()
-            evs.append((t, e.get('title','event')))
-        _cal['events']=evs; _cal['at']=dt.datetime.utcnow()
+            title=e.get('title','event')
+            evs.append((t, title))
+            raw.append(dict(epoch=t, title=title, country=e.get('country') or e.get('currency') or '',
+                            impact='high', source='ForexFactory'))
+        _cal['events']=evs; _cal['raw_events']=raw; _cal['at']=dt.datetime.utcnow()
     except Exception as ex:
         print('[cal] blad pobierania:', ex, flush=True)   # guard side: NEWS_STRICT=1 blokuje sendy gdy kalendarz nieosiagalny >24h
 
@@ -556,6 +560,41 @@ def _cal_age_h():
         return (dt.datetime.utcnow() - _cal['at']).total_seconds() / 3600.0
     except Exception:
         return None
+
+
+def _market_context_news():
+    """High-impact macro risk for Monitor only; never creates market direction."""
+    try: _load_calendar()
+    except Exception: pass
+    now = dt.datetime.now(dt.timezone.utc); rows=[]
+    raw = _cal.get('raw_events') or [dict(epoch=item[0], title=item[1], country='', impact='high', source='ForexFactory')
+                                     for item in (_cal.get('events') or [])]
+    critical_words = ('cpi', 'non-farm', 'nfp', 'fomc', 'federal funds', 'core pce', 'powell', 'gdp')
+    for item in raw:
+        country = str(item.get('country') or '').upper()
+        if country and country not in ('USD', 'US', 'USA'):
+            continue
+        try: when = dt.datetime.fromtimestamp(float(item['epoch']), tz=dt.timezone.utc)
+        except Exception: continue
+        minutes = (when - now).total_seconds() / 60.0
+        if minutes < -360 or minutes > 8 * 24 * 60:
+            continue
+        title = str(item.get('title') or 'High-impact event')
+        severity = 'critical' if any(word in title.lower() for word in critical_words) else 'high'
+        status = 'live_window' if abs(minutes) <= 30 else 'soon' if 0 < minutes <= 24*60 else 'recent' if minutes < 0 else 'upcoming'
+        rows.append(dict(title=title, country=country or 'USD/high-impact', impact='high', severity=severity,
+                         time_utc=when.isoformat(), time_et=when.astimezone(ZoneInfo('America/New_York')).isoformat(),
+                         minutes_from_now=round(minutes,1), status=status, source=item.get('source','ForexFactory')))
+    rows.sort(key=lambda item: item['time_utc'])
+    live = [item for item in rows if abs(item['minutes_from_now']) <= 30]
+    next_two_hours = [item for item in rows if 0 <= item['minutes_from_now'] <= 120]
+    next_day_critical = [item for item in rows if item['severity']=='critical' and 0 <= item['minutes_from_now'] <= 1440]
+    risk = 'EXTREME' if live else 'HIGH' if next_two_hours or next_day_critical else 'ELEVATED' if rows else 'NORMAL'
+    age = None if not _cal.get('at') else (dt.datetime.utcnow()-_cal['at']).total_seconds()/3600.0
+    return dict(ok=bool(_cal.get('at')), status='fresh' if age is not None and age <= 12 else 'stale_or_unavailable',
+                risk_level=risk, calendar_age_hours=None if age is None else round(age,2),
+                directional_effect='none', execution_effect='none', events=rows,
+                note='Scheduled-event risk only. News never creates bullish/bearish BIAS.')
 
 def flags_for(x):
     """zwraca (lista_flag, czy_high_impact). FLAGI nie filtry (chyba ze NO_TRADE_SUPPRESS)."""
@@ -1344,13 +1383,15 @@ def regime():
 @app.route('/market-context')
 def market_context_data():
     """Weekly regime, weekly/daily bias and causal history for /monitor."""
-    try: days = max(7, min(180, int(request.args.get('days', '90'))))
-    except Exception: days = 90
-    try: weeks = max(4, min(104, int(request.args.get('weeks', '52'))))
-    except Exception: weeks = 52
+    try: days = max(7, min(730, int(request.args.get('days', '365'))))
+    except Exception: days = 365
+    try: weeks = max(4, min(260, int(request.args.get('weeks', '156'))))
+    except Exception: weeks = 156
     history_file = os.path.join(DATA_DIR, market_context.HISTORY_FILE)
     body = market_context.build_report(_market_context_sources(), daily_limit=days,
-                                       weekly_limit=weeks, snapshot_file=history_file)
+                                       weekly_limit=weeks, snapshot_file=history_file,
+                                       database_path=MARKET_CONTEXT_DB,
+                                       news=_market_context_news())
     code = 200 if body.get('ok') else 503
     return jsonify(body), code
 
@@ -1424,7 +1465,9 @@ def _heartbeat_loop():
             try: guardrails.daily_digest_check()                        # ☀️ proof-of-life digest — silence = the alarm
             except Exception: pass
             try:                                                        # Sun 18:15 ET + weekdays 08:45 ET; JSONL audit only
-                _written = market_context.record_if_due(_market_context_sources(), DATA_DIR)
+                _written = market_context.record_if_due(_market_context_sources(), DATA_DIR,
+                                                        database_path=MARKET_CONTEXT_DB,
+                                                        news=_market_context_news())
                 if _written: print('[market_context] snapshots:', ','.join(x['kind'] for x in _written), flush=True)
             except Exception as e: print('[market_context] snapshot err', e, flush=True)
             if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
