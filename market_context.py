@@ -30,10 +30,13 @@ import market_models
 NY = ZoneInfo("America/New_York")
 HISTORY_FILE = "market_context_history.jsonl"
 DATABASE_FILE = "market_history.db"
+PREDICTION_DATABASE_FILE = "market_predictions.db"
 DATABASE_SCHEMA = 1
+PREDICTION_SCHEMA = 1
 _CACHE = {"key": None, "bars": None}
 _DB_CACHE = {"key": None, "daily": None, "meta": None}
 _CACHE_LOCK = threading.Lock()
+_PREDICTION_LOCK = threading.Lock()
 
 
 def _num(value, digits=2):
@@ -791,7 +794,7 @@ def daily_context(daily, weekly, raw=None):
             "bias": direction, "score": _num(score, 2),
             "confidence": _confidence(score, factors, len(d) >= 40),
             "regime": (wctx.get("regime") or {}) if wctx else {},
-            "close": _num(cur.close), "weekly_open": _num(week_open),
+            "close": _num(cur.close), "atr": _num(atr), "weekly_open": _num(week_open),
             "previous_day": {"high": _num(prev.high), "low": _num(prev.low), "close": _num(prev.close)},
             "overnight": ov, "primary_draw": draw, "invalidation": _num(invalidation),
             "weekly_parent": {"bias": wctx.get("bias"), "as_of": wctx.get("as_of")} if wctx else None,
@@ -816,7 +819,7 @@ def _history_row(snapshot, previous=None):
 
 
 def build_report(paths, daily_limit=90, weekly_limit=52, snapshot_file=None,
-                 database_path=None, news=None):
+                 database_path=None, news=None, prediction_database_path=None):
     """Return current context, causal history, statistical models and news risk."""
     try:
         daily, weekly, bars, db_meta = _combined_market_data(paths, database_path)
@@ -842,6 +845,8 @@ def build_report(paths, daily_limit=90, weekly_limit=52, snapshot_file=None,
             if row: dh.append(row); prev = snap
 
         recorded = read_recorded_history(snapshot_file) if snapshot_file else []
+        prediction_journal = read_prediction_journal(prediction_database_path) if prediction_database_path else {
+            "ok": True, "status": "not_configured", "rows": [], "summary": _empty_prediction_summary()}
         model_daily = _completed_daily(daily)
         models = market_models.classify_market(model_daily, dcur.get("bias") if dcur.get("ok") else None)
         raw_last = bars.ts.iloc[-1] if bars is not None and not bars.empty else None
@@ -873,10 +878,13 @@ def build_report(paths, daily_limit=90, weekly_limit=52, snapshot_file=None,
                          "latest_day_complete": bool(len(model_daily) == len(daily))},
                 "weekly": wcur, "daily": dcur,
                 "classification": models, "news": news or {"ok": False, "status": "not_supplied", "events": []},
-                "history": {"weekly": wh, "daily": dh, "recorded": recorded}}
+                "history": {"weekly": wh, "daily": dh, "recorded": recorded},
+                "prediction_journal": prediction_journal}
     except Exception as exc:
         return {"ok": False, "informational_only": True,
-                "error": f"{type(exc).__name__}: {exc}", "history": {"weekly": [], "daily": [], "recorded": []}}
+                "error": f"{type(exc).__name__}: {exc}", "history": {"weekly": [], "daily": [], "recorded": []},
+                "prediction_journal": {"ok": False, "status": "report_error", "rows": [],
+                                       "summary": _empty_prediction_summary()}}
 
 
 def read_recorded_history(path):
@@ -902,7 +910,349 @@ def _append_snapshot(path, row):
         fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
-def record_if_due(paths, data_dir, now=None, database_path=None, news=None):
+def _empty_prediction_summary():
+    metric = lambda: {"samples": 0, "correct": 0, "accuracy": None}
+    return {"total": 0, "pending": 0, "settled": 0,
+            "rule_daily": metric(), "rule_weekly": metric(), "ai_daily": metric()}
+
+
+def _prediction_connect(path):
+    if not path:
+        raise ValueError("prediction database path is required")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS market_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            journal_version INTEGER NOT NULL DEFAULT 1,
+            scope TEXT NOT NULL CHECK(scope IN ('daily','weekly')),
+            forecast_key TEXT NOT NULL,
+            captured_at TEXT NOT NULL,
+            rule_as_of TEXT,
+            target_date TEXT NOT NULL,
+            capture_price REAL,
+            reference_atr REAL,
+            rule_bias TEXT,
+            rule_confidence REAL,
+            rule_score REAL,
+            rule_factors_json TEXT,
+            primary_draw TEXT,
+            invalidation REAL,
+            weekly_parent_bias TEXT,
+            regime_code TEXT,
+            regime_json TEXT,
+            hmm_status TEXT,
+            hmm_as_of TEXT,
+            hmm_code TEXT,
+            hmm_label TEXT,
+            hmm_confidence REAL,
+            hmm_probabilities_json TEXT,
+            ai_status TEXT,
+            ai_as_of TEXT,
+            ai_prediction TEXT,
+            ai_confidence REAL,
+            ai_probabilities_json TEXT,
+            ai_validated INTEGER,
+            ai_validation_json TEXT,
+            news_risk TEXT,
+            news_events_json TEXT,
+            actual_date TEXT,
+            actual_close REAL,
+            actual_move_points REAL,
+            actual_move_pct REAL,
+            actual_move_atr REAL,
+            actual_label TEXT,
+            rule_correct INTEGER,
+            ai_actual_date TEXT,
+            ai_actual_close REAL,
+            ai_actual_label TEXT,
+            ai_correct INTEGER,
+            settled_at TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            UNIQUE(scope, forecast_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_market_predictions_status
+            ON market_predictions(status, target_date);
+        CREATE TABLE IF NOT EXISTS market_prediction_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+    """)
+    conn.commit()
+    return conn
+
+
+def _json_value(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _prediction_keys(database_path):
+    if not database_path:
+        return set()
+    try:
+        with _PREDICTION_LOCK:
+            conn = _prediction_connect(database_path)
+            try:
+                return {(row[0], row[1]) for row in conn.execute(
+                    "SELECT scope,forecast_key FROM market_predictions")}
+            finally:
+                conn.close()
+    except Exception:
+        return set()
+
+
+def record_prediction(database_path, report, scope, forecast_key, captured_at):
+    """Insert one immutable forecast. Repeated scheduler calls are idempotent."""
+    if scope not in ("daily", "weekly") or not report or not report.get("ok"):
+        return False
+    snap = report.get(scope) or {}
+    if not snap.get("ok"):
+        return False
+    # A daily forecast must describe today's live trading date. If the feed is
+    # still stuck on Friday, Monday must remain unrecorded rather than backfilled.
+    if scope == "daily" and snap.get("as_of") != forecast_key:
+        return False
+    try:
+        key_date = dt.date.fromisoformat(str(forecast_key))
+    except Exception:
+        return False
+    target_date = key_date if scope == "daily" else key_date + dt.timedelta(days=4)
+    captured = captured_at.isoformat() if isinstance(captured_at, dt.datetime) else str(captured_at)
+    models = report.get("classification") or {}
+    hmm, ai = models.get("hmm") or {}, models.get("ai") or {}
+    regime = snap.get("regime") or {}
+    news = report.get("news") or {}
+    reference_atr = snap.get("atr") if scope == "daily" else regime.get("atr")
+    parent = snap.get("weekly_parent") or {}
+    values = {
+        "journal_version": PREDICTION_SCHEMA, "scope": scope,
+        "forecast_key": forecast_key, "captured_at": captured,
+        "rule_as_of": snap.get("as_of"), "target_date": target_date.isoformat(),
+        "capture_price": snap.get("close"), "reference_atr": reference_atr,
+        "rule_bias": snap.get("bias"), "rule_confidence": snap.get("confidence"),
+        "rule_score": snap.get("score"), "rule_factors_json": _json_value(snap.get("factors") or []),
+        "primary_draw": (snap.get("primary_draw") or {}).get("name"),
+        "invalidation": snap.get("invalidation"),
+        "weekly_parent_bias": parent.get("bias") if scope == "daily" else None,
+        "regime_code": regime.get("code"), "regime_json": _json_value(regime),
+        "hmm_status": hmm.get("status"), "hmm_as_of": hmm.get("as_of"),
+        "hmm_code": hmm.get("code"), "hmm_label": hmm.get("label"),
+        "hmm_confidence": hmm.get("confidence"),
+        "hmm_probabilities_json": _json_value(hmm.get("probabilities") or []),
+        "ai_status": ai.get("status"), "ai_as_of": ai.get("as_of"),
+        "ai_prediction": ai.get("prediction"), "ai_confidence": ai.get("confidence"),
+        "ai_probabilities_json": _json_value(ai.get("probabilities") or {}),
+        "ai_validated": int(bool(ai.get("validated"))) if ai.get("ok") else None,
+        "ai_validation_json": _json_value(ai.get("validation") or {}),
+        "news_risk": news.get("risk_level"),
+        "news_events_json": _json_value((news.get("events") or [])[:20]),
+    }
+    columns = list(values)
+    sql = ("INSERT OR IGNORE INTO market_predictions (" + ",".join(columns) + ") VALUES (" +
+           ",".join("?" for _ in columns) + ")")
+    try:
+        with _PREDICTION_LOCK:
+            conn = _prediction_connect(database_path)
+            try:
+                before = conn.total_changes
+                conn.execute(sql, [values[column] for column in columns])
+                conn.commit()
+                return conn.total_changes > before
+            finally:
+                conn.close()
+    except Exception:
+        return False
+
+
+def _score_summary(rows, scope, field):
+    usable = [row for row in rows if row["scope"] == scope and row[field] is not None]
+    correct = sum(int(row[field]) for row in usable)
+    return {"samples": len(usable), "correct": correct,
+            "accuracy": _num(100.0 * correct / len(usable), 1) if usable else None}
+
+
+def read_prediction_journal(database_path, limit=120):
+    """Read live-captured forecasts only; no reconstructed historical predictions."""
+    if not database_path:
+        return {"ok": True, "status": "not_configured", "rows": [],
+                "summary": _empty_prediction_summary()}
+    try:
+        with _PREDICTION_LOCK:
+            conn = _prediction_connect(database_path)
+            try:
+                compact = conn.execute(
+                    "SELECT scope,status,rule_correct,ai_correct,captured_at FROM market_predictions "
+                    "ORDER BY captured_at").fetchall()
+                rows = conn.execute("SELECT * FROM market_predictions ORDER BY captured_at DESC LIMIT ?",
+                                    (max(1, min(int(limit), 500)),)).fetchall()
+            finally:
+                conn.close()
+        compact = [dict(row) for row in compact]
+        summary = {"total": len(compact),
+                   "pending": sum(row["status"] != "settled" for row in compact),
+                   "settled": sum(row["status"] == "settled" for row in compact),
+                   "rule_daily": _score_summary(compact, "daily", "rule_correct"),
+                   "rule_weekly": _score_summary(compact, "weekly", "rule_correct"),
+                   "ai_daily": _score_summary(compact, "daily", "ai_correct")}
+        output = []
+        json_columns = ("rule_factors_json", "regime_json", "hmm_probabilities_json",
+                        "ai_probabilities_json", "ai_validation_json", "news_events_json")
+        for raw in rows:
+            row = dict(raw)
+            for column in json_columns:
+                name = column[:-5]
+                try: row[name] = json.loads(row.pop(column) or "null")
+                except Exception: row[name] = None; row.pop(column, None)
+            for column in ("ai_validated", "rule_correct", "ai_correct"):
+                if row.get(column) is not None: row[column] = bool(row[column])
+            output.append(row)
+        return {"ok": True, "status": "ready", "database": os.path.basename(str(database_path)),
+                "collection_started_at": compact[0]["captured_at"] if compact else None,
+                "rows": output, "summary": summary,
+                "method": {"daily": "first live snapshot between 08:45 and 10:00 ET to same trading-day close; ±0.25 daily ATR neutral band",
+                           "weekly": "Sunday 18:15 ET plan (Monday premarket fallback) from prior close to the coming week's final close; ±0.25 weekly ATR neutral band",
+                           "ai": "exact next-day label used by the classifier; HMM is archived as context and is not scored"}}
+    except Exception as exc:
+        return {"ok": False, "status": "storage_error", "error": f"{type(exc).__name__}: {exc}",
+                "rows": [], "summary": _empty_prediction_summary()}
+
+
+def _move_label(move_atr):
+    if move_atr is None:
+        return None
+    if move_atr < -0.25:
+        return "BEARISH"
+    if move_atr > 0.25:
+        return "BULLISH"
+    return "NEUTRAL"
+
+
+def settle_prediction_journal(database_path, daily, now=None):
+    """Attach later closes/outcomes without changing the original forecast fields."""
+    now = now or dt.datetime.now(NY)
+    if now.tzinfo is None: now = now.replace(tzinfo=NY)
+    now = now.astimezone(NY)
+    completed = _completed_daily(daily.sort_index())
+    if completed.empty:
+        return 0
+    features = market_models.build_features(completed)
+    with _PREDICTION_LOCK:
+        conn = _prediction_connect(database_path)
+        try:
+            pending = conn.execute("SELECT * FROM market_predictions WHERE status!='settled' ORDER BY captured_at").fetchall()
+            newly_settled = 0
+            for raw in pending:
+                row = dict(raw)
+                actual_date = row.get("actual_date")
+                actual_close = row.get("actual_close")
+                actual_move_points = row.get("actual_move_points")
+                actual_move_pct = row.get("actual_move_pct")
+                actual_move_atr = row.get("actual_move_atr")
+                actual_label = row.get("actual_label")
+                rule_correct = row.get("rule_correct")
+
+                if not actual_label:
+                    target = pd.Timestamp(row["target_date"])
+                    actual_row = None
+                    if row["scope"] == "daily" and target in completed.index:
+                        actual_row = completed.loc[target]
+                        actual_date = target.date().isoformat()
+                    elif row["scope"] == "weekly":
+                        start = pd.Timestamp(row["forecast_key"])
+                        candidates = completed[(completed.index >= start) & (completed.index <= target)]
+                        target_week_finished = now.date() > target.date() or target in completed.index
+                        if target_week_finished and len(candidates):
+                            actual_row = candidates.iloc[-1]
+                            actual_date = candidates.index[-1].date().isoformat()
+                    if actual_row is not None and row.get("capture_price") is not None:
+                        actual_close = float(actual_row["close"])
+                        actual_move_points = actual_close - float(row["capture_price"])
+                        actual_move_pct = (100.0 * actual_move_points / float(row["capture_price"])
+                                           if float(row["capture_price"]) else None)
+                        atr = float(row["reference_atr"] or 0)
+                        actual_move_atr = actual_move_points / atr if atr > 0 else None
+                        actual_label = _move_label(actual_move_atr)
+                        rule_correct = (int(actual_label == row.get("rule_bias"))
+                                        if actual_label and row.get("rule_bias") else None)
+
+                ai_actual_date = row.get("ai_actual_date")
+                ai_actual_close = row.get("ai_actual_close")
+                ai_actual_label = row.get("ai_actual_label")
+                ai_correct = row.get("ai_correct")
+                if row["scope"] == "daily" and row.get("ai_prediction") and not ai_actual_label:
+                    try:
+                        model_date = pd.Timestamp(row.get("ai_as_of"))
+                        target_value = features.loc[model_date, "target"]
+                        future = completed[completed.index > model_date]
+                        if pd.notna(target_value) and len(future):
+                            ai_actual_label = market_models.AI_CLASSES[int(target_value)]
+                            ai_actual_date = future.index[0].date().isoformat()
+                            ai_actual_close = float(future.iloc[0]["close"])
+                            ai_correct = int(ai_actual_label == row.get("ai_prediction"))
+                    except Exception:
+                        pass
+
+                rule_done = bool(actual_label)
+                ai_needed = row["scope"] == "daily" and bool(row.get("ai_prediction"))
+                status = "settled" if rule_done and (not ai_needed or bool(ai_actual_label)) else "pending"
+                settled_at = now.isoformat() if status == "settled" else row.get("settled_at")
+                conn.execute("""
+                    UPDATE market_predictions SET
+                        actual_date=?,actual_close=?,actual_move_points=?,actual_move_pct=?,
+                        actual_move_atr=?,actual_label=?,rule_correct=?,ai_actual_date=?,
+                        ai_actual_close=?,ai_actual_label=?,ai_correct=?,settled_at=?,status=?
+                    WHERE id=?
+                """, (actual_date, _num(actual_close), _num(actual_move_points), _num(actual_move_pct, 3),
+                      _num(actual_move_atr, 3), actual_label, rule_correct, ai_actual_date,
+                      _num(ai_actual_close), ai_actual_label, ai_correct, settled_at, status, row["id"]))
+                if status == "settled":
+                    newly_settled += 1
+            conn.commit()
+            return newly_settled
+        finally:
+            conn.close()
+
+
+def settle_prediction_journal_if_due(paths, database_path, market_database_path=None, now=None):
+    """Run the heavier settlement pass at most twice per date (morning/close)."""
+    now = now or dt.datetime.now(NY)
+    if now.tzinfo is None: now = now.replace(tzinfo=NY)
+    now = now.astimezone(NY)
+    minute = now.hour * 60 + now.minute
+    slot = "close" if minute >= 17 * 60 + 5 else "morning" if minute >= 8 * 60 else None
+    if not slot:
+        return 0
+    slot_value = f"{now.date().isoformat()}:{slot}"
+    with _PREDICTION_LOCK:
+        conn = _prediction_connect(database_path)
+        try:
+            seen = conn.execute("SELECT value FROM market_prediction_meta WHERE key='settlement_slot'").fetchone()
+            if seen and seen[0] == slot_value:
+                return 0
+            pending = conn.execute("SELECT COUNT(*) FROM market_predictions WHERE status!='settled'").fetchone()[0]
+            if not pending:
+                conn.execute("INSERT OR REPLACE INTO market_prediction_meta(key,value) VALUES('settlement_slot',?)",
+                             (slot_value,)); conn.commit()
+                return 0
+        finally:
+            conn.close()
+    daily, _, _, _ = _combined_market_data(paths, market_database_path)
+    settled = settle_prediction_journal(database_path, daily, now=now)
+    with _PREDICTION_LOCK:
+        conn = _prediction_connect(database_path)
+        try:
+            conn.execute("INSERT OR REPLACE INTO market_prediction_meta(key,value) VALUES('settlement_slot',?)",
+                         (slot_value,)); conn.commit()
+        finally:
+            conn.close()
+    return settled
+
+
+def record_if_due(paths, data_dir, now=None, database_path=None, news=None,
+                  prediction_database_path=None):
     """Persist at most one daily (08:45 ET) and one Sunday (18:15 ET) snapshot.
 
     Missed runs are caught later in the same day/week.  Stale local data is never
@@ -912,16 +1262,28 @@ def record_if_due(paths, data_dir, now=None, database_path=None, news=None):
     path = os.path.join(data_dir, HISTORY_FILE)
     existing = read_recorded_history(path)
     keys = {(x.get("kind"), x.get("key")) for x in existing}
-    due = []
+    scheduled = []
     if now.weekday() < 5 and (now.hour, now.minute) >= (8, 45):
-        due.append(("daily", now.date().isoformat()))
+        scheduled.append(("daily", now.date().isoformat()))
     days_since_sunday = (now.weekday() + 1) % 7
     sunday = now.date() - dt.timedelta(days=days_since_sunday)
     sunday_due = dt.datetime.combine(sunday, dt.time(18, 15), tzinfo=NY)
     if now >= sunday_due:
-        due.append(("weekly", (sunday + dt.timedelta(days=1)).isoformat()))
-    due = [(kind, key) for kind, key in due if (kind, key) not in keys]
-    if not due:
+        scheduled.append(("weekly", (sunday + dt.timedelta(days=1)).isoformat()))
+    due = [(kind, key) for kind, key in scheduled if (kind, key) not in keys]
+    # Forecasts are only captured while they are still genuinely forward-looking.
+    # A redeploy after the close must not manufacture a trivially "correct" row.
+    minute = now.hour * 60 + now.minute
+    prediction_window = []
+    if 8 * 60 + 45 <= minute < 10 * 60:
+        prediction_window.extend(item for item in scheduled if item[0] == "daily")
+    weekly_capture_open = (now.weekday() == 6 and minute >= 18 * 60 + 15)
+    weekly_capture_monday = (now.weekday() == 0 and minute < 9 * 60 + 30)
+    if weekly_capture_open or weekly_capture_monday:
+        prediction_window.extend(item for item in scheduled if item[0] == "weekly")
+    prediction_keys = _prediction_keys(prediction_database_path) if prediction_database_path else set()
+    prediction_due = [(kind, key) for kind, key in prediction_window if (kind, key) not in prediction_keys]
+    if not due and not prediction_due:
         return []
 
     report = build_report(paths, daily_limit=1, weekly_limit=1,
@@ -936,13 +1298,16 @@ def record_if_due(paths, data_dir, now=None, database_path=None, news=None):
         return []
 
     written = []
-    for kind, key in due:
+    for kind, key in scheduled:
         snap = report.get(kind) or {}
         if not snap.get("ok"):
             continue
-        row = {"kind": kind, "key": key, "captured_at": now.isoformat(),
-               "informational_only": True, "snapshot": snap}
-        _append_snapshot(path, row); written.append(row)
+        if (kind, key) in due:
+            row = {"kind": kind, "key": key, "captured_at": now.isoformat(),
+                   "informational_only": True, "snapshot": snap}
+            _append_snapshot(path, row); written.append(row)
+        if prediction_database_path and (kind, key) in prediction_due:
+            record_prediction(prediction_database_path, report, kind, key, now)
     return written
 
 

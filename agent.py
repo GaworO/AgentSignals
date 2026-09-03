@@ -50,9 +50,11 @@ OUTCOMES = os.path.join(DATA_DIR, 'outcomes.json')  # realized R per zamkniety t
 CAND_TRACE = os.path.join(DATA_DIR, 'candidate_trace.json')  # refreshed by the normal live detector on every bar
 SEED_CSV    = os.environ.get('SEED_CSV', os.path.join(HERE,'seed.csv'))  # najswiezszy Databento CSV
 MARKET_CONTEXT_DB = os.environ.get('MARKET_CONTEXT_DB', os.path.join(HERE, market_context.DATABASE_FILE))
+MARKET_PREDICTIONS_DB = os.environ.get(
+    'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.18-market-intelligence-hmm-news'
+VERSION = 'v31.19-market-prediction-journal'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -1391,7 +1393,8 @@ def market_context_data():
     body = market_context.build_report(_market_context_sources(), daily_limit=days,
                                        weekly_limit=weeks, snapshot_file=history_file,
                                        database_path=MARKET_CONTEXT_DB,
-                                       news=_market_context_news())
+                                       news=_market_context_news(),
+                                       prediction_database_path=MARKET_PREDICTIONS_DB)
     code = 200 if body.get('ok') else 503
     return jsonify(body), code
 
@@ -1467,9 +1470,16 @@ def _heartbeat_loop():
             try:                                                        # Sun 18:15 ET + weekdays 08:45 ET; JSONL audit only
                 _written = market_context.record_if_due(_market_context_sources(), DATA_DIR,
                                                         database_path=MARKET_CONTEXT_DB,
-                                                        news=_market_context_news())
+                                                        news=_market_context_news(),
+                                                        prediction_database_path=MARKET_PREDICTIONS_DB)
                 if _written: print('[market_context] snapshots:', ','.join(x['kind'] for x in _written), flush=True)
             except Exception as e: print('[market_context] snapshot err', e, flush=True)
+            try:
+                _settled = market_context.settle_prediction_journal_if_due(
+                    _market_context_sources(), MARKET_PREDICTIONS_DB,
+                    market_database_path=MARKET_CONTEXT_DB)
+                if _settled: print('[market_context] predictions settled:', _settled, flush=True)
+            except Exception as e: print('[market_context] prediction settlement err', e, flush=True)
             if not (HEARTBEAT and WEBHOOK_URL and requests is not None): continue
             age = _feed_age_min()
             stale = age > STALE_MIN and _market_open_now()
