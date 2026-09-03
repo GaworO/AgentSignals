@@ -171,7 +171,7 @@ var STRAT={
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]},
  fxg:{name:'Forex - Auto-Executor',sub:'EUR/USD + USD/JPY joined guard · each pair has its own counters & kill-latch',tabs:[['joined','Joined','/fxguard','grid'],['eurg','EUR/USD guard',EUR+'/guard','grid'],['jpyg','USD/JPY guard',JPY+'/guard','grid'],['eurh','EUR health',EUR+'/guard/health?format=txt','help'],['jpyh','JPY health',JPY+'/guard/health?format=txt','help']]}
 };
-var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
+var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
          ['Strategies',[['ab','A/B + Shallow','ab'],['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['c','C','c'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
@@ -202,8 +202,8 @@ function buildNav(){
  document.querySelectorAll('.nav').forEach(function(n){n.onclick=function(){location.hash='#/'+n.dataset.r;};});
 }
 function render(){
- var hh=(location.hash.replace(/^#\//,'')||'gen/pnl'); var p=hh.split('/'); var top=p[0]; setActive(hh); tabsEl.innerHTML='';
- if(top==='gen'){ var g=GEN[p[1]||'pnl']; ttl.textContent=g.t; sub.textContent='General'; if(g.frame) showFrame(g.frame); else showHtml(g.html); return; }
+ var hh=(location.hash.replace(/^#\//,'')||'gen/regime'); var p=hh.split('/'); var top=p[0]; setActive(hh); tabsEl.innerHTML='';
+ if(top==='gen'){ var g=GEN[p[1]]||GEN['regime']; ttl.textContent=g.t; sub.textContent='General'; if(g.frame) showFrame(g.frame); else showHtml(g.html); return; }
  var s=STRAT[top]; if(!s){location.hash='#/ab';return;}
  ttl.textContent=s.name; sub.textContent=s.sub;
  var cur=p[1]||s.tabs[0][0];
