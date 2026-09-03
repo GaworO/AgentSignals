@@ -67,6 +67,65 @@ class MarketContextTests(unittest.TestCase):
             self.assertEqual(len(saved), 2)
             self.assertTrue(all(row["informational_only"] for row in saved))
 
+    def test_prediction_journal_is_immutable_and_later_settled(self):
+        morning = dt.datetime(2026, 8, 31, 9, 0, tzinfo=NY)
+        bars = synthetic_bars(start="2026-03-02", periods=130)
+        bars.loc[bars.index[-1], "ts_event"] = (morning - dt.timedelta(minutes=1)).astimezone(
+            dt.timezone.utc).isoformat()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bars.csv"
+            journal = Path(tmp) / market_context.PREDICTION_DATABASE_FILE
+            bars.to_csv(path, index=False)
+            market_context.record_if_due([path], tmp, now=morning,
+                                         prediction_database_path=journal)
+            first = market_context.read_prediction_journal(journal)
+
+            self.assertEqual(first["summary"]["total"], 2)  # daily + Sunday plan
+            daily = next(row for row in first["rows"] if row["scope"] == "daily")
+            self.assertEqual(daily["status"], "pending")
+            original_bias = daily["rule_bias"]
+            original_capture = daily["capture_price"]
+
+            # Repeated scheduling never changes the forecast captured that morning.
+            market_context.record_if_due([path], tmp, now=morning + dt.timedelta(minutes=10),
+                                         prediction_database_path=journal)
+            repeated = market_context.read_prediction_journal(journal)
+            daily_again = next(row for row in repeated["rows"] if row["scope"] == "daily")
+            self.assertEqual(repeated["summary"]["total"], 2)
+            self.assertEqual(daily_again["rule_bias"], original_bias)
+            self.assertEqual(daily_again["capture_price"], original_capture)
+
+            # A later completed close settles the daily forecast without rewriting it.
+            close = morning.replace(hour=16, minute=59)
+            bars.loc[bars.index[-1], "ts_event"] = close.astimezone(dt.timezone.utc).isoformat()
+            bars.loc[bars.index[-1], "close"] = original_capture + 100
+            bars.loc[bars.index[-1], "high"] = max(bars.loc[bars.index[-1], "high"], original_capture + 110)
+            bars.to_csv(path, index=False)
+            combined, _, _, _ = market_context._combined_market_data([path])
+            market_context.settle_prediction_journal(journal, combined,
+                                                     now=close + dt.timedelta(minutes=5))
+            settled = market_context.read_prediction_journal(journal)
+            daily_done = next(row for row in settled["rows"] if row["scope"] == "daily")
+            self.assertEqual(daily_done["status"], "settled")
+            self.assertEqual(daily_done["rule_bias"], original_bias)
+            self.assertEqual(daily_done["capture_price"], original_capture)
+            self.assertIsNotNone(daily_done["actual_label"])
+
+    def test_prediction_journal_does_not_manufacture_late_forecasts(self):
+        after_close = dt.datetime(2026, 8, 31, 17, 10, tzinfo=NY)
+        bars = synthetic_bars(start="2026-03-02", periods=130)
+        bars.loc[bars.index[-1], "ts_event"] = after_close.replace(hour=16, minute=59).astimezone(
+            dt.timezone.utc).isoformat()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bars.csv"
+            journal = Path(tmp) / market_context.PREDICTION_DATABASE_FILE
+            bars.to_csv(path, index=False)
+            market_context.record_if_due([path], tmp, now=after_close,
+                                         prediction_database_path=journal)
+            saved = market_context.read_prediction_journal(journal)
+
+            self.assertEqual(saved["summary"]["total"], 0)
+
     def test_compact_database_can_serve_report_without_raw_history(self):
         bars = synthetic_bars(periods=140)
         with tempfile.TemporaryDirectory() as tmp:
