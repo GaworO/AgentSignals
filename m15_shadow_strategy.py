@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import html
 import json
 import math
 import os
@@ -20,6 +21,7 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from m15_hybrid_detector import SETTINGS
@@ -217,7 +219,8 @@ def build_group(signal: Dict[str, Any], existing: Iterable[Dict[str, Any]]) -> D
             "risk_with_cost_usd": round((risk * PV + COST_PER_CONTRACT) * qty, 2),
             "status": "waiting" if allowed else "blocked", "filled": False,
             "fill_bars_seen": 0, "last_bar_ms": int(signal["bos_ms"]),
-            "fill_ms": None, "exit_ms": None, "gross_r": None, "net": None,
+            "fill_ms": None, "fill_price": None, "exit_ms": None,
+            "exit_price": None, "gross_r": None, "net": None,
         })
     # Each sibling owns half of the group budget.  If one sibling cannot be
     # sized, omit it instead of discarding the other valid setup; block only
@@ -250,12 +253,14 @@ def _eod_ms(fill_ms: int) -> int:
     return int(cutoff.timestamp() * 1000)
 
 
-def _finish_leg(leg: Dict[str, Any], outcome: str, gross_r: float, bar_ms: int) -> None:
+def _finish_leg(leg: Dict[str, Any], outcome: str, gross_r: float, bar_ms: int,
+                exit_price: Optional[float] = None) -> None:
     risk_dollars = float(leg["risk_pts"]) * PV * int(leg["qty"])
     leg.update(
         status=outcome, outcome=outcome, gross_r=round(float(gross_r), 6),
         net=round(float(gross_r) * risk_dollars - COST_PER_CONTRACT * int(leg["qty"]), 2),
         exit_ms=int(bar_ms), end_ms=int(bar_ms),
+        exit_price=round(float(exit_price), 2) if exit_price is not None else None,
     )
 
 
@@ -272,7 +277,7 @@ def _advance_leg(leg: Dict[str, Any], group: Dict[str, Any], bar: Dict[str, Any]
         bull = group["dir"] == "LONG"
         entry, stop = float(leg["entry"]), float(leg["sl"])
         gross = (exit_close - entry) / abs(entry - stop) if bull else (entry - exit_close) / abs(entry - stop)
-        _finish_leg(leg, "eod", gross, previous_ms)
+        _finish_leg(leg, "eod", gross, previous_ms, exit_close)
         return True
     leg["last_bar_ms"] = int(bar_ms)
     direction = group["dir"]
@@ -294,10 +299,10 @@ def _advance_leg(leg: Dict[str, Any], group: Dict[str, Any], bar: Dict[str, Any]
         through = low <= entry - TICK if bull else high >= entry + TICK
         if through:
             leg.update(status="open", filled=True, fill_ms=int(bar_ms), eod_ms=_eod_ms(bar_ms),
-                       last_close=close)
+                       fill_price=entry, last_close=close)
             hit_stop = low <= stop if bull else high >= stop
             if hit_stop:
-                _finish_leg(leg, "loss", -1.0, bar_ms)
+                _finish_leg(leg, "loss", -1.0, bar_ms, stop)
             # No target credit on the fill bar: the favourable extreme may pre-date fill.
             return True
         return True
@@ -305,13 +310,13 @@ def _advance_leg(leg: Dict[str, Any], group: Dict[str, Any], bar: Dict[str, Any]
     hit_stop = low <= stop if bull else high >= stop
     hit_target = high >= target if bull else low <= target
     if hit_stop:
-        _finish_leg(leg, "loss", -1.0, bar_ms)
+        _finish_leg(leg, "loss", -1.0, bar_ms, stop)
     elif bar_ms > int(leg.get("fill_ms") or bar_ms) and hit_target:
         win_r = abs(target - entry) / max(abs(entry - stop), 1e-12)
-        _finish_leg(leg, "win", win_r, bar_ms)
+        _finish_leg(leg, "win", win_r, bar_ms, target)
     elif bar_ms + 60_000 >= int(leg.get("eod_ms") or (2 ** 63 - 1)):
         gross = (close - entry) / abs(entry - stop) if bull else (entry - close) / abs(entry - stop)
-        _finish_leg(leg, "eod", gross, bar_ms)
+        _finish_leg(leg, "eod", gross, bar_ms, close)
     else:
         leg["last_close"] = close
     return True
@@ -530,12 +535,249 @@ def _shadow_payload() -> Dict[str, Any]:
     }
 
 
+def _pine_string(value: Any) -> str:
+    """Escape one Python value for a Pine string literal."""
+    return (str(value or "")
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\r", "")
+            .replace("\n", "\\n"))
+
+
+def _pine_float(value: Any) -> str:
+    try:
+        number = float(value)
+        if not math.isfinite(number):
+            return "na"
+    except Exception:
+        return "na"
+    rendered = ("%.8f" % number).rstrip("0").rstrip(".")
+    return rendered if "." in rendered else rendered + ".0"
+
+
+def _leg_exit_price(group: Dict[str, Any], leg: Dict[str, Any]) -> Optional[float]:
+    """Return stored exit price, with a backward-compatible legacy reconstruction."""
+    try:
+        if leg.get("exit_price") is not None:
+            return round(float(leg["exit_price"]), 2)
+        if not leg.get("filled") or leg.get("gross_r") is None:
+            return None
+        entry, stop = float(leg["entry"]), float(leg["sl"])
+        signed = 1.0 if group.get("dir") == "LONG" else -1.0
+        return round(entry + signed * float(leg["gross_r"]) * abs(entry - stop), 2)
+    except Exception:
+        return None
+
+
+def build_shadow_pine(groups: Iterable[Dict[str, Any]], exported_at_ms: Optional[int] = None,
+                      limit: int = 40, group_key: Optional[str] = None) -> str:
+    """Build a visual-only Pine v6 snapshot from the real forward shadow ledger.
+
+    TradingView Pine cannot fetch the Flask endpoint, so the generated source embeds a
+    bounded snapshot.  Reopening the generator produces a fresh script.
+    """
+    exported_at_ms = int(exported_at_ms or time.time() * 1000)
+    rows = [g for g in groups if g.get("decision") == "shadow"]
+    rows.sort(key=lambda g: int(g.get("bos_ms") or 0))
+    if group_key:
+        rows = [g for g in rows if str(g.get("key")) == str(group_key)]
+    else:
+        rows = rows[-max(1, min(40, int(limit or 40))):]
+
+    all_times = [exported_at_ms]
+    all_times.extend(int(g.get("bos_ms") or exported_at_ms) for g in rows)
+    for group in rows:
+        all_times.extend(int(leg.get("exit_ms") or 0) for leg in group.get("legs") or [])
+    positive_times = [value for value in all_times if value > 0]
+    first_ms = (min(int(g.get("bos_ms") or exported_at_ms) for g in rows)
+                if rows else exported_at_ms - 31 * 86_400_000)
+    last_ms = max(positive_times) if positive_times else exported_at_ms
+    from_ms = first_ms - 6 * 60 * 60 * 1000
+    to_ms = max(last_ms, exported_at_ms) + 24 * 60 * 60 * 1000
+
+    resolved = [g for g in rows if g.get("filled") and g.get("status") not in ("pending", "open")]
+    total_net = round(sum(float(g.get("net") or 0.0) for g in resolved), 2)
+    wins = sum(float(g.get("net") or 0.0) > 0 for g in resolved)
+    losses = sum(float(g.get("net") or 0.0) < 0 for g in resolved)
+    exported_iso = dt.datetime.fromtimestamp(
+        exported_at_ms / 1000.0, tz=dt.timezone.utc
+    ).strftime("%Y-%m-%d %H:%M UTC")
+
+    calls: List[str] = []
+    for group_id, group in enumerate(rows, 1):
+        legs = group.get("legs") or []
+        for leg_index, leg in enumerate(legs):
+            calls.append(
+                "    shownLegs += drawLeg(%d, %s, \"%s\", \"%s\", %s, %s, "
+                "\"%s\", \"%s\", %d, %d, %d, %s, %s, %s, %s, %s, %d)" % (
+                    group_id,
+                    "true" if group.get("dir") == "LONG" else "false",
+                    _pine_string(group.get("cat") or group.get("model") or "setup"),
+                    _pine_string(group.get("status") or "pending"),
+                    _pine_float(group.get("net")),
+                    "true" if leg_index == 0 else "false",
+                    _pine_string(leg.get("leg") or "leg"),
+                    _pine_string(leg.get("status") or "waiting"),
+                    int(group.get("bos_ms") or 0),
+                    int(leg.get("fill_ms") or 0),
+                    int(leg.get("exit_ms") or 0),
+                    _pine_float(leg.get("entry")),
+                    _pine_float(leg.get("sl")),
+                    _pine_float(leg.get("tp")),
+                    _pine_float(leg.get("net")),
+                    _pine_float(_leg_exit_price(group, leg)),
+                    int(leg.get("qty") or 0),
+                )
+            )
+    if not calls:
+        calls.append("    // No admitted forward-shadow groups were stored when this snapshot was exported.")
+
+    group_scope = "one selected group" if group_key else "the latest %d admitted groups" % len(rows)
+    source = """//@version=6
+indicator("M15→M5 A/B + Shallow — current forward shadow", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// VISUAL-ONLY SERVER SNAPSHOT — no strategy orders, alerts or webhooks.
+// Generated __EXPORTED__. It contains __SCOPE__ from m15_shadow_groups.json.
+// Pine cannot fetch new server data. Reopen /m15/shadow/pine and copy again to refresh.
+
+groupWindow = "Zakres eksportu"
+fromTime = input.time(__FROM__, "Od", group=groupWindow)
+toTime   = input.time(__TO__, "Do", group=groupWindow)
+
+groupLayers = "Warstwy"
+showDeep       = input.bool(true, "Deep", group=groupLayers)
+showShallow    = input.bool(true, "Shallow", group=groupLayers)
+showRiskReward = input.bool(true, "Strefy risk/reward po fill", group=groupLayers)
+showMarkers    = input.bool(true, "BOS, fill i exit", group=groupLayers)
+showNoFill     = input.bool(true, "Limity bez fill", group=groupLayers)
+
+color longColor    = color.rgb(16, 185, 129)
+color shortColor   = color.rgb(239, 68, 68)
+color deepColor    = color.rgb(148, 163, 184)
+color shallowColor = color.rgb(249, 115, 22)
+color stopColor    = color.rgb(248, 113, 113)
+color targetColor  = color.rgb(74, 222, 128)
+color bosColor     = color.rgb(34, 211, 238)
+color neutralColor = color.rgb(96, 165, 250)
+
+priceText(float value) =>
+    str.tostring(value, format.mintick)
+
+pnlText(float value) =>
+    na(value) ? "—" : (value >= 0 ? "+$" : "-$") + str.tostring(math.abs(value), "#.00")
+
+drawLeg(int groupId, bool isLong, string catalyst, string groupStatus, float groupNet,
+        bool firstLeg, string legName, string legStatus, int bosT, int fillT, int exitT,
+        float entryPrice, float stopPrice, float targetPrice, float legNet,
+        float exitPrice, int qty) =>
+    int included = 0
+    bool selectedLeg = (legName == "deep" and showDeep) or (legName == "shallow" and showShallow)
+    bool selectedTime = bosT >= fromTime and bosT < toTime
+    bool shouldDraw = selectedLeg and selectedTime and (legStatus != "no_fill" or showNoFill)
+    if shouldDraw
+        included := 1
+        color sideColor = isLong ? longColor : shortColor
+        color legColor = legName == "deep" ? deepColor : shallowColor
+        int resolvedT = exitT > 0 ? exitT : timenow
+        int orderRightT = fillT > 0 ? fillT : resolvedT
+        string sideText = isLong ? "LONG" : "SHORT"
+
+        line.new(x1=bosT, y1=entryPrice, x2=orderRightT, y2=entryPrice, xloc=xloc.bar_time,
+          color=legColor, style=line.style_dashed, width=2)
+        if fillT == 0
+            line.new(x1=bosT, y1=stopPrice, x2=orderRightT, y2=stopPrice, xloc=xloc.bar_time,
+              color=color.new(stopColor, 35), style=line.style_dotted, width=1)
+            line.new(x1=bosT, y1=targetPrice, x2=orderRightT, y2=targetPrice, xloc=xloc.bar_time,
+              color=color.new(targetColor, 35), style=line.style_dotted, width=1)
+
+        if firstLeg and showMarkers
+            label.new(x=bosT, y=entryPrice,
+              text="#" + str.tostring(groupId) + " " + catalyst + " " + sideText +
+                   "\nGROUP " + groupStatus + " " + pnlText(groupNet) + "\nBOS M5",
+              xloc=xloc.bar_time, yloc=yloc.price,
+              style=isLong ? label.style_label_up : label.style_label_down,
+              color=color.new(sideColor, 5), textcolor=color.white, size=size.small)
+
+        if fillT > 0
+            line.new(x1=fillT, y1=entryPrice, x2=resolvedT, y2=entryPrice, xloc=xloc.bar_time,
+              color=legColor, width=2)
+            line.new(x1=fillT, y1=stopPrice, x2=resolvedT, y2=stopPrice, xloc=xloc.bar_time,
+              color=stopColor, width=2)
+            line.new(x1=fillT, y1=targetPrice, x2=resolvedT, y2=targetPrice, xloc=xloc.bar_time,
+              color=targetColor, width=2)
+            if showRiskReward
+                box.new(left=fillT, top=math.max(entryPrice, stopPrice), right=resolvedT,
+                  bottom=math.min(entryPrice, stopPrice), xloc=xloc.bar_time,
+                  border_color=color.new(stopColor, 45), bgcolor=color.new(stopColor, 88))
+                box.new(left=fillT, top=math.max(entryPrice, targetPrice), right=resolvedT,
+                  bottom=math.min(entryPrice, targetPrice), xloc=xloc.bar_time,
+                  border_color=color.new(targetColor, 45), bgcolor=color.new(targetColor, 90))
+            if showMarkers
+                label.new(x=fillT, y=entryPrice,
+                  text="FILL " + legName + " ×" + str.tostring(qty), xloc=xloc.bar_time,
+                  yloc=yloc.price, style=isLong ? label.style_triangleup : label.style_triangledown,
+                  color=legColor, textcolor=legColor, size=size.tiny)
+                if exitT > 0
+                    float exitY = na(exitPrice) ? entryPrice : exitPrice
+                    color resultColor = na(legNet) ? neutralColor : legNet > 0 ? targetColor : legNet < 0 ? stopColor : neutralColor
+                    label.new(x=exitT, y=exitY,
+                      text="EXIT " + legName + " " + legStatus + " " + pnlText(legNet),
+                      xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left,
+                      color=color.new(resultColor, 5), textcolor=color.black, size=size.tiny)
+                else
+                    label.new(x=resolvedT, y=entryPrice, text="OPEN " + legName,
+                      xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left,
+                      color=color.new(neutralColor, 5), textcolor=color.black, size=size.tiny)
+        else if showMarkers
+            color waitColor = legStatus == "no_fill" ? neutralColor : bosColor
+            label.new(x=orderRightT, y=entryPrice, text=legName + " " + legStatus,
+              xloc=xloc.bar_time, yloc=yloc.price, style=label.style_label_left,
+              color=color.new(waitColor, 8), textcolor=color.black, size=size.tiny)
+    included
+
+var bool drawn = false
+var int shownLegs = 0
+if barstate.islast and not drawn
+__CALLS__
+    drawn := true
+
+var table summary = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 12), frame_color=color.new(color.silver, 35), frame_width=1)
+if barstate.islast
+    bool fiveMinuteChart = timeframe.isminutes and timeframe.multiplier == 5
+    table.cell(summary, 0, 0, "M15→M5 SHADOW", text_color=color.white, bgcolor=color.new(color.blue, 45))
+    table.cell(summary, 1, 0, "snapshot", text_color=color.white, bgcolor=color.new(color.blue, 45))
+    table.cell(summary, 0, 1, "Grupy", text_color=color.silver)
+    table.cell(summary, 1, 1, "__GROUPS__", text_color=color.white)
+    table.cell(summary, 0, 2, "Widoczne nogi", text_color=color.silver)
+    table.cell(summary, 1, 2, str.tostring(shownLegs), text_color=color.white)
+    table.cell(summary, 0, 3, "W / L", text_color=color.silver)
+    table.cell(summary, 1, 3, "__WINS__ / __LOSSES__", text_color=color.white)
+    table.cell(summary, 0, 4, "Net zakończonych", text_color=color.silver)
+    table.cell(summary, 1, 4, "__NET__", text_color=__NET_COLOR__)
+    table.cell(summary, 0, 5, "Eksport", text_color=color.silver)
+    table.cell(summary, 1, 5, "__EXPORTED__", text_color=color.white)
+    table.cell(summary, 0, 6, "Wykres", text_color=color.silver)
+    table.cell(summary, 1, 6, fiveMinuteChart ? "M5 ✓" : "Ustaw M5", text_color=fiveMinuteChart ? targetColor : color.rgb(245, 158, 11))
+"""
+    net_label = ("+$%.2f" % total_net) if total_net >= 0 else ("-$%.2f" % abs(total_net))
+    return (source.replace("__EXPORTED__", exported_iso)
+            .replace("__SCOPE__", group_scope)
+            .replace("__FROM__", str(from_ms))
+            .replace("__TO__", str(to_ms))
+            .replace("__CALLS__", "\n".join(calls))
+            .replace("__GROUPS__", str(len(rows)))
+            .replace("__WINS__", str(wins))
+            .replace("__LOSSES__", str(losses))
+            .replace("__NET__", net_label)
+            .replace("__NET_COLOR__", "targetColor" if total_net >= 0 else "stopColor"))
+
+
 STYLE = """
 *{box-sizing:border-box}body{margin:0;background:#0b0e14;color:#e6e9ef;font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
 h2{margin:0 0 4px}.mut{color:#8a94a6}.note,.card{background:#111827;border:1px solid #263044;border-radius:10px;padding:12px 14px;margin:10px 0}.safe{border-left:3px solid #4ade80}
 .kpis{display:flex;gap:9px;flex-wrap:wrap}.kpi{min-width:145px;background:#141a28;border:1px solid #263044;border-radius:10px;padding:10px 13px}.kl{font-size:11px;color:#8a94a6}.kv{font-size:20px;font-weight:750}
 table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #263044;white-space:nowrap}th{color:#8a94a6;position:sticky;top:0;background:#0b0e14}.wrap{overflow:auto;max-height:62vh;border:1px solid #263044;border-radius:10px}
-.ok{color:#4ade80}.bad{color:#f87171}.wait{color:#fbbf24}.pill{padding:2px 7px;border:1px solid #334155;border-radius:12px;font-size:11px}button{background:#14321f;color:#4ade80;border:1px solid #277642;border-radius:7px;padding:7px 11px;cursor:pointer}textarea{width:100%;height:62vh;background:#080b10;color:#d6deeb;border:1px solid #263044;border-radius:8px;padding:12px;font:12px/1.45 ui-monospace,monospace}img{max-width:100%;border:1px solid #263044;border-radius:10px;margin:8px 0}
+.ok{color:#4ade80}.bad{color:#f87171}.wait{color:#fbbf24}.pill{padding:2px 7px;border:1px solid #334155;border-radius:12px;font-size:11px}button,.btn{display:inline-block;background:#14321f;color:#4ade80;border:1px solid #277642;border-radius:7px;padding:7px 11px;cursor:pointer;text-decoration:none}textarea{width:100%;height:62vh;background:#080b10;color:#d6deeb;border:1px solid #263044;border-radius:8px;padding:12px;font:12px/1.45 ui-monospace,monospace}img{max-width:100%;border:1px solid #263044;border-radius:10px;margin:8px 0}
 """
 
 
@@ -553,13 +795,15 @@ document.getElementById('t').innerHTML='<tr><th>trigger TFO UTC−4</th><th>cata
 
 SHADOW_PAGE = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><style>__STYLE__</style></head><body>
 <h2>M15 → M5 forward shadow</h2><div class=mut>Two sibling limits, one $500 setup group; $250 budget per leg. 20 following M1 bars (normally ~20 minutes), adverse-first, EOD 15:55 ET.</div>
-<div class='note safe'><b>Zero real orders.</b> Results begin only after the first priming scan and are kept separate from April historical examples.</div><div class=kpis id=k></div><div class=card id=ref></div><div class=wrap><table id=t></table></div><script>
+<div class='note safe'><b>Zero real orders.</b> Results begin only after the first priming scan and are kept separate from April historical examples.</div>
+<div class=card><b>Zobacz aktualne shadow trades na TradingView:</b> <a class=btn href='/m15/shadow/pine'>Pine — wszystkie ostatnie trady</a> <span class=mut>Generator tworzy aktualny snapshot; po nowych tradach skopiuj go ponownie.</span></div>
+<div class=kpis id=k></div><div class=card id=ref></div><div class=wrap><table id=t></table></div><script>
 function m(v){return v==null?'—':(v>=0?'+$':'-$')+Math.abs(v).toFixed(2)}function e(x){return String(x==null?'—':x)}
 fetch('/m15/shadow/data?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(d=>{let s=d.summary||{},q=d.reference||{};
 document.getElementById('k').innerHTML=`<div class=kpi><div class=kl>admitted groups</div><div class=kv>${s.admitted||0}</div></div><div class=kpi><div class=kl>filled / resolved</div><div class=kv>${s.filled_groups||0}</div></div><div class=kpi><div class=kl>W / L</div><div class=kv>${s.wins||0} / ${s.losses||0}</div></div><div class=kpi><div class=kl>net</div><div class=kv>${m(s.net||0)}</div></div><div class=kpi><div class=kl>execution</div><div class='kv ok'>OFF</div></div>`;
 document.getElementById('ref').innerHTML=`<b>Historical reference:</b> ${q.filled_groups_per_month} filled guarded groups/month (${q.oos_filled_groups_per_month} OOS); candidate supply ${q.eligible_candidates_per_month}/month. <span class=mut>${q.note}</span>`;
-let rows=[];(d.groups||[]).slice().reverse().forEach(g=>(g.legs||[]).forEach(l=>rows.push(`<tr><td>${e(g.et)}</td><td>${e(g.cat)}</td><td>${e(g.dir)}</td><td>${e(l.leg)}</td><td>${e(l.entry)}</td><td>${e(l.sl)}</td><td>${e(l.tp)}</td><td>${e(g.decision==='shadow'?l.status:g.block_reason)}</td><td>${m(l.net)}</td><td>${e(g.status)}</td></tr>`)));
-document.getElementById('t').innerHTML='<tr><th>BOS ET</th><th>catalyst</th><th>dir</th><th>leg</th><th>entry</th><th>SL</th><th>TP</th><th>leg result</th><th>net</th><th>group</th></tr>'+(rows.join('')||'<tr><td colspan=10 class=mut>Forward book is empty until a new signal appears after priming.</td></tr>');});
+let rows=[];(d.groups||[]).slice().reverse().forEach(g=>(g.legs||[]).forEach(l=>{let p=g.decision==='shadow'?`<a class=btn href='/m15/shadow/pine?group=${encodeURIComponent(g.key)}'>Pine</a>`:'—';rows.push(`<tr><td>${e(g.et)}</td><td>${e(g.cat)}</td><td>${e(g.dir)}</td><td>${e(l.leg)}</td><td>${e(l.entry)}</td><td>${e(l.sl)}</td><td>${e(l.tp)}</td><td>${e(g.decision==='shadow'?l.status:g.block_reason)}</td><td>${m(l.net)}</td><td>${e(g.status)}</td><td>${p}</td></tr>`)}));
+document.getElementById('t').innerHTML='<tr><th>BOS ET</th><th>catalyst</th><th>dir</th><th>leg</th><th>entry</th><th>SL</th><th>TP</th><th>leg result</th><th>net</th><th>group</th><th>chart</th></tr>'+(rows.join('')||'<tr><td colspan=11 class=mut>Forward book is empty until a new signal appears after priming.</td></tr>');});
 </script></body></html>""".replace("__STYLE__", STYLE)
 
 
@@ -631,6 +875,53 @@ def register(app: Any) -> Any:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    def shadow_pine():
+        try:
+            limit = max(1, min(40, int(request.args.get("limit", "40"))))
+        except Exception:
+            limit = 40
+        selected_key = request.args.get("group") or None
+        # Take one coherent ledger snapshot; release the cross-worker lock before
+        # rendering the comparatively large Pine source.
+        with _state_lock, _FileLock():
+            groups = _json_load(GROUPS_PATH, [])
+        script = build_shadow_pine(groups, limit=limit, group_key=selected_key)
+        if request.args.get("raw") == "1" or request.args.get("download") == "1":
+            response = Response(script, mimetype="text/plain")
+            response.headers["Cache-Control"] = "no-store"
+            if request.args.get("download") == "1":
+                response.headers["Content-Disposition"] = (
+                    "attachment; filename=M15_M5_current_shadow.pine"
+                )
+            return response
+        query = {"raw": "1", "limit": str(limit)}
+        download_query = {"download": "1", "limit": str(limit)}
+        if selected_key:
+            query["group"] = selected_key
+            download_query["group"] = selected_key
+        raw_href = "/m15/shadow/pine?" + urlencode(query)
+        download_href = "/m15/shadow/pine?" + urlencode(download_query)
+        safe = html.escape(script)
+        admitted = [g for g in groups if g.get("decision") == "shadow"]
+        shown = sum(str(g.get("key")) == str(selected_key) for g in admitted) if selected_key else min(limit, len(admitted))
+        page = (
+            "<!doctype html><html><head><meta charset=utf-8><style>%s</style></head><body>"
+            "<h2>Pine v6 · aktualne M15→M5 shadow trades</h2>"
+            "<div class='note safe'><b>Snapshot forward shadow: %d grup.</b> Skrypt pokazuje BOS M5, "
+            "limit entry, SL, TP, fill, exit oraz P&amp;L. Jest wskaźnikiem wizualnym — bez alertów i zleceń. "
+            "Po nowych tradach odśwież tę stronę i skopiuj skrypt ponownie.</div>"
+            "<button onclick=\"navigator.clipboard.writeText(document.getElementById('p').value);this.textContent='Skopiowano ✓'\">Kopiuj Pine</button> "
+            "<a class=btn href='%s'>surowy tekst</a> <a class=btn href='%s'>pobierz plik</a> "
+            "<a class=btn href='/m15/pine'>historyczne przykłady IV 2026</a>"
+            "<textarea id=p>%s</textarea></body></html>" % (
+                STYLE, shown, html.escape(raw_href, quote=True),
+                html.escape(download_href, quote=True), safe,
+            )
+        )
+        response = Response(page, mimetype="text/html")
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     def health():
         status = _json_load(STATUS_PATH, {})
         status.update(enabled=ENABLED, execution_capable=False, strategy_version=VERSION,
@@ -678,6 +969,7 @@ def register(app: Any) -> Any:
     app.add_url_rule("/m15/candidates/data", "m15_candidates_data", candidates_data)
     app.add_url_rule("/m15/shadow", "m15_shadow", shadow_page)
     app.add_url_rule("/m15/shadow/data", "m15_shadow_data", shadow_data)
+    app.add_url_rule("/m15/shadow/pine", "m15_shadow_pine", shadow_pine)
     app.add_url_rule("/m15/status", "m15_status", health)
     app.add_url_rule("/m15/how", "m15_how", how)
     app.add_url_rule("/m15/pine", "m15_pine", pine)
