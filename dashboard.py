@@ -5,7 +5,9 @@ dashboard.py - the unified home page served at the agent root "/".
 ISOLATED add-on (same pattern as pnl.py / how_ab.py): adds ONE GET "/" route that returns a nav
 shell FEDERATING the pages that already exist. It runs no detector / intake / journal code.
 
-  General   : P&L=/pnl - Regime=/regime - Monitor=/monitor - News (static) - Income (static)
+  General   : Regime=/regime - Monitor=/monitor - News (static) - Income (static)
+              (All trades / All candidates / Reconcile / P&L removed from the nav; the
+               /all/* and /pnl routes stay live and are still used per-account.)
   A/B       : Candidates=/ab/candidates - Journal=/journal - How=/how
   C         : Dashboard=/c - How=/c/how
   F  (ext)  : How (inline) - Candidates - Log - Performance
@@ -82,7 +84,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
   </aside>
   <main>
     <header>
-      <div class="hrow"><button class="menubtn" onclick="toggleMenu()" title="Hide/show menu" aria-label="Hide or show menu">&#9776;</button><h1 id="ttl">P&amp;L</h1><span class="sub" id="sub"></span>
+      <div class="hrow"><button class="menubtn" onclick="toggleMenu()" title="Hide/show menu" aria-label="Hide or show menu">&#9776;</button><h1 id="ttl">Regime</h1><span class="sub" id="sub"></span>
         <a class="open" id="open" href="#" target="_blank" rel="noopener" style="display:none"></a></div>
       <div class="tabs" id="tabs"></div>
     </header>
@@ -171,7 +173,7 @@ var STRAT={
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]},
  fxg:{name:'Forex - Auto-Executor',sub:'EUR/USD + USD/JPY joined guard · each pair has its own counters & kill-latch',tabs:[['joined','Joined','/fxguard','grid'],['eurg','EUR/USD guard',EUR+'/guard','grid'],['jpyg','USD/JPY guard',JPY+'/guard','grid'],['eurh','EUR health',EUR+'/guard/health?format=txt','help'],['jpyh','JPY health',JPY+'/guard/health?format=txt','help']]}
 };
-var NAV=[['General',[['gen/alltrades','All trades','book'],['gen/allcands','All candidates','list'],['gen/reconcile','Reconcile','book'],['gen/pnl','P&L','pnl'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
+var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
          ['Strategies',[['ab','A/B + Shallow','ab'],['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['c','C','c'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
@@ -202,8 +204,8 @@ function buildNav(){
  document.querySelectorAll('.nav').forEach(function(n){n.onclick=function(){location.hash='#/'+n.dataset.r;};});
 }
 function render(){
- var hh=(location.hash.replace(/^#\//,'')||'gen/pnl'); var p=hh.split('/'); var top=p[0]; setActive(hh); tabsEl.innerHTML='';
- if(top==='gen'){ var g=GEN[p[1]||'pnl']; ttl.textContent=g.t; sub.textContent='General'; if(g.frame) showFrame(g.frame); else showHtml(g.html); return; }
+ var hh=(location.hash.replace(/^#\//,'')||'gen/regime'); var p=hh.split('/'); var top=p[0]; setActive(hh); tabsEl.innerHTML='';
+ if(top==='gen'){ var g=GEN[p[1]]||GEN['regime']; ttl.textContent=g.t; sub.textContent='General'; if(g.frame) showFrame(g.frame); else showHtml(g.html); return; }
  var s=STRAT[top]; if(!s){location.hash='#/ab';return;}
  ttl.textContent=s.name; sub.textContent=s.sub;
  var cur=p[1]||s.tabs[0][0];
