@@ -30,6 +30,8 @@ Env (defaults tuned for the Pro-100k eval at $99,887):
   DAY_LOSS_N=2           daily stop after N losing setup groups today (A/B + shallow = one setup)
   DAY_LOSS_COUNT_MODE=group  group | leg (group is the production default)
   DAY_LOSS_USD=1000      halt+latch after -$ modeled loss today       (secondary)
+  LOSS_STREAK_N=3        rolling stop after N consecutive losing setup groups across days; 0=off
+  LOSS_STREAK_COOLDOWN_H=24  hours to pause after a rolling loss streak; 0=manual ARM only
   DAY_TARGET_USD=1500    profit-lock: stop for the day after +$ (keeps best day < 50% of $6k => consistency-safe)
   DD_FLOOR=97000         MFF trailing max-loss level (READ IT off MFF; update as it trails up)
   DD_BUFFER=100          reserve kept above the active Starter trailing floor
@@ -268,13 +270,18 @@ def is_duplicate(x):
 
 # ---------- state ----------
 _DEF_STATE = {'kill': False, 'kill_reason': '', 'kill_day': '', 'kill_hard': False,
+              'kill_until_ms': 0,
               'sent_total': 0, 'equity': None, 'equity_ts': 0,
-              'equity_sync_day': '', 'equity_day_net_at_sync': 0.0}
+              'equity_sync_day': '', 'equity_day_net_at_sync': 0.0,
+              'loss_streak_handled_key': '', 'loss_streak_handled_count': 0,
+              'loss_streak_resume_after_ms': 0}
 def _state():
     s, corrupt = _load_failclosed(GSTATE, dict(_DEF_STATE))
     if corrupt:                                    # corrupted state -> HARD kill until a human looks
         s = dict(_DEF_STATE); s.update(kill=True, kill_hard=True, kill_reason='state_corrupt',
                                        kill_day=_today())
+    for k, v in _DEF_STATE.items():
+        s.setdefault(k, v)
     # v31.9 migration: legacy dd_proximity was a persistent hard halt.  In soft/off mode
     # clear ONLY that legacy latch automatically.  A real dd_breached, manual kill, state
     # corruption or uncertain sibling batch remains hard and requires operator review.
@@ -285,6 +292,16 @@ def _state():
         s['last_auto_clear_ms'] = _now_ms()
         _save(GSTATE, s)
         print('[guard] auto-cleared legacy dd_proximity latch (%s mode)' % _dd_proximity_mode(), flush=True)
+    if s.get('kill') and not s.get('kill_hard'):
+        try:
+            until = int(s.get('kill_until_ms') or 0)
+            if until > 0 and until <= _now_ms():
+                s['kill'] = False; s['kill_reason'] = ''; s['kill_day'] = ''; s['kill_until_ms'] = 0
+                s['last_auto_clear_reason'] = 'cooldown_expired'
+                s['last_auto_clear_ms'] = _now_ms()
+                _save(GSTATE, s)
+        except Exception:
+            pass
     if s.get('equity') is None: s['equity'] = _envf('START_EQUITY', 99887.0)
     return s
 def _set_state(s): _save(GSTATE, s)
@@ -292,14 +309,31 @@ def _set_state(s): _save(GSTATE, s)
 def _kill_active(s):
     if not s.get('kill'): return False
     if s.get('kill_hard'): return True                 # DD / manual: until /guard/kill?on=0
+    try:
+        until = int(s.get('kill_until_ms') or 0)
+        if until > 0: return _now_ms() < until
+    except Exception:
+        pass
     return s.get('kill_day') == _today()               # day-based: auto-clears next day
 
-def _latch(reason, hard=False):
+def _latch(reason, hard=False, until_ms=None):
     s = _state(); s['kill'] = True; s['kill_reason'] = reason; s['kill_day'] = _today(); s['kill_hard'] = hard
+    s['kill_until_ms'] = int(until_ms or 0)
     _set_state(s); print('[guard] KILL LATCH', reason, 'hard=%s' % hard, flush=True)
     # a loss/DD latch means STOP THE BLEEDING, not just "no new entries": flatten + cancel at the broker
-    if reason in ('day_loss_n', 'day_loss_usd', 'dd_proximity', 'dd_breached', 'target_hit_6pct', 'state_corrupt', 'sibling_batch_uncertain'):
+    if reason in ('day_loss_n', 'day_loss_usd', 'loss_streak_n', 'dd_proximity', 'dd_breached', 'target_hit_6pct', 'state_corrupt', 'sibling_batch_uncertain'):
         flatten_all('latch:' + reason)
+
+
+def _latch_loss_streak(streak):
+    cooldown_h = max(0.0, float(streak.get('cooldown_h') or 0.0))
+    until_ms = _now_ms() + int(cooldown_h * 3600000) if cooldown_h > 0 else 0
+    _latch('loss_streak_n', hard=(cooldown_h <= 0), until_ms=until_ms)
+    s = _state()
+    s['loss_streak_handled_key'] = str(streak.get('latest_loss_key') or '')
+    s['loss_streak_handled_count'] = int(streak.get('streak') or 0)
+    s['loss_streak_resume_after_ms'] = until_ms
+    _set_state(s)
 
 def _dd_floor():
     """Effective trailing floor = max(DD_FLOOR env, highest synced equity - DD_TRAIL_USD).
@@ -797,6 +831,7 @@ def trade_summary(rows):
                             for r in confirmed), 2),
         broker_net=round(sum(float(r.get('net') or 0) for r in broker_rows), 2),
         broker_reconciled_orders=len(broker_rows),
+        broker_reconciled_setups=len(_groups(broker_rows)),
     )
 
 
@@ -951,6 +986,63 @@ def _today_sent():
         out.append(_actualize(g, sm.get(g.get('key'), {})))
     return out
 
+
+def _all_sent_actualized():
+    sm = _shadow_by_key()
+    return [_actualize(g, sm.get(g.get('key'), {}))
+            for g in _load(GLOG, []) if g.get('decision') == 'sent']
+
+
+def _loss_streak_stats(rows=None):
+    """Consecutive losing setup groups across the whole Guard book.
+
+    This is deliberately group-level: A/B + A/B-shallow share one setup id, so a
+    double-leg loser is one cold setup, not an inflated two-loss streak.
+    """
+    limit = max(0, _envi('LOSS_STREAK_N', 3))
+    cooldown_h = max(0.0, _envf('LOSS_STREAK_COOLDOWN_H', 24))
+    rows = list(_all_sent_actualized() if rows is None else rows)
+    grouped = {}
+    for r in rows:
+        if r.get('decision') != 'sent':
+            continue
+        gid = r.get('setup_group_id') or r.get('key')
+        if not gid:
+            continue
+        grouped.setdefault(gid, []).append(r)
+
+    groups = []
+    for gid, grows in grouped.items():
+        latest = max(int(r.get('bar_ms') or r.get('ts') or 0) for r in grows)
+        final = False
+        still_open = False
+        net = 0.0
+        for r in grows:
+            oc = r.get('outcome')
+            if oc in ('open', None, ''):
+                still_open = True
+            if oc in ('win', 'loss', 'timeout'):
+                final = True
+                net += float(r.get('net') or 0.0)
+        if still_open or not final:
+            continue
+        outcome = 'loss' if net < 0 else ('win' if net > 0 else 'timeout')
+        groups.append(dict(key=str(gid), ts=latest, outcome=outcome, net=round(net, 2)))
+
+    groups.sort(key=lambda g: g['ts'], reverse=True)
+    streak = 0
+    for g in groups:
+        if g['outcome'] != 'loss':
+            break
+        streak += 1
+    latest_loss_key = groups[0]['key'] if groups and groups[0]['outcome'] == 'loss' else ''
+    latest_loss_ms = groups[0]['ts'] if groups and groups[0]['outcome'] == 'loss' else 0
+    return dict(streak=streak, limit=limit, cooldown_h=cooldown_h,
+                breached=bool(limit > 0 and streak >= limit),
+                latest_loss_key=latest_loss_key, latest_loss_ms=latest_loss_ms,
+                recent=groups[:10])
+
+
 def _day_stats():
     sent = _today_sent()
     # A/B and A/B-shallow are sibling rows of one signal group.  The setup counts once for
@@ -1073,6 +1165,9 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             _latch('day_loss_n');               return (False, 'day_loss_n')        # primary floor guard
         if d['net']    <= -_envf('DAY_LOSS_USD', 1000):
             _latch('day_loss_usd');             return (False, 'day_loss_usd')
+        streak = _loss_streak_stats()
+        if streak['breached'] and s.get('loss_streak_handled_key') != streak.get('latest_loss_key'):
+            _latch_loss_streak(streak);          return (False, 'loss_streak_n')
         if d['net']    >=  _envf('DAY_TARGET_USD', 1500):
             _latch('profit_lock');              return (False, 'profit_lock')       # consistency-safe green stop
 
@@ -1300,8 +1395,17 @@ def health(feed_age_min=None, market_open=None):
             if ia.get('enabled'):
                 lvl = 'warn' if ia.get('status') in ('critical', 'due', 'unknown') else 'ok'
                 add('inactivity', lvl, ia.get('message') or ia.get('status'))
+            ls = _loss_streak_stats(rows0)
+            if ls.get('limit'):
+                lvl = 'warn' if ls.get('breached') else 'ok'
+                tail = ('; cooldown %.1fh' % float(ls.get('cooldown_h') or 0.0)
+                        if float(ls.get('cooldown_h') or 0.0) > 0 else '; manual ARM')
+                add('loss_streak', lvl, '%d/%d consecutive losing setup groups%s' %
+                    (int(ls.get('streak') or 0), int(ls.get('limit') or 0), tail))
+            else:
+                add('loss_streak', 'info', 'rolling streak stop disabled')
         except Exception as ie:
-            add('inactivity', 'warn', 'tracker unavailable: %s' % ie)
+            add('inactivity', 'warn', 'activity/streak tracker unavailable: %s' % ie)
         # 2 webhook wired (only matters in auto)
         if mode == 'auto':
             add('webhook', 'ok' if webhook else 'critical',
@@ -1460,6 +1564,7 @@ def register(app):
     def _data():
         s = _state(); d = _day_stats(); sm = _shadow_by_key()
         all_rows = [_actualize(g, sm.get(g.get('key'), {})) for g in _load(GLOG, [])]
+        loss_streak = _loss_streak_stats(all_rows)
         book = list(reversed(all_rows))[:80]
         # fired vs actually-filled, all-time over the visible book (v27.3c): 'fired' = every SENT/ARMED
         # row; 'filled' = those that really held a position (win/loss/timeout incl. reconciled)
@@ -1476,10 +1581,12 @@ def register(app):
                        be=(os.environ.get('MANAGE_BE', '') == '1'), skip=_env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL'),
                        trades=d['sent'], max_trades=_envi('MAX_TRADES_DAY', 3),
                        losses=d['losses'], loss_n=_envi('DAY_LOSS_N', 2), loss_count_mode=d.get('loss_mode','group'),
+                       loss_streak=loss_streak,
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        equity_synced=round(float(s.get('equity') or 0), 2),
                        equity_sync_day=s.get('equity_sync_day', ''),
                        equity_day_net_at_sync=round(float(s.get('equity_day_net_at_sync') or 0), 2),
+                       kill_until_ms=int(s.get('kill_until_ms') or 0),
                        ramp_left=max(0, _envi('RAMP_TRADES', 3) - s.get('sent_total', 0)),
                        pending_group=_active_pending_group(s),
                        projected_dd_check=_env('DD_PROJECTED_RISK', '1') == '1',
@@ -1515,6 +1622,7 @@ def register(app):
         if not _authed(): return jsonify(ok=False, err='auth'), 401
         on = request.args.get('on', '1') == '1'; s = _state()
         s['kill'] = on; s['kill_hard'] = on; s['kill_reason'] = 'manual' if on else ''
+        s['kill_until_ms'] = 0
         if on: s['kill_day'] = _today()
         _set_state(s)
         if on: flatten_all('manual_halt')          # HALT = stop the bleeding, not only new entries
@@ -1761,19 +1869,21 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 <script>
 async function load(){
  let d=await (await fetch('/guard/data',{cache:'no-store'})).json();
- let p=d.profile||{},rules=p.rules||{},ia=d.inactivity||{},ts=d.trade_summary||{};
+ let p=d.profile||{},rules=p.rules||{},ia=d.inactivity||{},ts=d.trade_summary||{},ls=d.loss_streak||{};
  document.getElementById('account_name').textContent=p.label||'Account';
  document.getElementById('account_sub').textContent='MFF '+(p.label||'account')+' · '+(p.phase||'evaluation');
  let active=(p.active_sessions||[]).map(function(s){return s.code+' '+s.description;}).join(' · ')||'none configured';
  let warns=(p.config_warnings||[]);
  let ic=ia.status=='due'||ia.status=='critical'?'bad':ia.status=='warn'||ia.status=='unknown'?'warn':'good';
+ let streakCfg=ls.limit?((ls.limit||'?')+'L / '+(Number(ls.cooldown_h||0)>0?Number(ls.cooldown_h||0)+'h':'manual ARM')):'off';
+ let streakNow=ls.limit?((ls.streak||0)+' / '+ls.limit):'off';
  let iaText=ia.enabled?('<span class='+ic+'><b>Inactivity:</b> '+(ia.message||ia.status)+
    (ia.anchor_date?' · anchor '+ia.anchor_date:'')+'</span>'):'<span class=good>Inactivity tracker disabled for this profile</span>';
  let builderExtra=p.plan==='builder50'?('<br><b>Builder EOD MLL:</b> starts at $'+Number(rules.starting_floor||0).toLocaleString()+
   ' · trails at end of day · locks at $'+Number(rules.floor_locks_at||0).toLocaleString()+
   '<br><b>Trading:</b> max '+(rules.max_minis||4)+' minis / '+(rules.max_micros||40)+' MNQ ('+(rules.micro_scaling||'10:1')+')'+
   ' · news '+(rules.news_trading||'?')+' · overnight '+(rules.overnight||'?')+
-  ' · internal daily stop $'+Number(p.internal_day_loss_usd||0).toLocaleString()+' / '+(p.internal_day_loss_n||'?')+' losing setup(s)'+
+ ' · internal daily stop $'+Number(p.internal_day_loss_usd||0).toLocaleString()+' / '+(p.internal_day_loss_n||'?')+' losing setup(s)'+
   '<br><b>Funded / payout:</b> $'+Number(rules.funded_buffer||0).toLocaleString()+' buffer · '+(rules.funded_consistency||'?')+
   ' · '+(rules.payout_wait_days||'?')+' trading days · $'+Number(rules.payout_min||0).toLocaleString()+'–$'+Number(rules.payout_max||0).toLocaleString()+
   ' · split '+(rules.payout_split||'?')+' · no activation or recurring fee'):'';
@@ -1781,7 +1891,7 @@ async function load(){
   ' · EOD max loss $'+Number(rules.max_eod_loss||0).toLocaleString()+
   (rules.daily_soft_pause?' · daily soft pause $'+Number(rules.daily_soft_pause).toLocaleString():' · no firm daily loss limit')+
   ' · max '+(rules.max_micros||'?')+' MNQ · consistency '+(rules.consistency||'?')+
-  ' · min '+(rules.min_trading_days||'?')+' trading day(s)'+builderExtra+'<br><b>Active time windows:</b> '+active+
+  ' · min '+(rules.min_trading_days||'?')+' trading day(s) · streak stop '+streakCfg+builderExtra+'<br><b>Active time windows:</b> '+active+
   ' · Monday mode '+(p.monday_mode||'?')+'<br>'+iaText+
   (warns.length?'<br><span class=bad><b>CONFIG WARNING:</b> '+warns.join(' · ')+'</span>':'');
  let mp=document.getElementById('mode');mp.textContent=d.mode.toUpperCase();mp.className='pill '+(d.mode=='auto'?'on':d.mode=='manual'?'manual':'off');
@@ -1806,11 +1916,12 @@ async function load(){
   ['P&L vs start','<span style=color:'+((e.pnl||0)>=0?'#3ecb3e':'#e0a93b')+'>'+((e.pnl||0)>=0?'+':'')+'$'+(e.pnl||0).toLocaleString()+'</span>'],
   ['% of target completed',(e.pct||0)+'%'],['DD buffer','<span style=color:'+bufc+'>$'+(e.buffer||0).toLocaleString()+'</span>'],
   ['Trades today',d.trades+' / '+d.max_trades],['Losses today',d.losses+' / '+d.loss_n],
+  ['Loss streak',streakNow],
   ['Day P&L','$'+d.day_net+' / '+d.day_target],
   ['Ramp · BE',(d.ramp_left>0?(d.ramp_left+'@1'):'sized')+' · BE '+(d.be?'ON@1R':'off')],
   ['Sent setups · confirmed',(ts.sent_setups||0)+' · '+(ts.confirmed_setups||0)],
   ['Wins · losses',(ts.wins||0)+' · '+(ts.losses||0)],
-  ['Broker reconciled',ts.broker_reconciled_orders||0],
+  ['Broker reconciled setups',ts.broker_reconciled_setups||0],
   ['Inactivity',ia.enabled?((ia.days_without_trade==null?'unknown':ia.days_without_trade+'d')+' · '+(ia.days_left==null?'?':ia.days_left)+'d left'):'off']
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
