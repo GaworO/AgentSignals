@@ -253,9 +253,9 @@ class Builder50DashboardTests(unittest.TestCase):
     def test_trade_summary_deduplicates_ab_siblings_as_one_setup(self):
         rows = [
             {'decision': 'sent', 'setup_group_id': 'g1', 'key': 'deep',
-             'outcome': 'win', 'net': 200},
+             'outcome': 'win', 'net': 200, 'reconciled': True},
             {'decision': 'sent', 'setup_group_id': 'g1', 'key': 'shallow',
-             'outcome': 'loss', 'net': -100},
+             'outcome': 'loss', 'net': -100, 'reconciled': True},
             {'decision': 'manual', 'setup_group_id': 'g2', 'key': 'manual',
              'outcome': 'win', 'net': 999},
         ]
@@ -263,8 +263,18 @@ class Builder50DashboardTests(unittest.TestCase):
         self.assertEqual(summary['sent_orders'], 2)
         self.assertEqual(summary['sent_setups'], 1)
         self.assertEqual(summary['confirmed_setups'], 1)
+        self.assertEqual(summary['broker_reconciled_orders'], 2)
+        self.assertEqual(summary['broker_reconciled_setups'], 1)
         self.assertEqual(summary['manual_reviews'], 1)
         self.assertEqual(summary['model_net'], 100)
+
+    def test_builder_monitor_uses_setup_counts_as_primary_trade_units(self):
+        with open('regime_monitor.html', encoding='utf-8') as handle:
+            page = handle.read()
+        self.assertIn('<span>Setupy wysłane</span><b>${fmt(sum.sent_setups??d.trades)}</b>', page)
+        self.assertIn('<span>Model fills</span><b>${fmt(sum.confirmed_setups??d.trades)}</b>', page)
+        self.assertIn('sum.broker_reconciled_setups??sum.broker_reconciled_orders', page)
+        self.assertIn('Broker reconciled setups', guardrails._HTML)
 
     def test_trading_desk_shows_100k_and_builder_as_separate_executors(self):
         with mock.patch.object(dashboard, '_ACCOUNT_LABEL', '100K Challenge'), \
