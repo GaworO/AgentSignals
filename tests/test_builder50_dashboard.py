@@ -1,5 +1,6 @@
 import datetime as dt
 import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -74,6 +75,74 @@ class Builder50DashboardTests(unittest.TestCase):
     def test_new_pipeline_state_does_not_report_epoch_age(self):
         self.assertIsNone(guardrails._mins_since(0))
         self.assertIsNone(guardrails._mins_since(None))
+
+    def test_guard_health_does_not_warn_for_stale_feed_when_market_closed(self):
+        state = {
+            'mode': 'auto',
+            'feed_age_min': 500,
+            'market_open': False,
+            'equity_ts': guardrails._now_ms(),
+            'news_cal_age_h': 1,
+            'last_seen_ms': guardrails._now_ms(),
+        }
+        with mock.patch.dict(os.environ, {
+            'EXEC_WEBHOOK': 'https://webhooks.example/exec',
+            'DD_FLOOR': '48000',
+            'NEWS_GUARD': '0',
+            'INACTIVITY_DAYS': '0',
+            'STALE_MIN': '20',
+        }, clear=True), \
+             mock.patch.object(guardrails, '_state', return_value=state), \
+             mock.patch.object(guardrails, '_set_state'), \
+             mock.patch.object(guardrails, 'account_profile',
+                               return_value={'config_ok': True, 'label': 'test'}), \
+             mock.patch.object(guardrails, '_kill_active', return_value=False), \
+             mock.patch.object(guardrails, '_active_pending_group', return_value=None), \
+             mock.patch.object(guardrails, '_state_writable', return_value=True), \
+             mock.patch.object(guardrails, '_shadow_by_key', return_value={}), \
+             mock.patch.object(guardrails, '_load', return_value=[]), \
+             mock.patch.object(guardrails, 'eval_progress',
+                               return_value={'passed': False, 'breached': False}), \
+             mock.patch.object(guardrails, '_day_stats', return_value={'net': 0}), \
+             mock.patch.object(guardrails, '_health_alert'):
+            health = guardrails.health(market_open=False)
+        feed = next(c for c in health['checks'] if c['name'] == 'feed')
+        self.assertEqual(feed['level'], 'ok')
+        self.assertIn('market closed', feed['detail'])
+
+    def test_guard_health_still_warns_for_stale_feed_when_market_open(self):
+        state = {
+            'mode': 'auto',
+            'feed_age_min': 500,
+            'market_open': True,
+            'equity_ts': guardrails._now_ms(),
+            'news_cal_age_h': 1,
+            'last_seen_ms': guardrails._now_ms(),
+        }
+        with mock.patch.dict(os.environ, {
+            'EXEC_WEBHOOK': 'https://webhooks.example/exec',
+            'DD_FLOOR': '48000',
+            'NEWS_GUARD': '0',
+            'INACTIVITY_DAYS': '0',
+            'STALE_MIN': '20',
+        }, clear=True), \
+             mock.patch.object(guardrails, '_state', return_value=state), \
+             mock.patch.object(guardrails, '_set_state'), \
+             mock.patch.object(guardrails, 'account_profile',
+                               return_value={'config_ok': True, 'label': 'test'}), \
+             mock.patch.object(guardrails, '_kill_active', return_value=False), \
+             mock.patch.object(guardrails, '_active_pending_group', return_value=None), \
+             mock.patch.object(guardrails, '_state_writable', return_value=True), \
+             mock.patch.object(guardrails, '_shadow_by_key', return_value={}), \
+             mock.patch.object(guardrails, '_load', return_value=[]), \
+             mock.patch.object(guardrails, 'eval_progress',
+                               return_value={'passed': False, 'breached': False}), \
+             mock.patch.object(guardrails, '_day_stats', return_value={'net': 0}), \
+             mock.patch.object(guardrails, '_health_alert'):
+            health = guardrails.health(market_open=True)
+        feed = next(c for c in health['checks'] if c['name'] == 'feed')
+        self.assertEqual(feed['level'], 'warn')
+        self.assertIn('sends aborting', feed['detail'])
 
     def test_executor_test_signal_can_never_reach_the_broker(self):
         response = mock.Mock(status_code=200, text='ok')
@@ -154,6 +223,31 @@ class Builder50DashboardTests(unittest.TestCase):
         self.assertEqual(status['days_without_trade'], 5)
         self.assertEqual(status['days_left'], 2)
         self.assertEqual(status['status'], 'warn')
+        self.assertEqual(status['source'], 'broker')
+
+    def test_backfilled_friday_trade_resets_inactivity_anchor(self):
+        with tempfile.TemporaryDirectory() as td:
+            glog = os.path.join(td, 'guard_log.json')
+            body = {
+                'date': '2026-09-04',
+                'et': '2026-09-04 10:15',
+                'strat': 'MFF',
+                'dir': 'LONG',
+                'entry': 29500,
+                'sl': 29490,
+                'qty': 1,
+                'outcome': 'win',
+                'net': 120,
+            }
+            with mock.patch.object(guardrails, 'GLOG', glog), \
+                 mock.patch.dict(os.environ, dict(BUILDER_ENV, ACCOUNT_STARTED_ON='2026-08-30'), clear=False):
+                result = guardrails.backfill_trade(body)
+                self.assertTrue(result['ok'])
+                rows = guardrails._load(glog, [])
+                status = guardrails.inactivity_status(rows, now=dt.datetime(2026, 9, 8, 12, 0, tzinfo=dt.timezone.utc))
+        self.assertEqual(status['anchor_date'], '2026-09-04')
+        self.assertEqual(status['last_trade_date'], '2026-09-04')
+        self.assertEqual(status['days_left'], 3)
         self.assertEqual(status['source'], 'broker')
 
     def test_trade_summary_deduplicates_ab_siblings_as_one_setup(self):
