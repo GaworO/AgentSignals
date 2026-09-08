@@ -851,6 +851,99 @@ def inactivity_status(rows=None, now=None):
                                  direction=last.get('dir'), qty=last.get('qty'),
                                  outcome=last.get('outcome'), net=last.get('net')) if last else None))
 
+def _num_or_none(v):
+    try:
+        if v is None or str(v).strip() == '':
+            return None
+        return float(str(v).replace('$', '').replace(',', '').strip())
+    except Exception:
+        return None
+
+def _int_or_none(v):
+    try:
+        n = _num_or_none(v)
+        return None if n is None else int(n)
+    except Exception:
+        return None
+
+def _backfill_ts_ms(day, et_raw=''):
+    raw = str(et_raw or '').strip()
+    try:
+        if raw and ':' in raw and '-' not in raw:
+            hh, mm = [int(x) for x in raw.split(':')[:2]]
+            t = dt.datetime(day.year, day.month, day.day, hh, mm)
+        elif raw:
+            t = dt.datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        else:
+            t = dt.datetime(day.year, day.month, day.day, 12, 0)
+        if getattr(t, 'tzinfo', None) is None and _NY is not None:
+            t = t.replace(tzinfo=_NY)
+        return int(t.timestamp() * 1000)
+    except Exception:
+        t = dt.datetime(day.year, day.month, day.day, 12, 0, tzinfo=_NY)
+        return int(t.timestamp() * 1000)
+
+def backfill_trade(b):
+    """Insert/update one historical broker-confirmed trade in the Guard book.
+
+    This is for outages where a real MFF trade happened but no Guard row exists,
+    so normal /guard/reconcile has nothing to match. It never sends broker orders.
+    """
+    raw_date = str(b.get('date') or str(b.get('et') or '')[:10]).strip()
+    try:
+        day = dt.date.fromisoformat(raw_date)
+    except Exception:
+        return dict(ok=False, err='date required as YYYY-MM-DD')
+    outcome = str(b.get('outcome') or b.get('ext_outcome') or '').strip().lower()
+    aliases = {'profit': 'win', 'winner': 'win', 'win': 'win',
+               'loss': 'loss', 'loser': 'loss',
+               'flat': 'timeout', 'scratch': 'timeout', 'be': 'timeout',
+               'timeout': 'timeout'}
+    outcome = aliases.get(outcome, outcome)
+    if outcome not in ('win', 'loss', 'timeout'):
+        return dict(ok=False, err='outcome must be win, loss or timeout')
+    dirn = str(b.get('dir') or b.get('direction') or '').strip().upper()
+    if dirn and dirn not in ('LONG', 'SHORT'):
+        return dict(ok=False, err='dir must be LONG or SHORT when supplied')
+    entry = _num_or_none(b.get('entry'))
+    sl = _num_or_none(b.get('sl') if 'sl' in b else b.get('SL'))
+    tp = _num_or_none(b.get('tp') if 'tp' in b else b.get('TP'))
+    qty = _int_or_none(b.get('qty') or b.get('quantity'))
+    net = _num_or_none(b.get('net') if 'net' in b else b.get('pnl'))
+    et_raw = b.get('et') or b.get('time') or ''
+    ts_ms = _backfill_ts_ms(day, et_raw)
+    strat = str(b.get('strat') or b.get('strategy') or 'BACKFILL').strip() or 'BACKFILL'
+    key = str(b.get('key') or '').strip()
+    if not key:
+        px = ('%.2f' % entry) if entry is not None else 'na'
+        key = 'BACKFILL|%s|%s|%s|%s' % (day.isoformat(), strat, dirn or 'NA', px)
+    row = dict(key=key, strat=strat, setup_group_id=b.get('setup_group_id') or key,
+               ts=ts_ms, bar_ms=int(_num_or_none(b.get('bos_ms')) or ts_ms),
+               date=day.isoformat(),
+               et=(str(et_raw).strip() if str(et_raw or '').strip()
+                   else day.isoformat() + ' 12:00'),
+               sess=str(b.get('sess') or 'manual-backfill'),
+               dir=dirn or None, entry=entry, sl=sl, tp=tp, qty=qty,
+               decision='sent', reason='manual_backfill',
+               ext_outcome=outcome, outcome=outcome, ext_net=net,
+               reconciled=True, backfilled=True)
+    try:
+        if row['ext_net'] is not None and qty and entry is not None and sl is not None:
+            risk = abs(float(entry) - float(sl)) * _envf('POINT_VALUE', 2.0) * float(qty)
+            if risk > 0:
+                row['R'] = round(float(row['ext_net']) / risk, 3)
+    except Exception:
+        pass
+    glog = _load(GLOG, [])
+    for i in range(len(glog) - 1, -1, -1):
+        if glog[i].get('key') == key:
+            glog[i].update(row)
+            _save(GLOG, glog)
+            return dict(ok=True, created=False, row=row)
+    glog.append(row)
+    _save(GLOG, glog)
+    return dict(ok=True, created=True, row=row)
+
 def _today_sent():
     glog = _load(GLOG, []); sm = _shadow_by_key(); day = _today(); out = []
     for g in glog:
@@ -1226,9 +1319,12 @@ def health(feed_age_min=None, market_open=None):
                 (pg.get('group_id'), len(pg.get('accepted') or [])))
         else:
             add('batch', 'ok', 'no unresolved sibling batch')
+        mo = market_open if market_open is not None else s.get('market_open')
         # 4 feed freshness (degraded, not fatal — sends just abort until fresh)
         if fa is None:
             add('feed', 'warn', 'feed age unknown (gate not consulted yet)')
+        elif mo is False and float(fa) > stale_min:
+            add('feed', 'ok', 'market closed; stale feed expected (%.0fm, %s)' % (float(fa), fa_src))
         elif float(fa) > stale_min:
             add('feed', 'warn', 'feed %.0fm old > STALE_MIN %.0fm — sends aborting (%s)' % (float(fa), stale_min, fa_src))
         else:
@@ -1268,7 +1364,6 @@ def health(feed_age_min=None, market_open=None):
         except Exception as e:
             add('gate', 'critical', 'gate read-path raises: %s' % e)
         # 10 pipeline liveness (only meaningful when live AND market open)
-        mo = market_open if market_open is not None else s.get('market_open')
         seen = _mins_since(s.get('last_seen_ms')); idle_max = _envf('HEALTH_IDLE_MIN', 120)
         if live and mo and seen is not None and seen > idle_max:
             add('pipeline', 'warn', 'gate idle %.0fm during RTH — detector may not be feeding it' % seen)
@@ -1537,6 +1632,20 @@ def register(app):
         except Exception as e:
             return jsonify(ok=False, err=str(e)), 500
 
+    def _backfill():
+        """Manual historical broker fill. Use only when /guard/reconcile has no Guard row to match."""
+        if not _authed(): return jsonify(ok=False, err='auth'), 401
+        try:
+            b = request.get_json(force=True, silent=True) if request.is_json else None
+            if not b:
+                b = dict(request.form)
+            if not b:
+                return jsonify(ok=False, err='send JSON or form fields'), 400
+            out = backfill_trade(b)
+            return jsonify(**out), (200 if out.get('ok') else 400)
+        except Exception as e:
+            return jsonify(ok=False, err=str(e)), 500
+
     def _cancel():
         """v27.2 — you canceled a resting order at the broker by hand; tell the book. Marks the row
         ext_outcome='canceled' (net 0): the table stops showing 'open', the one-position slot frees
@@ -1563,6 +1672,7 @@ def register(app):
 
     app.add_url_rule('/guard/cancel', 'guard_cancel', _cancel)
     app.add_url_rule('/guard/reconcile', 'guard_reconcile', _reconcile, methods=['POST'])
+    app.add_url_rule('/guard/backfill', 'guard_backfill', _backfill, methods=['POST'])
     app.add_url_rule('/guard/extlog', 'guard_extlog', _extlog, methods=['POST'])
     app.add_url_rule('/guard', 'guard_page', _page)
     app.add_url_rule('/guard/data', 'guard_data', _data)
