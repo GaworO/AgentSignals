@@ -28,6 +28,7 @@ import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
+import strategy_observer  # passive event recorder; no order authority
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
 import m15_shadow_strategy  # M15 setup + M5 BOS; isolated candidates/forward shadow, no order path
@@ -54,7 +55,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.21-configurable-shallow-risk'
+VERSION = 'v31.22-live-observer'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -103,6 +104,7 @@ def _save_db(x, alert_text, code):
          x['entry'],x.get('ote62'),x.get('ote79'),x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
          x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None))
     c.commit(); c.close()
+    strategy_observer.event('signal_journal', {'signal': x, 'journal_code': code})
 
 def _entry_cancel_after_sec():
     """Broker-side expiry for resting ENTRY limits.
@@ -269,13 +271,16 @@ def _exec_order(x, text=None):
                     "routeId": guardrails._exec_route_id(),
                 }
             if text and _i == 0: payload["text"] = text
+            _observer_request_id = strategy_observer.exec_start(x, payload, _i + 1)
             try:
                 r = requests.post(url, json=payload, timeout=10)
+                strategy_observer.exec_end(_observer_request_id, getattr(r, 'status_code', None), response=r)
                 st = getattr(r, 'status_code', None)
                 try: body = (r.text or '')[:200]
                 except Exception: body = ''
                 ok_leg = st is not None and 200 <= int(st) < 300
             except Exception as e:
+                strategy_observer.exec_end(_observer_request_id, None, error=e)
                 st = None; body = str(e)[:200]; ok_leg = False
             leg_results.append({"leg": _i + 1, "status": st, "ok": ok_leg, "qty": q_})
             if ok_leg: accepted_legs += 1
@@ -540,10 +545,13 @@ def _detect():
              DEBUG_TRACE='1', TRACE_OUT=trace_work)   # one detector run also refreshes the live candidate page
     if gated:
         env['EOD_INTRADAY'] = '1' if _eod_flag() else ''        # regime-gated: ON w choppy, OFF w trend
+    strategy_observer.detector_event('detector_start', det_file, BUF)
     _det = subprocess.run(['python3', os.path.join(HERE, det_file)], env=env,
                           capture_output=True, timeout=180)
     if _det.returncode == 0 and os.path.exists(trace_work):
         os.replace(trace_work, CAND_TRACE)             # readers never see a half-written JSON trace
+    strategy_observer.detector_event('detector_end', det_file, BUF, _det.returncode)
+    strategy_observer.event('candidate_trace', {'stream': 'A/B', 'detector_returncode': _det.returncode}, snapshot=CAND_TRACE)
     import pickle
     try: conf=pickle.load(open(OUT,'rb'))
     except Exception: conf=[]
@@ -673,6 +681,7 @@ def _process_new(now_ms=None, gap_min=None):
     if not _primed:                       # pierwszy przebieg: oznacz wszystko jako widziane
         allk=set(keys)
         _save_sent(allk); _primed=True
+        strategy_observer.event('ab_prime', {'count': len(allk), 'asof_ms': now_ms})
         return {'primed': len(allk)}
     def _tkey(x):                         # tożsamość TRADE'a (bez katalizatora) — do scalania duplikatów
         return "T|%s|%s|%s|%s|%.1f|%.1f" % (x['date'], x['model'], x['dir'], x['bos'],
@@ -697,12 +706,14 @@ def _process_new(now_ms=None, gap_min=None):
         if WEBHOOK_URL:
             try: live_emit.post_webhook(f"♻️ Feed wrócił po przerwie ~{_gap:.0f} min — pomijam katch-up (poziomy policzone w poprzek dziury). Świeże setupy od następnego bara.", WEBHOOK_URL)
             except Exception as e: print('[gap-reprime] post err', e, flush=True)
+        strategy_observer.event('ab_gap_reprime', {'count': skipped, 'gap_min': _gap, 'asof_ms': now_ms})
         return {'gap_reprime': skipped, 'gap_min': round(_gap,1)}
     fresh_ms = int(os.environ.get('FRESH_MIN','15'))*60*1000   # strażnik świeżości: alarmuj tylko swieze
     max_retest = int(os.environ.get('MAX_RETEST','0'))         # 0 = bez limitu; np. 4 = nie alarmuj po 4. re-teście
     live=[]                               # po filtrze świeżości
     for x in fresh:
         if now_ms and x.get('bos_ms') and (now_ms - x['bos_ms']) > fresh_ms:
+            strategy_observer.event('ab_filter', {'reason': 'stale', 'signal': x, 'asof_ms': now_ms})
             print('STALE skip (stary setup, nie alarmuje):', live_emit.key(x), flush=True)
             sentn.add(live_emit.key(x)); continue
         live.append(x)
@@ -723,6 +734,7 @@ def _process_new(now_ms=None, gap_min=None):
                                           int(m.get('brk',1))), reverse=True)[0]
         allkeys=[live_emit.key(m) for m in members] + [tk]
         if max_retest and min(int(m.get('brk',1)) for m in members) > max_retest:   # filtr re-testów
+            strategy_observer.event('ab_filter', {'reason': 'max_retest', 'signal': rep, 'asof_ms': now_ms})
             print('RETEST skip (za duzo re-testow, min brk>%d):' % max_retest, tk, flush=True)
             for kk in allkeys: sentn.add(kk)
             continue
@@ -753,6 +765,9 @@ def _process_new(now_ms=None, gap_min=None):
             repx['_risk_budget_usd'] = _preview_budget
             repx['_risk_pct_override'] = (100.0 * _preview_budget / _preview_acct) if _preview_acct > 0 else 0.0
         fl, hard = flags_for(rep)
+        strategy_observer.opportunity(repx, {'asof_ms': now_ms, 'flags': fl, 'news_hard': hard,
+            'calendar_age_h': _cal_age_h(), 'calendar_events': _cal['raw_events'],
+            'regime_color': _rcolor, 'source_members': members}, BUF)
         txt=live_emit.to_alert(repx)
         _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci
         _hdr='🕒 '+dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')+((f' · setup sprzed {_age:.0f} min'+(' ⚠️ STARY!' if _age>20 else '')) if _age is not None else '')
@@ -992,6 +1007,7 @@ def _after_bar_processed(b, now_ms):
 def bars():
     b=request.get_json(force=True, silent=True) or {}
     if 'close' not in b: return jsonify(error='brak OHLC'), 400
+    strategy_observer.event('bar_received', {'bar': b})
     ts=str(b.get('ts_event','')).strip()
     try: now_ms=int(dt.datetime.fromisoformat(ts if ('+' in ts or 'Z' in ts) else ts+'+00:00').timestamp()*1000)
     except Exception: now_ms=int(dt.datetime.utcnow().timestamp()*1000)   # fail-safe: zawsze "teraz", strażnik nigdy nie wyłączony
@@ -1006,6 +1022,7 @@ def bars():
                      processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
         res = {'queued': True, 'worker_started': started, 'queue_depth': depth,
                'gap_min': (round(gap_min, 1) if gap_min is not None else None)}
+        strategy_observer.event('bar_accepted', {'bar': b, 'buffer_rows': nb, 'queue': res})
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
     return jsonify(ok=True, **res)
 
@@ -1692,6 +1709,7 @@ guardrails.register(app)                    # /guard — MFF-eval auto-exec gate
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 fxguard.register(app)                       # /fxguard - joined forex Auto-Executor (isolated add-on)
 allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
+strategy_observer.install(app, globals())
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
