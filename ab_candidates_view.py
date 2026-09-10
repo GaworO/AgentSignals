@@ -68,7 +68,7 @@ def _shallow_preview(candidate: Mapping[str, Any], env: Mapping[str, str]) -> di
         current = 1
         child = None
     elif not ab_shallow.enabled(env):
-        state, current, reason, child = "disabled", 2, "AB_SHALLOW_ENABLED is off", None
+        state, current, reason, child = "disabled", 2, ab_shallow.disabled_reason(env), None
     else:
         required = ("entry", "SL", "signal_close")
         missing = [key for key in required if candidate.get(key) in (None, "")]

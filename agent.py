@@ -54,7 +54,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.19-market-prediction-journal'
+VERSION = 'v31.21-configurable-shallow-risk'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -322,16 +322,8 @@ def _prepare_ab_siblings(repx):
     acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
     deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
     repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
-    if repx['_strat'] != 'A/B' or not ab_shallow.enabled():
+    if repx['_strat'] != 'A/B':
         return [repx]
-    if repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
-        repx['_shallow_skip'] = 'ramp'
-        return [repx]
-    close = _signal_bar_close(repx)
-    if close is None:
-        repx['_shallow_skip'] = 'signal_close_missing'
-        return [repx]
-    repx['_signal_close'] = close
     gid = ab_shallow.setup_group_id(repx)
     repx['_setup_group_id'] = gid
     requested = ab_shallow.setup_group_budget_usd()
@@ -342,24 +334,38 @@ def _prepare_ab_siblings(repx):
     repx['_setup_group_budget_usd'] = requested
     repx['_setup_group_allowed_usd'] = allowed
     repx['_setup_group_floor_capacity'] = capacity
-    repx['_risk_budget_usd'] = allowed * 0.5
+    repx['_risk_budget_usd'] = ab_shallow.setup_group_leg_budget_usd(dynamic_env)
     repx['_risk_pct_override'] = (100.0 * repx['_risk_budget_usd'] / acct) if acct > 0 else 0.0
     repx['_strict_risk_budget'] = True
     repx['_risk_mode'] = 'shared_group'
     repx.pop('_size_mult', None)
     repx.pop('_select', None)
-    try:
-        shallow = ab_shallow.build_shallow_signal(repx, dynamic_env)
-        meta = ab_shallow.apply_shared_group_budget(repx, shallow, dynamic_env)
-        repx['_ab_risk_meta'] = meta
+    shallow = None
+    if not ab_shallow.enabled(dynamic_env):
+        repx['_shallow_skip'] = ab_shallow.disabled_reason(dynamic_env)
+    elif repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
+        repx['_shallow_skip'] = 'ramp'
+    else:
+        close = _signal_bar_close(repx)
+        if close is None:
+            repx['_shallow_skip'] = 'signal_close_missing'
+        else:
+            repx['_signal_close'] = close
+            try:
+                shallow = ab_shallow.build_shallow_signal(repx, dynamic_env)
+            except Exception as e:
+                repx['_shallow_skip'] = str(e)
+                print('A/B-shallow build skip:', e, flush=True)
+    # An intentionally disabled shallow allocation belongs to deep. A configured
+    # shallow leg that fails viability/ramp/price checks keeps its share unused.
+    meta = ab_shallow.apply_shared_group_budget(repx, shallow, dynamic_env)
+    repx['_ab_risk_meta'] = meta
+    items = [repx]
+    if shallow is not None:
         shallow['_ab_risk_meta'] = meta
         repx['_batch_sibling'] = True
         shallow['_batch_sibling'] = True
-        items = [repx, shallow]
-    except Exception as e:
-        repx['_shallow_skip'] = str(e)
-        print('A/B-shallow build skip:', e, flush=True)
-        items = [repx]
+        items.append(shallow)
 
     # Calculate the exact integer quantities before the guard decision. The
     # executor may reduce these quantities, but `_group_qty_cap` prevents any
@@ -367,7 +373,11 @@ def _prepare_ab_siblings(repx):
     viable = []
     planned = 0.0
     for item in items:
-        sf = live_emit.size_for_budget(item['entry'], item['SL'], item.get('_risk_budget_usd'))
+        try:
+            risk_entry, risk_stop = ab_shallow.execution_risk_prices(item['entry'], item['SL'])
+            sf = live_emit.size_for_budget(risk_entry, risk_stop, item.get('_risk_budget_usd'))
+        except (ValueError, TypeError):
+            sf = None
         max_qty = int(sf[0]) if sf else 0
         if item.get('_exec_qty_override') is not None:
             max_qty = min(max_qty, int(item['_exec_qty_override']))
@@ -379,8 +389,11 @@ def _prepare_ab_siblings(repx):
             pass
         if max_qty < 1:
             item['_risk_budget_skip'] = 'below_one_contract'
+            item['_group_qty_cap'] = 0
             continue
-        per_contract = float(sf[2])
+        # Recompute without the display rounding in size_for_budget's tuple.
+        per_contract = (abs(risk_entry - risk_stop) * float(os.environ.get('POINT_VALUE', '2'))
+                        + max(0.0, float(os.environ.get('SETUP_GROUP_RT_COST_USD', '2.24'))))
         leg_risk = max_qty * per_contract
         item['_group_qty_cap'] = max_qty
         item['_planned_leg_risk_usd'] = round(leg_risk, 2)
@@ -479,22 +492,25 @@ def _append_bar(b):
             with open(BUF) as src, open(ARCHIVE,'w') as dst: dst.write(src.read())
             arch_new=False
         except Exception: pass
-    new = not os.path.exists(BUF)
-    with open(BUF,'a',newline='') as f:
-        w=csv.writer(f)
-        if new: w.writerow(COLS)
-        w.writerow(row)
     with open(ARCHIVE,'a',newline='') as f:          # pelna historia — NIGDY nie przycinana
         w=csv.writer(f)
         if arch_new: w.writerow(COLS)
         w.writerow(row)
-    with open(BUF) as f: rows=f.readlines()
-    if len(rows) > BUFFER_BARS+1:
-        with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
-    # przytnij bufor do ostatnich BUFFER_BARS
-    with open(BUF) as f: rows=f.readlines()
-    if len(rows) > BUFFER_BARS+1:
-        with open(BUF,'w') as f: f.write(rows[0]+''.join(rows[-BUFFER_BARS:]))
+    rows = []
+    if os.path.exists(BUF):
+        try:
+            with open(BUF, newline='') as f:
+                rows = list(csv.reader(f))
+        except Exception:
+            rows = []
+    data = rows[1:] if rows and rows[0] == COLS else rows
+    data.append(row)
+    tmp = BUF + '.tmp'
+    with open(tmp, 'w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(COLS)
+        w.writerows(data[-BUFFER_BARS:])
+    os.replace(tmp, BUF)
 
 _gate = {'at': 0.0, 'eod_on': False, 'reg': None}
 def _regime_now():
@@ -598,6 +614,43 @@ def _market_context_news():
                 directional_effect='none', execution_effect='none', events=rows,
                 note='Scheduled-event risk only. News never creates bullish/bearish BIAS.')
 
+def _monitor_bias_gate(x):
+    """Block auto execution when the Monitor's current daily bias opposes the signal direction."""
+    if os.environ.get('MONITOR_BIAS_GATE', '1') != '1':
+        return True, 'monitor_bias_gate_off'
+    expected = {'LONG': 'BULLISH', 'SHORT': 'BEARISH'}.get(str(x.get('dir') or '').upper())
+    if not expected:
+        return False, 'monitor_bias_bad_direction'
+    try:
+        report = market_context.build_report(_market_context_sources(), daily_limit=7, weekly_limit=4,
+                                             database_path=MARKET_CONTEXT_DB,
+                                             prediction_database_path=MARKET_PREDICTIONS_DB)
+        if not report.get('ok'):
+            x['_monitor_bias_error'] = report.get('error')
+            return False, 'monitor_bias_unavailable'
+        data = report.get('data') or {}
+        if data.get('stale'):
+            x['_monitor_bias_age_minutes'] = data.get('age_minutes')
+            return False, 'monitor_bias_stale'
+        daily = report.get('daily') or {}
+        if not daily.get('ok'):
+            x['_monitor_bias_error'] = daily.get('error')
+            return False, 'monitor_bias_unavailable'
+        bias = daily.get('bias')
+        confidence = float(daily.get('confidence') or 0.0)
+        x['_monitor_bias'] = bias
+        x['_monitor_confidence'] = confidence
+        x['_monitor_as_of'] = daily.get('as_of')
+        x['_monitor_expected_bias'] = expected
+        min_conf = float(os.environ.get('MONITOR_BIAS_MIN_CONF', '0') or 0)
+        if bias in ('BULLISH', 'BEARISH') and bias != expected and confidence >= min_conf:
+            return False, 'monitor_bias:' + str(bias)
+        return True, 'ok'
+    except Exception as e:
+        x['_monitor_bias_error'] = str(e)
+        print('[monitor_bias_gate] err', e, flush=True)
+        return False, 'monitor_bias_error'
+
 def flags_for(x):
     """zwraca (lista_flag, czy_high_impact). FLAGI nie filtry (chyba ze NO_TRADE_SUPPRESS)."""
     fl=[]; hard=False
@@ -612,7 +665,7 @@ def flags_for(x):
             fl.append(f'event: {title}'); hard=True
     return fl, hard
 
-def _process_new(now_ms=None):
+def _process_new(now_ms=None, gap_min=None):
     global _primed
     setups, _ = _detect()
     sent=_load_sent()
@@ -629,15 +682,22 @@ def _process_new(now_ms=None):
     # v21: GAP-AWARE RE-PRIME — po przerwie w feedzie (outage LUB okno redeployu) pomin katch-up batch.
     # Po dziurze poziomy (PDH / H sesji) sa liczone W POPRZEK dziury -> stale. Oznacz wszystko widziane,
     # NIE alarmuj; swieze setupy ida od nastepnego (juz ciaglego) bara.
-    _gap = _feed_gap_min()
+    _gap = _feed_gap_min() if gap_min is None else gap_min
     if _gap is not None and _gap > float(os.environ.get('GAP_REPRIME_MIN','30')):
-        for x in setups: sentn.add(live_emit.key(x)); sentn.add(_tkey(x))
+        skipped = 0
+        for x in setups:
+            try:
+                if now_ms and x.get('bos_ms') and int(x['bos_ms']) > int(now_ms):
+                    continue
+            except Exception:
+                pass
+            sentn.add(live_emit.key(x)); sentn.add(_tkey(x)); skipped += 1
         _save_sent(sentn)
-        print('GAP RE-PRIME: feed wrocil po %.0f min — pomijam %d katch-up setupow (stale poziomy)' % (_gap, len(setups)), flush=True)
+        print('GAP RE-PRIME: feed wrocil po %.0f min — pomijam %d katch-up setupow (stale poziomy)' % (_gap, skipped), flush=True)
         if WEBHOOK_URL:
             try: live_emit.post_webhook(f"♻️ Feed wrócił po przerwie ~{_gap:.0f} min — pomijam katch-up (poziomy policzone w poprzek dziury). Świeże setupy od następnego bara.", WEBHOOK_URL)
             except Exception as e: print('[gap-reprime] post err', e, flush=True)
-        return {'gap_reprime': len(setups), 'gap_min': round(_gap,1)}
+        return {'gap_reprime': skipped, 'gap_min': round(_gap,1)}
     fresh_ms = int(os.environ.get('FRESH_MIN','15'))*60*1000   # strażnik świeżości: alarmuj tylko swieze
     max_retest = int(os.environ.get('MAX_RETEST','0'))         # 0 = bez limitu; np. 4 = nie alarmuj po 4. re-teście
     live=[]                               # po filtrze świeżości
@@ -684,10 +744,10 @@ def _process_new(now_ms=None):
                 repx['entry'] = round(float(repx['entry']) + _es * _eo, 2)
         except Exception as _eoe: print('entry_offset err', _eoe, flush=True)
         # The human-facing alert is built before the floor-aware group is
-        # prepared. Stamp the maximum equal sibling allocation now so it never
+        # prepared. Stamp the configured deep allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
         # reduce it further when the live floor cushion is tight.
-        if repx.get('_strat', 'A/B') == 'A/B' and ab_shallow.enabled():
+        if repx.get('_strat', 'A/B') == 'A/B':
             _preview_budget = ab_shallow.setup_group_leg_budget_usd()
             _preview_acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
             repx['_risk_budget_usd'] = _preview_budget
@@ -772,16 +832,20 @@ def _process_new(now_ms=None):
                                                   market_open=_market_open_now(), news_hard=hard,
                                                   cal_age_h=_cal_age_h())
                 if _gok:
-                    _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
-                    if _batch_ok:
-                        for _item, _res, _itxt in _batch: guardrails.note(_item, 'sent')
-                        guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'sent')
-                        code = 'exec'
+                    _mok, _mwhy = _monitor_bias_gate(repx)
+                    if not _mok:
+                        _blocked_items(_mwhy); code = 'guard:' + _mwhy
                     else:
-                        _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
-                        for _item in _book_items: guardrails.note(_item, 'blocked', _why)
-                        _exec_fail_alert({'batch': (_batch[-1][1] if _batch else {}), 'rollback': _rb}, 'auto-batch')
-                        code = 'exec-failed'
+                        _batch_ok, _batch, _rb = _exec_sibling_batch(_book_items, txt)
+                        if _batch_ok:
+                            for _item, _res, _itxt in _batch: guardrails.note(_item, 'sent')
+                            guardrails.finish_sibling_batch(_batch_group_id(_book_items), 'sent')
+                            code = 'exec'
+                        else:
+                            _why = 'sibling_batch_rolled_back' if _rb.get('ok') else 'sibling_batch_uncertain'
+                            for _item in _book_items: guardrails.note(_item, 'blocked', _why)
+                            _exec_fail_alert({'batch': (_batch[-1][1] if _batch else {}), 'rollback': _rb}, 'auto-batch')
+                            code = 'exec-failed'
                 else:
                     _blocked_items(_gwhy); code = 'guard:' + _gwhy
         else:
@@ -805,6 +869,125 @@ def _process_new(now_ms=None):
     _save_sent(sentn)
     return {'nowe': nfired}
 
+_barq_lock = threading.Lock()
+_barq = []
+_barq_running = False
+_barq_state = {
+    'last_result': None,
+    'last_error': None,
+    'last_at': None,
+    'last_batch': 0,
+    'queue_depth': 0,
+}
+
+def _gap_threshold_min():
+    try: return float(os.environ.get('GAP_REPRIME_MIN','30'))
+    except Exception: return 30.0
+
+def _schedule_bar_work(b, now_ms, gap_min):
+    """Queue expensive post-intake work so TradingView gets a fast 2xx."""
+    global _barq_running
+    job = {'bar': dict(b), 'now_ms': int(now_ms), 'gap_min': gap_min}
+    with _barq_lock:
+        _barq.append(job)
+        _barq_state['queue_depth'] = len(_barq)
+        if _barq_running:
+            return False, len(_barq)
+        _barq_running = True
+    threading.Thread(target=_bar_worker_loop, daemon=True, name='bars-worker').start()
+    return True, 1
+
+def _bar_worker_loop():
+    global _barq_running
+    while True:
+        with _barq_lock:
+            jobs = list(_barq)
+            _barq.clear()
+            _barq_state['queue_depth'] = 0
+            if not jobs:
+                _barq_running = False
+                _barq_state['queue_depth'] = 0
+                _last.update(bar_worker_running=False, bar_worker_queue_depth=0)
+                return
+        try:
+            res = _process_bar_jobs(jobs)
+            with _barq_lock:
+                _barq_state.update(last_result=res, last_error=None,
+                                   last_at=dt.datetime.utcnow().isoformat(timespec='seconds'),
+                                   last_batch=len(jobs), queue_depth=len(_barq))
+            _last.update(bar_worker_queue_depth=len(_barq))
+        except Exception as e:
+            print('[bars-worker] err', e, flush=True)
+            with _barq_lock:
+                _barq_state.update(last_error=str(e),
+                                   last_at=dt.datetime.utcnow().isoformat(timespec='seconds'),
+                                   last_batch=len(jobs), queue_depth=len(_barq))
+            _last.update(bar_worker_queue_depth=len(_barq))
+
+def _process_bar_jobs(jobs):
+    jobs = sorted(jobs, key=lambda j: j.get('now_ms') or 0)
+    latest = jobs[-1]
+    gap_job = next((j for j in jobs if j.get('gap_min') is not None and j['gap_min'] > _gap_threshold_min()), None)
+    if gap_job:
+        res = _process_new(gap_job['now_ms'], gap_min=gap_job['gap_min'])
+        if latest['now_ms'] > gap_job['now_ms']:
+            res = {'gap_reprime': res, 'latest': _process_new(latest['now_ms'], gap_min=0)}
+    else:
+        res = _process_new(latest['now_ms'], gap_min=0)
+
+    for job in jobs:
+        _after_bar_processed(job['bar'], job['now_ms'])
+
+    try: shadow.refresh()                       # resolve shadow trades after the batch's fresh bars land
+    except Exception as e: print('shadow.refresh err', e, flush=True)
+    try: guardrails.sweep_orphans()             # cancel broker-side limits the model already wrote off
+    except Exception as e: print('guard.sweep err', e, flush=True)
+
+    _last.update(setups_seen=(res.get('nowe') if isinstance(res, dict) else None),
+                 detector_at=dt.datetime.utcnow().isoformat(timespec='seconds'),
+                 detector_result=res)
+    print(f"[bars-worker] batch={len(jobs)} latest={latest['bar'].get('ts_event')} -> {res}", flush=True)
+    return res
+
+def _after_bar_processed(b, now_ms):
+    try:                                              # sledzenie 1R/3R — nie moze ruszyc intake'u
+        _hi=float(b['high']); _lo=float(b['low'])
+        def _msend(m):
+            print('MANAGE', m, flush=True)
+            if WEBHOOK_URL: live_emit.post_webhook(m, WEBHOOK_URL)
+        manage.check(_hi, _lo, now_ms, _msend, TRADES, outcomes_path=OUTCOMES)
+    except Exception as e:
+        print('manage.check err', e, flush=True)
+    # --- M15 -> M5 A/B + shallow: local, forward-only SHADOW. ---
+    try:
+        _m15res = m15_shadow_strategy.on_bar(b)
+        if _m15res.get('scheduled'):
+            print('[m15-shadow] M5 scan scheduled', b.get('ts_event'), flush=True)
+    except Exception as e:
+        print('[m15-shadow] on_bar err', e, flush=True)
+    # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; NIE wplywa na A/B) ---
+    _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
+    if _furl and requests is not None:
+        try:
+            _rf = requests.post(_furl, json=b, timeout=3)
+            if getattr(_rf, 'status_code', 0) == 200: _sat['F']['ok_at'] = dt.datetime.utcnow()
+        except Exception: pass
+    # --- Strategy C: przekaz bar do serwisu C (fire-and-forget; NIE wplywa na A/B) ---
+    _curl = os.environ.get('STRAT_C_FORWARD_URL', '')
+    if _curl and requests is not None:
+        try:
+            _rc = requests.post(_curl, json=b, timeout=3)
+            if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()
+        except Exception: pass
+    # --- Builder 50K: market-data fanout only, outside TradingView's request path. ---
+    _burl = os.environ.get('BUILDER50_URL', '').rstrip('/')
+    if (_burl and os.environ.get('BUILDER50_FORWARD_BARS', '1') == '1'
+            and requests is not None):
+        try:
+            requests.post(_burl + '/bars', json=b, timeout=3)
+        except Exception as e:
+            print('[builder50] bar fanout failed:', e, flush=True)
+
 @app.route('/bars', methods=['POST'])
 def bars():
     b=request.get_json(force=True, silent=True) or {}
@@ -814,59 +997,16 @@ def bars():
     except Exception: now_ms=int(dt.datetime.utcnow().timestamp()*1000)   # fail-safe: zawsze "teraz", strażnik nigdy nie wyłączony
     with _lock:
         _append_bar(b)
-        res=_process_new(now_ms)
-        try:                                              # sledzenie 1R/3R — nie moze ruszyc intake'u
-            _hi=float(b['high']); _lo=float(b['low'])
-            def _msend(m):
-                print('MANAGE', m, flush=True)
-                if WEBHOOK_URL: live_emit.post_webhook(m, WEBHOOK_URL)
-            manage.check(_hi, _lo, now_ms, _msend, TRADES, outcomes_path=OUTCOMES)
-        except Exception as e:
-            print('manage.check err', e, flush=True)
-        try: shadow.refresh()                       # resolve shadow trades on every bar (not only when tab open)
-        except Exception as e: print('shadow.refresh err', e, flush=True)
-        try: guardrails.sweep_orphans()             # cancel broker-side limits the model already wrote off (no_fill/missed)
-        except Exception as e: print('guard.sweep err', e, flush=True)
+        gap_min = _feed_gap_min()
         nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
         _last.update(last_bar=str(b.get('ts_event')), bars_in_buffer=nb,
-                     setups_seen=res.get('nowe', res.get('primed')),
                      processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
+        started, depth = _schedule_bar_work(b, now_ms, gap_min)
+        _last.update(bar_worker_running=True, bar_worker_queue_depth=depth,
+                     processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
+        res = {'queued': True, 'worker_started': started, 'queue_depth': depth,
+               'gap_min': (round(gap_min, 1) if gap_min is not None else None)}
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
-    # --- M15 -> M5 A/B + shallow: local, forward-only SHADOW. ---
-    # This hook is deliberately outside the main detector lock.  The module has no
-    # broker/webhook/Guard import; it can only update its own JSON shadow book and
-    # launch an isolated detector scan after a completed M5 candle.
-    try:
-        _m15res = m15_shadow_strategy.on_bar(b)
-        if _m15res.get('scheduled'):
-            print('[m15-shadow] M5 scan scheduled', b.get('ts_event'), flush=True)
-    except Exception as e:
-        print('[m15-shadow] on_bar err', e, flush=True)
-    # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; POZA lockiem; NIE wplywa na A/B) ---
-    _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
-    if _furl and requests is not None:
-        try:
-            _rf = requests.post(_furl, json=b, timeout=3)
-            if getattr(_rf, 'status_code', 0) == 200: _sat['F']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = F health signal
-        except Exception: pass
-    # --- Strategy C: DOKŁADNIE jak F — przekaz bar do serwisu C (fire-and-forget; NIE wplywa na A/B) ---
-    _curl = os.environ.get('STRAT_C_FORWARD_URL', '')
-    if _curl and requests is not None:
-        try:
-            _rc = requests.post(_curl, json=b, timeout=3)
-            if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()  # v24: fanout = C health signal
-        except Exception: pass
-    # --- Builder 50K: forward the SAME closed 1-minute bar to the second account process. ---
-    # Only the existing 100K service gets BUILDER50_URL.  The Builder service must leave it
-    # unset, which prevents a loop.  This shares market data only: detection, Guard state,
-    # risk counters, execution webhook and journals all remain local to each service.
-    _burl = os.environ.get('BUILDER50_URL', '').rstrip('/')
-    if (_burl and os.environ.get('BUILDER50_FORWARD_BARS', '1') == '1'
-            and requests is not None):
-        try:
-            requests.post(_burl + '/bars', json=b, timeout=3)
-        except Exception as e:
-            print('[builder50] bar fanout failed:', e, flush=True)
     return jsonify(ok=True, **res)
 
 def _wants_html():
@@ -1071,6 +1211,8 @@ def status():
     nb=(sum(1 for _ in open(BUF))-1) if os.path.exists(BUF) else 0
     na=(sum(1 for _ in open(ARCHIVE))-1) if os.path.exists(ARCHIVE) else 0
     _last['bars_in_buffer']=nb
+    with _barq_lock:
+        _worker = dict(_barq_state, running=_barq_running, queue_depth=len(_barq))
     _age=_feed_age_min(); _mkt=_market_open_now()                  # v21: zdrowie feedu wprost w /status
     try: _cme=cme_calendar.status().get('note','')                 # v22: DLACZEGO rynek zamkniety (swieto/early close)
     except Exception: _cme=''
@@ -1085,18 +1227,22 @@ def status():
                heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')),
                exec_cancel_after_sec=_entry_cancel_after_sec(),
                ab_shallow_enabled=ab_shallow.enabled(),
+               ab_risk_allocation=ab_shallow.allocation(),
                ab_shallow_fraction=float(os.environ.get('AB_SHALLOW_FRACTION','0.25') or 0.25),
                ab_shallow_rr=float(os.environ.get('AB_SHALLOW_RR','2') or 2),
                setup_group_risk_usd=ab_shallow.setup_group_budget_usd(),
                setup_group_leg_risk_usd=ab_shallow.setup_group_leg_budget_usd(),
+               setup_group_deep_risk_usd=ab_shallow.setup_group_leg_budget_usd(),
+               setup_group_shallow_risk_usd=ab_shallow.setup_group_leg_budget_usd(leg="shallow"),
                setup_group_floor_reserve_usd=float(os.environ.get('SETUP_GROUP_FLOOR_RESERVE_USD','100') or 100),
                guard_sync_max_h=float(os.environ.get('GUARD_SYNC_MAX_H','24') or 24),
-               ab_shallow_risk_pct=round(100.0 * ab_shallow.setup_group_leg_budget_usd() /
+               ab_shallow_risk_pct=round(100.0 * ab_shallow.setup_group_leg_budget_usd(leg="shallow") /
                                          float(os.environ.get('ACCOUNT','100000') or 100000), 3),
                ab_shallow_combined_max_risk_pct=round(100.0 * ab_shallow.setup_group_budget_usd() /
                                                        float(os.environ.get('ACCOUNT','100000') or 100000), 3),
                projected_dd_check=os.environ.get('DD_PROJECTED_RISK','1') == '1',
-               day_loss_count_mode=os.environ.get('DAY_LOSS_COUNT_MODE','group'))
+               day_loss_count_mode=os.environ.get('DAY_LOSS_COUNT_MODE','group'),
+               bar_worker=_worker)
     if _wants_html(): return _kv_page('Status', _body)
     return jsonify(_body)
 
