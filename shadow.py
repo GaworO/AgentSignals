@@ -85,7 +85,8 @@ def _costed(R, gross_R):
     net = gross_R * RISK - cost
     return ct, round(net), round(net / RISK, 3)
 
-def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None, entry_ms=None):
+def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None, entry_ms=None,
+           metadata=None):
     """Log ONE fresh signal hands-off. Dedups. Skips London/Asia. tp defaults to 2R."""
     try:
         ms = int(ms if ms is not None else dt.datetime.utcnow().timestamp() * 1000)
@@ -104,7 +105,8 @@ def record(strategy, dirn, entry, sl, tp=None, ms=None, sess=None, entry_ms=None
         log.append(dict(key=k, strategy=strategy, dir=dirn, sess=s, week=wk, dow=et.strftime('%a'),
                         et=et.strftime('%Y-%m-%d %H:%M'), date=et.strftime('%Y-%m-%d'),
                         entry=entry, sl=sl, tp=tp, ms=ms, entry_ms=(int(entry_ms) if entry_ms else None),
-                        outcome='open', R=None, net=None))
+                        outcome='open', R=None, net=None,
+                        dol=(dict(metadata) if isinstance(metadata, dict) else None)))
         _save(log); return True
     except Exception as e:
         print('[shadow] record err', e, flush=True); return False

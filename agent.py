@@ -24,11 +24,11 @@ import how_ab      # A/B "how it works" page at /how — isolated add-on, does n
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
+import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence, never read by execution
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
-import strategy_observer  # passive event recorder; no order authority
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
 import m15_shadow_strategy  # M15 setup + M5 BOS; isolated candidates/forward shadow, no order path
@@ -55,7 +55,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.22-live-observer'
+VERSION = 'v31.20-async-bars-intake'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -91,20 +91,27 @@ def _init_db():
         trig TEXT, disp_end TEXT, bounce TEXT, bos TEXT,
         entry REAL, ote62 REAL, ote79 REAL, SL REAL, TP REAL,
         fvg_lo REAL, fvg_hi REAL, bias TEXT, bias_align TEXT,
-        trail TEXT, alert TEXT, posted TEXT, result TEXT, pnl REAL)''')
+        trail TEXT, alert TEXT, posted TEXT, result TEXT, pnl REAL,
+        dol_json TEXT)''')
+    if 'dol_json' not in {row[1] for row in c.execute('PRAGMA table_info(signals)')}:
+        c.execute('ALTER TABLE signals ADD COLUMN dol_json TEXT')
     c.commit(); c.close()
 
 def _save_db(x, alert_text, code):
+    # Deliberately after the canonical alert/guard/execution decision.  No DOL
+    # value can influence whether or how this A/B signal trades.
+    if x.get('_strat', 'A/B') == 'A/B' and '_dol' not in x:
+        ab_dol_live.attach_metadata(x, BUF)
     c=sqlite3.connect(DB)
     c.execute('''INSERT OR IGNORE INTO signals
-        (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl,dol_json)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (live_emit.key(x), dt.datetime.utcnow().isoformat(timespec='seconds'),
          x['date'],x['model'],x['cat'],x['dir'],x.get('trig',''),x.get('disp_end',''),x.get('bounce',''),x['bos'],
          x['entry'],x.get('ote62'),x.get('ote79'),x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
-         x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None))
+         x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None,
+         json.dumps(x.get('_dol')) if x.get('_dol') is not None else None))
     c.commit(); c.close()
-    strategy_observer.event('signal_journal', {'signal': x, 'journal_code': code})
 
 def _entry_cancel_after_sec():
     """Broker-side expiry for resting ENTRY limits.
@@ -271,16 +278,13 @@ def _exec_order(x, text=None):
                     "routeId": guardrails._exec_route_id(),
                 }
             if text and _i == 0: payload["text"] = text
-            _observer_request_id = strategy_observer.exec_start(x, payload, _i + 1)
             try:
                 r = requests.post(url, json=payload, timeout=10)
-                strategy_observer.exec_end(_observer_request_id, getattr(r, 'status_code', None), response=r)
                 st = getattr(r, 'status_code', None)
                 try: body = (r.text or '')[:200]
                 except Exception: body = ''
                 ok_leg = st is not None and 200 <= int(st) < 300
             except Exception as e:
-                strategy_observer.exec_end(_observer_request_id, None, error=e)
                 st = None; body = str(e)[:200]; ok_leg = False
             leg_results.append({"leg": _i + 1, "status": st, "ok": ok_leg, "qty": q_})
             if ok_leg: accepted_legs += 1
@@ -327,8 +331,16 @@ def _prepare_ab_siblings(repx):
     acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
     deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
     repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
-    if repx['_strat'] != 'A/B':
+    if repx['_strat'] != 'A/B' or not ab_shallow.enabled():
         return [repx]
+    if repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
+        repx['_shallow_skip'] = 'ramp'
+        return [repx]
+    close = _signal_bar_close(repx)
+    if close is None:
+        repx['_shallow_skip'] = 'signal_close_missing'
+        return [repx]
+    repx['_signal_close'] = close
     gid = ab_shallow.setup_group_id(repx)
     repx['_setup_group_id'] = gid
     requested = ab_shallow.setup_group_budget_usd()
@@ -339,38 +351,24 @@ def _prepare_ab_siblings(repx):
     repx['_setup_group_budget_usd'] = requested
     repx['_setup_group_allowed_usd'] = allowed
     repx['_setup_group_floor_capacity'] = capacity
-    repx['_risk_budget_usd'] = ab_shallow.setup_group_leg_budget_usd(dynamic_env)
+    repx['_risk_budget_usd'] = allowed * 0.5
     repx['_risk_pct_override'] = (100.0 * repx['_risk_budget_usd'] / acct) if acct > 0 else 0.0
     repx['_strict_risk_budget'] = True
     repx['_risk_mode'] = 'shared_group'
     repx.pop('_size_mult', None)
     repx.pop('_select', None)
-    shallow = None
-    if not ab_shallow.enabled(dynamic_env):
-        repx['_shallow_skip'] = ab_shallow.disabled_reason(dynamic_env)
-    elif repx.get('_exec_qty_override') is not None and os.environ.get('AB_SHALLOW_DURING_RAMP', '0') != '1':
-        repx['_shallow_skip'] = 'ramp'
-    else:
-        close = _signal_bar_close(repx)
-        if close is None:
-            repx['_shallow_skip'] = 'signal_close_missing'
-        else:
-            repx['_signal_close'] = close
-            try:
-                shallow = ab_shallow.build_shallow_signal(repx, dynamic_env)
-            except Exception as e:
-                repx['_shallow_skip'] = str(e)
-                print('A/B-shallow build skip:', e, flush=True)
-    # An intentionally disabled shallow allocation belongs to deep. A configured
-    # shallow leg that fails viability/ramp/price checks keeps its share unused.
-    meta = ab_shallow.apply_shared_group_budget(repx, shallow, dynamic_env)
-    repx['_ab_risk_meta'] = meta
-    items = [repx]
-    if shallow is not None:
+    try:
+        shallow = ab_shallow.build_shallow_signal(repx, dynamic_env)
+        meta = ab_shallow.apply_shared_group_budget(repx, shallow, dynamic_env)
+        repx['_ab_risk_meta'] = meta
         shallow['_ab_risk_meta'] = meta
         repx['_batch_sibling'] = True
         shallow['_batch_sibling'] = True
-        items.append(shallow)
+        items = [repx, shallow]
+    except Exception as e:
+        repx['_shallow_skip'] = str(e)
+        print('A/B-shallow build skip:', e, flush=True)
+        items = [repx]
 
     # Calculate the exact integer quantities before the guard decision. The
     # executor may reduce these quantities, but `_group_qty_cap` prevents any
@@ -378,11 +376,7 @@ def _prepare_ab_siblings(repx):
     viable = []
     planned = 0.0
     for item in items:
-        try:
-            risk_entry, risk_stop = ab_shallow.execution_risk_prices(item['entry'], item['SL'])
-            sf = live_emit.size_for_budget(risk_entry, risk_stop, item.get('_risk_budget_usd'))
-        except (ValueError, TypeError):
-            sf = None
+        sf = live_emit.size_for_budget(item['entry'], item['SL'], item.get('_risk_budget_usd'))
         max_qty = int(sf[0]) if sf else 0
         if item.get('_exec_qty_override') is not None:
             max_qty = min(max_qty, int(item['_exec_qty_override']))
@@ -394,11 +388,8 @@ def _prepare_ab_siblings(repx):
             pass
         if max_qty < 1:
             item['_risk_budget_skip'] = 'below_one_contract'
-            item['_group_qty_cap'] = 0
             continue
-        # Recompute without the display rounding in size_for_budget's tuple.
-        per_contract = (abs(risk_entry - risk_stop) * float(os.environ.get('POINT_VALUE', '2'))
-                        + max(0.0, float(os.environ.get('SETUP_GROUP_RT_COST_USD', '2.24'))))
+        per_contract = float(sf[2])
         leg_risk = max_qty * per_contract
         item['_group_qty_cap'] = max_qty
         item['_planned_leg_risk_usd'] = round(leg_risk, 2)
@@ -545,13 +536,10 @@ def _detect():
              DEBUG_TRACE='1', TRACE_OUT=trace_work)   # one detector run also refreshes the live candidate page
     if gated:
         env['EOD_INTRADAY'] = '1' if _eod_flag() else ''        # regime-gated: ON w choppy, OFF w trend
-    strategy_observer.detector_event('detector_start', det_file, BUF)
     _det = subprocess.run(['python3', os.path.join(HERE, det_file)], env=env,
                           capture_output=True, timeout=180)
     if _det.returncode == 0 and os.path.exists(trace_work):
         os.replace(trace_work, CAND_TRACE)             # readers never see a half-written JSON trace
-    strategy_observer.detector_event('detector_end', det_file, BUF, _det.returncode)
-    strategy_observer.event('candidate_trace', {'stream': 'A/B', 'detector_returncode': _det.returncode}, snapshot=CAND_TRACE)
     import pickle
     try: conf=pickle.load(open(OUT,'rb'))
     except Exception: conf=[]
@@ -681,7 +669,6 @@ def _process_new(now_ms=None, gap_min=None):
     if not _primed:                       # pierwszy przebieg: oznacz wszystko jako widziane
         allk=set(keys)
         _save_sent(allk); _primed=True
-        strategy_observer.event('ab_prime', {'count': len(allk), 'asof_ms': now_ms})
         return {'primed': len(allk)}
     def _tkey(x):                         # tożsamość TRADE'a (bez katalizatora) — do scalania duplikatów
         return "T|%s|%s|%s|%s|%.1f|%.1f" % (x['date'], x['model'], x['dir'], x['bos'],
@@ -706,14 +693,12 @@ def _process_new(now_ms=None, gap_min=None):
         if WEBHOOK_URL:
             try: live_emit.post_webhook(f"♻️ Feed wrócił po przerwie ~{_gap:.0f} min — pomijam katch-up (poziomy policzone w poprzek dziury). Świeże setupy od następnego bara.", WEBHOOK_URL)
             except Exception as e: print('[gap-reprime] post err', e, flush=True)
-        strategy_observer.event('ab_gap_reprime', {'count': skipped, 'gap_min': _gap, 'asof_ms': now_ms})
         return {'gap_reprime': skipped, 'gap_min': round(_gap,1)}
     fresh_ms = int(os.environ.get('FRESH_MIN','15'))*60*1000   # strażnik świeżości: alarmuj tylko swieze
     max_retest = int(os.environ.get('MAX_RETEST','0'))         # 0 = bez limitu; np. 4 = nie alarmuj po 4. re-teście
     live=[]                               # po filtrze świeżości
     for x in fresh:
         if now_ms and x.get('bos_ms') and (now_ms - x['bos_ms']) > fresh_ms:
-            strategy_observer.event('ab_filter', {'reason': 'stale', 'signal': x, 'asof_ms': now_ms})
             print('STALE skip (stary setup, nie alarmuje):', live_emit.key(x), flush=True)
             sentn.add(live_emit.key(x)); continue
         live.append(x)
@@ -734,7 +719,6 @@ def _process_new(now_ms=None, gap_min=None):
                                           int(m.get('brk',1))), reverse=True)[0]
         allkeys=[live_emit.key(m) for m in members] + [tk]
         if max_retest and min(int(m.get('brk',1)) for m in members) > max_retest:   # filtr re-testów
-            strategy_observer.event('ab_filter', {'reason': 'max_retest', 'signal': rep, 'asof_ms': now_ms})
             print('RETEST skip (za duzo re-testow, min brk>%d):' % max_retest, tk, flush=True)
             for kk in allkeys: sentn.add(kk)
             continue
@@ -756,18 +740,15 @@ def _process_new(now_ms=None, gap_min=None):
                 repx['entry'] = round(float(repx['entry']) + _es * _eo, 2)
         except Exception as _eoe: print('entry_offset err', _eoe, flush=True)
         # The human-facing alert is built before the floor-aware group is
-        # prepared. Stamp the configured deep allocation now so it never
+        # prepared. Stamp the maximum equal sibling allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
         # reduce it further when the live floor cushion is tight.
-        if repx.get('_strat', 'A/B') == 'A/B':
+        if repx.get('_strat', 'A/B') == 'A/B' and ab_shallow.enabled():
             _preview_budget = ab_shallow.setup_group_leg_budget_usd()
             _preview_acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
             repx['_risk_budget_usd'] = _preview_budget
             repx['_risk_pct_override'] = (100.0 * _preview_budget / _preview_acct) if _preview_acct > 0 else 0.0
         fl, hard = flags_for(rep)
-        strategy_observer.opportunity(repx, {'asof_ms': now_ms, 'flags': fl, 'news_hard': hard,
-            'calendar_age_h': _cal_age_h(), 'calendar_events': _cal['raw_events'],
-            'regime_color': _rcolor, 'source_members': members}, BUF)
         txt=live_emit.to_alert(repx)
         _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci
         _hdr='🕒 '+dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')+((f' · setup sprzed {_age:.0f} min'+(' ⚠️ STARY!' if _age>20 else '')) if _age is not None else '')
@@ -874,7 +855,7 @@ def _process_new(now_ms=None, gap_min=None):
             except Exception as e: print('manage.register err', e, flush=True)
             try: shadow.record(_item.get('_strat', 'A/B'), _item.get('dir'), _item.get('entry'), _item.get('SL'),
                                _item.get('_exec_tp') or _item.get('TP'), _item.get('bos_ms'),
-                               entry_ms=_item.get('entry_ms'))
+                               entry_ms=_item.get('entry_ms'), metadata=_item.get('_dol'))
             except Exception as e: print('shadow.record err', e, flush=True)
         if code in ('exec', 'exec-manual') or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)
@@ -1007,7 +988,6 @@ def _after_bar_processed(b, now_ms):
 def bars():
     b=request.get_json(force=True, silent=True) or {}
     if 'close' not in b: return jsonify(error='brak OHLC'), 400
-    strategy_observer.event('bar_received', {'bar': b})
     ts=str(b.get('ts_event','')).strip()
     try: now_ms=int(dt.datetime.fromisoformat(ts if ('+' in ts or 'Z' in ts) else ts+'+00:00').timestamp()*1000)
     except Exception: now_ms=int(dt.datetime.utcnow().timestamp()*1000)   # fail-safe: zawsze "teraz", strażnik nigdy nie wyłączony
@@ -1022,7 +1002,6 @@ def bars():
                      processed_at=dt.datetime.utcnow().isoformat(timespec='seconds'))
         res = {'queued': True, 'worker_started': started, 'queue_depth': depth,
                'gap_min': (round(gap_min, 1) if gap_min is not None else None)}
-        strategy_observer.event('bar_accepted', {'bar': b, 'buffer_rows': nb, 'queue': res})
         print(f"[bars] {b.get('ts_event')} buf={nb} -> {res}", flush=True)
     return jsonify(ok=True, **res)
 
@@ -1244,16 +1223,13 @@ def status():
                heartbeat=HEARTBEAT, healthcheck=bool(os.environ.get('HEALTHCHECK_URL')),
                exec_cancel_after_sec=_entry_cancel_after_sec(),
                ab_shallow_enabled=ab_shallow.enabled(),
-               ab_risk_allocation=ab_shallow.allocation(),
                ab_shallow_fraction=float(os.environ.get('AB_SHALLOW_FRACTION','0.25') or 0.25),
                ab_shallow_rr=float(os.environ.get('AB_SHALLOW_RR','2') or 2),
                setup_group_risk_usd=ab_shallow.setup_group_budget_usd(),
                setup_group_leg_risk_usd=ab_shallow.setup_group_leg_budget_usd(),
-               setup_group_deep_risk_usd=ab_shallow.setup_group_leg_budget_usd(),
-               setup_group_shallow_risk_usd=ab_shallow.setup_group_leg_budget_usd(leg="shallow"),
                setup_group_floor_reserve_usd=float(os.environ.get('SETUP_GROUP_FLOOR_RESERVE_USD','100') or 100),
                guard_sync_max_h=float(os.environ.get('GUARD_SYNC_MAX_H','24') or 24),
-               ab_shallow_risk_pct=round(100.0 * ab_shallow.setup_group_leg_budget_usd(leg="shallow") /
+               ab_shallow_risk_pct=round(100.0 * ab_shallow.setup_group_leg_budget_usd() /
                                          float(os.environ.get('ACCOUNT','100000') or 100000), 3),
                ab_shallow_combined_max_risk_pct=round(100.0 * ab_shallow.setup_group_budget_usd() /
                                                        float(os.environ.get('ACCOUNT','100000') or 100000), 3),
@@ -1709,7 +1685,6 @@ guardrails.register(app)                    # /guard — MFF-eval auto-exec gate
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 fxguard.register(app)                       # /fxguard - joined forex Auto-Executor (isolated add-on)
 allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
-strategy_observer.install(app, globals())
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
