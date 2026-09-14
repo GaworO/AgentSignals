@@ -110,6 +110,7 @@ var ICONS={
  book:'<svg '+S+'><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
  help:'<svg '+S+'><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
  chart:'<svg '+S+'><path d="M3 3v18h18"/><path d="M7 15l3-3 3 3 4-5"/></svg>',
+ target:'<svg '+S+'><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>',
  grid:'<svg '+S+'><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
  file:'<svg '+S+'><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>',
  cog:'<svg '+S+'><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.2V21a2 2 0 0 1-4 0a1.6 1.6 0 0 0-2.7-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 0 1 0-4a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3 1.6 1.6 0 0 0 1-1.5V3a2 2 0 0 1 4 0a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1H21a2 2 0 0 1 0 4a1.6 1.6 0 0 0-1.5 1z"/></svg>'
@@ -165,6 +166,7 @@ var STRAT={
          ['health','Health',BUILDER50?BUILDER50+'/guard/health?format=txt':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'help'],
          ['pine','Pine for trades',BUILDER50?BUILDER50+'/guard/pine':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'file']]},
  ab:{name:'A/B + Shallow',sub:'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
+ dol:{name:'Draw on Liquidity',sub:'Ranked A/B DOL narrative · diagnostics only · no execution effect',tabs:[['live','Live DOL','/dol','target'],['raw','Raw data','/dol/data','file']]},
  ab15:{name:'A/B + Shallow M15 → M5',sub:'M15 setup · closed-candle M5 BOS · forward shadow only · zero orders',tabs:[['candidates','Candidates','/m15/candidates','list'],['shadow','Shadow trades','/m15/shadow','book'],['examples','Graphical examples','/m15/examples','chart'],['pine','Pine · current shadow','/m15/shadow/pine','file'],['how','Rules & settings','/m15/how','help'],['health','Health','/m15/status','grid']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
@@ -175,7 +177,7 @@ var STRAT={
 };
 var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
-         ['Strategies',[['ab','A/B + Shallow','ab'],['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['c','C','c'],['f','F','f']]],
+         ['Strategies',[['ab','A/B + Shallow','ab'],['dol','Draw on Liquidity','target'],['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['c','C','c'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),

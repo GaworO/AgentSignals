@@ -23,6 +23,7 @@ import pnl         # UNIFIED P&L JOURNAL — izolowane: nowa tabela `fills` + tr
 import how_ab      # A/B "how it works" page at /how — isolated add-on, does not touch the detector
 import cme_calendar  # v22: kalendarz CME (swieta/early close) dla heartbeat — koniec falszywych STALE w swieta
 import dashboard   # / — unified home shell (federuje istniejące strony; izolowany dodatek)
+import dol_dashboard  # /dol — read-only ranked DOL metadata panel
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence, never read by execution
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
@@ -1679,6 +1680,7 @@ _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
+dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 m15_shadow_strategy.register(app)           # /m15/* — M15->M5 candidates + isolated shadow-only book
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
