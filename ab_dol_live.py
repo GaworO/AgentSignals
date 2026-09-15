@@ -9,9 +9,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import numpy as np
 
-SCHEMA = "AB_RANKED_DOL_V1"
-_ENGINE_CACHE: dict[str, Any] = {"key": None, "engine": None}
+
+SCHEMA = "AB_MULTI_HORIZON_DOL_V1"
+_ENGINE_CACHE: dict[str, Any] = {
+    "key": None, "engine": None, "native_key": None, "native_levels": None,
+}
 
 
 def _engine_for(buffer_path: str):
@@ -23,6 +27,8 @@ def _engine_for(buffer_path: str):
 
         _ENGINE_CACHE["engine"] = Engine(load_bars([buffer_path]))
         _ENGINE_CACHE["key"] = key
+        _ENGINE_CACHE["native_key"] = None
+        _ENGINE_CACHE["native_levels"] = None
     return _ENGINE_CACHE["engine"]
 
 
@@ -54,6 +60,7 @@ def unavailable_metadata(reason: str) -> dict[str, Any]:
         "metadata_status": "UNAVAILABLE",
         "error": str(reason)[:240],
         "selected_dol": None,
+        "dol_direction": None,
         "dol_price": None,
         "dol_tier": None,
         "dol_status": "UNAVAILABLE",
@@ -62,7 +69,77 @@ def unavailable_metadata(reason: str) -> dict[str, Any]:
         "stacked_constituents": [],
         "successor_dol": None,
         "direction_aligned_with_dol": None,
+        "execution_dol": None,
+        "execution_dol_price": None,
+        "execution_dol_direction": None,
+        "execution_dol_source": None,
+        "execution_dol_timeframe": None,
+        "execution_dol_open_beyond_entry": False,
+        "execution_dol_resolution": None,
+        "alignment_classification": "AMBIGUOUS",
+        "alignment_reason": "DOL metadata unavailable",
+        "multi_horizon_alignment": "AMBIGUOUS",
     }
+
+
+def _dol_direction(pool: dict[str, Any] | None) -> str | None:
+    if not pool:
+        return None
+    if pool.get("side") == "BSL":
+        return "LONG"
+    if pool.get("side") == "SSL":
+        return "SHORT"
+    return None
+
+
+def _execution_snapshot(engine, evaluated_at_ms: int) -> dict[str, Any]:
+    """Apply the frozen execution-DOL resolver to bars closed at decision time."""
+    from audit_results.ab_dol_qualitative_random10_20260915 import (
+        build_two_horizon_preoutcome as frozen_execution,
+    )
+
+    cutoff = int(np.searchsorted(engine.ms, evaluated_at_ms - 60_000, side="right") - 1)
+    if cutoff < 0:
+        raise ValueError("no closed bar available at the causal decision timestamp")
+    cache_key = (id(engine), int(getattr(engine, "n", len(engine.ms))))
+    if _ENGINE_CACHE.get("native_key") != cache_key:
+        _ENGINE_CACHE["native_levels"] = frozen_execution._native_levels(engine)
+        _ENGINE_CACHE["native_key"] = cache_key
+    return frozen_execution.execution_dol(
+        engine, cutoff, evaluated_at_ms, _ENGINE_CACHE.get("native_levels")
+    )
+
+
+def _alignment_snapshot(signal: dict[str, Any], metadata: dict[str, Any]) -> tuple[str, str]:
+    """Classify with the already-frozen five-state A/B audit definition."""
+    from audit_results.ab_execution_dol_management_audit_20260915.alignment_audit import (
+        classify,
+    )
+
+    row = {
+        "direction": str(signal["dir"]).upper(),
+        "entry": float(signal["entry"]),
+        "dol_price": metadata.get("dol_price"),
+        "htf_dol_direction": metadata.get("dol_direction"),
+        "execution_dol_price": metadata.get("execution_dol_price"),
+        "execution_dol_direction": metadata.get("execution_dol_direction"),
+        "execution_dol_open_beyond_entry": metadata.get("execution_dol_open_beyond_entry"),
+        "dol_status": metadata.get("dol_status"),
+    }
+    return classify(row)
+
+
+def _market_alignment(metadata: dict[str, Any]) -> str:
+    """Describe agreement between the two market layers, independent of a trade."""
+    if metadata.get("alignment_classification") == "AMBIGUOUS":
+        return "AMBIGUOUS"
+    htf = metadata.get("dol_direction")
+    execution = metadata.get("execution_dol_direction")
+    if not htf or not execution:
+        return "AMBIGUOUS"
+    if htf != execution:
+        return "CONFLICTING"
+    return "BULLISH" if htf == "LONG" else "BEARISH"
 
 
 def attach_metadata(
@@ -73,12 +150,14 @@ def attach_metadata(
         from detcore.a_cont_v3_ict_dol import tag_setup_dol
 
         evaluated_at_ms = _evaluation_ms(signal)
+        policy_engine = engine if engine is not None else _engine_for(buffer_path)
         tag = tag_setup_dol(
-            engine if engine is not None else _engine_for(buffer_path),
+            policy_engine,
             direction=str(signal["dir"]).upper(),
             evaluated_at_ms=evaluated_at_ms,
         )
         current = _pool_summary(tag.current_dol)
+        htf_direction = _dol_direction(current)
         expected_side = "BSL" if str(signal["dir"]).upper() == "LONG" else "SSL"
         metadata = {
             "schema": SCHEMA,
@@ -86,6 +165,7 @@ def attach_metadata(
             "evaluated_at_ms": int(tag.evaluated_at_ms),
             "cutoff_bar": int(tag.cutoff_bar),
             "selected_dol": current["id"] if current else None,
+            "dol_direction": htf_direction,
             "dol_price": current["price"] if current else None,
             "dol_tier": current["tier"] if current else None,
             "dol_tier_class": current["tier_class"] if current else None,
@@ -98,8 +178,49 @@ def attach_metadata(
                 bool(current and current["side"] == expected_side)
             ),
         }
+        # Execution-DOL failure degrades this layer to AMBIGUOUS.  The already
+        # attached HTF DOL remains available and no exception can enter the
+        # canonical signal/execution path.
+        try:
+            execution = _execution_snapshot(policy_engine, evaluated_at_ms)
+            ep = execution.get("price")
+            ed = execution.get("direction")
+            entry = float(signal["entry"])
+            open_beyond = bool(
+                ep is not None
+                and ((ed == "LONG" and float(ep) > entry)
+                     or (ed == "SHORT" and float(ep) < entry))
+            )
+            metadata.update({
+                "execution_dol": execution.get("id") or execution.get("type"),
+                "execution_dol_price": ep,
+                "execution_dol_direction": ed,
+                "execution_dol_source": execution.get("type"),
+                "execution_dol_timeframe": execution.get("tf"),
+                "execution_dol_open_beyond_entry": open_beyond,
+                "execution_dol_resolution": execution.get("resolution"),
+                "execution_dol_constituents": list(execution.get("constituents") or ()),
+                "execution_dol_selection_reason": execution.get("selection_reason"),
+            })
+            state, reason = _alignment_snapshot(signal, metadata)
+            metadata["alignment_classification"] = state
+            metadata["alignment_reason"] = reason
+        except Exception as exc:
+            metadata.update({
+                "execution_dol": None,
+                "execution_dol_price": None,
+                "execution_dol_direction": None,
+                "execution_dol_source": None,
+                "execution_dol_timeframe": None,
+                "execution_dol_open_beyond_entry": False,
+                "execution_dol_resolution": None,
+                "execution_dol_constituents": [],
+                "execution_dol_selection_reason": None,
+                "alignment_classification": "AMBIGUOUS",
+                "alignment_reason": "execution DOL unavailable: " + str(exc)[:180],
+            })
+        metadata["multi_horizon_alignment"] = _market_alignment(metadata)
     except Exception as exc:
         metadata = unavailable_metadata(exc)
     signal["_dol"] = metadata
     return metadata
-

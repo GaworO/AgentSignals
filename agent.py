@@ -26,6 +26,7 @@ import dashboard   # / — unified home shell (federuje istniejące strony; izol
 import dol_dashboard  # /dol — read-only ranked DOL metadata panel
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence, never read by execution
+import a_cont_both_aligned_shadow  # post-decision A Continuation + frozen multi-horizon DOL shadow
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
@@ -103,6 +104,13 @@ def _save_db(x, alert_text, code):
     # value can influence whether or how this A/B signal trades.
     if x.get('_strat', 'A/B') == 'A/B' and '_dol' not in x:
         ab_dol_live.attach_metadata(x, BUF)
+    # Read-only shadow consumer.  This runs after the canonical decision and
+    # cannot alter, submit, or retry the existing A/B order.
+    try:
+        a_cont_both_aligned_shadow.observe(
+            x, x.get('_dol'), candidate_id=live_emit.key(x))
+    except Exception as _ba:
+        print('[A_CONT_BOTH_ALIGNED] persistence err', _ba, flush=True)
     c=sqlite3.connect(DB)
     c.execute('''INSERT OR IGNORE INTO signals
         (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl,dol_json)
@@ -1681,6 +1689,7 @@ pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unifie
 how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
+a_cont_both_aligned_shadow.register(app)      # /a-cont-both-aligned — shadow-only; GET routes only
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 m15_shadow_strategy.register(app)           # /m15/* — M15->M5 candidates + isolated shadow-only book
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
