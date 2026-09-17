@@ -1,6 +1,7 @@
 flask
 pandas<3
 numpy
+Pillow
 requests
 gunicorn
 pyyaml

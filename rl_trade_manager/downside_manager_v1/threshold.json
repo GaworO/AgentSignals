@@ -1,0 +1,8 @@
+{
+  "threshold": 0.9219345929635789,
+  "candidate_index": 95,
+  "candidates": 102,
+  "feasible_candidates": 7,
+  "minimum_winners_preserved": 64,
+  "winner_mean_floor_r": 1.8424235936899231
+}
