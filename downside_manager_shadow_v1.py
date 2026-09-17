@@ -288,6 +288,52 @@ def _replay(row,bars,pre,states,model,quality):
             "manager_probability":manager[1],"recommendation":manager[2] if not menv.terminated else "CLOSED"}
 
 
+def detailed_replay(row,bars,pre,states,model=None,quality="COMPLETE"):
+    """Read-only causal trace. Decision i uses only bars strictly before bar i."""
+    model=model or _model()
+    trade=_trade(row,bars,pre,states)
+    paths={}
+    for name,managed in (("control",False),("manager",True)):
+        env=TradeManagementEnv(trade)
+        observation,_=env.reset()
+        decisions=[]
+        exit_bar=None
+        for i,bar in enumerate(bars):
+            if env.terminated:break
+            action,probability,recommendation=(
+                _decision(env,observation,model,quality) if managed else (HOLD,None,"HOLD_CONTROL"))
+            m1=env._m1()
+            dol=states[env.i] if env.i<len(states) else _placeholder(trade.fill_ms+env.i*60_000)
+            previous=bars[i-1] if i else None
+            decisions.append({
+                "decision_ms":trade.fill_ms+i*60_000,
+                "closed_candle_ms":previous.ms if previous else None,
+                "price":float(env.last_price),"current_r":float(env._equity()),
+                "mfe_r":float(env.mfe_r),"mae_r":float(env.mae_r),
+                "giveback_r":float(m1["giveback_from_mfe_r"]),
+                "probability":probability,"threshold":THRESHOLD if managed else None,
+                "recommendation":recommendation,"action":int(action),"virtual_sl":float(env.sl),
+                "fixed_tp":float(trade.target),"m1":m1,"dol":dol,
+                "session_remaining_minutes":float(observation[NAMES.index("session_remaining")])*655.0,
+                "state_quality":quality})
+            observation,_,done,truncated,info=env.step(action)
+            if truncated or info["invalid_action"]:raise AssertionError("Invalid trace action")
+            decisions[-1]["virtual_sl_after_action"]=float(env.sl)
+            if trade.direction*(env.sl-trade.initial_sl)<-1e-10:
+                raise AssertionError("Shadow stop widened")
+            if done:
+                exit_bar=bar.ms if action!=CLOSE_FULL else trade.fill_ms+i*60_000
+                break
+        paths[name]={"status":"DONE" if env.terminated else "OPEN",
+                     "final_r":float(env._equity()) if env.terminated else None,
+                     "exit_reason":env.reason,"exit_ms":exit_bar,
+                     "virtual_sl":float(env.sl),"decisions":decisions}
+    return {"control":paths["control"],"manager":paths["manager"],
+            "candles":[[b.ms,b.open,b.high,b.low,b.close] for b in bars],
+            "delta_r":(paths["manager"]["final_r"]-paths["control"]["final_r"]
+                       if paths["manager"]["final_r"] is not None and paths["control"]["final_r"] is not None else None)}
+
+
 def refresh():
     """Catch up every open record from closed buffer bars; idempotent across restarts."""
     if not ENABLED:return 0
@@ -454,8 +500,10 @@ def _page():
 
 def register(app):
     from flask import jsonify,Response
+    import downside_manager_dashboard as dashboard
     app.add_url_rule("/downside-shadow/status","downside_shadow_status",lambda:jsonify(status()),methods=["GET"])
-    app.add_url_rule("/downside-shadow","downside_shadow_page",lambda:Response(_page(),mimetype="text/html"),methods=["GET"])
+    app.add_url_rule("/downside-shadow","downside_shadow_page",lambda:Response(dashboard.page(),mimetype="text/html"),methods=["GET"])
+    dashboard.register(app)
     if ENABLED:
         migrate()
         global _WORKER
