@@ -171,6 +171,7 @@ var STRAT={
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
  f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
  acba:{name:'A Continuation — Both Aligned',sub:'Canonical A Continuation · HTF + execution DOL aligned · forward shadow only',tabs:[['live','Shadow dashboard','/a-cont-both-aligned','grid'],['data','Forward log','/a-cont-both-aligned/data','file']]},
+ dolrev:{name:'DOL Delivery Reversal',sub:'Delivered liquidity → causal Reversal → OPEN DOL · fixed 2R · forward shadow only',tabs:[['live','Shadow dashboard','/dol-delivery-reversal','grid'],['data','Forward log','/dol-delivery-reversal/data','file'],['pine','Pine · causal TV shadow','/dol-delivery-reversal/pine','file']]},
  dmshadow:{name:'Downside Manager Shadow',sub:'Fixed 2R control versus frozen downside policy · SHADOW ONLY — NO BROKER EXECUTION',tabs:[['live','Live Shadow','/downside-shadow','grid'],['trades','Trade History','/downside-shadow/trades','file'],['replays','Real Trade Replays','/downside-shadow/real-replays','file'],['metrics','Metrics','/downside-shadow/metrics','grid']]},
  eur:{name:'EUR/USD',sub:'Forex · observe only · EURUSD-calibrated',ext:EUR,tabs:[['sum','Summary',EUR+'/performance','chart'],['trades','Trades',EUR+'/outcomes','book'],['pine','Pine for TV',EUR+'/pine','file'],['cand','Candidates & setups',EUR+'/candidates','list'],['status','Status',EUR+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
  jpy:{name:'USD/JPY',sub:'Forex · observe only · JPY-calibrated (×100)',ext:JPY,tabs:[['sum','Summary',JPY+'/performance','chart'],['trades','Trades',JPY+'/outcomes','book'],['pine','Pine for TV',JPY+'/pine','file'],['cand','Candidates & setups',JPY+'/candidates','list'],['status','Status',JPY+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
@@ -179,7 +180,9 @@ var STRAT={
 };
 var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
-         ['Strategies',[['ab','A/B + Shallow','ab'],['dol','Draw on Liquidity','target'],['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['c','C','c'],['f','F','f'],['acba','A Continuation — Both Aligned','target'],['dmshadow','Downside Manager Shadow','grid']]],
+         ['Strategies',[['dolrev','DOL Delivery Reversal · Shadow','target'],['c','C','c'],['acba','A Continuation — Both Aligned','target'],['ab','A/B + Shallow · Legacy benchmark','ab']]],
+         ['Context & Management',[['dol','Draw on Liquidity · Diagnostics','target'],['dmshadow','Downside Manager Shadow','grid']]],
+         ['Archived Research',[['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),

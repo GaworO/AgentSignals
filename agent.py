@@ -28,6 +28,7 @@ import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (ha
 import downside_manager_shadow_v1  # read-only fixed-2R vs frozen downside manager; feature-flagged
 import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence, never read by execution
 import a_cont_both_aligned_shadow  # post-decision A Continuation + frozen multi-horizon DOL shadow
+import dol_delivery_reversal_shadow  # post-decision DOL Delivery Reversal shadow; no broker authority
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
@@ -112,6 +113,11 @@ def _save_db(x, alert_text, code):
             x, x.get('_dol'), candidate_id=live_emit.key(x))
     except Exception as _ba:
         print('[A_CONT_BOTH_ALIGNED] persistence err', _ba, flush=True)
+    try:
+        dol_delivery_reversal_shadow.observe(
+            x, x.get('_dol'), candidate_id=live_emit.key(x))
+    except Exception as _dr:
+        print('[DOL_DELIVERY_REVERSAL] persistence err', _dr, flush=True)
     c=sqlite3.connect(DB)
     c.execute('''INSERT OR IGNORE INTO signals
         (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl,dol_json)
@@ -1710,6 +1716,7 @@ how_ab.register(app)                        # /how — A/B explainer page (isola
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
 a_cont_both_aligned_shadow.register(app)      # /a-cont-both-aligned — shadow-only; GET routes only
+dol_delivery_reversal_shadow.register(app)       # /dol-delivery-reversal — shadow-only; GET routes only
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 downside_manager_shadow_v1.register(app)    # /downside-shadow — frozen manager, no broker actions
 m15_shadow_strategy.register(app)           # /m15/* — M15->M5 candidates + isolated shadow-only book
