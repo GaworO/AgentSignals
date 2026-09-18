@@ -203,8 +203,9 @@ def register(app):
     import dol_reversal_manager_dashboard as dash
     app.add_url_rule("/dol-reversal-manager/status","dolrev_mgr_status",lambda:jsonify(status()))
     app.add_url_rule("/dol-reversal-manager/data","dolrev_mgr_data",lambda:jsonify({"status":status(),"rows":rows()}))
-    app.add_url_rule("/dol-reversal-manager/trade/<path:candidate_id>","dolrev_mgr_trade",lambda candidate_id:jsonify(detail(candidate_id) or ({"error":"not found"},404)))
+    # Register the trading-terminal dashboard and replay APIs.
     app.add_url_rule("/dol-reversal-manager","dolrev_mgr_page",lambda:Response(dash.page(),mimetype="text/html"))
+    dash.register(app)
     if ENABLED:
       global _WORKER
       if _WORKER is None:_WORKER=threading.Thread(target=_worker,name="dol-reversal-manager",daemon=True);_WORKER.start();notify_bar()

@@ -1,18 +1,149 @@
-"""Read-only dashboard for DOL Delivery Reversal + Manager shadow."""
-import json
+"""Read-only trading-terminal UI for the DOL Reversal Manager shadow challenger.
+
+The visual layout intentionally mirrors Downside Manager Shadow.  This module is
+presentation/read-only only; it never places, modifies, cancels, or retries an
+order.
+"""
+from __future__ import annotations
+
+import datetime as dt
 from pathlib import Path
 
+from flask import abort, jsonify, Response, render_template_string
+
+import dol_reversal_manager_shadow_v1 as shadow
+
+HERE = Path(__file__).resolve().parent
+NY = dt.timezone(dt.timedelta(hours=-4))  # display helper only; epoch is authoritative
+
+
+def _time_et(row):
+    ms = row.get("fill_ms") or row.get("entry_anchor_ms") or row.get("bos_ms")
+    if ms:
+        # Use zoneinfo when available so DST is correct.
+        try:
+            from zoneinfo import ZoneInfo
+            z = ZoneInfo("America/New_York")
+        except Exception:
+            z = NY
+        return dt.datetime.fromtimestamp(int(ms) / 1000, dt.timezone.utc).astimezone(z).strftime("%Y-%m-%d %H:%M")
+    return str(row.get("created_at") or "—")[:16]
+
+
+def _public(row):
+    ctx = row.get("strategy_context") or {}
+    sig = row.get("signal") or {}
+    done = row.get("control_final_r") is not None and row.get("manager_final_r") is not None
+    return {
+        "id": row.get("candidate_id"),
+        "time_et": _time_et(row),
+        "strategy": "DOL Delivery Reversal",
+        "session": sig.get("session") or "—",
+        "side": "LONG" if row.get("direction") == 1 else "SHORT",
+        "entry": row.get("entry"),
+        "listed_entry": row.get("entry"),
+        "control_r": row.get("control_final_r"),
+        "manager_r": row.get("manager_final_r"),
+        "delta_r": row.get("delta_r"),
+        "last_decision": row.get("recommendation") or "—",
+        "status": "REPLAYED" if done else str(row.get("status") or "PENDING"),
+        "reason": None if done else str(row.get("status") or "PENDING"),
+        "catalyst": ctx.get("catalyst"),
+        "dol_tier": ctx.get("dol_tier_class"),
+    }
+
+
+def _rows():
+    return shadow.rows() if shadow.ENABLED else []
+
+
+def _catalog():
+    rs = _rows()
+    done = [r for r in rs if r.get("control_final_r") is not None and r.get("manager_final_r") is not None]
+    return {
+        "summary": {
+            "sample_label": f"FORWARD SHADOW · {len(done)} COMPLETED MANAGED TRADES",
+            "shadow_only": True,
+            "broker_execution": False,
+        },
+        "trades": [_public(r) for r in rs],
+    }
+
+
+def _live_rows():
+    out = []
+    for r in reversed(_rows()[-300:]):
+        decisions = r.get("decisions") or []
+        last = decisions[-1] if decisions else {}
+        out.append({
+            "id": r.get("candidate_id"),
+            "source_key": r.get("candidate_id"),
+            "strategy_id": "DOL_DELIVERY_REVERSAL",
+            "status": r.get("status"),
+            "direction": r.get("direction"),
+            "entry": r.get("entry"),
+            "initial_sl": r.get("initial_sl"),
+            "fixed_tp": r.get("fixed_tp"),
+            "quantity": r.get("quantity"),
+            "fill_ms": r.get("fill_ms"),
+            "current_r": last.get("current_r"),
+            "mfe_r": last.get("mfe_r"),
+            "mae_r": last.get("mae_r"),
+            "manager_probability": last.get("probability"),
+            "recommendation": r.get("recommendation"),
+            "control_final_r": r.get("control_final_r"),
+            "manager_final_r": r.get("manager_final_r"),
+            "delta_r": r.get("delta_r"),
+            "state_quality": r.get("state_quality"),
+        })
+    return out
+
+
+def _detail(identifier):
+    value = shadow.detail(identifier)
+    if value is None:
+        abort(404)
+    value = dict(value)
+    row = next((r for r in _rows() if str(r.get("candidate_id")) == str(identifier)), None)
+    value["time_et"] = _time_et(row or value)
+    value["actual_broker_usd"] = None
+    value["listed_outcome"] = "Forward shadow only"
+    value["control_usd"] = None
+    value["manager_usd"] = None
+    return value
+
+
+def register(app):
+    app.add_url_rule(
+        "/dol-reversal-manager/api/trades",
+        "dolrev_mgr_replay_list",
+        lambda: jsonify(_catalog()),
+    )
+    app.add_url_rule(
+        "/dol-reversal-manager/api/trade/<path:identifier>",
+        "dolrev_mgr_replay_one",
+        lambda identifier: jsonify(_detail(identifier)),
+    )
+    app.add_url_rule(
+        "/dol-reversal-manager/api/live",
+        "dolrev_mgr_live_list",
+        lambda: jsonify({"status": shadow.status(), "trades": _live_rows()}),
+    )
+    app.add_url_rule(
+        "/dol-reversal-manager/api/live/<path:identifier>",
+        "dolrev_mgr_live_one",
+        lambda identifier: jsonify(_detail(identifier)),
+    )
+    for path, endpoint in (
+        ("/dol-reversal-manager/trades", "dolrev_mgr_history"),
+        ("/dol-reversal-manager/real-replays", "dolrev_mgr_real_replays"),
+        ("/dol-reversal-manager/metrics", "dolrev_mgr_metrics"),
+        ("/dol-reversal-manager/trade/<path:identifier>", "dolrev_mgr_trade_page"),
+    ):
+        app.add_url_rule(path, endpoint, lambda **_: Response(page(), mimetype="text/html"))
+
+
 def page():
-    return r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DOL Reversal Manager Shadow</title>
-<style>body{margin:0;padding:18px;background:#0b0e14;color:#e7eaf0;font:13px system-ui}.head{display:flex;justify-content:space-between;align-items:center}.mut{color:#8b95a7}.warn{color:#fbbf24}h1,h2,h3{margin:4px 0}.cards{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0}.card,.panel{background:#111827;border:1px solid #263247;border-radius:10px;padding:12px}.card{min-width:135px}.k{font-size:10px;color:#8b95a7;text-transform:uppercase}.v{font-size:18px;font-weight:700}.grid{display:grid;grid-template-columns:2fr 1fr;gap:10px}.chart{height:360px;position:relative}.log{max-height:360px;overflow:auto}.row{padding:8px;border-bottom:1px solid #253047;cursor:pointer}.row:hover{background:#172033}table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid #253047;text-align:left;white-space:nowrap}.scroll{overflow:auto;max-height:40vh}.pill{padding:2px 7px;border-radius:999px;background:#202a3c}.yes{color:#4ade80}.no{color:#f87171}.levels{display:flex;gap:12px;flex-wrap:wrap;margin:6px 0}.levels b{font-size:15px}svg{width:100%;height:100%}.decision{font-weight:700}.protect{color:#f59e0b}.hold{color:#60a5fa}</style></head><body>
-<div class="head"><div><div class="mut">STRATEGIES / DOL DELIVERY REVERSAL</div><h1>DOL Reversal Manager <span class="mut">Shadow</span></h1></div><div class="warn">SHADOW ONLY · NO BROKER EXECUTION</div></div>
-<div class="cards" id="stats"></div><div class="panel"><h3>Candidate / Trade history</h3><div class="scroll"><table><thead><tr><th>Created</th><th>Side</th><th>Catalyst</th><th>DOL</th><th>Entry</th><th>SL</th><th>2R</th><th>Status</th><th>Manager</th><th>ΔR</th></tr></thead><tbody id="rows"></tbody></table></div></div>
-<div id="detail" hidden><div class="levels" id="levels"></div><div class="grid"><div class="panel"><h3>M1 candles · Entry / SL / Manager SL / 2R</h3><div class="chart" id="chart"></div></div><div class="panel"><h3>Manager decision log</h3><div class="log" id="log"></div></div></div><div class="cards" id="features"></div></div>
-<script>
-const E=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const N=(v,n=2)=>v==null?'—':Number(v).toFixed(n);const R=v=>v==null?'—':`${v>=0?'+':''}${N(v,3)}R`;const card=(k,v)=>`<div class="card"><div class="k">${E(k)}</div><div class="v">${E(v)}</div></div>`;
-function draw(t){const d=t.detail;if(!d||!d.candles?.length){chart.innerHTML='<div class="mut">Awaiting fill / M1 path.</div>';return}const a=d.candles,w=900,h=340,lo=Math.min(...a.map(x=>x[3]),t.initial_sl),hi=Math.max(...a.map(x=>x[2]),t.fixed_tp),x=i=>30+i*(w-60)/Math.max(1,a.length-1),y=p=>20+(hi-p)*(h-40)/Math.max(.01,hi-lo);let s=`<svg viewBox="0 0 ${w} ${h}">`;
- for(let i=0;i<a.length;i++){const b=a[i],xx=x(i),yo=y(b[1]),yc=y(b[4]),yh=y(b[2]),yl=y(b[3]);s+=`<line x1="${xx}" y1="${yh}" x2="${xx}" y2="${yl}" stroke="#76839a"/><rect x="${xx-2}" y="${Math.min(yo,yc)}" width="4" height="${Math.max(1,Math.abs(yo-yc))}" fill="${b[4]>=b[1]?'#4ade80':'#f87171'}"/>`}
- const ln=(p,c,l,ds='')=>{const yy=y(p);s+=`<line x1="25" y1="${yy}" x2="${w-25}" y2="${yy}" stroke="${c}" stroke-width="2" stroke-dasharray="${ds}"/><text x="${w-180}" y="${yy-4}" fill="${c}" font-size="11">${l} ${N(p)}</text>`};ln(t.entry,'#fff','ENTRY');ln(t.initial_sl,'#f87171','SL','5 4');ln(t.fixed_tp,'#4ade80','2R');const ds=d.manager?.decisions||[];const last=ds.at(-1);if(last?.virtual_sl_after_action&&Math.abs(last.virtual_sl_after_action-t.initial_sl)>.01)ln(last.virtual_sl_after_action,'#f59e0b','MANAGER SL','3 3');s+='</svg>';chart.innerHTML=s}
-async function show(id){const t=await fetch('/dol-reversal-manager/trade/'+encodeURIComponent(id)).then(r=>r.json());detail.hidden=false;levels.innerHTML=card('ENTRY',N(t.entry))+card('INITIAL SL',N(t.initial_sl))+card('FIXED 2R',N(t.fixed_tp))+card('SIDE',t.side)+card('STATUS',t.status)+card('CONTROL',R(t.control_r))+card('MANAGER',R(t.manager_r))+card('DELTA',R(t.delta_r));const ds=t.detail?.manager?.decisions||[];log.innerHTML=ds.map(d=>`<div class="row"><div>${new Date(d.decision_ms).toISOString()} · ${N(d.price)}</div><div>${R(d.current_r)} · MFE ${R(d.mfe_r)} · MAE ${R(d.mae_r)}</div><div class="decision ${String(d.recommendation).includes('HOLD')?'hold':'protect'}">${E(d.recommendation)} · p=${N(d.probability,3)} / ${N(d.threshold,3)}</div><div class="mut">M1 protected ${N(d.m1?.protected_price)} · opp MSS ${E(d.m1?.opposite_break)} · FVG ${E(d.m1?.fvg_hold_valid)}</div></div>`).join('')||'<div class="mut">Awaiting first decision.</div>';const z=t.context||{};features.innerHTML=card('Catalyst',z.catalyst)+card('Narrative',z.narrative_class)+card('Open DOL',z.selected_dol)+card('DOL px',N(z.dol_price))+card('DOL tier',z.dol_tier_class)+card('Gate',z.gate_reason);draw(t);detail.scrollIntoView({behavior:'smooth'})}
-async function load(){const x=await fetch('/dol-reversal-manager/data',{cache:'no-store'}).then(r=>r.json()),s=x.status||{};stats.innerHTML=card('STATE',s.enabled?'ENABLED':'DISABLED')+card('PENDING',s.pending)+card('OPEN',s.open)+card('DONE',s.done)+card('CONTROL PF',N(s.control?.pf,3))+card('MANAGER PF',N(s.manager?.pf,3))+card('ΔR',R(s.delta_r))+card('WINNERS DAMAGED',s.winners_damaged??0);rows.innerHTML=(x.rows||[]).slice().reverse().map(r=>`<tr onclick="show('${String(r.candidate_id).replace(/'/g,"\\'")}')"><td>${E(r.created_at)}</td><td>${r.direction===1?'LONG':'SHORT'}</td><td>${E(r.strategy_context?.catalyst)}</td><td>${E(r.strategy_context?.selected_dol)}</td><td>${N(r.entry)}</td><td>${N(r.initial_sl)}</td><td>${N(r.fixed_tp)}</td><td>${E(r.status)}</td><td>${E(r.recommendation)}</td><td>${R(r.delta_r)}</td></tr>`).join('')||'<tr><td colspan=10 class="mut">No accepted forward trades yet.</td></tr>'}load();setInterval(load,30000);
-</script></body></html>'''
+    return render_template_string(
+        (HERE / "templates" / "dol_reversal_manager_shadow.html").read_text()
+    )
