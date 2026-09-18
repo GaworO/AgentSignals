@@ -29,6 +29,7 @@ import downside_manager_shadow_v1  # read-only fixed-2R vs frozen downside manag
 import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence, never read by execution
 import a_cont_both_aligned_shadow  # post-decision A Continuation + frozen multi-horizon DOL shadow
 import dol_delivery_reversal_shadow  # post-decision DOL Delivery Reversal shadow; no broker authority
+import dol_reversal_manager_shadow_v1  # dedicated DOL Reversal manager challenger; shadow-only
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
@@ -1018,6 +1019,7 @@ def _after_bar_processed(b, now_ms):
     # Queue a read-only shadow refresh after the canonical bar work. The
     # shadow worker reads persisted bars and never blocks trade execution.
     downside_manager_shadow_v1.notify_bar()
+    dol_reversal_manager_shadow_v1.notify_bar()
 
 @app.route('/bars', methods=['POST'])
 def bars():
@@ -1717,6 +1719,7 @@ dashboard.register(app)                     # /    — unified home shell (feder
 dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
 a_cont_both_aligned_shadow.register(app)      # /a-cont-both-aligned — shadow-only; GET routes only
 dol_delivery_reversal_shadow.register(app)       # /dol-delivery-reversal — shadow-only; GET routes only
+dol_reversal_manager_shadow_v1.register(app)      # /dol-reversal-manager — dedicated 58-feature shadow manager
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 downside_manager_shadow_v1.register(app)    # /downside-shadow — frozen manager, no broker actions
 m15_shadow_strategy.register(app)           # /m15/* — M15->M5 candidates + isolated shadow-only book

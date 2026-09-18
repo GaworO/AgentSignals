@@ -1,0 +1,6 @@
+{
+  "threshold": 0.892916,
+  "selection": "validation-calibrated; 100% baseline-winner preservation",
+  "validation_unique_trades": 51,
+  "sealed_test_unique_trades": 53
+}
