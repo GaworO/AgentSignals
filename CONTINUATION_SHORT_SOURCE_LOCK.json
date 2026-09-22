@@ -1,0 +1,9 @@
+{
+  "identity": "MNQ_CONTINUATION_HTF_CANONICAL_SHORT_RESEARCH_V1",
+  "classification": "exploratory SHORT forward shadow; no profitability or champion claim",
+  "short_engine_path": "continuation_short_engine.py",
+  "short_engine_sha256": "9292a084b966237558ec75db8bd058c078077d472d22c3cd26ca4564ee517cca",
+  "reused_long_freeze_root_sha256": "3d12fc8d1985dd1457c07808e183aedd4c63899a0c65b7e870cc22a03475ebbe",
+  "canonical_detector": "unchanged isolated hashed research detcore",
+  "performance_status": "not tested for SHORT; Validation and SEALED not opened"
+}

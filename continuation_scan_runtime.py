@@ -23,12 +23,14 @@ if Path(detcore.__file__).resolve().parent != (RUNTIME / "detcore").resolve():
     raise RuntimeError("Continuation imported the production detcore")
 
 from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline as freeze  # noqa: E402
+import continuation_short_engine as short_engine  # noqa: E402
 
 
 def main() -> None:
     if len(sys.argv) == 2 and sys.argv[1] == "--import-check":
         print(json.dumps({"engine": str(Path(freeze.__file__).resolve()),
-                          "detcore": str(Path(detcore.__file__).resolve())}))
+                          "detcore": str(Path(detcore.__file__).resolve()),
+                          "short_engine": str(Path(short_engine.__file__).resolve())}))
         return
     if len(sys.argv) != 2 or sys.argv[1] != "--scan":
         raise SystemExit("usage: continuation_scan_runtime.py --import-check|--scan")
@@ -40,18 +42,23 @@ def main() -> None:
     theses = freeze.jade_theses(raw)
     outputs, triggers, detector_meta = freeze.generate_detector(raw)
     freeze.detector_meta = detector_meta
-    for trigger in triggers:
+    short_outputs, short_triggers, short_detector_meta = short_engine.generate_detector(raw)
+    for trigger in triggers + short_triggers:
         day = freeze.trading_day_at(int(trigger["trigger_ms"]))
         thesis = theses.get(day, {"thesis": "NONE", "reason": "missing_day"})
         trigger["trading_day"] = day
         trigger["jade_thesis"] = thesis.get("thesis", "NONE")
         trigger["jade_thesis_reason"] = thesis.get("reason")
     candidates, orders, funnel = freeze.build_manifests(raw, outputs, triggers, theses)
+    short_candidates, short_orders, short_funnel = short_engine.build_manifests(raw, short_outputs, theses)
     current_day = freeze.trading_day_at(int(raw.ts_event.iloc[-1].timestamp() * 1000))
     current_thesis = theses.get(current_day, {"thesis": "NONE", "reason": "missing_day"})
     print(json.dumps(shadow._safe({
         "outputs": outputs, "triggers": triggers, "candidates": candidates,
         "orders": orders, "funnel": funnel, "current_thesis": current_thesis,
+        "short_outputs": short_outputs, "short_triggers": short_triggers,
+        "short_candidates": short_candidates, "short_orders": short_orders,
+        "short_funnel": short_funnel, "short_detector_meta": short_detector_meta,
     }), sort_keys=True, separators=(",", ":"), allow_nan=False))
 
 

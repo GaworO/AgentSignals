@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Broker-inert forward shadow for MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1.
+"""Broker-inert LONG baseline and exploratory SHORT Continuation shadow.
 
-The detector and order geometry are delegated to the immutable outcome-free
-freeze.  This module owns only forward observation state, simulated orders,
-simulated Policy-B exits, and read-only dashboards.  It intentionally contains
-no webhook, broker, Guard, or production-Reversal integration.
+LONG detector and order geometry are delegated to the immutable outcome-free
+freeze; SHORT uses a separately identified source-locked research mirror.
+This module owns forward observation state, simulated orders, unmanaged
+Policy-B exits, and read-only dashboards. It has no webhook, broker, Guard,
+or production-Reversal integration.
 """
 from __future__ import annotations
 
@@ -15,6 +16,8 @@ import json
 import math
 import os
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -26,10 +29,11 @@ from flask import Response, jsonify, request
 
 
 IDENTITY = "MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1"
-SCHEMA = "CONTINUATION_POLICY_B_SHADOW_V1"
+SCHEMA = "CONTINUATION_DIRECTIONAL_POLICY_B_SHADOW_V2"
 TICK = 0.25
 POINT_VALUE = 2.0
 ROUND_TRIP_COST_USD = 3.50
+SHORT_IDENTITY = "MNQ_CONTINUATION_HTF_CANONICAL_SHORT_RESEARCH_V1"
 HERE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(HERE)))
 DB_PATH = Path(os.environ.get("CONTINUATION_DB", str(DATA_DIR / "continuation_shadow.sqlite3")))
@@ -109,6 +113,7 @@ def _init_db() -> None:
             );
             CREATE TABLE IF NOT EXISTS continuation_candidates (
               candidate_id TEXT PRIMARY KEY,
+              direction TEXT NOT NULL DEFAULT 'LONG',
               event_kind TEXT NOT NULL,
               decision_ms INTEGER NOT NULL,
               trading_day TEXT,
@@ -132,6 +137,7 @@ def _init_db() -> None:
               ON continuation_candidates(status, rejection_reason);
             CREATE TABLE IF NOT EXISTS continuation_orders (
               order_id TEXT PRIMARY KEY,
+              direction TEXT NOT NULL DEFAULT 'LONG',
               candidate_id TEXT NOT NULL,
               instrument_id INTEGER NOT NULL,
               activation_ms INTEGER NOT NULL,
@@ -151,6 +157,7 @@ def _init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_cont_orders_state ON continuation_orders(state);
             CREATE TABLE IF NOT EXISTS continuation_trades (
               trade_id TEXT PRIMARY KEY,
+              direction TEXT NOT NULL DEFAULT 'LONG',
               order_id TEXT UNIQUE NOT NULL,
               candidate_id TEXT NOT NULL,
               instrument_id INTEGER NOT NULL,
@@ -173,6 +180,10 @@ def _init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_cont_trades_state ON continuation_trades(state);
             """
         )
+        for table in ("continuation_candidates", "continuation_orders", "continuation_trades"):
+            columns = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
+            if "direction" not in columns:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN direction TEXT NOT NULL DEFAULT 'LONG'")
 
 
 def _meta(con: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
@@ -210,17 +221,12 @@ def _load_history() -> pd.DataFrame:
     return raw.reset_index(drop=True)
 
 
-def _freeze_module():
-    from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline
-    return freeze_baseline
-
-
 def _verify_freeze() -> dict[str, Any]:
     root = HERE / "MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE"
     manifest_path = root / "SHA256_MANIFEST.json"
     root_path = root / "FREEZE.sha256"
-    if not manifest_path.exists() or not root_path.exists():
-        raise RuntimeError("immutable Continuation freeze is unavailable")
+    if not manifest_path.is_file() or not root_path.is_file():
+        raise RuntimeError("complete immutable Continuation freeze is unavailable")
     digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     expected = root_path.read_text(encoding="utf-8").split()[0]
     if digest != expected:
@@ -229,16 +235,35 @@ def _verify_freeze() -> dict[str, Any]:
     bad = []
     for name, wanted in manifest.items():
         path = root / name
-        if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != wanted:
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != wanted:
             bad.append(name)
     if bad:
         raise RuntimeError("Continuation freeze member mismatch: " + ", ".join(bad[:5]))
+    source_hashes = json.loads((root / "SOURCE_HASHES.json").read_text(encoding="utf-8"))
+    source_mismatch = []
+    for name, wanted in source_hashes.items():
+        if name.startswith("jadecap_research_20260921/data_dev/"):
+            continue  # research input is intentionally not a runtime dependency
+        path = (HERE / "continuation_runtime" / name) if name.startswith("detcore/") else (HERE / name)
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != wanted:
+            source_mismatch.append(name)
+    if source_mismatch:
+        raise RuntimeError("Continuation source missing/hash mismatch: " + ", ".join(source_mismatch[:5]))
+    short_lock = json.loads((HERE / "CONTINUATION_SHORT_SOURCE_LOCK.json").read_text(encoding="utf-8"))
+    short_source = HERE / short_lock["short_engine_path"]
+    if (short_lock["reused_long_freeze_root_sha256"] != expected
+            or not short_source.is_file()
+            or hashlib.sha256(short_source.read_bytes()).hexdigest() != short_lock["short_engine_sha256"]):
+        raise RuntimeError("SHORT research source lock mismatch")
     baseline = json.loads((root / "BASELINE_CONFIGURATION.json").read_text(encoding="utf-8"))
     return {
+        "verification_mode": "complete_outcome_free_freeze",
         "freeze_root_sha256": expected,
         "configuration_path": baseline["selected_generic_configuration"]["path"],
         "configuration_sha256": baseline["selected_generic_configuration"]["sha256"],
         "effective_detector_environment": baseline["effective_detector_environment"],
+        "short_research_identity": SHORT_IDENTITY,
+        "short_engine_sha256": short_lock["short_engine_sha256"],
     }
 
 
@@ -258,7 +283,8 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     latest_ms = int(raw.ts_event.iloc[-1].timestamp() * 1000)
     output_sources = {
-        (int(x.get("source_event", {}).get("trigger_ms", -1)), str(x.get("source_event", {}).get("bsl_name", "")))
+        (int(x.get("source_event", {}).get("trigger_ms", -1)),
+         str(x.get("source_event", {}).get("bsl_name") or x.get("source_event", {}).get("ssl_name", "")))
         for x in outputs
     }
     with _connect() as con:
@@ -277,8 +303,13 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
 
         for trigger in triggers:
             tms = int(trigger["trigger_ms"])
-            name = str(trigger["bsl_name"])
-            cid = "TRIGGER_" + hashlib.sha256(f"{trigger['epoch']}|{tms}|{name}|{trigger['bsl_price']}".encode()).hexdigest()[:20]
+            direction = str(trigger.get("direction", "LONG"))
+            name = str(trigger.get("bsl_name") or trigger.get("ssl_name"))
+            price = trigger.get("bsl_price", trigger.get("ssl_price"))
+            identity = f"{trigger['epoch']}|{tms}|{name}|{price}"
+            if direction != "LONG":
+                identity = f"{direction}|{identity}"
+            cid = "TRIGGER_" + hashlib.sha256(identity.encode()).hexdigest()[:20]
             emitted = (tms, name) in output_sources
             expired = latest_ms >= tms + 120 * 60_000
             stage = "CANONICAL_OUTPUT_EMITTED" if emitted else ("EXPIRED_NO_CANONICAL_CONFIRMATION" if expired else "TRACKING_CONFIRMATION")
@@ -286,13 +317,13 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
             payload = dict(trigger, candidate_id=cid, stage=stage, status=status)
             con.execute(
                 """INSERT INTO continuation_candidates
-                (candidate_id,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
+                (candidate_id,direction,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
                  forward_eligible,bsl_name,payload_json,first_seen_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(candidate_id) DO UPDATE SET stage=excluded.stage,status=excluded.status,
                   rejection_reason=excluded.rejection_reason,payload_json=excluded.payload_json,
                   updated_at=excluded.updated_at""",
-                (cid, "CLOSE_THROUGH", tms, None, stage, status,
+                (cid, direction, "CLOSE_THROUGH", tms, _iso(trigger.get("trading_day")), stage, status,
                  "NO_CANONICAL_CONFIRMATION" if expired and not emitted else None, 0, 0, name,
                  _json(payload), now, now),
             )
@@ -300,23 +331,24 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
         order_by_candidate = {str(x["candidate_id"]): x for x in orders}
         for row in candidates:
             cid = str(row["candidate_id"])
+            direction = str(row.get("dir", "LONG"))
             decision_ms = int(row.get("entry_ms") or row.get("bos_ms"))
             stage, status = _candidate_state(row)
             forward = bool(row.get("eligible") and decision_ms > armed_ms)
             payload = dict(row, forward_eligible=forward, shadow_schema=SCHEMA)
             con.execute(
                 """INSERT INTO continuation_candidates
-                (candidate_id,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
+                (candidate_id,direction,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
                  forward_eligible,bsl_name,entry_price,stop_price,target_price,dol_id,payload_json,first_seen_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(candidate_id) DO UPDATE SET stage=excluded.stage,status=excluded.status,
                   rejection_reason=excluded.rejection_reason,eligible=excluded.eligible,
                   forward_eligible=MAX(continuation_candidates.forward_eligible,excluded.forward_eligible),
                   entry_price=excluded.entry_price,stop_price=excluded.stop_price,target_price=excluded.target_price,
                   dol_id=excluded.dol_id,payload_json=excluded.payload_json,updated_at=excluded.updated_at""",
-                (cid, "CANONICAL_OUTPUT", decision_ms, _iso(row.get("trading_day")), stage, status,
+                (cid, direction, "CANONICAL_OUTPUT", decision_ms, _iso(row.get("trading_day")), stage, status,
                  row.get("rejection_reason"), int(bool(row.get("eligible"))), int(forward),
-                 row.get("source_event", {}).get("bsl_name"), row.get("final_entry"),
+                 row.get("source_event", {}).get("bsl_name") or row.get("source_event", {}).get("ssl_name"), row.get("final_entry"),
                  row.get("final_structural_sl"), row.get("policy_B_target"), row.get("dol_id"),
                  _json(payload), now, now),
             )
@@ -327,10 +359,10 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
             expiry = _ms(order["expiry_timestamp"])
             con.execute(
                 """INSERT OR IGNORE INTO continuation_orders
-                (order_id,candidate_id,instrument_id,activation_ms,expiry_ms,entry_price,stop_price,
+                (order_id,direction,candidate_id,instrument_id,activation_ms,expiry_ms,entry_price,stop_price,
                  target_price,risk_points,dol_id,state,fill_ms,payload_json,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)""",
-                (order["order_id"], cid, int(order["instrument_id"]), activation, expiry,
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)""",
+                (order["order_id"], direction, cid, int(order["instrument_id"]), activation, expiry,
                  float(order["entry_price"]), float(order["structural_sl_price"]),
                  float(order["policy_B_target"]), float(order["initial_risk_points"]),
                  str(order["dol_id"]), "PENDING", _json(order), now, now),
@@ -359,13 +391,13 @@ def _reconcile(raw: pd.DataFrame) -> None:
     with _connect() as con:
         orders = con.execute("SELECT * FROM continuation_orders WHERE state='PENDING' ORDER BY activation_ms").fetchall()
         for order in orders:
+            direction = str(order["direction"])
             left = int(np.searchsorted(a["ms"], order["activation_ms"], side="left"))
             right = int(np.searchsorted(a["ms"], order["expiry_ms"], side="left"))
             right_seen = min(right, len(a["ms"]))
-            hits = np.flatnonzero(
-                (a["iid"][left:right_seen] == int(order["instrument_id"]))
-                & (a["low"][left:right_seen] <= float(order["entry_price"]) - TICK)
-            )
+            crossed = (a["low"][left:right_seen] <= float(order["entry_price"]) - TICK) if direction == "LONG" else (
+                a["high"][left:right_seen] >= float(order["entry_price"]) + TICK)
+            hits = np.flatnonzero((a["iid"][left:right_seen] == int(order["instrument_id"])) & crossed)
             if len(hits):
                 i = left + int(hits[0]); fill_ms = int(a["ms"][i])
                 con.execute("UPDATE continuation_orders SET state='FILLED',fill_ms=?,updated_at=? WHERE order_id=?",
@@ -373,9 +405,9 @@ def _reconcile(raw: pd.DataFrame) -> None:
                 trade_id = "TRADE_" + hashlib.sha256(str(order["order_id"]).encode()).hexdigest()[:20]
                 con.execute(
                     """INSERT OR IGNORE INTO continuation_trades
-                    (trade_id,order_id,candidate_id,instrument_id,fill_ms,entry_price,stop_price,target_price,
-                     risk_points,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'OPEN',?,?)""",
-                    (trade_id, order["order_id"], order["candidate_id"], int(order["instrument_id"]), fill_ms,
+                    (trade_id,direction,order_id,candidate_id,instrument_id,fill_ms,entry_price,stop_price,target_price,
+                     risk_points,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)""",
+                    (trade_id, direction, order["order_id"], order["candidate_id"], int(order["instrument_id"]), fill_ms,
                      float(order["entry_price"]), float(order["stop_price"]), float(order["target_price"]),
                      float(order["risk_points"]), now, now),
                 )
@@ -385,6 +417,7 @@ def _reconcile(raw: pd.DataFrame) -> None:
 
         trades = con.execute("SELECT * FROM continuation_trades WHERE state='OPEN' ORDER BY fill_ms").fetchall()
         for trade in trades:
+            direction = str(trade["direction"])
             fill_i = int(np.searchsorted(a["ms"], int(trade["fill_ms"]), side="left"))
             if fill_i >= len(a["ms"]):
                 continue
@@ -395,19 +428,28 @@ def _reconcile(raw: pd.DataFrame) -> None:
             last_same = fill_i + int(same[-1])
             exit_i = None; exit_price = None; reason = None
             for j in range(fill_i + 1, last_same + 1):
-                if a["low"][j] <= float(trade["stop_price"]):
-                    exit_i, exit_price, reason = j, min(float(a["open"][j]), float(trade["stop_price"])), "STRUCTURAL_SL"
-                    break
-                if a["high"][j] >= float(trade["target_price"]):
-                    exit_i, exit_price, reason = j, float(trade["target_price"]), "FROZEN_OPEN_DOL"
-                    break
+                if direction == "LONG":
+                    if a["low"][j] <= float(trade["stop_price"]):
+                        exit_i, exit_price, reason = j, min(float(a["open"][j]), float(trade["stop_price"])), "STRUCTURAL_SL"
+                        break
+                    if a["high"][j] >= float(trade["target_price"]):
+                        exit_i, exit_price, reason = j, float(trade["target_price"]), "FROZEN_OPEN_DOL"
+                        break
+                else:
+                    if a["high"][j] >= float(trade["stop_price"]):
+                        exit_i, exit_price, reason = j, max(float(a["open"][j]), float(trade["stop_price"])), "STRUCTURAL_SL"
+                        break
+                    if a["low"][j] <= float(trade["target_price"]):
+                        exit_i, exit_price, reason = j, float(trade["target_price"]), "FROZEN_OPEN_DOL"
+                        break
             # A later physical epoch proves the roll. The current live epoch remains open.
             if exit_i is None and last_same < len(a["ms"]) - 1:
                 exit_i, exit_price, reason = last_same, float(a["close"][last_same]), "CONTRACT_ROLL_TERMINATION"
             if exit_i is None:
                 continue
             risk = float(trade["risk_points"])
-            raw_r = (float(exit_price) - float(trade["entry_price"])) / risk
+            sign = 1 if direction == "LONG" else -1
+            raw_r = sign * (float(exit_price) - float(trade["entry_price"])) / risk
             cost_r = ROUND_TRIP_COST_USD / (risk * POINT_VALUE)
             con.execute(
                 """UPDATE continuation_trades SET state='CLOSED',exit_ms=?,exit_price=?,exit_reason=?,
@@ -424,19 +466,30 @@ def scan_once() -> dict[str, Any]:
     _init_db()
     _LAST.update(status="scanning", last_scan_started=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), last_error=None)
     provenance = _verify_freeze()
+    scan_env = os.environ.copy()
+    scan_env["CONTINUATION_HISTORY_CSV"] = str(ARCHIVE_PATH)
+    scan_env["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = subprocess.run(
+        [sys.executable, str(HERE / "continuation_scan_runtime.py"), "--scan"],
+        cwd=str(HERE), env=scan_env, capture_output=True, text=True, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("isolated Continuation scan failed: " + result.stderr[-3000:])
+    scan = json.loads(result.stdout)
     raw = _load_history()
-    if raw.empty:
-        raise RuntimeError("history contains no valid bars")
-    freeze = _freeze_module()
-    theses = freeze.jade_theses(raw)
-    outputs, triggers, detector_meta = freeze.generate_detector(raw)
-    freeze.detector_meta = detector_meta
-    candidates, orders, funnel = freeze.build_manifests(raw, outputs, triggers, theses)
+    outputs = scan["outputs"]
+    triggers = scan["triggers"]
+    candidates = scan["candidates"]
+    orders = scan["orders"]
+    outputs += scan["short_outputs"]
+    triggers += scan["short_triggers"]
+    candidates += scan["short_candidates"]
+    orders += scan["short_orders"]
+    funnel = {"LONG": scan["funnel"], "SHORT": scan["short_funnel"],
+              "canonical_outputs": scan["funnel"]["canonical_outputs"] + scan["short_funnel"]["canonical_outputs"]}
     _upsert_scan(raw, outputs, triggers, candidates, orders, funnel)
-    current_day = freeze.trading_day_at(int(raw.ts_event.iloc[-1].timestamp() * 1000))
-    current_thesis = theses.get(current_day, {"thesis": "NONE", "reason": "missing_day"})
     with _connect() as con:
-        _set_meta(con, "current_thesis", _json(current_thesis))
+        _set_meta(con, "current_thesis", _json(scan["current_thesis"]))
         _set_meta(con, "last_close", float(raw.close.iloc[-1]))
     _reconcile(raw)
     completed = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
@@ -517,7 +570,8 @@ def _summary() -> dict[str, Any]:
             position = dict(x)
             if math.isfinite(last_close):
                 position["mark_price"] = last_close
-                position["unrealized_raw_r"] = (last_close - float(x["entry_price"])) / float(x["risk_points"])
+                sign = 1 if x["direction"] == "LONG" else -1
+                position["unrealized_raw_r"] = sign * (last_close - float(x["entry_price"])) / float(x["risk_points"])
                 position["unrealized_net_r_after_full_round_trip_cost"] = (
                     position["unrealized_raw_r"] - ROUND_TRIP_COST_USD / (float(x["risk_points"]) * POINT_VALUE)
                 )
@@ -531,11 +585,23 @@ def _summary() -> dict[str, Any]:
             "avg_r_after_cost": float(np.mean(net)) if net else None,
             "max_drawdown_r_after_cost": _max_dd(net) if net else None,
         }
+        by_direction = {}
+        for direction in ("LONG", "SHORT"):
+            side = [float(x["net_r"]) for x in closed if x["direction"] == direction]
+            by_direction[direction] = {
+                "closed_trades": len(side), "winners": sum(x > 0 for x in side),
+                "losers": sum(x < 0 for x in side), "flat": sum(x == 0 for x in side),
+                "win_rate_pct": 100 * sum(x > 0 for x in side) / len(side) if side else None,
+                "pf_after_cost": _pf(side), "net_r_after_cost": sum(side),
+                "max_drawdown_r_after_cost": _max_dd(side) if side else None,
+            }
         return {
-            "identity": IDENTITY, "schema": SCHEMA, "broker_inert": True,
+            "identity": IDENTITY, "research_identities": {"LONG": IDENTITY, "SHORT": SHORT_IDENTITY},
+            "schema": SCHEMA, "broker_inert": True,
             "policy": "B_UNMANAGED_FROZEN_OPEN_DOL", "round_trip_cost_usd": ROUND_TRIP_COST_USD,
             "point_value_usd": POINT_VALUE, "tick_points": TICK,
             "historical_development_reference_only": {
+                "direction": "LONG", "identity": IDENTITY,
                 "fills": 126, "win_rate_pct": 30.95, "pf_after_cost": 1.7045,
                 "net_r_after_cost": 66.9784, "not_live_expectation": True,
             },
@@ -543,7 +609,7 @@ def _summary() -> dict[str, Any]:
             "collection_started_at": None if armed is None else _iso(pd.Timestamp(int(armed), unit="ms", tz="UTC")),
             "history_path": str(ARCHIVE_PATH), "physical_contract_ids_available": "instrument_id" in (pd.read_csv(ARCHIVE_PATH, nrows=0).columns if ARCHIVE_PATH.exists() else []),
             "candidate_counts": counts, "stage_counts": stages, "order_counts": orders,
-            "funnel": json.loads(funnel_raw), "metrics": metrics,
+            "funnel": json.loads(funnel_raw), "metrics": metrics, "metrics_by_direction": by_direction,
             "current_thesis": json.loads(thesis_raw),
             "latest_thesis": json.loads(thesis_raw).get("thesis"),
             "open_positions": open_positions,
@@ -553,11 +619,14 @@ def _summary() -> dict[str, Any]:
 def _candidate_rows() -> list[dict[str, Any]]:
     clauses, args = [], []
     status = request.args.get("status", "").strip().upper()
+    direction = request.args.get("direction", "").strip().upper()
     reason = request.args.get("reason", "").strip()
     start = request.args.get("start", "").strip()
     end = request.args.get("end", "").strip()
     if status:
         clauses.append("status=?"); args.append(status)
+    if direction in {"LONG", "SHORT"}:
+        clauses.append("c.direction=?"); args.append(direction)
     if reason:
         clauses.append("COALESCE(rejection_reason,'')=?"); args.append(reason)
     if start:
@@ -567,12 +636,32 @@ def _candidate_rows() -> list[dict[str, Any]]:
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     limit = min(max(int(request.args.get("limit", "500")), 1), 2000)
     with _connect() as con:
-        rows = con.execute("SELECT * FROM continuation_candidates" + where + " ORDER BY decision_ms DESC LIMIT ?", (*args, limit)).fetchall()
+        rows = con.execute(
+            "SELECT c.*,o.order_id,o.state order_state,o.fill_ms,t.trade_id,t.state trade_state,"
+            "t.exit_reason,t.net_r FROM continuation_candidates c "
+            "LEFT JOIN continuation_orders o ON o.candidate_id=c.candidate_id "
+            "LEFT JOIN continuation_trades t ON t.order_id=o.order_id" + where.replace("status", "c.status")
+            + " ORDER BY c.decision_ms DESC LIMIT ?", (*args, limit)).fetchall()
     result = []
     for x in rows:
         row = dict(x); row["payload"] = json.loads(row.pop("payload_json")); row["decision_at"] = _iso(pd.Timestamp(row["decision_ms"], unit="ms", tz="UTC"))
         result.append(row)
     return result
+
+
+def _candidate_funnel_stats() -> dict[str, int]:
+    with _connect() as con:
+        canonical = con.execute("SELECT COUNT(*) FROM continuation_candidates WHERE event_kind='CANONICAL_OUTPUT'").fetchone()[0]
+        return {
+            "candidates": con.execute("SELECT COUNT(*) FROM continuation_candidates").fetchone()[0],
+            "close_through": con.execute("SELECT COUNT(*) FROM continuation_candidates WHERE event_kind='CLOSE_THROUGH'").fetchone()[0],
+            "canonical_confirmed": canonical,
+            "htf_long": con.execute("SELECT COUNT(*) FROM continuation_candidates WHERE event_kind='CANONICAL_OUTPUT' AND json_extract(payload_json,'$.jade_thesis')='LONG'").fetchone()[0],
+            "htf_short": con.execute("SELECT COUNT(*) FROM continuation_candidates WHERE event_kind='CANONICAL_OUTPUT' AND direction='SHORT' AND json_extract(payload_json,'$.jade_thesis')='SHORT'").fetchone()[0],
+            "dol_aligned": con.execute("SELECT COUNT(*) FROM continuation_candidates WHERE eligible=1").fetchone()[0],
+            "ready": con.execute("SELECT COUNT(*) FROM continuation_orders WHERE state='PENDING'").fetchone()[0],
+            "filled": con.execute("SELECT COUNT(*) FROM continuation_orders WHERE state='FILLED'").fetchone()[0],
+        }
 
 
 def _bars_for(candidate: sqlite3.Row, before: int = 45, after: int = 90) -> list[dict[str, Any]]:
@@ -587,18 +676,44 @@ def _bars_for(candidate: sqlite3.Row, before: int = 45, after: int = 90) -> list
 
 PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MNQ Continuation Shadow</title><style>
-:root{--bg:#08111f;--panel:#101d31;--line:#263952;--text:#e5edf8;--mut:#8ca0ba;--cyan:#2dd4bf;--red:#fb7185;--amber:#fbbf24;--blue:#60a5fa}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px Inter,system-ui,sans-serif}.wrap{max-width:1500px;margin:auto;padding:24px}h1{font-size:22px;margin:0 0 4px}a{color:var(--blue)}.mut{color:var(--mut)}.bar,.grid{display:grid;gap:12px}.bar{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:20px 0}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}.big{font-size:24px;font-weight:700;margin-top:6px}.ok{color:var(--cyan)}.bad{color:var(--red)}.warn{color:var(--amber)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--mut);position:sticky;top:0;background:var(--panel)}.scroll{overflow:auto;max-height:68vh}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}input,select,button{background:#0b1728;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px}button{cursor:pointer}.pill{padding:3px 7px;border-radius:999px;background:#1b2c45}.detail{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:12px}svg{width:100%;height:auto;background:#08111f;border-radius:9px}pre{white-space:pre-wrap;word-break:break-word;color:#c7d5e8}@media(max-width:900px){.detail{grid-template-columns:1fr}}
-</style></head><body><div class="wrap"><h1>MNQ Continuation · Policy B unmanaged</h1><div class="mut">MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1 · forward shadow only · no broker actions</div><div id="app"></div></div>
+:root{--bg:#0b0e14;--panel:#111827;--line:#243047;--text:#e7ebf2;--mut:#8993a6;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--blue:#7ab8f5}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,sans-serif;padding:18px}h2{margin:0}a{color:var(--blue)}.mut{color:var(--mut)}.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.badge{border:1px solid #274264;border-radius:999px;padding:5px 9px;color:var(--blue);font-size:11px}.kpis{display:grid;grid-template-columns:repeat(6,minmax(100px,1fr));gap:9px;margin:16px 0}.kpi,.card,.help{background:var(--panel);border:1px solid var(--line);border-radius:12px}.kpi{padding:12px}.kv{font-size:22px;font-weight:800}.kk{font-size:10px;color:var(--mut);text-transform:uppercase}.help{padding:16px;margin:12px 0}.cards{display:grid;gap:12px}.card{padding:0;overflow:hidden}.head{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.title{font-weight:800}.green,.ok{color:var(--green)}.red,.bad{color:var(--red)}.warn{color:var(--amber)}.steps{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;padding:14px}.step{border:1px solid #26334a;border-radius:10px;padding:11px;min-height:108px}.step.ok{border-color:#17633c}.step.bad{border-color:#6b2730}.step.wait{border-color:#66541f}.n{width:25px;height:25px;border-radius:50%;display:inline-grid;place-items:center;background:#25344b;margin-right:6px;font-weight:800}.step.ok .n{background:#1c7a49}.step.bad .n{background:#7f2834}.step.wait .n{background:#78651f}.st{font-weight:750}.sd{font-size:12px;color:#98a3b7;margin-top:8px}.levels{display:flex;gap:20px;flex-wrap:wrap;padding:0 16px 14px;color:#b8c0ce}.reason{padding:11px 16px;background:#0d1420;border-top:1px solid var(--line)}.empty{padding:30px;text-align:center;color:var(--mut)}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}input,select,button{background:#0b1728;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px}button{cursor:pointer}.bar,.grid{display:grid;gap:12px}.bar{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:20px 0}.metric{padding:14px}.big{font-size:24px;font-weight:700;margin-top:6px}.detail{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:12px}.detail .card{padding:14px}svg{width:100%;height:auto;background:#08111f;border-radius:9px}pre{white-space:pre-wrap;word-break:break-word;color:#c7d5e8}@media(max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.steps{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.detail{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><div id="app"></div>
 <script>
 const $=s=>document.querySelector(s), fmt=(x,n=3)=>x==null?'—':Number(x).toFixed(n), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function j(u){let r=await fetch(u,{cache:'no-store'});if(!r.ok)throw Error(await r.text());return r.json()}
-function cards(s){let m=s.metrics,e=s.engine,f=s.funnel||{},o=s.order_counts||{};return `<div class="bar"><div class="card">Engine / feed<div class="big ${e.status==='ok'?'ok':'warn'}">${esc(e.status)}</div><div class="mut">last bar ${esc(e.last_bar||'—')}</div></div><div class="card">Current HTF thesis<div class="big">${esc(s.latest_thesis||'brak danych')}</div><div class="mut">since ${esc(s.collection_started_at||'brak danych')}</div></div><div class="card">Candidates / rejected<div class="big">${f.canonical_outputs??0} / ${s.candidate_counts.REJECTED??0}</div><div class="mut">pending orders ${o.PENDING??0}</div></div><div class="card">Fills / closed<div class="big">${m.open_trades+m.closed_trades} / ${m.closed_trades}</div><div class="mut">W/L/flat ${m.winners}/${m.losers}/${m.flat}</div></div><div class="card">PF net<div class="big">${m.pf_after_cost==null?'brak danych':fmt(m.pf_after_cost)}</div><div class="mut">Net ${fmt(m.net_r_after_cost)}R · DD ${m.max_drawdown_r_after_cost==null?'brak danych':fmt(m.max_drawdown_r_after_cost)+'R'}</div></div></div>`}
-async function dash(){let s=await j('/continuation/api/status');$('#app').innerHTML=cards(s)+`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"><div class="card"><h3>Current funnel</h3><pre>${esc(JSON.stringify(s.funnel,null,2))}</pre></div><div class="card"><h3>State</h3><pre>${esc(JSON.stringify({candidates:s.candidate_counts,stages:s.stage_counts,orders:s.order_counts,armed_after:s.armed_after},null,2))}</pre></div><div class="card"><h3>Open positions</h3><pre>${esc(JSON.stringify(s.open_positions,null,2))}</pre></div><div class="card"><h3>Historical Development reference only</h3><pre>${esc(JSON.stringify(s.historical_development_reference_only,null,2))}</pre><p class="mut">Comparison point only; not a live expectation.</p></div><div class="card"><h3>Execution contract</h3><p>Final target is the causal OPEN bullish DOL frozen at decision. Structural SL, one-tick-through fill, 10-minute expiry, no manager, fill-bar brackets disabled, then adverse-first.</p><p>Cost: $3.50 / (risk points × $2.00). Physical contract IDs: <b>${s.physical_contract_ids_available?'available':'not supplied by live archive'}</b>.</p><a href="/continuation/candidates">Open candidates →</a></div></div>`}
-async function list(){let q=new URLSearchParams(location.search),rows=await j('/continuation/api/candidates?'+q);let reasons=[...new Set(rows.map(x=>x.rejection_reason).filter(Boolean))].sort();$('#app').innerHTML=`<div class="filters"><select id="status"><option value="">all status</option>${['TRACKING','REJECTED','SUPERSEDED','ORDER'].map(x=>`<option>${x}</option>`)}</select><select id="reason"><option value="">all reasons</option>${reasons.map(x=>`<option>${esc(x)}</option>`)}</select><input id="start" type="date"><input id="end" type="date"><button id="go">Filter</button><a href="/continuation">Dashboard</a></div><div class="card scroll"><table><thead><tr><th>Time</th><th>Stage</th><th>Status</th><th>BSL</th><th>Thesis</th><th>DOL</th><th>Entry</th><th>SL</th><th>Target</th><th>Reason</th></tr></thead><tbody>${rows.map(x=>`<tr><td><a href="/continuation/candidate/${encodeURIComponent(x.candidate_id)}">${esc(x.decision_at)}</a></td><td>${esc(x.stage)}</td><td><span class="pill">${esc(x.status)}</span></td><td>${esc(x.bsl_name)}</td><td>${esc(x.payload.jade_thesis)}</td><td>${esc(x.dol_id)}</td><td>${fmt(x.entry_price,2)}</td><td>${fmt(x.stop_price,2)}</td><td>${fmt(x.target_price,2)}</td><td>${esc(x.rejection_reason)}</td></tr>`).join('')}</tbody></table></div>`;for(let k of ['status','reason','start','end'])$('#'+k).value=q.get(k)||'';$('#go').onclick=()=>{let z=new URLSearchParams();for(let k of ['status','reason','start','end'])if($('#'+k).value)z.set(k,$('#'+k).value);location.search=z}}
+function k(k,v){return `<div class="kpi"><div class="kk">${k}</div><div class="kv">${v}</div></div>`}function step(n,t,d,state){return `<div class="step ${state}"><div><span class="n">${n}</span><span class="st">${t}</span></div><div class="sd">${d}</div></div>`}
+function cards(s){let m=s.metrics,e=s.engine,f=s.funnel||{},o=s.order_counts||{};return `<div class="bar"><div class="card metric">Engine / feed<div class="big ${e.status==='ok'?'ok':'warn'}">${esc(e.status)}</div><div class="mut">last bar ${esc(e.last_bar||'—')}</div></div><div class="card metric">Current HTF thesis<div class="big">${esc(s.latest_thesis||'brak danych')}</div><div class="mut">since ${esc(s.collection_started_at||'brak danych')}</div></div><div class="card metric">Candidates / rejected<div class="big">${f.canonical_outputs??0} / ${s.candidate_counts.REJECTED??0}</div><div class="mut">pending orders ${o.PENDING??0}</div></div><div class="card metric">Fills / closed<div class="big">${m.open_trades+m.closed_trades} / ${m.closed_trades}</div><div class="mut">W/L/flat ${m.winners}/${m.losers}/${m.flat}</div></div><div class="card metric">PF net<div class="big">${m.pf_after_cost==null?'brak danych':fmt(m.pf_after_cost)}</div><div class="mut">Net ${fmt(m.net_r_after_cost)}R · DD ${m.max_drawdown_r_after_cost==null?'brak danych':fmt(m.max_drawdown_r_after_cost)+'R'}</div></div></div>`}
+async function dash(){let s=await j('/continuation/api/status');$('#app').innerHTML=`<div class="top"><div><h2>MNQ Continuation · LONG + SHORT shadow</h2><div class="mut">Policy B unmanaged · frozen directional OPEN DOL · no broker actions</div></div><div class="badge">SHADOW ONLY · ${esc(s.engine.status)}</div></div>`+cards(s)+`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"><div class="card metric"><h3>LONG forward metrics</h3><pre>${esc(JSON.stringify(s.metrics_by_direction.LONG,null,2))}</pre></div><div class="card metric"><h3>SHORT exploratory forward metrics</h3><pre>${esc(JSON.stringify(s.metrics_by_direction.SHORT,null,2))}</pre></div><div class="card metric"><h3>Open positions</h3><pre>${esc(JSON.stringify(s.open_positions,null,2))}</pre></div><div class="card metric"><h3>Historical LONG Development reference only</h3><pre>${esc(JSON.stringify(s.historical_development_reference_only,null,2))}</pre></div><div class="card metric"><h3>Execution contract</h3><p>Directional causal OPEN DOL frozen at decision. Structural SL, one-tick-through fill, 10-minute expiry, no manager, fill-bar brackets disabled, then adverse-first. SHORT has no inherited Development profitability claim.</p></div></div>`}
+async function list(){
+  let q=new URLSearchParams(location.search),d=await j('/continuation/api/candidates?'+q),rows=d.rows||[],s=d.funnel_stats||{};
+  let reasons=[...new Set(rows.map(x=>x.rejection_reason).filter(Boolean))].sort();
+  let body=rows.map(x=>{
+    let p=x.payload||{},side=x.direction||p.dir||p.direction||'LONG',short=side==='SHORT';
+    let canonical=x.event_kind==='CANONICAL_OUTPUT',thesis=p.jade_thesis===side;
+    let close=x.event_kind==='CLOSE_THROUGH'||p.source_event?.close_through===true;
+    let dol=x.eligible===1&&!!x.dol_id,risk=dol&&x.entry_price!=null&&x.stop_price!=null;
+    let filled=x.order_state==='FILLED',ready=x.order_state==='PENDING',tracking=x.status==='TRACKING';
+    let status=filled?'FILLED':x.trade_state==='CLOSED'?'CLOSED':ready?'READY / ORDER PENDING':tracking?'TRACKING':x.status==='SUPERSEDED'?'CANONICAL CONFIRMED':'REJECTED';
+    let cls=(filled||ready||x.trade_state==='CLOSED')?'green':tracking||x.status==='SUPERSEDED'?'warn':'red';
+    let finalState=(filled||ready||x.trade_state==='CLOSED')?'ok':tracking?'wait':'bad';
+    let source=p.source_event||{},level=source.bsl_price??source.ssl_price??p.bsl_price??p.ssl_price;
+    return `<div class="card"><div class="head"><div class="title"><a href="/continuation/candidate/${encodeURIComponent(x.candidate_id)}"><span class="${short?'red':'green'}">${side}</span> · ${esc(x.bsl_name||p.cat||'LIQUIDITY')} · ${esc(x.decision_at)}</a></div><div class="${cls}"><b>${esc(status)}</b></div></div><div class="steps">
+      ${step(1,'HTF '+side+' thesis',esc(p.jade_thesis||'not yet available')+' · fixed at 18:00 ET',thesis?'ok':'bad')}
+      ${step(2,(short?'SSL':'BSL')+' close-through',esc(x.bsl_name||source.bsl_name||source.ssl_name)+' @ '+esc(level),close?'ok':'bad')}
+      ${step(3,'Displacement + owned FVG',canonical?('FVG '+esc(p.fvg_lo)+'–'+esc(p.fvg_hi)):'Waiting for canonical chain',canonical?'ok':tracking?'wait':'bad')}
+      ${step(4,'Pullback + hold + BOS',canonical?('BOS '+esc(p.bos_iso||p.bos_ms)):'Not confirmed',canonical?'ok':tracking?'wait':'bad')}
+      ${step(5,'OPEN '+(short?'bearish':'bullish')+' DOL',dol?(esc(x.dol_id)+' @ '+fmt(x.target_price,2)):esc(x.rejection_reason||'not selected'),dol?'ok':'bad')}
+      ${step(6,'Entry + risk / fill',risk?('Entry '+fmt(x.entry_price,2)+' · SL '+fmt(x.stop_price,2)+' · DOL TP '+fmt(x.target_price,2)):status,finalState)}</div>
+      <div class="levels"><b>Candidate:</b> ${esc(x.candidate_id)} <b>Stage:</b> ${esc(x.stage)} <b>Order:</b> ${esc(x.order_state)} <b>Trade:</b> ${esc(x.trade_state)} ${x.net_r==null?'':('<b>Net:</b> '+fmt(x.net_r)+'R')}</div><div class="reason"><b>Decision reason:</b> ${esc(x.rejection_reason||status)}</div></div>`;
+  }).join('')||'<div class="empty">No Continuation candidates recorded yet. Scanner is waiting for the first causal close-through event.</div>';
+  $('#app').innerHTML=`<div class="top"><div><h2>MNQ Continuation · LONG + SHORT candidates</h2><div class="mut">Independent directional shadow; SHORT is exploratory and has no inherited LONG performance claim.</div></div><div class="badge">SHADOW ONLY · independent scanner</div></div><div class="kpis">${k('Candidates',s.candidates||0)}${k('Close-through',s.close_through||0)}${k('Canonical confirmed',s.canonical_confirmed||0)}${k('HTF LONG',s.htf_long||0)}${k('HTF SHORT',s.htf_short||0)}${k('DOL aligned',s.dol_aligned||0)}${k('Filled',s.filled||0)}</div><div class="help"><b>What each step means</b><br><span class="mut">1 matching JadeCap HTF thesis fixed at 18:00 ET → 2 registered BSL/SSL close-through → 3 directional displacement + event-owned FVG → 4 later pullback/hold + BOS → 5 causal directional OPEN DOL → 6 frozen Entry/SL/DOL target and shadow fill.</span></div><div class="filters"><select id="direction"><option value="">LONG + SHORT</option><option>LONG</option><option>SHORT</option></select><select id="status"><option value="">all status</option>${['TRACKING','REJECTED','SUPERSEDED','UNFILLED_OR_PENDING'].map(x=>`<option>${x}</option>`)}</select><select id="reason"><option value="">all reasons</option>${reasons.map(x=>`<option>${esc(x)}</option>`)}</select><input id="start" type="date"><input id="end" type="date"><button id="go">Filter</button></div><div class="cards">${body}</div>`;
+  for(let z of ['direction','status','reason','start','end'])$('#'+z).value=q.get(z)||'';
+  $('#go').onclick=()=>{let z=new URLSearchParams();for(let a of ['direction','status','reason','start','end'])if($('#'+a).value)z.set(a,$('#'+a).value);location.search=z};
+}
 function chart(b,d){if(!b.length)return '<div class="card">No bars available.</div>';let W=1000,H=520,pad=55,vals=b.flatMap(x=>[x.low,x.high]),marks=[d.entry_price,d.stop_price,d.target_price].filter(x=>x!=null),lo=Math.min(...vals,...marks),hi=Math.max(...vals,...marks),p=(hi-lo)*.06||1;lo-=p;hi+=p;let x=i=>pad+(i+.5)*(W-2*pad)/b.length,y=v=>pad+(hi-v)*(H-2*pad)/(hi-lo),bw=Math.max(1,Math.min(6,(W-2*pad)/b.length*.65)),s=`<svg viewBox="0 0 ${W} ${H}">`;for(let n=0;n<6;n++){let v=lo+n*(hi-lo)/5,yy=y(v);s+=`<line x1="${pad}" y1="${yy}" x2="${W-pad}" y2="${yy}" stroke="#263952"/><text x="4" y="${yy+4}" fill="#8ca0ba" font-size="12">${v.toFixed(2)}</text>`}b.forEach((c,i)=>{let col=c.close>=c.open?'#2dd4bf':'#fb7185',xx=x(i),top=Math.min(y(c.open),y(c.close)),bot=Math.max(y(c.open),y(c.close));s+=`<line x1="${xx}" y1="${y(c.high)}" x2="${xx}" y2="${y(c.low)}" stroke="${col}"/><rect x="${xx-bw/2}" y="${top}" width="${bw}" height="${Math.max(1,bot-top)}" fill="${col}"/>`});[['ENTRY',d.entry_price,'#60a5fa'],['SL',d.stop_price,'#fb7185'],['DOL',d.target_price,'#fbbf24']].forEach(z=>{if(z[1]!=null)s+=`<line x1="${pad}" y1="${y(z[1])}" x2="${W-pad}" y2="${y(z[1])}" stroke="${z[2]}" stroke-width="2" stroke-dasharray="7 5"/><text x="${W-pad+5}" y="${y(z[1])+4}" fill="${z[2]}">${z[0]}</text>`});return s+'</svg>'}
 async function detail(){let id=decodeURIComponent(location.pathname.split('/').pop()),d=await j('/continuation/api/candidate/'+encodeURIComponent(id));$('#app').innerHTML=`<p><a href="/continuation/candidates">← Candidates</a></p><div class="detail"><div class="card">${chart(d.bars,d.candidate)}</div><div class="card"><h3>${esc(id)}</h3><p><b>${esc(d.candidate.stage)}</b> · ${esc(d.candidate.status)}</p><h4>Order / trade state</h4><pre>${esc(JSON.stringify({order:d.order,trade:d.trade},null,2))}</pre><h4>Frozen evidence</h4><pre>${esc(JSON.stringify(d.candidate.payload,null,2))}</pre></div></div>`}
-(async()=>{try{if(location.pathname.includes('/candidate/'))await detail();else if(location.pathname.endsWith('/candidates'))await list();else await dash()}catch(e){$('#app').innerHTML='<div class="card bad">'+esc(e)+'</div>'}})();
+(async()=>{try{if(location.pathname.includes('/candidate/'))await detail();else if(location.pathname.endsWith('/dashboard'))await dash();else await list()}catch(e){$('#app').innerHTML='<div class="card metric bad">'+esc(e)+'</div>'}})();
 </script></body></html>'''
 
 
@@ -610,6 +725,7 @@ def register(app, archive_path: str | os.PathLike[str] | None = None) -> None:
 
     @app.get("/continuation")
     @app.get("/continuation/candidates")
+    @app.get("/continuation/dashboard")
     @app.get("/continuation/candidate/<candidate_id>")
     def continuation_page(candidate_id: str | None = None):
         return Response(PAGE, mimetype="text/html")
@@ -620,7 +736,7 @@ def register(app, archive_path: str | os.PathLike[str] | None = None) -> None:
 
     @app.get("/continuation/api/candidates")
     def continuation_candidates():
-        return jsonify(_candidate_rows())
+        return jsonify(rows=_candidate_rows(), funnel_stats=_candidate_funnel_stats())
 
     @app.get("/continuation/api/candidate/<candidate_id>")
     def continuation_candidate(candidate_id: str):
