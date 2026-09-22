@@ -1,0 +1,147 @@
+{
+  "registered_at": "2026-09-10T12:27:37.794332+00:00",
+  "window": [
+    "2025-09-09T00:00:00-04:00",
+    "2026-09-09T00:00:00-04:00"
+  ],
+  "variants": [
+    "baseline",
+    "strict125",
+    "revised125",
+    "rule5"
+  ],
+  "profiles": {
+    "configured100K": {
+      "start": 100000.0,
+      "target": 6000.0,
+      "trail": 3500.0,
+      "floor_cap": null,
+      "group_budget": 750.0,
+      "day_loss_n": 2,
+      "day_loss_usd": 900.0,
+      "streak_n": 3,
+      "cooldown_hours": 24,
+      "day_target": 1200.0,
+      "min_days": 2,
+      "inactivity": 0,
+      "consistency": 0.5,
+      "skip": [
+        "ASIA",
+        "LO"
+      ],
+      "monday": "quarter",
+      "max_qty": 15,
+      "max_total": 60,
+      "projected": false,
+      "ramp": 0,
+      "last_entry": 930,
+      "flatten": 955
+    },
+    "documentedBuilder50K": {
+      "start": 50000.0,
+      "target": 3000.0,
+      "trail": 2000.0,
+      "floor_cap": 50100.0,
+      "group_budget": 500.0,
+      "day_loss_n": 1,
+      "day_loss_usd": 550.0,
+      "streak_n": 2,
+      "cooldown_hours": 24,
+      "day_target": 1000.0,
+      "min_days": 1,
+      "inactivity": 7,
+      "consistency": null,
+      "skip": [
+        "ASIA",
+        "LO",
+        "NYL"
+      ],
+      "monday": "nyam",
+      "max_qty": 15,
+      "max_total": 40,
+      "projected": true,
+      "ramp": 0,
+      "last_entry": 930,
+      "flatten": 955
+    }
+  },
+  "strategy_hashes": {
+    "policy.py": "7974728615df6ba1a8021d22b460cf7bcb6544f60e9e5e6100a6e6f5cfd1b593",
+    "rules.json": "eaa83d00e499f95d9b22daac07d37ce921962fd8d44b43879c331acba416893e",
+    "SPEC.md": "93d3928bfe4ca9fe12f5e405772c43fefd1ec928c72bd661f086fb65404e8580",
+    "run.py": "a050ee6bffe4346e7166c5c08276b5bef3e41a0151cda25f96a8ad77ba163bb9",
+    "revised_v2/revised.py": "327d9887c158e04bb7395016e6b7c6dc02d76f7a7fa4476e67b3c9fac00cb725",
+    "revised_v2/SPEC.md": "12656f61b9ea12adc61e6fb0b17b74164397a91fa9b2ebb52d7b496a9528e7ac"
+  },
+  "input_sha256": {
+    "audit_data/MNQ_databento_2022_1m.csv": "745ca99bfa0f71262cb72c7c0fd42effc6a450c53ad1ec442caf5d955ec8d66b",
+    "/Users/aleksandra/Downloads/archive (43).csv": "4386b19ea057b41a4d1f4e3cbec5fc6fa81601f65abe9ea165809ff47bfa3af2"
+  },
+  "signal_sha256": "4a08293a3aa9461ac2800f6a435fc4e53ff65a2df54c485015141502e18a88fa",
+  "detector_env": {
+    "DISPWIN": "30",
+    "ATRMULT": "1.0",
+    "STOP_CAP": "30",
+    "STOP_CAP_TRIGGER": "0",
+    "ENTRY_PRIMARY": "fibo",
+    "ENTRY_OFFSET_PTS": "1",
+    "MAX_STOP_R": "40",
+    "DISP_MODE": "chain",
+    "MAX_RETEST": "4",
+    "REJ_FRAC": "0.6",
+    "DET_CAUSAL": "1",
+    "ORPHAN_FVG": "1",
+    "ORPHAN_MAX_BARS": "120",
+    "ORPHAN_WINDOW": "caps",
+    "ORPHAN_LIFE": "day",
+    "SWING_TP": "1",
+    "SWING_TP_K": "5",
+    "SWING_TP_LOOKBACK": "240",
+    "SWING_TP_MIN_R": "1",
+    "SWING_TP_MAX_R": "3",
+    "SL_STRUCT_MAX_R": "30",
+    "SL_ANCHOR_BUF": ".25"
+  },
+  "assumptions": [
+    "Historical closed-bar replay, not an untouched forward cohort; strategy definitions already selected on historical data.",
+    "Two seconds processing latency after close; eligibility at next full minute open; 10-minute expiry from placement.",
+    "Tick aligned broker brackets; limit requires one tick through; adverse-first bars; no fill-bar TP; stop gaps at adverse open.",
+    "$2.24 round-trip total per contract, including existing commission and slippage allowance; extra $2 cost sensitivity.",
+    "Actual bracket cash/equity separate from current guard 2R/-1R/0R shadow repricing; hypothetical true EOD equity sync daily.",
+    "Missing execution minutes make affected account attempt data-indeterminate; never impute a win/loss across the gap.",
+    "Historical high-impact ForexFactory news unavailable: conditional healthy/no-event scenario, NOT verified all-news guard replay.",
+    "Historical operational state unavailable: assume AUTO, timely equity sync, no manual kill, healthy route/peer, successful sibling batch.",
+    "Configured100K uses exposed live settings. Fresh floor=start-trail; cap absent assumed unlimited; ramp already completed; last entry 15:30 and flatten 15:55 are research defaults not exposed live settings.",
+    "Builder uses saved config including 7-day inactivity, whose evaluation-stage firm applicability remains unverified.",
+    "MAX_TRADES_DAY follows current executable _day_stats: resolved risk-consuming groups; no-fills do not consume limit. Earlier plan description saying all sent groups was incorrect.",
+    "Sequential hypothetical attempts restart next observed NY calendar date after pass/failure/data-indeterminacy. No purchases, fees, activation delays or funded profits modeled.",
+    "Continuous diagnostic retains daily/loss-streak/session/bias controls but disables evaluation target/floor/inactivity halts to measure the entire year.",
+    "Rolling-start scenarios use first NY session of each month with fixed 60-calendar-day horizon; overlapping dependent scenarios."
+  ],
+  "sensitivity": [
+    "extra $2 per contract",
+    "true realized guard feedback",
+    "100K $3000 drawdown with $100100 lock",
+    "100K 16:00 last-entry /16:04 flatten",
+    "exclude all listed holiday dates",
+    "one-minute faster eligibility",
+    "Builder inactivity off",
+    "strict unavailable calendar blocks all entries"
+  ],
+  "holiday_early_ny": {
+    "2025-11-27": 780,
+    "2025-11-28": 795,
+    "2025-12-24": 795,
+    "2026-01-19": 780,
+    "2026-02-16": 780,
+    "2026-04-03": 555,
+    "2026-05-25": 780,
+    "2026-06-19": 780,
+    "2026-07-03": 780,
+    "2026-09-07": 780
+  },
+  "holiday_closed": [
+    "2025-12-25",
+    "2026-01-01"
+  ]
+}

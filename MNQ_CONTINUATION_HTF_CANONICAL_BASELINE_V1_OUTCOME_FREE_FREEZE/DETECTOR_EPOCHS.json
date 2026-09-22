@@ -1,0 +1,139 @@
+{
+  "effective_config": {
+    "atrmult": 1.0,
+    "boswin": 30,
+    "buf": 3.0,
+    "cap_days": 10,
+    "causal": true,
+    "cutoff": "",
+    "data_csv": "/mnt/user-data/uploads/MNQ_databento_1m.csv",
+    "debug_trace": false,
+    "disp_mode": "chain",
+    "dispwin": 30,
+    "entry_primary": "fibo",
+    "eod_intraday": false,
+    "lookback": 15,
+    "max_stop_r": 40.0,
+    "maxext": 40,
+    "maximp": 3,
+    "minimp": 3,
+    "mode": "confirm",
+    "out_pkl": "/home/claude/det_new.pkl",
+    "rej_frac": 0.6,
+    "retwin": 20,
+    "rr": 2.0,
+    "session_bounds": [
+      0,
+      8,
+      13,
+      18
+    ],
+    "stop_cap": 30.0,
+    "stop_cap_trigger": 0.0,
+    "tol": 3.0,
+    "trace_out": "/home/claude/trace.json",
+    "vibig": 50.0,
+    "vimin": 10.0
+  },
+  "epochs": [
+    {
+      "canonical_outputs_before_cross_epoch_sort": 21,
+      "epoch": 0,
+      "first_timestamp": "2022-06-01T00:00:00+00:00",
+      "global_end_exclusive": 13800,
+      "global_start": 0,
+      "instrument_id": 13505,
+      "last_timestamp": "2022-06-14T23:59:00+00:00",
+      "raw_close_through_events": 298,
+      "registered_bsl_objects": 64
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 242,
+      "epoch": 1,
+      "first_timestamp": "2022-06-15T00:00:00+00:00",
+      "global_end_exclusive": 102780,
+      "global_start": 13800,
+      "instrument_id": 7688,
+      "last_timestamp": "2022-09-13T23:59:00+00:00",
+      "raw_close_through_events": 3083,
+      "registered_bsl_objects": 436
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 231,
+      "epoch": 2,
+      "first_timestamp": "2022-09-14T00:00:00+00:00",
+      "global_end_exclusive": 191954,
+      "global_start": 102780,
+      "instrument_id": 20332,
+      "last_timestamp": "2022-12-13T23:59:00+00:00",
+      "raw_close_through_events": 3191,
+      "registered_bsl_objects": 437
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 184,
+      "epoch": 3,
+      "first_timestamp": "2022-12-14T00:00:00+00:00",
+      "global_end_exclusive": 278474,
+      "global_start": 191954,
+      "instrument_id": 8071,
+      "last_timestamp": "2023-03-14T23:59:00+00:00",
+      "raw_close_through_events": 3394,
+      "registered_bsl_objects": 423
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 235,
+      "epoch": 4,
+      "first_timestamp": "2023-03-15T00:00:00+00:00",
+      "global_end_exclusive": 367469,
+      "global_start": 278474,
+      "instrument_id": 4973,
+      "last_timestamp": "2023-06-13T23:59:00+00:00",
+      "raw_close_through_events": 3577,
+      "registered_bsl_objects": 446
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 212,
+      "epoch": 5,
+      "first_timestamp": "2023-06-14T00:00:00+00:00",
+      "global_end_exclusive": 456223,
+      "global_start": 367469,
+      "instrument_id": 9235,
+      "last_timestamp": "2023-09-12T23:59:00+00:00",
+      "raw_close_through_events": 3007,
+      "registered_bsl_objects": 432
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 162,
+      "epoch": 6,
+      "first_timestamp": "2023-09-13T00:00:00+00:00",
+      "global_end_exclusive": 546776,
+      "global_start": 456223,
+      "instrument_id": 34070,
+      "last_timestamp": "2023-12-13T23:59:00+00:00",
+      "raw_close_through_events": 3777,
+      "registered_bsl_objects": 455
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 200,
+      "epoch": 7,
+      "first_timestamp": "2023-12-14T00:00:00+00:00",
+      "global_end_exclusive": 631916,
+      "global_start": 546776,
+      "instrument_id": 7101,
+      "last_timestamp": "2024-03-12T23:59:00+00:00",
+      "raw_close_through_events": 3622,
+      "registered_bsl_objects": 423
+    },
+    {
+      "canonical_outputs_before_cross_epoch_sort": 129,
+      "epoch": 8,
+      "first_timestamp": "2024-03-13T00:00:00+00:00",
+      "global_end_exclusive": 710216,
+      "global_start": 631916,
+      "instrument_id": 10,
+      "last_timestamp": "2024-05-31T20:59:00+00:00",
+      "raw_close_through_events": 3063,
+      "registered_bsl_objects": 388
+    }
+  ]
+}

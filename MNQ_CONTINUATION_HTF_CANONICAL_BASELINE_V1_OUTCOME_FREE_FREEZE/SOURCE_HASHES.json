@@ -1,0 +1,15 @@
+{
+  "MNQ_CONTINUATION_HTF_CANONICAL_REVERSAL_SOURCE_GATE/SOURCE_GATE.json": "337a4966993806dd1c4ebc5cc484c7e3eab76d60f7769bacfef32b09b20c9bf9",
+  "MNQ_JADECAP_HTF_PULLBACK_V1_OUTCOME_FREE_FREEZE/source/mini_v1_authoritative.py": "a6809d1e23124e92e4b425e70dc7b8f0ef2968f7575649b3ddb04e13793262f4",
+  "audit_results/ict_125/policy.py": "7974728615df6ba1a8021d22b460cf7bcb6544f60e9e5e6100a6e6f5cfd1b593",
+  "audit_results/ict_125/year_20260910/registration.json": "959f2ab4c497f9db4661c321f2acd3b1f66cc7071d32bdf08c1362d65afcbe17",
+  "detcore/a_cont_v3_ict_dol.py": "3ac3e330a3fc47343a2751eb2e649bd953d46b54dc4d9c6dc11e6dea1da8971a",
+  "detcore/catalysts.py": "3aa45cc8f4766d7d019ff46ac2e94b6f1ddf06d74e957ef6f5669cf9a48444b3",
+  "detcore/config.py": "54d073f957fd16ebccd942b0350b58569ad5d7b83c7853062ba93808d78b724c",
+  "detcore/confirmation.py": "b3507858fa7fc7d8f71b52c6fd66cd87707ac34dbcd37ea5d923493ac8b67ae9",
+  "detcore/data.py": "6674e9e4a3c1ba42c01f5c723bb5b92f355cda5cfe45f1da3f59c0faec93ebea",
+  "detcore/emit.py": "b3c39bc48a59ec79f96a4b7903aab4c9f32475caf099f89a55c456bb5c564c21",
+  "detcore/entries.py": "106732510c12a61858de333078d0727a246e3be6eb1b20d30add108a68d82a77",
+  "detcore/scaffolding.py": "0ccc3cce31aa8c992dd09a9003f08f2573e1283948d409e3c5b647a401a636ea",
+  "jadecap_research_20260921/data_dev/mnq_development.csv": "2538a96cfd2f4044137b3f0614dade3ec2664b42d426f462e4ab58cdd3fa2dd9"
+}

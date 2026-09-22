@@ -115,6 +115,17 @@ class ContinuationShadowTests(unittest.TestCase):
         provenance = subject._verify_freeze()
         self.assertEqual(provenance["configuration_sha256"], "959f2ab4c497f9db4661c321f2acd3b1f66cc7071d32bdf08c1362d65afcbe17")
 
+    def test_incomplete_freeze_fails_closed(self):
+        original = subject.HERE
+        root = Path(self.temp.name) / "runtime"
+        root.mkdir()
+        subject.HERE = root
+        try:
+            with self.assertRaisesRegex(RuntimeError, "SHA256_MANIFEST.json.*FREEZE.sha256"):
+                subject._verify_freeze()
+        finally:
+            subject.HERE = original
+
     def test_routes_navigation_and_independent_bar_hook_are_wired(self):
         class FakeApp:
             def __init__(self):
@@ -135,7 +146,10 @@ class ContinuationShadowTests(unittest.TestCase):
             subject.notify_bar = original
         self.assertIn("/continuation", app.routes)
         self.assertIn("/continuation/candidates", app.routes)
+        self.assertIn("/continuation/dashboard", app.routes)
         self.assertIn("/continuation/api/candidate/<candidate_id>", app.routes)
+        self.assertIn("s.engine.last_error", subject.PAGE)
+        self.assertIn("Scanner error", subject.PAGE)
         root = Path(subject.__file__).resolve().parent
         dashboard = (root / "dashboard.py").read_text(encoding="utf-8")
         agent = (root / "agent.py").read_text(encoding="utf-8")

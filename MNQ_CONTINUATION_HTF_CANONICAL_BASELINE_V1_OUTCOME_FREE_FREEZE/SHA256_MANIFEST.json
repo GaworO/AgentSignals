@@ -1,0 +1,14 @@
+{
+  "BASELINE_CONFIGURATION.json": "55e4277fb74cf940e9ffc49ba07136ce92754e37a13626272a54581dddf6feee",
+  "DETECTOR_EPOCHS.json": "a027ea6cdf6438b9dde66c27362cbca4f516db5477ffa3a1693af7e90918394f",
+  "DETERMINISM.json": "4d6118def716cdf3b75b93709d388eddbe69ac9f7bb80637daba7b90896461ad",
+  "FREEZE_REPORT.md": "d3406bd34de5ac513a5803db3fc93708768e3d4baba562065233045fc7e8db2a",
+  "FUNNEL.json": "6aba79d59f36797da0a533b2fddde71389852b0468c07fddec033e1e3962a117",
+  "POLICIES_COST_TERMINAL.json": "51f078fba71e77d20e8d12ebce4f7b7b3f94e4ba6ca863310d4f508bec7149c7",
+  "SOURCE_HASHES.json": "aa9a61dac118404d5d2665e1126ec5affc356c619a62be988a388a4d36596e20",
+  "candidate_manifest.jsonl": "968e0dea9d935d4da2c0b9595a347a87d3c2d5b22f0f992424a8441e99657102",
+  "first20_audit.jsonl": "81c6b00f9551d1c7553fd897f8e6702fddd30dc261eee395b0ec90e1928fb858",
+  "order_manifest.jsonl": "cda7c13a18ee068fbc11563f7351cb91399648fc952a49154a1481d45ecc921f",
+  "source/freeze_baseline.py": "c1b2a3e091d30f86dc4787c09deabdf53adb41d6dfa6abdff9b4eb27971fb9ce",
+  "trigger_manifest.jsonl": "a816e2a65bcdaaa472cf663f69518d34b3d5c1be3c4dffb849c3ed7ce650f29b"
+}

@@ -1,0 +1,37 @@
+{
+  "schema": "MNQ_CONTINUATION_HTF_CANONICAL_REVERSAL_SOURCE_GATE_V1",
+  "gate": "FAIL",
+  "reason": "No authoritative artifact ties the recoverable generic canonical A/B detector configuration to the asserted profitable DOL Delivery Reversal champion.",
+  "recoverable": {
+    "canonical_detector_source": true,
+    "generic_frozen_research_configuration": true,
+    "dol_delivery_reversal_forward_filter": true,
+    "jadecap_htf_thesis": true,
+    "run_level_liq_shared_state_suppression": true
+  },
+  "missing": {
+    "champion_candidate_manifest": true,
+    "champion_order_manifest": true,
+    "champion_trade_ids_by_split": true,
+    "champion_entry_sl_target_cost_manifest": true,
+    "champion_config_to_strategy_hash_binding": true,
+    "champion_trade_for_trade_results": true,
+    "compatible_portfolio_capacity_rules": true
+  },
+  "hashes": {
+    "detcore/confirmation.py": "b3507858fa7fc7d8f71b52c6fd66cd87707ac34dbcd37ea5d923493ac8b67ae9",
+    "detcore/primitives.py": "796e3dcd1f8b06632fe71b48f798b692399640e4e31d443fdeec42b95169f691",
+    "detcore/entries.py": "106732510c12a61858de333078d0727a246e3be6eb1b20d30add108a68d82a77",
+    "detcore/scaffolding.py": "0ccc3cce31aa8c992dd09a9003f08f2573e1283948d409e3c5b647a401a636ea",
+    "agent.py": "0371ab0a752d696274a6ad44a2b7dd7d37a9c4711ce0b9b79ebf6b10ce37139a",
+    "audit_results/ict_125/year_20260910/registration.json": "959f2ab4c497f9db4661c321f2acd3b1f66cc7071d32bdf08c1362d65afcbe17",
+    "mnq_position_manager_v1/SOURCE_GATE.json": "0df10b9465ccdfd8f3a74d57d6be1985863bcf3a58ceeb76f9998cabf8bfb583",
+    "MNQ_JADECAP_HTF_PULLBACK_V1_OUTCOME_FREE_FREEZE/source/mini_v1_authoritative.py": "a6809d1e23124e92e4b425e70dc7b8f0ef2968f7575649b3ddb04e13793262f4",
+    "dol_delivery_reversal_shadow.py": "c934d7f02618c486060f503e1557d3b08b34b65835399bf6357203885e4de832"
+  },
+  "development_profitability_opened": false,
+  "validation_opened": false,
+  "sealed_opened": false,
+  "strategy_implemented": false,
+  "production_modified": false
+}

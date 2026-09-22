@@ -1,0 +1,156 @@
+# detcore/emit.py
+# Stage 5: turn a confirmed trigger into an output record.
+#   emit       -> displacement -> setup -> entry -> risk-cap -> append to ctx.out
+#   try_chain  -> v10 chain (class A); falls back to DIB (class B) with the same v10 entry
+#   _trc       -> optional debug trace ; session_end_bar -> legacy helper (kept for parity)
+# Bodies verbatim from det_v11; ctx replaces the old module globals (out, _cur_break, df, ...).
+import pandas as pd
+
+from .confirmation import (find_displacement, find_displacement_dib, find_setup_v10, bias_for,
+                           rejection_untested, find_setup_orphan)
+from .entries import get_entry_v10
+from .exits import exceeds_risk_cap
+
+
+def _trc(ctx, trigger, dr, model, name, stage, disp=None, details=None):
+    if not ctx.cfg.debug_trace: return
+    df = ctx.df
+    r = dict(cat=name, model=model, dir=dr, trig=df.dt[trigger].strftime('%Y-%m-%d %H:%M'),
+             trig_ms=int(df.dt[trigger].timestamp() * 1000), stage=stage)
+    if disp is not None:
+        r['disp_end'] = df.dt[disp['u']].strftime('%H:%M')
+        r['fvg'] = [round(disp['fvg'][0], 1), round(disp['fvg'][1], 1)]
+    if details:
+        r.update(details)
+    ctx._TRC.append(r)
+
+
+def session_end_bar(ctx, b):
+    """Legacy helper from det_v11 (defined but unused there). Kept for parity."""
+    df, n = ctx.df, ctx.n
+    SESSION_BOUNDS = list(ctx.cfg.session_bounds)
+    t = df.dt.iloc[b]; h = t.hour
+    nb = min(x for x in SESSION_BOUNDS + [24] if x > h)
+    bound = t.normalize() + pd.Timedelta(hours=nb); j = b
+    while j + 1 < n and df.dt.iloc[j + 1] < bound: j += 1
+    return j
+
+
+def emit(ctx, t, model, name, dr, disp, conf=None):
+    """v10 entry (FVG-edge / OTE), SL = CE of displacement FVG, TP = rr*R."""
+    out, df, dates = ctx.out, ctx.df, ctx.dates
+    _trc(ctx, t, dr, model, name, 'displacement OK', disp)
+    su = find_setup_v10(ctx, disp, dr)
+    if su is None:
+        _trc(ctx, t, dr, model, name, 'brak setupu (odbicie/BOS)', disp)
+        # v31: an FVG the price ran away from (no test, no CE break inside retwin) stays watched
+        # until a body closes through the configured hold threshold or the day ends. ORPHAN_FVG=0 disables.
+        import os as _os
+        if _os.environ.get('ORPHAN_FVG', '1') == '1' and rejection_untested(ctx, disp, dr):
+            ctx.orphans.append(dict(t=int(t), model=model, name=name, dr=dr, disp=dict(disp)))
+        return
+    _trc(ctx, t, dr, model, name, 'setup OK (BOS)', disp)
+    e = get_entry_v10(ctx, su)
+    if e is None: _trc(ctx, t, dr, model, name, 'brak wejscia', disp); return
+    # v29: the emit-gate still measures the CE risk, exactly as v28 did, so the SET of trades is
+    # unchanged. The v29 anchor only decides WHERE the stop sits (and is re-anchored to the cap
+    # rather than deleting the setup).
+    if exceeds_risk_cap(ctx, e.get('risk_ce', e['risk'])):
+        _trc(ctx, t, dr, model, name, f'odciety cap (R={e["risk"]:.0f}pkt)', disp); return
+    b, pdv = bias_for(ctx, su['bos_bar'])
+    align = 'Y' if b.replace('?', '') == dr else ('?' if '?' in b or b == 'niejasny' else 'N')
+    record = dict(brk=ctx.cur_break, date=str(dates[su['bos_bar']]), model=model, cat=name, dir=dr,
+        cls=('B' if '+DIB' in name else 'A'), entry=e['entry'], SL=e['sl'], TP=e['tp'], risk=e['risk'], kind=e['kind'],
+        bias=b, bias_align=align, bos=df.dt[su['bos_bar']].strftime('%H:%M'),
+        s=int(disp['s']), u=int(disp['u']), fvg_lo=round(disp['fvg'][0], 2), fvg_hi=round(disp['fvg'][1], 2),
+        fvg_bar=int(disp['fvg_bar']), origin_bar=int(su['origin_bar']), bos_bar=int(su['bos_bar']), ce=round(su['ce'], 2),
+        # v29: which anchor the stop came from + all three candidate levels, so the live book,
+        # /all/trades and the Auto-Executor audit can show WHY the stop is where it is.
+        sl_src=e.get('sl_src'), sl_ce=e.get('sl_ce'), sl_struct=e.get('sl_struct'),
+        sl_fvg_edge=e.get('sl_fvg_edge'),
+        # v30: which rule produced the target + the raw swing level it aims at
+        tp_src=e.get('tp_src'), tp_level=e.get('tp_level'),
+        sfvg_bar=int(e['sfvg_bar']) if e.get('sfvg_bar') is not None else None,
+        hh_bar=int(e['hh_bar']) if e.get('hh_bar') is not None else None,
+        emit_bar=int(su['bos_bar']), entry_bar=int(e['start_bar']),
+        # v28: ms of the first bar the resting order can actually trade (the bar that DEFINES the
+        # entry level has to close first). shadow.score(entry_ms=...) uses it instead of bos_ms+1.
+        entry_ms=int(df.dt[min(int(e['start_bar']), ctx.n - 1)].timestamp() * 1000)
+                 if int(e['start_bar']) < ctx.n
+                 else int(df.dt[su['bos_bar']].timestamp() * 1000) + 60000 * (int(e['start_bar']) - int(su['bos_bar'])),
+        bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
+        bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000))
+    # The combined candidate page needs the real confirmed levels and the BOS
+    # close used by production to derive A/B-shallow.  This enriches DEBUG_TRACE
+    # only; the detector's output record and trading logic remain unchanged.
+    _trc(ctx, t, dr, model, name, 'POTWIERDZONY', disp, details={
+        'date': record['date'], 'bos': record['bos'], 'bos_ms': record['bos_ms'],
+        'entry': record['entry'], 'SL': record['SL'], 'TP': record['TP'],
+        'risk': record['risk'], 'sl_src': record.get('sl_src'),
+        'tp_src': record.get('tp_src'),
+        'signal_close': round(float(ctx.cl[su['bos_bar']]), 10),
+    })
+    out.append(record)
+
+
+def emit_orphan(ctx, o):
+    """v31: resolve one watched orphan zone. Same entry/risk/record path as emit(), with the
+    setup coming from find_setup_orphan. cat gets an +ORPH suffix so nothing dedups against the
+    normal path and the book shows where the trade came from."""
+    out, df, dates = ctx.out, ctx.df, ctx.dates
+    disp, dr = o['disp'], o['dr']
+    fb = int(disp['fvg_bar'])
+    start = fb + 1                      # v31.1: watch from FVG birth — window is the whole day
+    dkey = dates[min(int(disp['u']), ctx.n - 1)]
+    day_end = ctx.day_last_idx.get(dkey, ctx.n - 1)
+    # v31.2: zone-lifetime cap. ORPHAN_LIFE=day (default) | session (zone dies with the session
+    # instance the displacement ended in). ORPHAN_MAX_BARS=N additionally caps the lifetime at
+    # fvg_bar+N (0 = off). Both only ever SHORTEN the day bound — the day/CE kill rules stand.
+    import os as _os
+    if _os.environ.get('ORPHAN_LIFE', 'day') == 'session':   # v31.3 default 'day': the shipped variant is 120 BARS (below), exactly as measured
+        try: day_end = min(day_end, int(ctx.sessinst[int(ctx.inst[min(int(disp['u']), ctx.n - 1)])][2]))
+        except Exception: pass
+    try:
+        _mb = int(float(_os.environ.get('ORPHAN_MAX_BARS', '120') or 0))   # v31.3 DEFAULT 120 bars (2h): +$4,125, 6W/2L, 0 degraded months in the 4y sweep
+        if _mb > 0: day_end = min(day_end, fb + _mb)
+    except Exception: pass
+    if start > day_end: return
+    su = find_setup_orphan(ctx, disp, dr, start, day_end)
+    if su is None: return
+    e = get_entry_v10(ctx, su)
+    if e is None: return
+    if exceeds_risk_cap(ctx, e.get('risk_ce', e['risk'])): return
+    model, name = o['model'], o['name'] + '+ORPH'
+    b, pdv = bias_for(ctx, su['bos_bar'])
+    align = 'Y' if b.replace('?', '') == dr else ('?' if '?' in b or b == 'niejasny' else 'N')
+    out.append(dict(brk=ctx.cur_break, date=str(dates[su['bos_bar']]), model=model, cat=name, dir=dr,
+        cls='A', entry=e['entry'], SL=e['sl'], TP=e['tp'], risk=e['risk'], kind=e['kind'],
+        bias=b, bias_align=align, bos=df.dt[su['bos_bar']].strftime('%H:%M'),
+        s=int(disp['s']), u=int(disp['u']), fvg_lo=round(disp['fvg'][0], 2), fvg_hi=round(disp['fvg'][1], 2),
+        fvg_bar=int(disp['fvg_bar']), origin_bar=int(su['origin_bar']), bos_bar=int(su['bos_bar']), ce=round(su['ce'], 2),
+        sl_src=e.get('sl_src'), sl_ce=e.get('sl_ce'), sl_struct=e.get('sl_struct'),
+        sl_fvg_edge=e.get('sl_fvg_edge'),
+        tp_src=e.get('tp_src'), tp_level=e.get('tp_level'),
+        sfvg_bar=int(e['sfvg_bar']) if e.get('sfvg_bar') is not None else None,
+        hh_bar=int(e['hh_bar']) if e.get('hh_bar') is not None else None,
+        emit_bar=int(su['bos_bar']), entry_bar=int(e['start_bar']),
+        entry_ms=int(df.dt[min(int(e['start_bar']), ctx.n - 1)].timestamp() * 1000)
+                 if int(e['start_bar']) < ctx.n
+                 else int(df.dt[su['bos_bar']].timestamp() * 1000) + 60000 * (int(e['start_bar']) - int(su['bos_bar'])),
+        bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
+        bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000)))
+
+
+def try_chain(ctx, trigger, dr, model, name):
+    """v10 chain (class A); DIB = class B with the SAME v10 entry."""
+    out = ctx.out
+    cur = trigger
+    for _ in range(3):
+        d = find_displacement(ctx, cur, dr)
+        if d is None: break
+        before = len(out); emit(ctx, trigger, model, name, dr, d)
+        if len(out) > before: return
+        cur = d['u']
+    d2 = find_displacement_dib(ctx, trigger, dr)
+    if d2 is None: return
+    emit(ctx, trigger, model, name + '+DIB', dr, d2)

@@ -1,0 +1,16 @@
+{
+  "contract_roll": "terminate at last bar of physical epoch",
+  "cost_usd_round_trip": 3.5,
+  "development_end_exclusive": "2024-06-01T00:00:00+00:00",
+  "expiry_minutes": 10,
+  "fill_bar_target_evaluation": false,
+  "gap_stop": "adverse open when open below stop",
+  "intrabar_priority": "SL before target",
+  "mnq_point_value_usd": 2.0,
+  "one_tick_through": true,
+  "policy_A": "entry + 2 * initial risk",
+  "policy_B": "frozen pre-entry OPEN DOL price",
+  "slippage": "not added separately",
+  "split_boundary": "terminate at last Development bar",
+  "tick_points": 0.25
+}

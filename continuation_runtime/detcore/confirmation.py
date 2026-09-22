@@ -1,0 +1,274 @@
+# detcore/confirmation.py
+# Stage 3: does a tapped level actually CONFIRM a setup?
+#   find_displacement / _dib -> impulse that breaks structure and leaves an FVG
+#   find_rejection_v10       -> price rejects from the displacement FVG (body holds configured depth)
+#   find_setup_v10           -> rejection + BOS = a tradeable setup
+#   bias_for                 -> HTF bias flag (not a filter, just a tag)
+# Bodies verbatim from det_v11; ctx supplies arrays/params, and the two cross-stage helpers
+# (fvgs from primitives, vi_draw from catalysts) are passed ctx explicitly.
+import numpy as np
+
+from .primitives import fvgs
+from .catalysts import vi_draw
+
+
+def find_displacement(ctx, t, dr):
+    """From trigger bar t, find an impulse: breaks structure + leaves FVG + strong.
+    disp_mode='chain' (V1, default): start a >=minimp same-colour run, extend through the WHOLE
+    unbroken run, treat it as one displacement. 'orig' (V0): shortest 1-3 candle impulse."""
+    o, hi, lo, cl, ATR, n = ctx.o, ctx.hi, ctx.lo, ctx.cl, ctx.ATR, ctx.n
+    DISPWIN, MAXIMP, LOOKBACK, ATRMULT = ctx.cfg.dispwin, ctx.cfg.maximp, ctx.cfg.lookback, ctx.cfg.atrmult
+    bull = dr == 'LONG'
+    if ctx.cfg.disp_mode == 'chain':                  # ---- V1: start >=minimp candles, extend the whole same-colour run ----
+        MINIMP, MAXEXT = ctx.cfg.minimp, ctx.cfg.maxext
+        for s in range(t + 1, min(t + 1 + DISPWIN, n)):
+            if not ((cl[s] > o[s]) if bull else (cl[s] < o[s])): continue   # s = first candle of a same-colour run
+            u = s
+            while u + 1 < min(s + MAXEXT, n) and ((cl[u + 1] > o[u + 1]) if bull else (cl[u + 1] < o[u + 1])): u += 1
+            if (u - s + 1) < MINIMP: continue          # the run must be >= MINIMP candles
+            body = sum((cl[x] - o[x]) if bull else (o[x] - cl[x]) for x in range(s, u + 1))
+            if body <= 0: continue
+            prior = max(hi[max(0, s - LOOKBACK):s]) if bull else min(lo[max(0, s - LOOKBACK):s])
+            if not ((cl[u] > prior) if bull else (cl[u] < prior)): continue
+            atr5 = ATR[u] if ATR[u] > 0 else 1e9
+            maxbody = max((abs(cl[x] - o[x])) for x in range(max(0, s - 10), s)) if s > 0 else 0
+            if body < ATRMULT * atr5: continue
+            if body < maxbody: continue
+            fl = fvgs(ctx, s, u + 2, bull)
+            if not fl: continue
+            f = fl[-1]; swlo = float(min(lo[s:u + 1])); swhi = float(max(hi[s:u + 1]))
+            return dict(s=s, u=u, L=u - s + 1, body=round(body, 1), fvg=(f[0], f[1]), fvg_bar=f[2],
+                        swlo=swlo, swhi=swhi, atr5=round(atr5, 1))
+        return None
+    for u in range(t + 1, min(t + 1 + DISPWIN, n)):   # ---- V0: shortest 1-3 candle impulse ----
+        for L in range(1, MAXIMP + 1):
+            s = u - L + 1
+            if s <= t: continue
+            same = all((cl[x] > o[x]) if bull else (cl[x] < o[x]) for x in range(s, u + 1))
+            if not same: continue
+            body = sum((cl[x] - o[x]) if bull else (o[x] - cl[x]) for x in range(s, u + 1))
+            if body <= 0: continue
+            prior = max(hi[max(0, s - LOOKBACK):s]) if bull else min(lo[max(0, s - LOOKBACK):s])
+            broke = (cl[u] > prior) if bull else (cl[u] < prior)
+            if not broke: continue
+            atr5 = ATR[u] if ATR[u] > 0 else 1e9
+            maxbody = max((abs(cl[x] - o[x])) for x in range(max(0, s - 10), s)) if s > 0 else 0
+            if body < ATRMULT * atr5: continue
+            if body < maxbody: continue
+            fl = fvgs(ctx, s, u + 2, bull)
+            if not fl: continue
+            f = fl[-1]                       # freshest displacement FVG
+            swlo = float(min(lo[s:u + 1])); swhi = float(max(hi[s:u + 1]))
+            return dict(s=s, u=u, L=L, body=round(body, 1), fvg=(f[0], f[1]), fvg_bar=f[2],
+                        swlo=swlo, swhi=swhi, atr5=round(atr5, 1))
+    return None
+
+
+def find_displacement_dib(ctx, t, dr):
+    o, hi, lo, cl, ATR, n = ctx.o, ctx.hi, ctx.lo, ctx.cl, ctx.ATR, ctx.n
+    MAXIMP, LOOKBACK, ATRMULT = ctx.cfg.maximp, ctx.cfg.lookback, ctx.cfg.atrmult
+    bull = dr == 'LONG'; best = None
+    for u in range(max(MAXIMP, t - 2), min(t + 3, n)):
+        for L in range(1, MAXIMP + 1):
+            s = u - L + 1
+            if s < 1: continue
+            same = all((cl[x] > o[x]) if bull else (cl[x] < o[x]) for x in range(s, u + 1))
+            if not same: continue
+            body = sum((cl[x] - o[x]) if bull else (o[x] - cl[x]) for x in range(s, u + 1))
+            if body <= 0: continue
+            prior = max(hi[max(0, s - LOOKBACK):s]) if bull else min(lo[max(0, s - LOOKBACK):s])
+            broke = (cl[u] > prior) if bull else (cl[u] < prior)
+            if not broke: continue
+            atr5 = ATR[u] if ATR[u] > 0 else 1e9
+            maxbody = max((abs(cl[x] - o[x])) for x in range(max(0, s - 10), s)) if s > 0 else 0
+            if body < ATRMULT * atr5: continue
+            if body < maxbody: continue
+            fl = fvgs(ctx, s, u + 2, bull)
+            if not fl: continue
+            f = fl[-1]; swlo = float(min(lo[s:u + 1])); swhi = float(max(hi[s:u + 1]))
+            cand = dict(s=s, u=u, L=L, body=round(body, 1), fvg=(f[0], f[1]), fvg_bar=f[2],
+                        swlo=swlo, swhi=swhi, atr5=round(atr5, 1))
+            if best is None or body > best['body']: best = cand
+    return best
+
+
+def find_rejection_v10(ctx, disp, dr):
+    hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
+    RETWIN = ctx.cfg.retwin
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; ce = round((fl + fh) / 2, 2); fb = disp['fvg_bar']
+    rf = ctx.cfg.rej_frac                                    # rejection invalidation/body-hold threshold as frac of gap from entry side (0.5 = CE)
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    # The retracement is a new event.  It cannot begin until both the complete
+    # displacement run and the three-candle FVG pattern are closed.
+    retest_start = max(int(disp['u']), int(fb)) + 1
+    origin = None; ob = None; tests = []; broke = None
+    for j in range(retest_start, min(retest_start + RETWIN, n)):
+        if (cl[j] > thr) if not bull else (cl[j] < thr): broke = j; break
+        wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+        body = (cl[j] <= thr) if not bull else (cl[j] >= thr)
+        if wick and body:
+            ext = hi[j] if not bull else lo[j]; tests.append(j)
+            if origin is None or (ext > origin if not bull else ext < origin): origin, ob = ext, j
+    if broke is not None or origin is None: return None
+    return dict(ce=ce, origin=round(origin, 2), origin_bar=ob, tests=tests)
+
+
+def find_setup_v10(ctx, disp, dr):
+    hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
+    BOSWIN = ctx.cfg.boswin
+    bull = dr == 'LONG'; rej = find_rejection_v10(ctx, disp, dr)
+    if not rej: return None
+    origin = rej['origin']; ob = rej['origin_bar']; ce = rej['ce']; s = disp['s']; u = disp['u']
+    fl, fh = disp['fvg']; rf = ctx.cfg.rej_frac             # same threshold as the rejection (0.5 = CE)
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    # The rejection candle is part of the retracement swing.  Excluding it lets
+    # a close break a weaker pre-rejection level without breaking the complete
+    # structure that actually formed.
+    struct0 = float(max(hi[s:ob + 1])) if bull else float(min(lo[s:ob + 1])); level = struct0
+    for j in range(ob + 1, min(ob + 1 + BOSWIN, n)):
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return None
+        if (cl[j] > level) if bull else (cl[j] < level):
+            end = float(max(hi[ob:j + 1])) if bull else float(min(lo[ob:j + 1]))
+            return dict(dr=dr, origin=origin, origin_bar=ob, end=round(end, 2), bos_bar=j, ce=ce,
+                        fvg=disp['fvg'], fvg_bar=disp['fvg_bar'], s=s, u=u)
+        level = max(level, hi[j]) if bull else min(level, lo[j])
+    return None
+
+
+def bias_for(ctx, t):
+    """HTF bias flag (v0). Returns (bias, premium/discount). Tag only, never filters."""
+    dates, dayi, dD, dH, dL, cl = ctx.dates, ctx.dayi, ctx.dD, ctx.dH, ctx.dL, ctx.cl
+    d = dates[t]; di = dayi[d]
+    j = np.searchsorted(dD, d)
+    if j < 5: return ('niejasny', '-')
+    rngH = dH[j - 5:j].max(); rngL = dL[j - 5:j].min(); eq = (rngH + rngL) / 2
+    px = cl[t]
+    pd_ = 'discount' if px < eq else 'premium'
+    up = dH[j - 1] > dH[j - 3] and dL[j - 1] > dL[j - 3]
+    dn = dH[j - 1] < dH[j - 3] and dL[j - 1] < dL[j - 3]
+    if pd_ == 'discount' and up: b = 'LONG'
+    elif pd_ == 'premium' and dn: b = 'SHORT'
+    elif pd_ == 'discount' and not dn: b = 'LONG?'
+    elif pd_ == 'premium' and not up: b = 'SHORT?'
+    else: b = 'niejasny'
+    vu, vd = vi_draw(ctx, t)
+    if b == 'niejasny':
+        if vu and not vd: b = 'LONG?'
+        elif vd and not vu: b = 'SHORT?'
+    elif b == 'LONG?' and vu and not vd: b = 'LONG'
+    elif b == 'SHORT?' and vd and not vu: b = 'SHORT'
+    return (b, pd_)
+
+
+# ---------------------------------------------------------------------------------------------
+# v31 ORPHANED-FVG RE-ARM. A displacement FVG whose retest window (retwin) expires with ZERO
+# wick-tests is not forgotten any more: it stays a watched zone until (a) a candle BODY closes
+# through its configured hold threshold, or (b) the trading day ends — the two invalidation rules
+# specified by the operator. When price finally returns with its body still holding, the NORMAL
+# sequence restarts from the retest step: rejection origin -> BOS -> entry, with the v29 stop
+# anchor and v30 target untouched. ORPHAN_FVG=0 disables (bit-identical to v30.1).
+# ---------------------------------------------------------------------------------------------
+import os as _os
+
+
+def rejection_untested(ctx, disp, dr):
+    """v31.1: the zone is registerable whenever the v10 windows failed WITHOUT a hold-threshold body-break.
+    (v31.0 additionally required zero wick-tests; the operator widened the window to end-of-day,
+    so a tested-but-unfinished sequence keeps the zone alive too. The only killers are a BODY
+    close through the configured hold threshold and end of day — find_setup_orphan enforces both itself, this gate only
+    filters the zones that were already dead inside the v10 window.)"""
+    cl, n = ctx.cl, ctx.n
+    RETWIN = ctx.cfg.retwin
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; fb = disp['fvg_bar']
+    rf = ctx.cfg.rej_frac
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    hi, lo = ctx.hi, ctx.lo
+    retest_start = max(int(disp['u']), int(fb)) + 1
+    for j in range(retest_start, min(retest_start + RETWIN, n)):
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return False   # body through hold threshold -> dead
+        if _os.environ.get('ORPHAN_WINDOW', 'caps') == 'caps':
+            wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+            if wick: return False              # caps mode (v31.0): only NEVER-tested zones re-arm
+    return True
+
+
+def find_setup_orphan_caps(ctx, disp, dr, start, day_end):
+    """v31.0 conservative variant (ORPHAN_WINDOW=caps): retwin/boswin caps inside the re-armed
+    sequence, multiple attempts until CE body-break or day end. Measured 4y: 10 guarded trades,
+    6W/4L, +$3,095 — neutral-positive. Kept selectable because the operator's day-wide window
+    measured NEGATIVE (see CHANGELOG v31.1)."""
+    hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
+    RETWIN, BOSWIN = ctx.cfg.retwin, ctx.cfg.boswin
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; ce = round((fl + fh) / 2, 2)
+    rf = ctx.cfg.rej_frac
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    s0, u = disp['s'], disp['u']
+    retest_start = max(int(u), int(disp['fvg_bar'])) + 1
+    j = max(start, retest_start + RETWIN)
+    end = min(day_end, n - 1)
+    while j <= end:
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return None
+        wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+        if not wick:
+            j += 1; continue
+        origin = hi[j] if not bull else lo[j]; ob = j
+        for q in range(j + 1, min(j + 1 + RETWIN, end + 1)):
+            if (cl[q] > thr) if not bull else (cl[q] < thr): return None
+            wq = (hi[q] >= fl) if not bull else (lo[q] <= fh)
+            bq = (cl[q] <= thr) if not bull else (cl[q] >= thr)
+            if wq and bq:
+                ext = hi[q] if not bull else lo[q]
+                if (ext > origin) if not bull else (ext < origin): origin, ob = ext, q
+        struct0 = float(max(hi[s0:ob + 1])) if bull else float(min(lo[s0:ob + 1])); level = struct0
+        for q in range(ob + 1, min(ob + 1 + BOSWIN, end + 1)):
+            if (cl[q] > thr) if not bull else (cl[q] < thr): return None
+            if (cl[q] > level) if bull else (cl[q] < level):
+                e2 = float(max(hi[ob:q + 1])) if bull else float(min(lo[ob:q + 1]))
+                return dict(dr=dr, origin=round(float(origin), 2), origin_bar=int(ob), end=round(e2, 2),
+                            bos_bar=int(q), ce=ce, fvg=disp['fvg'], fvg_bar=disp['fvg_bar'], s=s0, u=u)
+            level = max(level, hi[q]) if bull else min(level, lo[q])
+        j = max(j + 1, ob + 1 + BOSWIN)
+    return None
+
+
+def find_setup_orphan(ctx, disp, dr, start, day_end):
+    """Dispatch on ORPHAN_WINDOW: 'day' (operator spec, default) = window to end of day;
+    'caps' = the v31.0 conservative variant above."""
+    if _os.environ.get('ORPHAN_WINDOW', 'caps') == 'caps':
+        return find_setup_orphan_caps(ctx, disp, dr, start, day_end)
+    return _find_setup_orphan_day(ctx, disp, dr, start, day_end)
+
+
+def _find_setup_orphan_day(ctx, disp, dr, start, day_end):
+    """v31.1: the rejection+BOS sequence with the bar window extended TO END OF DAY (operator
+    spec). Single causal pass from `start`; the zone dies only on (a) a candle BODY closing
+    through the configured hold threshold or (b) `day_end`. Any wick into the FVG whose body holds is a test; the origin
+    is the deepest test wick so far; BOS = a close beyond the running structure level, checked
+    continuously — no retwin/boswin caps. Returns the find_setup_v10 su-dict shape, or None."""
+    hi, lo, cl, n = ctx.hi, ctx.lo, ctx.cl, ctx.n
+    bull = dr == 'LONG'; fl, fh = disp['fvg']; ce = round((fl + fh) / 2, 2)
+    rf = ctx.cfg.rej_frac
+    thr = round((fl + rf * (fh - fl)) if not bull else (fh - rf * (fh - fl)), 2)
+    s0, u = disp['s'], disp['u']
+    start = max(start, int(u) + 1, int(disp['fvg_bar']) + 1)
+    end = min(day_end, n - 1)
+    origin = None; ob = None; level = None
+    for j in range(start, end + 1):
+        if (cl[j] > thr) if not bull else (cl[j] < thr): return None    # body through hold threshold -> zone dead
+        wick = (hi[j] >= fl) if not bull else (lo[j] <= fh)
+        body = (cl[j] <= thr) if not bull else (cl[j] >= thr)
+        if origin is not None:
+            # BOS first: a close beyond the running structure level confirms
+            if (cl[j] > level) if bull else (cl[j] < level):
+                e2 = float(max(hi[ob:j + 1])) if bull else float(min(lo[ob:j + 1]))
+                return dict(dr=dr, origin=round(float(origin), 2), origin_bar=int(ob), end=round(e2, 2),
+                            bos_bar=int(j), ce=ce, fvg=disp['fvg'], fvg_bar=disp['fvg_bar'], s=s0, u=u)
+        if wick and body:
+            ext = hi[j] if not bull else lo[j]
+            if origin is None or ((ext > origin) if not bull else (ext < origin)):
+                origin, ob = ext, j
+                level = float(max(hi[s0:ob + 1])) if bull else float(min(lo[s0:ob + 1]))   # re-base structure
+                continue
+        if origin is not None:
+            level = max(level, hi[j]) if bull else min(level, lo[j])
+    return None
