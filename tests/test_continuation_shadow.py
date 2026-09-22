@@ -140,8 +140,12 @@ class ContinuationShadowTests(unittest.TestCase):
         dashboard = (root / "dashboard.py").read_text(encoding="utf-8")
         agent = (root / "agent.py").read_text(encoding="utf-8")
         self.assertIn("['continuation','Continuation','target']", dashboard)
+        self.assertIn("['dolrev','DOL Delivery Reversal · Shadow','target']", dashboard)
+        self.assertIn("dolrevmgr:{name:'DOL Reversal Manager Shadow'", dashboard)
         self.assertIn("continuation_shadow.on_bar(b)", agent)
         self.assertIn("continuation_shadow.register(app, archive_path=ARCHIVE)", agent)
+        self.assertIn("dol_delivery_reversal_shadow.register(app)", agent)
+        self.assertIn("dol_reversal_manager_shadow_v1.register(app)", agent)
 
 
 if __name__ == "__main__":
