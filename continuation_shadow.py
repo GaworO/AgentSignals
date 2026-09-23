@@ -47,6 +47,7 @@ _LOCK = threading.RLock()
 _WORKER_LOCK = threading.Lock()
 _WORKER_RUNNING = False
 _RESCAN_REQUESTED = False
+_SCAN_LISTENERS: list[Any] = []
 _LAST = {
     "status": "starting" if ENABLED else "disabled",
     "last_bar": None,
@@ -497,7 +498,30 @@ def scan_once() -> dict[str, Any]:
     completed = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     _LAST.update(status="ok", last_bar=raw.ts_event.iloc[-1].isoformat(), last_scan_completed=completed,
                  rows_scanned=len(raw), detector_outputs=len(outputs), worker_running=False)
-    return {"status": "ok", "funnel": funnel, "rows": len(raw), "last_bar": _LAST["last_bar"], "provenance": provenance}
+    scan_result = {"status": "ok", "funnel": funnel, "rows": len(raw),
+                   "last_bar": _LAST["last_bar"], "provenance": provenance}
+    # Optional consumers run only after the deterministic shadow scan and DB
+    # transaction have completed.  A listener failure can never corrupt or
+    # downgrade the shadow ledger; live consumers must fail closed themselves.
+    for listener in list(_SCAN_LISTENERS):
+        try:
+            listener(dict(scan_result))
+        except Exception as exc:
+            print("[continuation-shadow] post-scan listener error", repr(exc), flush=True)
+    return scan_result
+
+
+def register_scan_listener(listener: Any) -> None:
+    """Register one in-process post-scan consumer, idempotently.
+
+    The shadow remains broker-inert: it neither imports nor calls a broker.
+    The application may register a separately gated consumer.
+    """
+    if not callable(listener):
+        raise TypeError("scan listener must be callable")
+    with _LOCK:
+        if listener not in _SCAN_LISTENERS:
+            _SCAN_LISTENERS.append(listener)
 
 
 def _worker() -> None:

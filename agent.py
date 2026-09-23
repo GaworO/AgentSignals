@@ -31,10 +31,12 @@ import a_cont_both_aligned_shadow  # post-decision A Continuation + frozen multi
 import dol_delivery_reversal_shadow  # post-decision DOL Delivery Reversal shadow; no broker authority
 import dol_reversal_manager_shadow_v1  # dedicated DOL Reversal manager challenger; shadow-only
 import continuation_shadow  # independent canonical HTF Continuation Policy-B shadow; broker-inert
+import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
+import portfolio_guard  # append-only audit of actual Guard notes; read-only dashboard
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
 import m15_shadow_strategy  # M15 setup + M5 BOS; isolated candidates/forward shadow, no order path
@@ -234,7 +236,11 @@ def _exec_order(x, text=None):
                 for _kv in _smv.split(','):
                     _k, _v = _kv.split(':')
                     if _k.strip() == _ss:
-                        qty = max(1, int(round(qty * float(_v)))); break
+                        _session_qty = max(1, int(round(qty * float(_v))))
+                        # Strict dollar budgets (Continuation/shared groups) may
+                        # be reduced by a session rule, never increased by it.
+                        qty = min(qty, _session_qty) if _strict_risk else _session_qty
+                        break
         except Exception: pass
         try:      # 📈 GUARD_DYN_RISK=1: scale size with the DD cushion — never above base while the buffer
                   # is thin, up to DYN_RISK_MAX_MULT× once the buffer outgrows DYN_RISK_BASE_BUF ($).
@@ -278,7 +284,8 @@ def _exec_order(x, text=None):
         x['_exec_tp'] = _t(tp + off)   # the book/shadow must score the target the broker actually receives
         legs = [(qty, tp)]
         try:
-            if os.environ.get('PARTIAL_AT_1R', '0') == '1' and qty >= 2:   # v30.1: default OFF (measured: costs ~14%/yr for little protection); PARTIAL_AT_1R=1 re-enables
+            if (not x.get('_disable_partial') and
+                    os.environ.get('PARTIAL_AT_1R', '0') == '1' and qty >= 2):   # v30.1: default OFF (measured: costs ~14%/yr for little protection); PARTIAL_AT_1R=1 re-enables
                 _rp  = float(_risk_override if _risk_override is not None else os.environ.get('RISK_PCT', '0.5') or 0.5)
                 _pp  = float(os.environ.get('PARTIAL_ACCT_PCT', '0.2') or 0.2)
                 _fr  = max(0.0, min(0.9, _pp / _rp)) if _rp > 0 else 0.0
@@ -694,6 +701,115 @@ def flags_for(x):
         if abs(t_utc-et) <= 30*60:                          # +/- 30 min wokol high-impact
             fl.append(f'event: {title}'); hard=True
     return fl, hard
+
+
+def _continuation_live_signal(order):
+    """Translate one frozen order into the existing Guard/executor contract."""
+    activation_ms = int(order['activation_ms'])
+    when = dt.datetime.fromtimestamp(activation_ms / 1000.0, tz=dt.timezone.utc).astimezone(NY)
+    direction = str(order['direction']).upper()
+    entry = float(order['entry_price']); sl = float(order['stop_price']); tp = float(order['target_price'])
+    risk = abs(entry - sl)
+    if direction not in ('LONG', 'SHORT') or risk <= 0:
+        raise ValueError('invalid Continuation direction/geometry')
+    if not ((direction == 'LONG' and sl < entry < tp) or
+            (direction == 'SHORT' and tp < entry < sl)):
+        raise ValueError('invalid Continuation Entry/SL/OPEN-DOL geometry')
+    sess = ('ASIA' if (when.hour >= 18 or when.hour < 2) else
+            'LO' if when.hour < 5 else 'PREM' if (when.hour < 9 or (when.hour == 9 and when.minute < 30)) else
+            'NYAM' if when.hour < 11 else 'NYL' if (when.hour < 13 or (when.hour == 13 and when.minute < 30)) else
+            'NYPM' if when.hour < 16 else 'PM_AH')
+    strategy = 'Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'
+    return {
+        'date': when.strftime('%Y-%m-%d'), 'model': 'Continuation', 'cat': strategy + ' · OPEN DOL',
+        'dir': direction, 'bos': when.strftime('%H:%M'), 'bos_ms': activation_ms,
+        'entry_ms': activation_ms, 'entry': entry, 'SL': sl, 'TP': tp,
+        'fvg_lo': min(entry, sl), 'fvg_hi': max(entry, sl),
+        'bias': direction, 'bias_align': 'Y', 'trail': [], 'brk': 1,
+        'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),
+        '_continuation_candidate_id': str(order['candidate_id']), '_continuation_dol_id': str(order['dol_id']),
+        '_disable_partial': True, '_strict_risk_budget': True,
+    }
+
+
+def _continuation_live_budget(profile):
+    """Hard ceilings: $500 on Pro 100K and $250 on Builder/Rapid 50K."""
+    is_50k = profile.get('plan') in ('builder50', 'rapid_eod50')
+    ceiling = 250.0 if is_50k else 500.0
+    key = 'CONTINUATION_RISK_USD_50K' if is_50k else 'CONTINUATION_RISK_USD_100K'
+    try: requested = float(os.environ.get(key, str(ceiling)) or ceiling)
+    except Exception: requested = ceiling
+    return max(0.0, min(requested, ceiling))
+
+
+def _dispatch_continuation_live(order):
+    """Run one new Continuation order through this account's normal Guard and route."""
+    x = _continuation_live_signal(order)
+    profile = guardrails.account_profile()
+    base = {'account_label': profile.get('label'), 'route_id': guardrails._exec_route_id()}
+    if not profile.get('config_ok'):
+        reason = 'account_config:' + ','.join(profile.get('config_warnings') or ['invalid'])
+        guardrails.note(x, 'blocked', reason)
+        return dict(base, state='BLOCKED', reason=reason)
+    budget = _continuation_live_budget(profile)
+    if budget <= 0:
+        guardrails.note(x, 'blocked', 'continuation_risk_disabled')
+        return dict(base, state='BLOCKED', reason='continuation_risk_disabled')
+    x['_risk_budget_usd'] = budget
+    x['_planned_group_risk_usd'] = budget
+    x['_risk_pct_override'] = 100.0 * budget / float(os.environ.get('ACCOUNT', '100000') or 100000)
+    text = ('🧭 %s · frozen OPEN DOL\n%s LIMIT %.2f · SL %.2f · TP %.2f\n'
+            'Account: %s · max risk $%.0f · order %s' %
+            (x['_strat'], 'BUY' if x['dir'] == 'LONG' else 'SELL', x['entry'], x['SL'], x['TP'],
+             profile.get('label'), budget, order['order_id']))
+    x['_alert_txt'] = text
+    mode = guardrails.exec_mode()
+    if mode == 'off':
+        guardrails.note(x, 'blocked', 'mode_off')
+        return dict(base, state='BLOCKED', reason='mode_off')
+    if mode == 'manual':
+        ok, reason = guardrails.manual_ok(x, _feed_age_min(), _market_open_now())
+        reason = 'manual_review_only' if ok else reason
+        guardrails.note(x, 'blocked', reason)
+        if ok and WEBHOOK_URL:
+            try: live_emit.post_webhook('🟦 MANUAL REVIEW — NO ORDER SENT\n' + text, WEBHOOK_URL)
+            except Exception: pass
+        return dict(base, state='BLOCKED', reason=reason)
+
+    guardrails.ramp_qty(x)
+    _, news_hard = flags_for(x)
+    ok, reason = guardrails.guard_ok(x, feed_age_min=_feed_age_min(), market_open=_market_open_now(),
+                                    news_hard=news_hard, cal_age_h=_cal_age_h())
+    if not ok:
+        guardrails.note(x, 'blocked', reason)
+        return dict(base, state='BLOCKED', reason=reason)
+    gid = 'continuation_' + str(order['order_id'])
+    if not guardrails.begin_sibling_batch(gid, budget, [x['_strat']]):
+        guardrails.note(x, 'blocked', 'batch_reservation_failed')
+        return dict(base, state='BLOCKED', reason='batch_reservation_failed')
+    result = _exec_order(x, text)
+    if result.get('sent'):
+        guardrails.touch_sibling_batch(gid, x['_strat'], result.get('status'))
+        guardrails.note(x, 'sent')
+        if WEBHOOK_URL:
+            try: live_emit.post_webhook('🟢 CONTINUATION LIVE SENT\n' + text, WEBHOOK_URL)
+            except Exception: pass
+        return dict(base, state='SENT', reason='ok', quantity=result.get('qty'),
+                    route_id=result.get('route_id') or base['route_id'], broker=result)
+    # A timeout/no HTTP status may have reached the external route. Never retry it.
+    unknown = result.get('accepted_any') or result.get('status') is None
+    if unknown:
+        guardrails.touch_sibling_batch(gid, x['_strat'], result.get('status'))
+        rollback = guardrails.rollback_sibling_batch(gid, 'continuation_submission_unknown')
+        reason = 'submission_unknown_rolled_back' if rollback.get('ok') else 'submission_unknown'
+    else:
+        guardrails.finish_sibling_batch(gid, 'failed_before_accept')
+        rollback = None
+        reason = 'broker_rejected'
+    guardrails.note(x, 'blocked', reason)
+    return dict(base, state=('SUBMISSION_UNKNOWN' if unknown else 'BLOCKED'), reason=reason,
+                quantity=result.get('qty'), route_id=result.get('route_id') or base['route_id'],
+                broker=result, rollback=rollback)
 
 def _process_new(now_ms=None, gap_min=None):
     global _primed
@@ -1731,13 +1847,22 @@ a_cont_both_aligned_shadow.register(app)      # /a-cont-both-aligned — shadow-
 dol_delivery_reversal_shadow.register(app)       # /dol-delivery-reversal — shadow-only; GET routes only
 dol_reversal_manager_shadow_v1.register(app)      # /dol-reversal-manager — dedicated 58-feature shadow manager
 continuation_shadow.register(app, archive_path=ARCHIVE)  # /continuation — independent Policy-B shadow
+continuation_live.configure(_dispatch_continuation_live)
+continuation_shadow.register_scan_listener(continuation_live.drain)
 shadow.register(app)                        # /shadow/data + /shadow/log — live shadow-executor log (isolated add-on)
 downside_manager_shadow_v1.register(app)    # /downside-shadow — frozen manager, no broker actions
 m15_shadow_strategy.register(app)           # /m15/* — M15->M5 candidates + isolated shadow-only book
 guardrails.register(app)                    # /guard — MFF-eval auto-exec gate + progress counter (isolated add-on)
+portfolio_guard.register(app, data_dir=guardrails.DATA_DIR)  # /portfolio-guard — actual decision audit
 forex_pnl.register(app)                     # /forexpnl - joined forex P&L (isolated add-on)
 fxguard.register(app)                       # /fxguard - joined forex Auto-Executor (isolated add-on)
 allview.register(app)                       # /all/trades + /all/candidates - joined view (isolated add-on)
+
+@app.route('/continuation/live')
+def _continuation_live_status():
+    """Read-only status/decision ledger; secrets and webhook URLs are never exposed."""
+    return jsonify(status=continuation_live.status(), decisions=continuation_live.rows(200))
+
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)

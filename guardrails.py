@@ -56,7 +56,8 @@ Hardening (2026-07-19 review):
   agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
-import os, json, time, datetime as dt, hashlib
+import os, json, time, datetime as dt, hashlib, threading
+import portfolio_guard
 try:
     import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
 except Exception:
@@ -65,6 +66,11 @@ try:
     import requests                                 # only for the optional health-transition alert POST
 except Exception:
     requests = None
+
+# A/B and Continuation share one account-level setup reservation.  Both paths
+# run in background threads, so serialize the read/check/write transition that
+# creates or releases the durable pending_group record.
+_BATCH_LOCK = threading.RLock()
 try:
     from zoneinfo import ZoneInfo; _NY = ZoneInfo('America/New_York')
 except Exception:
@@ -400,48 +406,51 @@ def _active_pending_group(s=None):
 
 def begin_sibling_batch(group_id, planned_risk_usd, strats=None):
     """Persistently reserve the one active setup before the first relay call."""
-    try:
-        s = _state()
-        if _active_pending_group(s):
-            return False
+    with _BATCH_LOCK:
         try:
-            sec = int(float(_env('EXEC_CANCEL_AFTER_SEC', '') or 0))
-        except Exception:
-            sec = 0
-        if sec <= 0:
-            sec = int(round(_envf('FILL_WIN_MIN', 10) * 60))
-        grace = _envi('BATCH_PENDING_GRACE_SEC', 120)
-        now = _now_ms()
-        s['pending_group'] = dict(group_id=str(group_id), started_ms=now,
-                                  expires_ms=now + max(60, sec + grace) * 1000,
-                                  planned_risk_usd=round(float(planned_risk_usd or 0), 2),
-                                  strats=list(strats or []), accepted=[])
-        _set_state(s)
-        return True
-    except Exception as e:
-        print('[guard] begin_sibling_batch err', e, flush=True)
-        return False
+            s = _state()
+            if _active_pending_group(s):
+                return False
+            try:
+                sec = int(float(_env('EXEC_CANCEL_AFTER_SEC', '') or 0))
+            except Exception:
+                sec = 0
+            if sec <= 0:
+                sec = int(round(_envf('FILL_WIN_MIN', 10) * 60))
+            grace = _envi('BATCH_PENDING_GRACE_SEC', 120)
+            now = _now_ms()
+            s['pending_group'] = dict(group_id=str(group_id), started_ms=now,
+                                      expires_ms=now + max(60, sec + grace) * 1000,
+                                      planned_risk_usd=round(float(planned_risk_usd or 0), 2),
+                                      strats=list(strats or []), accepted=[])
+            _set_state(s)
+            return True
+        except Exception as e:
+            print('[guard] begin_sibling_batch err', e, flush=True)
+            return False
 
 
 def touch_sibling_batch(group_id, strat, relay_status=None):
-    try:
-        s = _state(); pg = _active_pending_group(s)
-        if not pg or pg.get('group_id') != str(group_id): return False
-        acc = list(pg.get('accepted') or [])
-        acc.append(dict(strat=strat, relay_status=relay_status, at_ms=_now_ms()))
-        pg['accepted'] = acc; s['pending_group'] = pg; _set_state(s); return True
-    except Exception as e:
-        print('[guard] touch_sibling_batch err', e, flush=True); return False
+    with _BATCH_LOCK:
+        try:
+            s = _state(); pg = _active_pending_group(s)
+            if not pg or pg.get('group_id') != str(group_id): return False
+            acc = list(pg.get('accepted') or [])
+            acc.append(dict(strat=strat, relay_status=relay_status, at_ms=_now_ms()))
+            pg['accepted'] = acc; s['pending_group'] = pg; _set_state(s); return True
+        except Exception as e:
+            print('[guard] touch_sibling_batch err', e, flush=True); return False
 
 
 def finish_sibling_batch(group_id, status='sent'):
-    try:
-        s = _state(); pg = s.get('pending_group') or {}
-        if pg and pg.get('group_id') != str(group_id): return False
-        s['last_batch'] = {**pg, 'status': status, 'ended_ms': _now_ms()}
-        s['pending_group'] = None; _set_state(s); return True
-    except Exception as e:
-        print('[guard] finish_sibling_batch err', e, flush=True); return False
+    with _BATCH_LOCK:
+        try:
+            s = _state(); pg = s.get('pending_group') or {}
+            if pg and pg.get('group_id') != str(group_id): return False
+            s['last_batch'] = {**pg, 'status': status, 'ended_ms': _now_ms()}
+            s['pending_group'] = None; _set_state(s); return True
+        except Exception as e:
+            print('[guard] finish_sibling_batch err', e, flush=True); return False
 
 
 def _relay_action(action):
@@ -1261,11 +1270,22 @@ def note(x, decision, reason=''):
                         tp0 = x.get('TP')
                         if tp0 is not None and tp0 not in alts: alts.append(tp0)
                         g['candidate_tps'] = alts[-8:]
-                        _save(GLOG, glog); return
+                        _save(GLOG, glog)
+                        try:
+                            portfolio_guard.record_note(x, decision, reason, account_profile()['label'],
+                                                        exec_mode(), candidate_id=k, data_dir=DATA_DIR)
+                        except Exception as audit_error:
+                            print('[guard] decision audit append err', audit_error, flush=True)
+                        return
             # Any other identical blocked row is stored once per day/reason.
             for g in reversed(glog[-100:]):
                 if g.get('date') != day: break
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
+                    try:
+                        portfolio_guard.record_note(x, decision, reason, account_profile()['label'],
+                                                    exec_mode(), candidate_id=k, data_dir=DATA_DIR)
+                    except Exception as audit_error:
+                        print('[guard] decision audit append err', audit_error, flush=True)
                     return
         glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), setup_group_id=gid,
                          ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
@@ -1286,6 +1306,11 @@ def note(x, decision, reason=''):
                          rollback_confirmed=x.get('_rollback_confirmed'),
                          decision=decision, reason=reason))
         _save(GLOG, glog)
+        try:
+            portfolio_guard.record_note(x, decision, reason, account_profile()['label'],
+                                        exec_mode(), candidate_id=k, data_dir=DATA_DIR)
+        except Exception as audit_error:
+            print('[guard] decision audit append err', audit_error, flush=True)
         if decision in ('sent', 'manual'):
             if not group_already_sent:
                 s = _state(); s['sent_total'] = int(s.get('sent_total', 0)) + 1; _set_state(s)

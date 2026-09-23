@@ -25,6 +25,7 @@ except Exception:
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
 _OUTCOMES = os.path.join(_DATA_DIR, 'outcomes.json')
+_CONT_DB = os.environ.get('CONTINUATION_DB', os.path.join(_DATA_DIR, 'continuation_shadow.sqlite3'))
 _ANNOT_DB = os.path.join(_DATA_DIR, 'all_annotations.db')   # user marks: took? + comment (own SQLite table, isolated)
 def _annot_conn():
     con = sqlite3.connect(_ANNOT_DB)
@@ -62,6 +63,8 @@ STRAT_COLORS = {
     'AB':  ('color.aqua',    '#22d3ee'),
     'C':   ('color.lime',    '#4ade80'),
     'F':   ('color.orange',  '#f59e0b'),
+    'CONT-L': ('color.blue',   '#3b82f6'),
+    'CONT-S': ('color.purple', '#a855f7'),
 }
 
 
@@ -97,23 +100,23 @@ def _iso_ms(s):
 
 def _day_of(ms):
     try:
-        return dt.datetime.utcfromtimestamp(int(ms) / 1000).strftime('%Y-%m-%d')
+        return dt.datetime.fromtimestamp(int(ms) / 1000, tz=dt.timezone.utc).strftime('%Y-%m-%d')
     except Exception:
         return ''
 
 
 def _hhmm(ms):
     try:
-        return dt.datetime.utcfromtimestamp(int(ms) / 1000).strftime('%H:%M')
+        return dt.datetime.fromtimestamp(int(ms) / 1000, tz=dt.timezone.utc).strftime('%H:%M')
     except Exception:
         return ''
 
 
-def _norm(strat, ts_ms, dir_, cat, entry, sl, r, status, key='', chartable=False):
+def _norm(strat, ts_ms, dir_, cat, entry, sl, r, status, key='', chartable=False, target=None):
     """Common trade/candidate record."""
     return dict(strat=strat, ts_ms=int(ts_ms or 0), day=_day_of(ts_ms), time=_hhmm(ts_ms),
                 dir=dir_ or '', cat=cat or strat, entry=entry, sl=sl, r=r,
-                status=status or '', key=key or '', chartable=bool(chartable))
+                status=status or '', key=key or '', chartable=bool(chartable), target=target)
 
 
 # ───────────────────────── per-source loaders ─────────────────────────
@@ -162,6 +165,28 @@ def _f_trades():
     return res
 
 
+def _continuation_trades():
+    if not os.path.exists(_CONT_DB):
+        return []
+    con = sqlite3.connect(_CONT_DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT * FROM continuation_trades WHERE state IN ('OPEN','CLOSED') ORDER BY fill_ms"
+        ).fetchall()
+    finally:
+        con.close()
+    out = []
+    for row in rows:
+        x = dict(row); direction = str(x.get('direction') or '').upper()
+        strat = 'CONT-L' if direction == 'LONG' else 'CONT-S'
+        out.append(_norm(strat, x.get('fill_ms'), direction, 'Frozen OPEN DOL',
+                         _f(x.get('entry_price')), _f(x.get('stop_price')), _f(x.get('net_r')),
+                         x.get('exit_reason') or x.get('state'), key=str(x.get('trade_id') or ''),
+                         target=_f(x.get('target_price'))))
+    return out
+
+
 def _dedup_key(t):
     """Same setup fired under several catalysts/models => identical geometry. Collapse on it.
     (strat, day, dir, entry@0.1, sl@0.1) — two genuinely different trades never share all five."""
@@ -197,7 +222,7 @@ def _dedup(rows):
 
 def _all_trades():
     out = []
-    for fn in (_ab_trades, _c_trades, _f_trades):
+    for fn in (_ab_trades, _continuation_trades, _c_trades, _f_trades):
         try:
             out += fn()
         except Exception:
@@ -213,7 +238,9 @@ def _pine_lines(rec):
     if e is None or sl is None or not ts:
         return None
     pc = STRAT_COLORS.get(rec['strat'], ('color.gray', '#888'))[0]
-    tp = e + 2.0 * (e - sl)
+    tp = _f(rec.get('target'))
+    if tp is None:
+        tp = e + 2.0 * (e - sl)
     hi = max(e, sl, tp)
     side = 'LONG' if e > sl else 'SHORT'
     rr = rec.get('r')
@@ -327,7 +354,7 @@ def render_trades():
             _rcell(r['r']), chart, pine, took, cbtn)
 
     body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
-            _NAV + "<h1>All trades — A/B · C · F</h1>"
+            _NAV + "<h1>All trades — A/B · Continuation LONG/SHORT · C · F</h1>"
             "<div class='sub'>modeled outcomes across every strategy · read-only · " + _reach_note() + "</div>"
             + _strat_filter_bar(present) +
             "<div class='bar'><b>Per-day Pine for TradingView:</b>"
@@ -392,9 +419,31 @@ def _f_candidates():
     return res
 
 
+def _continuation_candidates():
+    if not os.path.exists(_CONT_DB):
+        return []
+    con = sqlite3.connect(_CONT_DB)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            """SELECT direction,decision_ms,stage,status,rejection_reason,dol_id
+               FROM continuation_candidates ORDER BY decision_ms DESC LIMIT 300"""
+        ).fetchall()
+    finally:
+        con.close()
+    out = []
+    for row in rows:
+        x = dict(row); direction = str(x.get('direction') or '').upper()
+        out.append(dict(strat=('CONT-L' if direction == 'LONG' else 'CONT-S'),
+                        day=_day_of(x.get('decision_ms')), time=_hhmm(x.get('decision_ms')),
+                        dir=direction, stage=x.get('status') or x.get('stage'),
+                        note=x.get('rejection_reason') or ('OPEN DOL ' + str(x.get('dol_id') or ''))))
+    return out
+
+
 def render_candidates():
     rows = []
-    for fn in (_ab_candidates, _c_candidates, _f_candidates):
+    for fn in (_ab_candidates, _continuation_candidates, _c_candidates, _f_candidates):
         try:
             rows += fn()
         except Exception:
