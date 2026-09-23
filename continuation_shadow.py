@@ -620,20 +620,30 @@ def _summary() -> dict[str, Any]:
 def _candidate_rows() -> list[dict[str, Any]]:
     clauses, args = [], []
     status = request.args.get("status", "").strip().upper()
+    execution = request.args.get("execution", "").strip().upper()
     direction = request.args.get("direction", "").strip().upper()
     reason = request.args.get("reason", "").strip()
     start = request.args.get("start", "").strip()
     end = request.args.get("end", "").strip()
     if status:
-        clauses.append("status=?"); args.append(status)
+        clauses.append("c.status=?"); args.append(status)
+    execution_clauses = {
+        "FILLED": "o.state='FILLED'",
+        "OPEN": "t.state='OPEN'",
+        "CLOSED": "t.state='CLOSED'",
+        "PENDING": "o.state='PENDING'",
+        "UNFILLED_EXPIRED": "o.state='UNFILLED_EXPIRED'",
+    }
+    if execution in execution_clauses:
+        clauses.append(execution_clauses[execution])
     if direction in {"LONG", "SHORT"}:
         clauses.append("c.direction=?"); args.append(direction)
     if reason:
-        clauses.append("COALESCE(rejection_reason,'')=?"); args.append(reason)
+        clauses.append("COALESCE(c.rejection_reason,'')=?"); args.append(reason)
     if start:
-        clauses.append("decision_ms>=?"); args.append(_ms(start))
+        clauses.append("c.decision_ms>=?"); args.append(_ms(start))
     if end:
-        clauses.append("decision_ms<?"); args.append(_ms(end) + 86_400_000)
+        clauses.append("c.decision_ms<?"); args.append(_ms(end) + 86_400_000)
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     limit = min(max(int(request.args.get("limit", "500")), 1), 2000)
     with _connect() as con:
@@ -641,7 +651,7 @@ def _candidate_rows() -> list[dict[str, Any]]:
             "SELECT c.*,o.order_id,o.state order_state,o.fill_ms,t.trade_id,t.state trade_state,"
             "t.exit_reason,t.net_r FROM continuation_candidates c "
             "LEFT JOIN continuation_orders o ON o.candidate_id=c.candidate_id "
-            "LEFT JOIN continuation_trades t ON t.order_id=o.order_id" + where.replace("status", "c.status")
+            "LEFT JOIN continuation_trades t ON t.order_id=o.order_id" + where
             + " ORDER BY c.decision_ms DESC LIMIT ?", (*args, limit)).fetchall()
     result = []
     for x in rows:
@@ -662,6 +672,8 @@ def _candidate_funnel_stats() -> dict[str, int]:
             "dol_aligned": con.execute("SELECT COUNT(*) FROM continuation_candidates WHERE eligible=1").fetchone()[0],
             "ready": con.execute("SELECT COUNT(*) FROM continuation_orders WHERE state='PENDING'").fetchone()[0],
             "filled": con.execute("SELECT COUNT(*) FROM continuation_orders WHERE state='FILLED'").fetchone()[0],
+            "open_trades": con.execute("SELECT COUNT(*) FROM continuation_trades WHERE state='OPEN'").fetchone()[0],
+            "closed_trades": con.execute("SELECT COUNT(*) FROM continuation_trades WHERE state='CLOSED'").fetchone()[0],
         }
 
 
@@ -694,10 +706,11 @@ async function list(){
     let canonical=x.event_kind==='CANONICAL_OUTPUT',thesis=p.jade_thesis===side;
     let close=x.event_kind==='CLOSE_THROUGH'||p.source_event?.close_through===true;
     let dol=x.eligible===1&&!!x.dol_id,risk=dol&&x.entry_price!=null&&x.stop_price!=null;
-    let filled=x.order_state==='FILLED',ready=x.order_state==='PENDING',tracking=x.status==='TRACKING';
-    let status=filled?'FILLED':x.trade_state==='CLOSED'?'CLOSED':ready?'READY / ORDER PENDING':tracking?'TRACKING':x.status==='SUPERSEDED'?'CANONICAL CONFIRMED':'REJECTED';
-    let cls=(filled||ready||x.trade_state==='CLOSED')?'green':tracking||x.status==='SUPERSEDED'?'warn':'red';
-    let finalState=(filled||ready||x.trade_state==='CLOSED')?'ok':tracking?'wait':'bad';
+    let closed=x.trade_state==='CLOSED',open=x.trade_state==='OPEN',filled=x.order_state==='FILLED',ready=x.order_state==='PENDING',tracking=x.status==='TRACKING';
+    let outcome=closed?(x.net_r>0?'WIN':x.net_r<0?'LOSS':'FLAT'):null;
+    let status=closed?'CLOSED · '+outcome:open?'OPEN TRADE':filled?'FILLED':ready?'PENDING ORDER':x.order_state==='UNFILLED_EXPIRED'?'UNFILLED EXPIRED':tracking?'TRACKING':x.status==='SUPERSEDED'?'CANONICAL CONFIRMED':'REJECTED';
+    let cls=closed?(x.net_r>0?'green':x.net_r<0?'red':'warn'):open?'warn':filled||ready?'green':tracking||x.status==='SUPERSEDED'?'warn':'red';
+    let finalState=(filled||ready||closed||open)?'ok':tracking?'wait':'bad';
     let source=p.source_event||{},level=source.bsl_price??source.ssl_price??p.bsl_price??p.ssl_price;
     return `<div class="card"><div class="head"><div class="title"><a href="/continuation/candidate/${encodeURIComponent(x.candidate_id)}"><span class="${short?'red':'green'}">${side}</span> · ${esc(x.bsl_name||p.cat||'LIQUIDITY')} · ${esc(x.decision_at)}</a></div><div class="${cls}"><b>${esc(status)}</b></div></div><div class="steps">
       ${step(1,'HTF '+side+' thesis',esc(p.jade_thesis||'not yet available')+' · fixed at 18:00 ET',thesis?'ok':'bad')}
@@ -706,14 +719,14 @@ async function list(){
       ${step(4,'Pullback + hold + BOS',canonical?('BOS '+esc(p.bos_iso||p.bos_ms)):'Not confirmed',canonical?'ok':tracking?'wait':'bad')}
       ${step(5,'OPEN '+(short?'bearish':'bullish')+' DOL',dol?(esc(x.dol_id)+' @ '+fmt(x.target_price,2)):esc(x.rejection_reason||'not selected'),dol?'ok':'bad')}
       ${step(6,'Entry + risk / fill',risk?('Entry '+fmt(x.entry_price,2)+' · SL '+fmt(x.stop_price,2)+' · DOL TP '+fmt(x.target_price,2)):status,finalState)}</div>
-      <div class="levels"><b>Candidate:</b> ${esc(x.candidate_id)} <b>Stage:</b> ${esc(x.stage)} <b>Order:</b> ${esc(x.order_state)} <b>Trade:</b> ${esc(x.trade_state)} ${x.net_r==null?'':('<b>Net:</b> '+fmt(x.net_r)+'R')}</div><div class="reason"><b>Decision reason:</b> ${esc(x.rejection_reason||status)}</div></div>`;
-  }).join('')||'<div class="empty">No Continuation candidates recorded yet. Scanner is waiting for the first causal close-through event.</div>';
-  $('#app').innerHTML=`<div class="top"><div><h2>MNQ Continuation · LONG + SHORT candidates</h2><div class="mut">Independent directional shadow; SHORT is exploratory and has no inherited LONG performance claim.</div></div><div class="badge">SHADOW ONLY · independent scanner</div></div><div class="kpis">${k('All event records',s.candidates||0)}${k('Close-through events',s.close_through||0)}${k('Canonical setups',s.canonical_confirmed||0)}${k('HTF LONG matched',s.htf_long||0)}${k('HTF SHORT matched',s.htf_short||0)}${k('OPEN DOL eligible',s.dol_aligned||0)}${k('Forward fills',s.filled||0)}</div><div class="help"><b>How to read these totals</b><br><span class="mut">All event records = close-through events + canonical setups. One setup can appear in both stages; these are not independent trades. The totals include historical scanner warm-up and are not changed by the list filters below. Only orders armed after warm-up can become forward fills.</span><br><br><b>What each step means</b><br><span class="mut">1 matching JadeCap HTF thesis fixed at 18:00 ET → 2 registered BSL/SSL close-through → 3 directional displacement + event-owned FVG → 4 later pullback/hold + BOS → 5 causal directional OPEN DOL → 6 frozen Entry/SL/DOL target and shadow fill.</span></div><div class="filters"><select id="direction"><option value="">LONG + SHORT</option><option>LONG</option><option>SHORT</option></select><select id="status"><option value="">all status</option>${['TRACKING','REJECTED','SUPERSEDED','UNFILLED_OR_PENDING'].map(x=>`<option>${x}</option>`)}</select><select id="reason"><option value="">all reasons</option>${reasons.map(x=>`<option>${esc(x)}</option>`)}</select><input id="start" type="date"><input id="end" type="date"><button id="go">Filter</button></div><div class="cards">${body}</div>`;
-  for(let z of ['direction','status','reason','start','end'])$('#'+z).value=q.get(z)||'';
-  $('#go').onclick=()=>{let z=new URLSearchParams();for(let a of ['direction','status','reason','start','end'])if($('#'+a).value)z.set(a,$('#'+a).value);location.search=z};
+      <div class="levels"><b>Candidate:</b> ${esc(x.candidate_id)} <b>Stage:</b> ${esc(x.stage)} <b>Order:</b> ${esc(x.order_state)} <b>Trade:</b> ${esc(x.trade_state)} ${x.net_r==null?'':('<b>Net:</b> '+fmt(x.net_r)+'R')}</div><div class="reason"><b>${closed?'Exit':open?'Execution':'Decision reason'}:</b> ${esc(closed?x.exit_reason:open?'Position open · no realized P&L':x.rejection_reason||status)}</div></div>`;
+  }).join('')||`<div class="empty">${s.filled===0?'No forward shadow fills yet. Historical candidates are warm-up records, not executed trades.':q.get('execution')?'No trades match this execution-state filter.':'No candidates match these filters.'}</div>`;
+  $('#app').innerHTML=`<div class="top"><div><h2>MNQ Continuation · LONG + SHORT candidates</h2><div class="mut">Independent directional shadow; SHORT is exploratory and has no inherited LONG performance claim.</div></div><div class="badge">SHADOW ONLY · independent scanner</div></div><div class="kpis">${k('All event records',s.candidates||0)}${k('Close-through events',s.close_through||0)}${k('Canonical setups',s.canonical_confirmed||0)}${k('HTF LONG matched',s.htf_long||0)}${k('HTF SHORT matched',s.htf_short||0)}${k('OPEN DOL eligible',s.dol_aligned||0)}${k('Forward fills',s.filled||0)}${k('Open trades',s.open_trades||0)}${k('Closed trades',s.closed_trades||0)}</div><div class="help"><b>How to read these totals</b><br><span class="mut">All event records = close-through events + canonical setups. One setup can appear in both stages; these are not independent trades. The totals include historical scanner warm-up and are not changed by the list filters below. Only orders armed after warm-up can become forward fills.</span><br><br><b>What each step means</b><br><span class="mut">1 matching JadeCap HTF thesis fixed at 18:00 ET → 2 registered BSL/SSL close-through → 3 directional displacement + event-owned FVG → 4 later pullback/hold + BOS → 5 causal directional OPEN DOL → 6 frozen Entry/SL/DOL target and shadow fill.</span></div><div class="filters"><select id="direction"><option value="">LONG + SHORT</option><option>LONG</option><option>SHORT</option></select><select id="execution"><option value="">all execution states</option><option value="FILLED">all filled trades</option><option value="OPEN">open trades</option><option value="CLOSED">closed trades</option><option value="PENDING">pending orders</option><option value="UNFILLED_EXPIRED">unfilled expired</option></select><select id="status"><option value="">all candidate statuses</option>${['TRACKING','REJECTED','SUPERSEDED','UNFILLED_OR_PENDING','FILLED_OR_PENDING_REPLAY'].map(x=>`<option>${x}</option>`)}</select><select id="reason"><option value="">all reasons</option>${reasons.map(x=>`<option>${esc(x)}</option>`)}</select><input id="start" type="date"><input id="end" type="date"><button id="go">Filter</button></div><div class="cards">${body}</div>`;
+  for(let z of ['direction','execution','status','reason','start','end'])$('#'+z).value=q.get(z)||'';
+  $('#go').onclick=()=>{let z=new URLSearchParams();for(let a of ['direction','execution','status','reason','start','end'])if($('#'+a).value)z.set(a,$('#'+a).value);location.search=z};
 }
 function chart(b,d){if(!b.length)return '<div class="card">No bars available.</div>';let W=1000,H=520,pad=55,vals=b.flatMap(x=>[x.low,x.high]),marks=[d.entry_price,d.stop_price,d.target_price].filter(x=>x!=null),lo=Math.min(...vals,...marks),hi=Math.max(...vals,...marks),p=(hi-lo)*.06||1;lo-=p;hi+=p;let x=i=>pad+(i+.5)*(W-2*pad)/b.length,y=v=>pad+(hi-v)*(H-2*pad)/(hi-lo),bw=Math.max(1,Math.min(6,(W-2*pad)/b.length*.65)),s=`<svg viewBox="0 0 ${W} ${H}">`;for(let n=0;n<6;n++){let v=lo+n*(hi-lo)/5,yy=y(v);s+=`<line x1="${pad}" y1="${yy}" x2="${W-pad}" y2="${yy}" stroke="#263952"/><text x="4" y="${yy+4}" fill="#8ca0ba" font-size="12">${v.toFixed(2)}</text>`}b.forEach((c,i)=>{let col=c.close>=c.open?'#2dd4bf':'#fb7185',xx=x(i),top=Math.min(y(c.open),y(c.close)),bot=Math.max(y(c.open),y(c.close));s+=`<line x1="${xx}" y1="${y(c.high)}" x2="${xx}" y2="${y(c.low)}" stroke="${col}"/><rect x="${xx-bw/2}" y="${top}" width="${bw}" height="${Math.max(1,bot-top)}" fill="${col}"/>`});[['ENTRY',d.entry_price,'#60a5fa'],['SL',d.stop_price,'#fb7185'],['DOL',d.target_price,'#fbbf24']].forEach(z=>{if(z[1]!=null)s+=`<line x1="${pad}" y1="${y(z[1])}" x2="${W-pad}" y2="${y(z[1])}" stroke="${z[2]}" stroke-width="2" stroke-dasharray="7 5"/><text x="${W-pad+5}" y="${y(z[1])+4}" fill="${z[2]}">${z[0]}</text>`});return s+'</svg>'}
-async function detail(){let id=decodeURIComponent(location.pathname.split('/').pop()),d=await j('/continuation/api/candidate/'+encodeURIComponent(id));$('#app').innerHTML=`<p><a href="/continuation/candidates">← Candidates</a></p><div class="detail"><div class="card">${chart(d.bars,d.candidate)}</div><div class="card"><h3>${esc(id)}</h3><p><b>${esc(d.candidate.stage)}</b> · ${esc(d.candidate.status)}</p><h4>Order / trade state</h4><pre>${esc(JSON.stringify({order:d.order,trade:d.trade},null,2))}</pre><h4>Frozen evidence</h4><pre>${esc(JSON.stringify(d.candidate.payload,null,2))}</pre></div></div>`}
+async function detail(){let id=decodeURIComponent(location.pathname.split('/').pop()),d=await j('/continuation/api/candidate/'+encodeURIComponent(id)),state=d.trade?.state==='CLOSED'?'CLOSED':d.trade?.state==='OPEN'?'OPEN TRADE':d.order?.state||d.candidate.status;$('#app').innerHTML=`<p><a href="/continuation/candidates">← Candidates</a></p><div class="detail"><div class="card">${chart(d.bars,d.candidate)}</div><div class="card"><h3>${esc(id)}</h3><p><b>${esc(d.candidate.stage)}</b> · ${esc(state)}${d.trade?.state==='CLOSED'?' · '+esc(d.trade.exit_reason)+' · '+fmt(d.trade.net_r)+'R':''}</p><h4>Order / trade state</h4><pre>${esc(JSON.stringify({order:d.order,trade:d.trade},null,2))}</pre><h4>Frozen evidence</h4><pre>${esc(JSON.stringify(d.candidate.payload,null,2))}</pre></div></div>`}
 (async()=>{try{if(location.pathname.includes('/candidate/'))await detail();else if(location.pathname.endsWith('/dashboard'))await dash();else await list()}catch(e){$('#app').innerHTML='<div class="card metric bad">'+esc(e)+'</div>'}})();
 </script></body></html>'''
 
