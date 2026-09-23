@@ -1,0 +1,149 @@
+# BUILDER 50K DEFAULT ($2,000 MLL) — COMPLETE RAILWAY TEMPLATE
+# Use only in the NEW, SEPARATE Builder Railway service.
+# Do not copy the 100K URLs, webhook, tokens, state or strategy-forwarding variables.
+
+# ---------- ACCOUNT / MFF RULES ----------
+ACCOUNT_PLAN=builder50
+ACCOUNT_LABEL=Builder 50K
+ACCOUNT_PHASE=evaluation
+ACCOUNT=50000
+START_BALANCE=50000
+TARGET_BALANCE=53000
+START_EQUITY=50000
+
+# Builder Default: $2,000 EOD trailing MLL, starting floor $48,000,
+# locking permanently at $50,100. This is NOT the $1,500 add-on profile.
+DD_FLOOR=48000
+DD_TRAIL_USD=2000
+DD_FLOOR_CAP=50100
+DD_BUFFER=100
+DD_PROXIMITY_MODE=soft
+DD_PROJECTED_RISK=1
+DD_PROJECTED_EXTRA_USD=0
+SETUP_GROUP_FLOOR_RESERVE_USD=100
+GUARD_SYNC_MAX_H=24
+
+# ---------- REVIEWED BUILDER RISK ----------
+# $500 is ONE ceiling for the whole A/B setup. When both legs are viable it is
+# split $250 A/B + $250 A/B-shallow; it is not $500 per leg.
+SETUP_GROUP_RISK_USD=500
+SETUP_GROUP_RT_COST_USD=2.24
+RISK_PCT=1.0
+POINT_VALUE=2
+EXEC_QTY=auto
+EXEC_MAX_QTY=15
+
+# Routing has been verified on the live Builder account. Disable the initial
+# fixed 1-MNQ ramp so every qualifying setup uses the normal guarded risk model.
+RAMP_TRADES=0
+AB_SHALLOW_ENABLED=1
+AB_SHALLOW_DURING_RAMP=0
+AB_SHALLOW_FRACTION=0.25
+AB_SHALLOW_RR=2
+AB_SHALLOW_MIN_SL_PTS=5
+AB_SHALLOW_MAX_SL_PTS=0
+
+# One losing A/B setup group stops the account for the day. The $550 backstop
+# includes a small execution/cost allowance and stays below MFF's $1,000 pause.
+MAX_TRADES_DAY=3
+DAY_LOSS_N=1
+DAY_LOSS_COUNT_MODE=group
+DAY_LOSS_USD=550
+LOSS_STREAK_N=2
+LOSS_STREAK_COOLDOWN_H=24
+DAY_TARGET_USD=1000
+
+# ---------- STRATEGY — SAME A/B LOGIC AS 100K ----------
+A_FILL_WIN_MIN=10
+B_FILL_WIN_MIN=5
+FILL_WIN_MIN=10
+ATRMULT=1.0
+BATCH_PENDING_GRACE_SEC=120
+BUFFER_BARS=28000
+DISP_MODE=chain
+DISPWIN=30
+ENTRY_PRIMARY=fibo
+ENTRY_OFFSET_PTS=1
+MAX_RETEST=4
+MAX_STOP_R=40
+MIN_SL_PTS=5
+REJ_FRAC=0.6
+REGIME_GATE=1
+REGIME_SIZE_GATE=1
+STOP_CAP=30
+STOP_CAP_TRIGGER=0
+ORPHAN_LIFE=day
+ORPHAN_MAX_BARS=120
+ORPHAN_WINDOW=caps
+PARTIAL_AT_1R=0
+MANAGE_BE=0
+PRICE_OFFSET=0
+NO_CACHE=1
+
+# ---------- CONTINUATION LONG + SHORT ----------
+# Frozen OPEN-DOL targets; routed through this service's normal Guard and
+# Builder-only EXEC_WEBHOOK. The adapter hard-caps risk at $250 per setup.
+CONTINUATION_SHADOW_ENABLED=1
+CONTINUATION_LIVE_LONG=1
+CONTINUATION_LIVE_SHORT=1
+CONTINUATION_RISK_USD_50K=250
+
+# ---------- SESSIONS / NEWS ----------
+# New York time: PREM 05:00-09:30, NYAM 09:30-11:00, NYL 11:00-13:30,
+# NYPM 13:30-16:00, PM_AH 16:00-18:00, LO 02:00-05:00, ASIA 18:00-02:00.
+# This enables PREM + NYAM + NYPM; the 15:30 cutoff blocks late NYPM/PM_AH entries.
+SKIP_SESSIONS=ASIA,LO,NYL
+MONDAY_MODE=nyam
+NEWS_GUARD=1
+NEWS_STRICT=1
+NEWS_MAX_AGE_H=24
+NEWS_CAL_ALERTS=1
+NO_TRADE_SUPPRESS=1
+STALE_MIN=20
+
+# ---------- BROKER EXECUTION ----------
+CONTRACT=MNQU2026
+# Keep explicit contract in sync at each quarterly rollover; TradersPost recommends
+# explicit futures symbols rather than relying on a potentially different front-month map.
+EXEC_TICKER=MNQU2026
+EXEC_MODE=manual
+AUTO_SUBMIT=0
+EXEC_TICK=0.25
+EXEC_TIF=day
+EXEC_CANCEL_AFTER_SEC=600
+EXEC_REJECT_AFTER_SEC=15
+EXEC_ADVERSE_FIRST=1
+EXEC_FILL_THROUGH_TICKS=1
+EXEC_FILLBAR_TP=0
+GUARD_FLATTEN=1
+GUARD_LAST_ENTRY_ET=15:30
+EOD_FLATTEN_ET=15:55
+
+# ---------- 7-DAY ACTIVITY RULE ----------
+# Set the purchase/activation date. The countdown resets only after a confirmed
+# or broker-reconciled executed trade, not after a candidate, manual review or resting order.
+ACCOUNT_STARTED_ON=2026-08-30
+INACTIVITY_DAYS=7
+
+# ---------- SERVICE / UNIQUE SECRETS ----------
+# Use the new Builder service URL and a volume mounted at /data.
+PUBLIC_URL=https://PASTE-BUILDER-SERVICE.up.railway.app
+DATA_DIR=/data/builder50
+
+# REQUIRED: a unique TradersPost strategy webhook whose only subscription is
+# the Builder 50K account. Never reuse the 100K EXEC_WEBHOOK.
+EXEC_WEBHOOK=PASTE-NEW-BUILDER-ONLY-TRADERSPOST-WEBHOOK
+GUARD_TOKEN=CREATE-A-LONG-UNIQUE-BUILDER-GUARD-TOKEN
+EXEC_TEST_SECRET=CREATE-A-DIFFERENT-LONG-ONE-TIME-TEST-SECRET
+
+# Optional, but these should also be unique to this service.
+HEALTHCHECK_URL=https://hc-ping.com/PASTE-NEW-BUILDER-CHECK-ID
+HEARTBEAT_EVERY_SEC=30
+SAT_WATCH=0
+WEBHOOK_URL=https://PASTE-ALERT-RELAY/webhook?secret=PASTE-ROTATED-ALERT-SECRET
+
+# INTENTIONALLY ABSENT ON BUILDER:
+# BUILDER50_URL / BUILDER50_FORWARD_BARS (100K service owns the fan-out)
+# STRAT_C_FORWARD_URL / STRAT_F_FORWARD_URL (would duplicate strategy bars)
+# STRAT_AMD_* / STRAT_ORB_* (removed strategies)
+# TRADERSPOST_WEBHOOK (legacy relay variable; executor reads EXEC_WEBHOOK)
