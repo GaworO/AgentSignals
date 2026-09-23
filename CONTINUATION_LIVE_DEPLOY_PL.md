@@ -29,6 +29,7 @@ CONTINUATION_SHADOW_ENABLED=1
 CONTINUATION_LIVE_LONG=1
 CONTINUATION_LIVE_SHORT=1
 CONTINUATION_RISK_USD_100K=500
+CONTINUATION_HTF_THESIS_MODE=allow_none
 ```
 
 Pozostałe wartości (`EXEC_MODE`, `EXEC_WEBHOOK`, `ACCOUNT`, Guard, kontrakt i
@@ -43,7 +44,13 @@ CONTINUATION_SHADOW_ENABLED=1
 CONTINUATION_LIVE_LONG=1
 CONTINUATION_LIVE_SHORT=1
 CONTINUATION_RISK_USD_50K=250
+CONTINUATION_HTF_THESIS_MODE=allow_none
 ```
+
+`CONTINUATION_HTF_THESIS_MODE=strict` zachowuje oryginalny filtr: LONG wymaga
+tezy LONG, a SHORT tezy SHORT. `allow_none` dopuszcza wyłącznie neutralny stan
+`NONE`; teza przeciwna do kierunku nadal blokuje zlecenie. Nie istnieje tryb,
+który automatycznie dopuszcza przeciwną tezę.
 
 Nie wolno współdzielić webhooka TradersPost ani `DATA_DIR` pomiędzy kontami.
 

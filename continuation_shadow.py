@@ -493,12 +493,14 @@ def scan_once() -> dict[str, Any]:
     _upsert_scan(raw, outputs, triggers, candidates, orders, funnel)
     with _connect() as con:
         _set_meta(con, "current_thesis", _json(scan["current_thesis"]))
+        _set_meta(con, "thesis_mode", scan.get("thesis_mode", "strict"))
         _set_meta(con, "last_close", float(raw.close.iloc[-1]))
     _reconcile(raw)
     completed = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     _LAST.update(status="ok", last_bar=raw.ts_event.iloc[-1].isoformat(), last_scan_completed=completed,
                  rows_scanned=len(raw), detector_outputs=len(outputs), worker_running=False)
     scan_result = {"status": "ok", "funnel": funnel, "rows": len(raw),
+                   "thesis_mode": scan.get("thesis_mode", "strict"),
                    "last_bar": _LAST["last_bar"], "provenance": provenance}
     # Optional consumers run only after the deterministic shadow scan and DB
     # transaction have completed.  A listener failure can never corrupt or
@@ -588,6 +590,7 @@ def _summary() -> dict[str, Any]:
         funnel_raw = _meta(con, "last_funnel", "{}") or "{}"
         armed = _meta(con, "armed_after_ms")
         thesis_raw = _meta(con, "current_thesis", "{}") or "{}"
+        thesis_mode_value = _meta(con, "thesis_mode", "strict") or "strict"
         last_close = float(_meta(con, "last_close", "nan") or "nan")
         open_positions = []
         for x in trades:
@@ -638,6 +641,7 @@ def _summary() -> dict[str, Any]:
             "funnel": json.loads(funnel_raw), "metrics": metrics, "metrics_by_direction": by_direction,
             "current_thesis": json.loads(thesis_raw),
             "latest_thesis": json.loads(thesis_raw).get("thesis"),
+            "thesis_mode": thesis_mode_value,
             "open_positions": open_positions,
         }
 
