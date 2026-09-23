@@ -12,6 +12,7 @@ from __future__ import annotations
 import collections
 import datetime as dt
 import hashlib
+import html
 import json
 import math
 import os
@@ -677,6 +678,70 @@ def _candidate_funnel_stats() -> dict[str, int]:
         }
 
 
+def _forward_pine_trades(limit: int = 50) -> tuple[list[dict[str, Any]], int, int | None]:
+    """Read actual forward shadow fills only; never infer trades from candidates."""
+    limit = min(max(int(limit), 1), 100)  # At most 300 lines and 200 labels in Pine.
+    with _connect() as con:
+        total = con.execute("SELECT COUNT(*) FROM continuation_trades WHERE state IN ('OPEN','CLOSED')").fetchone()[0]
+        rows = [dict(row) for row in con.execute(
+            "SELECT * FROM continuation_trades WHERE state IN ('OPEN','CLOSED') "
+            "ORDER BY fill_ms DESC, trade_id DESC LIMIT ?", (limit,)
+        ).fetchall()]
+        last_bar = _meta(con, "last_bar_ms")
+    rows.reverse()
+    return rows, int(total), None if last_bar is None else int(last_bar)
+
+
+def _pine_forward_source(trades: list[dict[str, Any]], last_bar_ms: int | None) -> str:
+    """Render ledger fills as a display-only Pine v6 overlay, not a TV strategy."""
+    lines = [
+        "//@version=6",
+        'indicator("MNQ Continuation forward shadow fills", overlay=true, max_lines_count=500, max_labels_count=500)',
+        "// Display-only export of forward shadow ledger. No alerts, orders, or signal recalculation.",
+        "// Use a matching MNQ 1-minute contract chart; continuous back-adjusted prices may differ.",
+        "plot(na, title=\"Display only\", display=display.none)",
+    ]
+    if not trades:
+        lines.append("// No forward shadow fills recorded yet.")
+        return "\n".join(lines) + "\n"
+    lines.append("if barstate.islastconfirmedhistory")
+    for trade in trades:
+        side = str(trade["direction"])
+        if side not in {"LONG", "SHORT"}:
+            raise ValueError("invalid trade direction in shadow ledger")
+        fill_ms = int(trade["fill_ms"])
+        closed = trade["state"] == "CLOSED"
+        end_ms = int(trade["exit_ms"]) if closed and trade["exit_ms"] is not None else int(last_bar_ms or fill_ms)
+        end_ms = max(end_ms, fill_ms + 60_000)
+        entry, stop, target = (float(trade[name]) for name in ("entry_price", "stop_price", "target_price"))
+        order_suffix = str(trade["order_id"])[-8:]
+        entry_text = json.dumps(f"{side} ENTRY {order_suffix}")
+        lines.extend([
+            f"    // {side} {order_suffix} | {trade['state']}",
+            f"    line.new({fill_ms}, {entry:.2f}, {end_ms}, {entry:.2f}, xloc=xloc.bar_time, color=color.blue, width=2)",
+            f"    line.new({fill_ms}, {stop:.2f}, {end_ms}, {stop:.2f}, xloc=xloc.bar_time, color=color.red, style=line.style_dashed)",
+            f"    line.new({fill_ms}, {target:.2f}, {end_ms}, {target:.2f}, xloc=xloc.bar_time, color=color.orange, style=line.style_dotted)",
+            f"    label.new({fill_ms}, {entry:.2f}, {entry_text}, xloc=xloc.bar_time, style={'label.style_label_up' if side == 'LONG' else 'label.style_label_down'}, color={'color.teal' if side == 'LONG' else 'color.purple'}, textcolor=color.white, size=size.tiny)",
+        ])
+        if closed:
+            if trade["exit_price"] is None or trade["net_r"] is None:
+                raise ValueError("closed shadow trade lacks exit or net R")
+            net_r = float(trade["net_r"])
+            exit_color = "color.green" if net_r > 0 else "color.red" if net_r < 0 else "color.gray"
+            reason = str(trade["exit_reason"] or "EXIT").replace("_", " ")
+            exit_text = json.dumps(f"{reason} {net_r:+.3f}R")
+            lines.append(
+                f"    label.new({end_ms}, {float(trade['exit_price']):.2f}, {exit_text}, "
+                f"xloc=xloc.bar_time, style=label.style_label_left, color={exit_color}, textcolor=color.white, size=size.tiny)"
+            )
+        else:
+            lines.append(
+                f'    label.new({end_ms}, {entry:.2f}, "OPEN SHADOW", '
+                'xloc=xloc.bar_time, style=label.style_label_left, color=color.blue, textcolor=color.white, size=size.tiny)'
+            )
+    return "\n".join(lines) + "\n"
+
+
 def _bars_for(candidate: sqlite3.Row, before: int = 45, after: int = 90) -> list[dict[str, Any]]:
     raw = _load_history()
     ms = raw.ts_event.astype("int64").to_numpy() // 1_000_000
@@ -691,7 +756,7 @@ PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport
 <title>MNQ Continuation Shadow</title><style>
 :root{--bg:#0b0e14;--panel:#111827;--line:#243047;--text:#e7ebf2;--mut:#8993a6;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--blue:#7ab8f5}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,sans-serif;padding:18px}h2{margin:0}a{color:var(--blue)}.mut{color:var(--mut)}.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.badge{border:1px solid #274264;border-radius:999px;padding:5px 9px;color:var(--blue);font-size:11px}.kpis{display:grid;grid-template-columns:repeat(6,minmax(100px,1fr));gap:9px;margin:16px 0}.kpi,.card,.help{background:var(--panel);border:1px solid var(--line);border-radius:12px}.kpi{padding:12px}.kv{font-size:22px;font-weight:800}.kk{font-size:10px;color:var(--mut);text-transform:uppercase}.help{padding:16px;margin:12px 0}.cards{display:grid;gap:12px}.card{padding:0;overflow:hidden}.head{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}.title{font-weight:800}.green,.ok{color:var(--green)}.red,.bad{color:var(--red)}.warn{color:var(--amber)}.steps{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;padding:14px}.step{border:1px solid #26334a;border-radius:10px;padding:11px;min-height:108px}.step.ok{border-color:#17633c}.step.bad{border-color:#6b2730}.step.wait{border-color:#66541f}.n{width:25px;height:25px;border-radius:50%;display:inline-grid;place-items:center;background:#25344b;margin-right:6px;font-weight:800}.step.ok .n{background:#1c7a49}.step.bad .n{background:#7f2834}.step.wait .n{background:#78651f}.st{font-weight:750}.sd{font-size:12px;color:#98a3b7;margin-top:8px}.levels{display:flex;gap:20px;flex-wrap:wrap;padding:0 16px 14px;color:#b8c0ce}.reason{padding:11px 16px;background:#0d1420;border-top:1px solid var(--line)}.empty{padding:30px;text-align:center;color:var(--mut)}.filters{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}input,select,button{background:#0b1728;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px}button{cursor:pointer}.bar,.grid{display:grid;gap:12px}.bar{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:20px 0}.metric{padding:14px}.big{font-size:24px;font-weight:700;margin-top:6px}.detail{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:12px}.detail .card{padding:14px}svg{width:100%;height:auto;background:#08111f;border-radius:9px}pre{white-space:pre-wrap;word-break:break-word;color:#c7d5e8}@media(max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.steps{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.detail{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
-</style></head><body><div id="app"></div>
+</style></head><body><p><a href="/continuation/pine" target="_blank">Pine · executed forward trades ↗</a></p><div id="app"></div>
 <script>
 const $=s=>document.querySelector(s), fmt=(x,n=3)=>x==null?'—':Number(x).toFixed(n), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function j(u){let r=await fetch(u,{cache:'no-store'});if(!r.ok)throw Error(await r.text());return r.json()}
@@ -751,6 +816,38 @@ def register(app, archive_path: str | os.PathLike[str] | None = None) -> None:
     @app.get("/continuation/api/candidates")
     def continuation_candidates():
         return jsonify(rows=_candidate_rows(), funnel_stats=_candidate_funnel_stats())
+
+    @app.get("/continuation/pine")
+    def continuation_pine():
+        trades, total, last_bar_ms = _forward_pine_trades()
+        source = _pine_forward_source(trades, last_bar_ms)
+        if request.args.get("raw") == "1":
+            return Response(source, mimetype="text/plain")
+        notice = ("No forward shadow fills have been recorded yet; this script contains no trade markers."
+                  if total == 0 else
+                  f"Showing the latest {len(trades)} of {total} recorded forward shadow fills.")
+        page = (
+            "<!doctype html><html><head><meta charset='utf-8'><title>Continuation Pine · forward fills</title>"
+            "<style>body{margin:24px;background:#0b0e14;color:#e7ebf2;font:15px/1.5 system-ui,sans-serif}"
+            "a{color:#7ab8f5}button{padding:9px 14px;border:1px solid #30557e;border-radius:8px;"
+            "background:#18314e;color:#e7ebf2;cursor:pointer}textarea{display:block;width:100%;height:65vh;"
+            "box-sizing:border-box;margin-top:16px;padding:14px;background:#101827;color:#d7e3f3;"
+            "border:1px solid #2c3b50;border-radius:10px;font:12px/1.4 monospace}</style></head><body>"
+            "<h2>MNQ Continuation · Pine for executed forward trades</h2>"
+            f"<p>{html.escape(notice)}</p>"
+            "<p>Display only: Entry (blue), structural SL (red), frozen OPEN DOL (orange), and actual shadow exit. "
+            "This does not generate TradingView orders or import historical Development/CSV backtests. "
+            "Use the matching MNQ 1-minute contract chart; back-adjusted continuous prices may not align.</p>"
+            "<button id='copy'>Copy Pine script</button> "
+            "<a href='/continuation/pine?raw=1' target='_blank'>Raw script</a> · "
+            "<a href='/continuation/candidates?execution=FILLED'>Filled trades</a>"
+            f"<textarea id='source' readonly>{html.escape(source)}</textarea>"
+            "<script>document.getElementById('copy').onclick=async()=>{let s=document.getElementById('source');"
+            "try{await navigator.clipboard.writeText(s.value);document.getElementById('copy').textContent='Copied';}"
+            "catch(e){s.select();document.execCommand('copy');document.getElementById('copy').textContent='Copied';}}</script>"
+            "</body></html>"
+        )
+        return Response(page, mimetype="text/html")
 
     @app.get("/continuation/api/candidate/<candidate_id>")
     def continuation_candidate(candidate_id: str):
