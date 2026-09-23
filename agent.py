@@ -30,6 +30,8 @@ import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence
 import a_cont_both_aligned_shadow  # post-decision A Continuation + frozen multi-horizon DOL shadow
 import dol_delivery_reversal_shadow  # post-decision DOL Delivery Reversal shadow; no broker authority
 import dol_reversal_manager_shadow_v1  # dedicated DOL Reversal manager challenger; shadow-only
+import dol_reversal_control  # fail-closed activation gate + immutable DOL identities
+import dol_reversal_live  # DOL entry/manager lifecycle via the account-specific TradersPost webhook
 import continuation_shadow  # independent canonical HTF Continuation Policy-B shadow; broker-inert
 import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
@@ -311,13 +313,18 @@ def _exec_order(x, text=None):
                 "time": dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
                 "rejectAfter": _signal_reject_after_sec(),
             }
+            if _i == 0 and x.get('_strat') == 'DOL_DELIVERY_REVERSAL':
+                _claimed, _claim_reason = dol_reversal_live.claim_entry(x, qty, payload)
+                if not _claimed:
+                    return {"sent": False, "reason": _claim_reason, "qty": qty,
+                            "route_id": guardrails._exec_route_id()}
             if x.get('_test_signal'):
                 payload["test"] = True
-                payload["extras"] = {
+                payload["extras"] = dict(payload.get("extras") or {}, **{
                     "chainTest": str(x.get('_test_label') or 'single-route-test'),
                     "accountLabel": os.environ.get('ACCOUNT_LABEL', 'account'),
                     "routeId": guardrails._exec_route_id(),
-                }
+                })
             if text and _i == 0: payload["text"] = text
             try:
                 r = requests.post(url, json=payload, timeout=10)
@@ -327,6 +334,11 @@ def _exec_order(x, text=None):
                 ok_leg = st is not None and 200 <= int(st) < 300
             except Exception as e:
                 st = None; body = str(e)[:200]; ok_leg = False
+                if _i == 0 and x.get('_strat') == 'DOL_DELIVERY_REVERSAL':
+                    dol_reversal_live.record_entry_response(x, None, error=str(e))
+            else:
+                if _i == 0 and x.get('_strat') == 'DOL_DELIVERY_REVERSAL':
+                    dol_reversal_live.record_entry_response(x, r)
             leg_results.append({"leg": _i + 1, "status": st, "ok": ok_leg, "qty": q_})
             if ok_leg: accepted_legs += 1
             print('EXEC', st, ('leg %d/%d' % (_i + 1, len(legs))), payload, flush=True)
@@ -889,6 +901,14 @@ def _process_new(now_ms=None, gap_min=None):
                 _es = 1 if repx.get('dir') == 'LONG' else -1
                 repx['entry'] = round(float(repx['entry']) + _es * _eo, 2)
         except Exception as _eoe: print('entry_offset err', _eoe, flush=True)
+        # DOL is a final classification of this one canonical A/B order. In
+        # LIVE it changes only the label and target to fixed +2R before Guard;
+        # no parallel A/B order is created.
+        try:
+            dol_reversal_live.classify(repx, BUF)
+        except Exception as _dre:
+            repx['_dol_state'] = 'DOL_STATE_UNAVAILABLE'
+            print('[dol-reversal-live] classification error', _dre, flush=True)
         # The human-facing alert is built before the floor-aware group is
         # prepared. Stamp the maximum equal sibling allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
@@ -1146,6 +1166,12 @@ def _after_bar_processed(b, now_ms):
     # shadow worker reads persisted bars and never blocks trade execution.
     downside_manager_shadow_v1.notify_bar()
     dol_reversal_manager_shadow_v1.notify_bar()
+    try:
+        _dol_live = dol_reversal_live.on_closed_bar(b)
+        if _dol_live.get('events'):
+            print('[dol-reversal-live]', _dol_live, flush=True)
+    except Exception as e:
+        print('[dol-reversal-live] on_bar err', e, flush=True)
 
 @app.route('/bars', methods=['POST'])
 def bars():
@@ -1846,6 +1872,8 @@ dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no 
 a_cont_both_aligned_shadow.register(app)      # /a-cont-both-aligned — shadow-only; GET routes only
 dol_delivery_reversal_shadow.register(app)       # /dol-delivery-reversal — shadow-only; GET routes only
 dol_reversal_manager_shadow_v1.register(app)      # /dol-reversal-manager — dedicated 58-feature shadow manager
+dol_reversal_control.register(app)                 # /dol-reversal/readiness — hashes, modes and live blockers
+dol_reversal_live.register(app)                    # /dol-reversal-live — webhook/local-fill lifecycle audit
 continuation_shadow.register(app, archive_path=ARCHIVE)  # /continuation — independent Policy-B shadow
 continuation_live.configure(_dispatch_continuation_live)
 continuation_shadow.register_scan_listener(continuation_live.drain)

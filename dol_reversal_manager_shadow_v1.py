@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 
 import downside_manager_shadow_v1 as base
+import dol_reversal_control
 from rl_trade_manager.env import HOLD, CLOSE_FULL, MOVE_SL_TO_BREAKEVEN, MOVE_SL_TO_PROTECTED_STRUCTURE, TradeManagementEnv
 from rl_trade_manager.features import NAMES
 from rl_trade_manager.types import Bar, Trade
@@ -26,10 +27,13 @@ DATA_DIR=Path(os.environ.get("DATA_DIR",str(HERE)))
 STORE=DATA_DIR/"dol_reversal_manager_shadow_v1.json"
 MODEL=HERE/"dol_reversal_manager_v1/model.json"
 MODEL_META=json.loads(MODEL.read_text())
-THRESHOLD=float(MODEL_META.get("threshold",0.892916))
-VERSION="DOL_REVERSAL_MANAGER_SHADOW_V1"
+THRESHOLD=float(json.loads((HERE/"dol_reversal_manager_v1/threshold.json").read_text())["threshold"])
+VERSION="DOL_REVERSAL_MANAGER_58_V1"
 FEATURE_SCHEMA="RL_TRADE_MANAGER_58_V1"
-ENABLED=os.environ.get("DOL_REVERSAL_MANAGER_SHADOW_ENABLED","true").lower() in ("1","true","yes")
+_REQUESTED_MANAGER_MODE=dol_reversal_control.requested_modes()["manager"]
+ENABLED=(dol_reversal_control.enabled("manager") and
+         (_REQUESTED_MANAGER_MODE=="LIVE" or
+          os.environ.get("DOL_REVERSAL_MANAGER_SHADOW_ENABLED","true").lower() in ("1","true","yes")))
 _LOCK=threading.RLock(); _QUEUE=queue.Queue(maxsize=2); _WORKER=None
 
 
@@ -79,6 +83,8 @@ def observe_candidate(strategy_row:dict[str,Any],signal:dict[str,Any]):
       "control_exit_reason":None,"manager_exit_reason":None,"manager_probability":None,"recommendation":"WAIT_FILL",
       "manager_virtual_sl":float(strategy_row["SL"]),"control_virtual_sl":float(strategy_row["SL"]),
       "execution_enabled":False,"model_version":MODEL_META.get("version"),"threshold":THRESHOLD,
+      "signal_id":strategy_row.get("signal_id"),"broker_order_id":None,"broker_position_id":None,
+      "manager_mode":dol_reversal_control.readiness()["effective_modes"]["manager"],
     }
     with _LOCK:
         rows=_load()
@@ -110,6 +116,8 @@ def _replay(row,bars,pre,states,quality):
             d={"decision_ms":trade.fill_ms+i*60_000,"price":float(env.last_price),"current_r":float(env._equity()),"mfe_r":float(env.mfe_r),"mae_r":float(env.mae_r),
                "giveback_r":float(m1["giveback_from_mfe_r"]),"probability":p,"threshold":THRESHOLD if managed else None,"recommendation":rec,"action":int(action),
                "virtual_sl":float(env.sl),"fixed_tp":float(trade.target),"m1":m1,"dol":dol,"state_quality":quality}
+            d["decision_id"]="%s:%s"%(row["candidate_id"],d["decision_ms"])
+            d["feature_snapshot"]=list(map(float,obs))
             obs,_,done,truncated,info=env.step(action)
             if truncated or info["invalid_action"]:raise AssertionError("Invalid shadow action")
             d["virtual_sl_after_action"]=float(env.sl);decisions.append(d)
@@ -186,6 +194,7 @@ def status():
       return {"trades":len(v),"wr":100*sum(x>0 for x in v)/len(v) if v else None,"pf":g/l if l else None,"net_r":sum(v),"max_dd_r":float(np.max(np.maximum.accumulate(curve)-curve))}
     winners=[r for r in done if r["control_final_r"]>0]; losers=[r for r in done if r["control_final_r"]<0]
     return {"enabled":ENABLED,"shadow_only":True,"broker_execution":False,"version":VERSION,"threshold":THRESHOLD,
+      "readiness":dol_reversal_control.readiness(),
       "pending":sum(r["status"]=="PENDING" for r in rs),"open":sum(r["status"]=="OPEN" for r in rs),"done":len(done),
       "control":metric("control_final_r"),"manager":metric("manager_final_r"),"delta_r":sum(float(r.get("delta_r") or 0) for r in done),
       "losers_improved":sum(r["manager_final_r"]>r["control_final_r"]+1e-10 for r in losers),"winners_damaged":sum(r["manager_final_r"]<r["control_final_r"]-1e-10 for r in winners)}
@@ -209,5 +218,5 @@ def register(app):
     if ENABLED:
       global _WORKER
       if _WORKER is None:_WORKER=threading.Thread(target=_worker,name="dol-reversal-manager",daemon=True);_WORKER.start();notify_bar()
-      print(f"[dol-reversal-manager] ENABLED SHADOW ONLY threshold={THRESHOLD:.6f}",flush=True)
+      print(f"[dol-reversal-manager] ENABLED {_REQUESTED_MANAGER_MODE} COMPUTE threshold={THRESHOLD:.6f}",flush=True)
     return app

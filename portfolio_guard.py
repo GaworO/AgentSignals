@@ -74,7 +74,9 @@ def record_note(candidate, decision, reason, account, mode, candidate_id=None, d
         "account": account,
         "mode": mode.upper(),
         "broker_mode": "LIVE_RELAY" if decision == "sent" else "NO_BROKER_SEND",
-        "candidate_ids": [str(candidate_id or candidate.get("candidate_id") or candidate.get("_setup_group_id") or "unavailable")],
+        "candidate_ids": [str(candidate.get("_signal_id") or candidate_id or candidate.get("candidate_id") or candidate.get("_setup_group_id") or "unavailable")],
+        "signal_id": candidate.get("_signal_id"),
+        "client_order_id": candidate.get("_client_order_id"),
         "strategy": strategy,
         "direction": candidate.get("dir"),
         "entry": entry, "sl": sl, "tp": tp,
@@ -82,7 +84,8 @@ def record_note(candidate, decision, reason, account, mode, candidate_id=None, d
         "requested_quantity": candidate.get("_group_qty_cap", candidate.get("_exec_qty_override")),
         "submitted_quantity": candidate.get("_sent_qty"),
         "session": candidate.get("sess"),
-        "dol_eligibility": None, "manager_eligibility": None,
+        "dol_eligibility": candidate.get("_dol_eligibility"),
+        "manager_eligibility": (strategy == "DOL_DELIVERY_REVERSAL"),
         "pending_or_open_before": None,
         "guard_checks": [{"name": "legacy_guard_final_result", "passed": decision == "sent",
                           "reason_code": reason or "ok"}],
@@ -96,11 +99,13 @@ def record_note(candidate, decision, reason, account, mode, candidate_id=None, d
         "reason_code": reason or ("relay_accepted" if decision == "sent" else "unknown"),
         "explanation": _explanation(decision, str(reason or ""), strategy),
         "portfolio_state_before": None, "portfolio_state_after": None,
-        "reservation_status": "not_recorded",
-        "order_submission_status": "RELAY_ACCEPTED" if decision == "sent" else "NOT_SUBMITTED",
+        "reservation_status": candidate.get("_batch_group_id") or candidate.get("_setup_group_id") or "not_recorded",
+        "order_submission_status": "WEBHOOK_ACCEPTED" if decision == "sent" else "NOT_SUBMITTED",
         "guard_decision_latency_ms": None,
         "competition_captured": False,
-        "evidence_limit": "Legacy Guard evaluated this account's A/B setup; Continuation and DOL Reversal shadow were not competing broker candidates.",
+        "evidence_limit": ("DOL is a final classification of the canonical A/B order; WEBHOOK_ACCEPTED is not broker fill confirmation."
+                           if strategy == "DOL_DELIVERY_REVERSAL" else
+                           "Guard evaluated this account independently; no broker fill is implied."),
     }
     event["decision_hash"] = hashlib.sha256(_canonical(event).encode("utf-8")).hexdigest()
     path = _path(data_dir)
