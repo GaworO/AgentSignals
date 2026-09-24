@@ -607,12 +607,20 @@ def _load_calendar():
     try:
         r=requests.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json', timeout=15)
         evs=[]; raw=[]
+        # MNQ execution reacts only to the configured currencies.  The old
+        # implementation accepted every high-impact ForexFactory event, so a
+        # CHF/AUD/GBP release could incorrectly block a Nasdaq setup.  Keep an
+        # explicit env override for deployments that intentionally trade a
+        # different instrument, while defaulting this MNQ service to USD only.
+        currencies={x.strip().upper() for x in
+                    (os.environ.get('NEWS_CURRENCIES', 'USD') or 'USD').split(',') if x.strip()}
         for e in r.json():
-            if str(e.get('impact','')).lower()!='high': continue
+            country=str(e.get('country') or e.get('currency') or '').strip().upper()
+            if str(e.get('impact','')).lower()!='high' or country not in currencies: continue
             t=dt.datetime.fromisoformat(e['date']).timestamp()
             title=e.get('title','event')
             evs.append((t, title))
-            raw.append(dict(epoch=t, title=title, country=e.get('country') or e.get('currency') or '',
+            raw.append(dict(epoch=t, title=title, country=country,
                             impact='high', source='ForexFactory'))
         _cal['events']=evs; _cal['raw_events']=raw; _cal['at']=dt.datetime.utcnow()
     except Exception as ex:
