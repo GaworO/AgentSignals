@@ -1891,6 +1891,15 @@ def _continuation_live_status():
     """Read-only status/decision ledger; secrets and webhook URLs are never exposed."""
     return jsonify(status=continuation_live.status(), decisions=continuation_live.rows(200))
 
+@app.route('/continuation/live/dashboard')
+def _continuation_live_dashboard():
+    """Human-readable LIVE dispatch table; JSON remains at /continuation/live."""
+    from flask import Response
+    return Response(r'''<!doctype html><meta charset="utf-8"><title>Continuation LIVE</title>
+<style>*{box-sizing:border-box}body{margin:0;padding:18px;background:#0b0e14;color:#e6e9ef;font:13px system-ui}.cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.card{background:#111827;border:1px solid #263248;border-radius:9px;padding:10px 14px;min-width:145px}.mut{color:#94a3b8}.ok{color:#4ade80}.bad{color:#f87171}.wrap{overflow:auto;border:1px solid #263248;border-radius:10px}table{border-collapse:collapse;width:100%;font:12px ui-monospace,monospace}th,td{padding:8px 9px;border-bottom:1px solid #202b40;text-align:left;white-space:nowrap}th{color:#94a3b8;background:#111827;position:sticky;top:0}</style>
+<h2>Continuation LONG + SHORT · LIVE dispatch</h2><div class="mut">Każdy nowy order przechodzi przez account-local Guard. Szczegóły blokad są również w /guard.</div><div id="cards" class="cards"></div><div class="wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+<script>const C=['activation_ms','direction','state','guard_reason','account_label','quantity','route_id','order_id'];const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function load(){fetch('/continuation/live',{cache:'no-store'}).then(r=>r.json()).then(x=>{const s=x.status||{},d=x.decisions||[];cards.innerHTML=[['LONG',s.long_enabled],['SHORT',s.short_enabled],['Dispatcher',s.dispatcher_ready],['Armed after',s.armed_after_ms],['Counts',JSON.stringify(s.counts||{})]].map(v=>'<div class="card"><b>'+esc(v[0])+'</b><br><span class="'+(v[1]===false?'bad':'ok')+'">'+esc(v[1])+'</span></div>').join('');head.innerHTML=C.map(k=>'<th>'+esc(k)+'</th>').join('');body.innerHTML=d.map(r=>'<tr>'+C.map(k=>'<td>'+esc(k==='activation_ms'&&r[k]?new Date(r[k]).toISOString():r[k])+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="8" class="mut">Brak nowych decyzji LIVE. Pierwszy skan tylko uzbraja adapter i nie wysyła historii.</td></tr>'}).catch(e=>{body.innerHTML='<tr><td class="bad">'+esc(e)+'</td></tr>'})}load();setInterval(load,15000)</script>''',mimetype='text/html')
+
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)

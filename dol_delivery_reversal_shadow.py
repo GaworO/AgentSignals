@@ -23,6 +23,7 @@ import threading
 from typing import Any
 
 import shadow
+import dol_reversal_control
 
 INTERNAL_NAME = "DOL_DELIVERY_REVERSAL"
 DISPLAY_NAME = "DOL Delivery Reversal"
@@ -69,13 +70,14 @@ def eligibility(signal: dict[str, Any], dol: dict[str, Any] | None = None) -> di
         canonical and native and narrative == "COMPLETE_DOL_NARRATIVE"
         and status == "OPEN" and aligned
     )
-    reason = "ACCEPT" if accepted else "; ".join([
+    unavailable = str(metadata.get("metadata_status") or "UNAVAILABLE").upper() != "ATTACHED"
+    reason = "ACCEPT" if accepted else ("DOL_STATE_UNAVAILABLE" if unavailable else "; ".join([
         "not canonical Reversal" if not canonical else "",
         "non-native catalyst" if not native else "",
         f"narrative={narrative}" if narrative != "COMPLETE_DOL_NARRATIVE" else "",
         f"dol_status={status}" if status != "OPEN" else "",
         "DOL not aligned" if not aligned else "",
-    ]).strip("; ")
+    ]).strip("; "))
     return {
         "canonical_reversal": canonical,
         "native_liquidity_catalyst": native,
@@ -124,6 +126,7 @@ def _record(signal: dict[str, Any], metadata: dict[str, Any], candidate_id: str)
     sl = float(signal["SL"])
     tp = _fixed_2r(entry, sl, direction)
     accepted = gate["accepted"]
+    sid = dol_reversal_control.signal_id(candidate_id)
     return {
         "schema": SCHEMA,
         "strategy": INTERNAL_NAME,
@@ -131,6 +134,7 @@ def _record(signal: dict[str, Any], metadata: dict[str, Any], candidate_id: str)
         "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "timestamp_ms": _timestamp(signal, metadata),
         "candidate_id": str(candidate_id),
+        "signal_id": sid,
         "direction": direction,
         "catalyst": signal.get("cat"),
         "model": signal.get("model"),
@@ -159,11 +163,17 @@ def _record(signal: dict[str, Any], metadata: dict[str, Any], candidate_id: str)
         "live_forward_observation": True,
         "historical_reference_included": False,
         "execution_enabled": False,
+        "requested_mode": dol_reversal_control.requested_modes()["reversal"],
+        "effective_mode": dol_reversal_control.readiness()["effective_modes"]["reversal"],
+        "activation_blockers": dol_reversal_control.readiness()["activation_blockers"],
+        "account_decisions": dol_reversal_control.shadow_payloads(candidate_id, direction, entry, sl, tp),
     }
 
 
 def observe(signal: dict[str, Any], dol: dict[str, Any] | None = None, *, candidate_id: str | None = None) -> bool:
     try:
+        if not dol_reversal_control.enabled("reversal"):
+            return False
         if not is_canonical_reversal(signal):
             return False
         metadata = copy.deepcopy(dol if isinstance(dol, dict) else signal.get("_dol") or {})
