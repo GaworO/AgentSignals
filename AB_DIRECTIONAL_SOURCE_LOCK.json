@@ -1,0 +1,8 @@
+{
+  "identity": "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_V1",
+  "engine_path": "ab_directional_engine.py",
+  "engine_sha256": "9890bad8b2734e6d0c364f0473d786c0f79b373c7d38db88d75b5934051fc418",
+  "long_detector": "immutable Continuation LONG freeze",
+  "short_detector": "CONTINUATION_SHORT_SOURCE_LOCK.json",
+  "outcome_derived_parameter_search": false
+}

@@ -27,8 +27,9 @@ DB_PATH = Path(os.environ.get("CONTINUATION_LIVE_DB", str(DATA_DIR / "continuati
 _DISPATCHER: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
 
-def _enabled(direction: str) -> bool:
-    key = "CONTINUATION_LIVE_LONG" if direction == "LONG" else "CONTINUATION_LIVE_SHORT"
+def _enabled(direction: str, strategy: str = "CONTINUATION") -> bool:
+    prefix = "AB_DIRECTIONAL_LIVE" if strategy == "AB_DIRECTIONAL" else "CONTINUATION_LIVE"
+    key = prefix + ("_LONG" if direction == "LONG" else "_SHORT")
     return os.environ.get(key, "0") == "1"
 
 
@@ -51,6 +52,7 @@ def _init_db() -> None:
             CREATE TABLE IF NOT EXISTS live_dispatches(
               order_id TEXT PRIMARY KEY,
               candidate_id TEXT NOT NULL,
+              strategy TEXT NOT NULL DEFAULT 'CONTINUATION',
               direction TEXT NOT NULL,
               activation_ms INTEGER NOT NULL,
               state TEXT NOT NULL,
@@ -67,6 +69,9 @@ def _init_db() -> None:
               ON live_dispatches(state, activation_ms DESC);
             """
         )
+        columns = {row[1] for row in con.execute("PRAGMA table_info(live_dispatches)")}
+        if "strategy" not in columns:
+            con.execute("ALTER TABLE live_dispatches ADD COLUMN strategy TEXT NOT NULL DEFAULT 'CONTINUATION'")
 
 
 def configure(dispatcher: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
@@ -115,9 +120,10 @@ def _claim(row: dict[str, Any], now: str) -> bool:
     with _connect() as con:
         cur = con.execute(
             """INSERT OR IGNORE INTO live_dispatches
-               (order_id,candidate_id,direction,activation_ms,state,source_json,created_at,updated_at)
-               VALUES(?,?,?,?,?,?,?,?)""",
-            (row["order_id"], row["candidate_id"], row["direction"], int(row["activation_ms"]),
+               (order_id,candidate_id,strategy,direction,activation_ms,state,source_json,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (row["order_id"], row["candidate_id"], row.get("strategy") or "CONTINUATION",
+             row["direction"], int(row["activation_ms"]),
              "DISPATCHING", json.dumps(row, sort_keys=True, separators=(",", ":"), default=str), now, now),
         )
         return cur.rowcount == 1
@@ -162,7 +168,7 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         if not _claim(row, now):
             continue
-        if not _enabled(str(row["direction"])):
+        if not _enabled(str(row["direction"]), str(row.get("strategy") or "CONTINUATION")):
             result = {"state": "DISABLED", "reason": "direction_not_enabled"}
         elif _DISPATCHER is None:
             result = {"state": "ERROR", "reason": "dispatcher_unavailable"}
@@ -206,4 +212,6 @@ def status() -> dict[str, Any]:
             "SELECT state,COUNT(*) n FROM live_dispatches GROUP BY state").fetchall()}
     return {"armed_after_ms": int(armed) if armed is not None else None,
             "long_enabled": _enabled("LONG"), "short_enabled": _enabled("SHORT"),
+            "ab_directional_long_enabled": _enabled("LONG", "AB_DIRECTIONAL"),
+            "ab_directional_short_enabled": _enabled("SHORT", "AB_DIRECTIONAL"),
             "dispatcher_ready": _DISPATCHER is not None, "counts": counts, "db_path": str(DB_PATH)}

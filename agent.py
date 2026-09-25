@@ -735,16 +735,19 @@ def _continuation_live_signal(order):
             'LO' if when.hour < 5 else 'PREM' if (when.hour < 9 or (when.hour == 9 and when.minute < 30)) else
             'NYAM' if when.hour < 11 else 'NYL' if (when.hour < 13 or (when.hour == 13 and when.minute < 30)) else
             'NYPM' if when.hour < 16 else 'PM_AH')
-    strategy = 'Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'
+    is_abdir = str(order.get('strategy') or '').upper() == 'AB_DIRECTIONAL'
+    strategy = (('A/B Directional LONG' if direction == 'LONG' else 'A/B Directional SHORT') if is_abdir else
+                ('Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'))
     return {
-        'date': when.strftime('%Y-%m-%d'), 'model': 'Continuation', 'cat': strategy + ' · OPEN DOL',
+        'date': when.strftime('%Y-%m-%d'), 'model': ('A/B Directional' if is_abdir else 'Continuation'),
+        'cat': strategy + (' · Fixed 2R' if is_abdir else ' · OPEN DOL'),
         'dir': direction, 'bos': when.strftime('%H:%M'), 'bos_ms': activation_ms,
         'entry_ms': activation_ms, 'entry': entry, 'SL': sl, 'TP': tp,
         'fvg_lo': min(entry, sl), 'fvg_hi': max(entry, sl),
         'bias': direction, 'bias_align': 'Y', 'trail': [], 'brk': 1,
         # Explicit audit/display provenance. Continuation uses the structural
         # protection level and the frozen open-DOL target, not A/B swing/2R.
-        'sl_src': 'struct', 'tp_src': 'open_dol',
+        'sl_src': 'struct', 'tp_src': ('2R' if is_abdir else 'open_dol'),
         'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),
         '_continuation_candidate_id': str(order['candidate_id']), '_continuation_dol_id': str(order['dol_id']),
         '_disable_partial': True, '_strict_risk_budget': True,
@@ -761,6 +764,16 @@ def _continuation_live_budget(profile):
     return max(0.0, min(requested, ceiling))
 
 
+def _directional_live_budget(profile):
+    """Separate capped risk switch for A/B Directional; never borrows Continuation config."""
+    is_50k = profile.get('plan') in ('builder50', 'rapid_eod50')
+    ceiling = 250.0 if is_50k else 500.0
+    key = 'AB_DIRECTIONAL_RISK_USD_50K' if is_50k else 'AB_DIRECTIONAL_RISK_USD_100K'
+    try: requested = float(os.environ.get(key, str(ceiling)) or ceiling)
+    except Exception: requested = ceiling
+    return max(0.0, min(requested, ceiling))
+
+
 def _dispatch_continuation_live(order):
     """Run one new Continuation order through this account's normal Guard and route."""
     x = _continuation_live_signal(order)
@@ -770,16 +783,19 @@ def _dispatch_continuation_live(order):
         reason = 'account_config:' + ','.join(profile.get('config_warnings') or ['invalid'])
         guardrails.note(x, 'blocked', reason)
         return dict(base, state='BLOCKED', reason=reason)
-    budget = _continuation_live_budget(profile)
+    is_abdir = str(order.get('strategy') or '').upper() == 'AB_DIRECTIONAL'
+    budget = _directional_live_budget(profile) if is_abdir else _continuation_live_budget(profile)
     if budget <= 0:
-        guardrails.note(x, 'blocked', 'continuation_risk_disabled')
-        return dict(base, state='BLOCKED', reason='continuation_risk_disabled')
+        reason = 'ab_directional_risk_disabled' if is_abdir else 'continuation_risk_disabled'
+        guardrails.note(x, 'blocked', reason)
+        return dict(base, state='BLOCKED', reason=reason)
     x['_risk_budget_usd'] = budget
     x['_planned_group_risk_usd'] = budget
     x['_risk_pct_override'] = 100.0 * budget / float(os.environ.get('ACCOUNT', '100000') or 100000)
-    text = ('🧭 %s · frozen OPEN DOL\n%s LIMIT %.2f · SL %.2f · TP %.2f\n'
+    text = ('🧭 %s · %s\n%s LIMIT %.2f · SL %.2f · TP %.2f\n'
             'Account: %s · max risk $%.0f · order %s' %
-            (x['_strat'], 'BUY' if x['dir'] == 'LONG' else 'SELL', x['entry'], x['SL'], x['TP'],
+            (x['_strat'], 'fixed 2R' if is_abdir else 'frozen OPEN DOL',
+             'BUY' if x['dir'] == 'LONG' else 'SELL', x['entry'], x['SL'], x['TP'],
              profile.get('label'), budget, order['order_id']))
     x['_alert_txt'] = text
     mode = guardrails.exec_mode()
@@ -802,7 +818,7 @@ def _dispatch_continuation_live(order):
     if not ok:
         guardrails.note(x, 'blocked', reason)
         return dict(base, state='BLOCKED', reason=reason)
-    gid = 'continuation_' + str(order['order_id'])
+    gid = ('ab_directional_' if is_abdir else 'continuation_') + str(order['order_id'])
     if not guardrails.begin_sibling_batch(gid, budget, [x['_strat']]):
         guardrails.note(x, 'blocked', 'batch_reservation_failed')
         return dict(base, state='BLOCKED', reason='batch_reservation_failed')
@@ -811,7 +827,8 @@ def _dispatch_continuation_live(order):
         guardrails.touch_sibling_batch(gid, x['_strat'], result.get('status'))
         guardrails.note(x, 'sent')
         if WEBHOOK_URL:
-            try: live_emit.post_webhook('🟢 CONTINUATION LIVE SENT\n' + text, WEBHOOK_URL)
+            try: live_emit.post_webhook(('🟢 A/B DIRECTIONAL LIVE SENT\n' if is_abdir else
+                                         '🟢 CONTINUATION LIVE SENT\n') + text, WEBHOOK_URL)
             except Exception: pass
         return dict(base, state='SENT', reason='ok', quantity=result.get('qty'),
                     route_id=result.get('route_id') or base['route_id'], broker=result)
@@ -1920,8 +1937,8 @@ def _continuation_live_dashboard():
     from flask import Response
     return Response(r'''<!doctype html><meta charset="utf-8"><title>Continuation LIVE</title>
 <style>*{box-sizing:border-box}body{margin:0;padding:18px;background:#0b0e14;color:#e6e9ef;font:13px system-ui}.cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.card{background:#111827;border:1px solid #263248;border-radius:9px;padding:10px 14px;min-width:145px}.mut{color:#94a3b8}.ok{color:#4ade80}.bad{color:#f87171}.wrap{overflow:auto;border:1px solid #263248;border-radius:10px}table{border-collapse:collapse;width:100%;font:12px ui-monospace,monospace}th,td{padding:8px 9px;border-bottom:1px solid #202b40;text-align:left;white-space:nowrap}th{color:#94a3b8;background:#111827;position:sticky;top:0}</style>
-<h2>Continuation LONG + SHORT · LIVE dispatch</h2><div class="mut">Q0–Q3 klasyfikuje wyłącznie A/B. Continuation ma klasę FROZEN OPEN DOL i przechodzi przez account-local Guard.</div><div id="cards" class="cards"></div><div class="wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
-<script>const C=['activation_ms','classification','setup_class','quality_tier','dol_id','direction','state','guard_reason','account_label','quantity','route_id','order_id'];const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function load(){fetch('/continuation/live',{cache:'no-store'}).then(r=>r.json()).then(x=>{const s=x.status||{},d=x.decisions||[];cards.innerHTML=[['LONG',s.long_enabled],['SHORT',s.short_enabled],['Dispatcher',s.dispatcher_ready],['Armed after',s.armed_after_ms],['Counts',JSON.stringify(s.counts||{})]].map(v=>'<div class="card"><b>'+esc(v[0])+'</b><br><span class="'+(v[1]===false?'bad':'ok')+'">'+esc(v[1])+'</span></div>').join('');head.innerHTML=C.map(k=>'<th>'+esc(k)+'</th>').join('');body.innerHTML=d.map(r=>'<tr>'+C.map(k=>'<td>'+esc(k==='activation_ms'&&r[k]?new Date(r[k]).toISOString():r[k])+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="12" class="mut">Brak nowych decyzji LIVE. Pierwszy skan tylko uzbraja adapter i nie wysyła historii.</td></tr>'}).catch(e=>{body.innerHTML='<tr><td class="bad">'+esc(e)+'</td></tr>'})}load();setInterval(load,15000)</script>''',mimetype='text/html')
+<h2>Continuation + A/B Directional · LIVE dispatch</h2><div class="mut">A/B Directional ma osobną klasę FIXED 2R i osobne przełączniki LONG/SHORT. Każdy wariant przechodzi przez ten sam account-local Guard.</div><div id="cards" class="cards"></div><div class="wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+<script>const C=['activation_ms','classification','setup_class','strategy','direction','state','guard_reason','account_label','quantity','route_id','order_id'];const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function load(){fetch('/continuation/live',{cache:'no-store'}).then(r=>r.json()).then(x=>{const s=x.status||{},d=x.decisions||[];cards.innerHTML=[['Continuation LONG',s.long_enabled],['Continuation SHORT',s.short_enabled],['A/B Dir LONG',s.ab_directional_long_enabled],['A/B Dir SHORT',s.ab_directional_short_enabled],['Dispatcher',s.dispatcher_ready],['Armed after',s.armed_after_ms],['Counts',JSON.stringify(s.counts||{})]].map(v=>'<div class="card"><b>'+esc(v[0])+'</b><br><span class="'+(v[1]===false?'bad':'ok')+'">'+esc(v[1])+'</span></div>').join('');head.innerHTML=C.map(k=>'<th>'+esc(k)+'</th>').join('');body.innerHTML=d.map(r=>'<tr>'+C.map(k=>'<td>'+esc(k==='activation_ms'&&r[k]?new Date(r[k]).toISOString():r[k])+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="11" class="mut">Brak nowych decyzji LIVE. Pierwszy skan tylko uzbraja adapter i nie wysyła historii.</td></tr>'}).catch(e=>{body.innerHTML='<tr><td class="bad">'+esc(e)+'</td></tr>'})}load();setInterval(load,15000)</script>''',mimetype='text/html')
 
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()

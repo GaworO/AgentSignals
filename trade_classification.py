@@ -24,6 +24,14 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         setup = "DOL REVERSAL"
         manager = "LIVE"
         label = "DOL REVERSAL · MANAGER LIVE" + ((" · " + tier) if tier != "N/A" else "")
+    elif strategy.startswith("A/B Directional"):
+        direction = str(candidate.get("dir") or "").upper()
+        family = "AB-DIR-L" if direction == "LONG" else "AB-DIR-S"
+        setup = "LIQUIDITY CHAIN · FIXED 2R"
+        manager = "NONE"
+        tier = "N/A"
+        qmode = "CAUSAL_FIXED_V1"
+        label = family + " · FIXED 2R"
     elif strategy.startswith("Continuation"):
         direction = str(candidate.get("dir") or "").upper()
         family = "CONT-L" if direction == "LONG" else "CONT-S"
@@ -54,17 +62,20 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
 
 def continuation_order(row: Dict[str, Any]) -> Dict[str, Any]:
     direction = str(row.get("direction") or "").upper()
-    family = "CONT-L" if direction == "LONG" else "CONT-S"
+    is_abdir = str(row.get("strategy") or "").upper() == "AB_DIRECTIONAL"
+    family = (("AB-DIR-L" if direction == "LONG" else "AB-DIR-S") if is_abdir else
+              ("CONT-L" if direction == "LONG" else "CONT-S"))
+    setup = "LIQUIDITY CHAIN · FIXED 2R" if is_abdir else "FROZEN OPEN DOL"
     return {
         "version": VERSION,
         "family": family,
-        "setup_class": "FROZEN OPEN DOL",
+        "setup_class": setup,
         "quality_tier": "N/A",
         "quality_score": None,
         "quality_mode": "N/A_AB_ONLY",
-        "manager_mode": "N/A",
+        "manager_mode": "NONE" if is_abdir else "N/A",
         "dol_id": row.get("dol_id"),
-        "label": family + " · FROZEN OPEN DOL",
+        "label": family + (" · FIXED 2R" if is_abdir else " · FROZEN OPEN DOL"),
     }
 
 

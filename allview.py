@@ -66,6 +66,8 @@ STRAT_COLORS = {
     'F':   ('color.orange',  '#f59e0b'),
     'CONT-L': ('color.blue',   '#3b82f6'),
     'CONT-S': ('color.purple', '#a855f7'),
+    'AB-DIR-L': ('color.teal', '#14b8a6'),
+    'AB-DIR-S': ('color.fuchsia', '#d946ef'),
 }
 
 
@@ -196,8 +198,11 @@ def _continuation_trades():
     out = []
     for row in rows:
         x = dict(row); direction = str(x.get('direction') or '').upper()
-        strat = 'CONT-L' if direction == 'LONG' else 'CONT-S'
-        out.append(_norm(strat, x.get('fill_ms'), direction, 'Frozen OPEN DOL',
+        abdir = str(x.get('strategy') or '').upper() == 'AB_DIRECTIONAL'
+        strat = (('AB-DIR-L' if direction == 'LONG' else 'AB-DIR-S') if abdir else
+                 ('CONT-L' if direction == 'LONG' else 'CONT-S'))
+        out.append(_norm(strat, x.get('fill_ms'), direction,
+                         'Liquidity chain · Fixed 2R' if abdir else 'Frozen OPEN DOL',
                          _f(x.get('entry_price')), _f(x.get('stop_price')), _f(x.get('net_r')),
                          x.get('exit_reason') or x.get('state'), key=str(x.get('trade_id') or ''),
                          target=_f(x.get('target_price'))))
@@ -459,19 +464,24 @@ def _continuation_candidates():
     con = sqlite3.connect(_CONT_DB)
     con.row_factory = sqlite3.Row
     try:
+        columns = {row[1] for row in con.execute("PRAGMA table_info(continuation_candidates)")}
+        strategy_sql = "strategy" if "strategy" in columns else "'CONTINUATION' AS strategy"
         rows = con.execute(
-            """SELECT direction,decision_ms,stage,status,rejection_reason,dol_id
-               FROM continuation_candidates ORDER BY decision_ms DESC LIMIT 300"""
+            f"""SELECT {strategy_sql},direction,decision_ms,stage,status,rejection_reason,dol_id
+                FROM continuation_candidates ORDER BY decision_ms DESC LIMIT 300"""
         ).fetchall()
     finally:
         con.close()
     out = []
     for row in rows:
         x = dict(row); direction = str(x.get('direction') or '').upper()
-        out.append(dict(strat=('CONT-L' if direction == 'LONG' else 'CONT-S'),
+        abdir = str(x.get('strategy') or '').upper() == 'AB_DIRECTIONAL'
+        out.append(dict(strat=((('AB-DIR-L' if direction == 'LONG' else 'AB-DIR-S') if abdir else
+                                ('CONT-L' if direction == 'LONG' else 'CONT-S'))),
                         day=_day_of(x.get('decision_ms')), time=_hhmm(x.get('decision_ms')),
                         dir=direction, stage=x.get('status') or x.get('stage'),
-                        note=x.get('rejection_reason') or ('OPEN DOL ' + str(x.get('dol_id') or ''))))
+                        note=x.get('rejection_reason') or ('Fixed 2R' if abdir else
+                                                           'OPEN DOL ' + str(x.get('dol_id') or ''))))
     return out
 
 

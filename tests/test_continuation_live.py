@@ -41,7 +41,7 @@ class ContinuationLiveTests(unittest.TestCase):
         with shadow._connect() as con:
             shadow._set_meta(con, "last_bar_ms", ms)
 
-    def _order(self, activation, direction="LONG", suffix="1", expiry=None):
+    def _order(self, activation, direction="LONG", suffix="1", expiry=None, strategy="CONTINUATION"):
         expiry = expiry or activation + 600_000
         candidate = "C" + suffix; order = "O" + suffix
         entry, stop, target = ((20000.0, 19990.0, 20030.0) if direction == "LONG"
@@ -61,6 +61,8 @@ class ContinuationLiveTests(unittest.TestCase):
                    VALUES(?,?,?,?,?,?,?,?,?,?,?,'PENDING','{}','x','x')""",
                 (order, direction, candidate, 1, activation, expiry, entry, stop, target, 10.0, "DOL" + suffix),
             )
+            con.execute("UPDATE continuation_candidates SET strategy=? WHERE candidate_id=?", (strategy, candidate))
+            con.execute("UPDATE continuation_orders SET strategy=? WHERE order_id=?", (strategy, order))
         return order
 
     def test_first_drain_arms_without_catchup(self):
@@ -106,6 +108,18 @@ class ContinuationLiveTests(unittest.TestCase):
             result = live.drain()
         self.assertEqual(0, result["processed"])
         self.assertEqual([], live.rows())
+
+    def test_ab_directional_has_independent_live_switch_and_classification(self):
+        self._bar(4_000_000); live.configure(lambda row: {"state": "SENT"}); live.drain()
+        self._order(4_060_000, suffix="d", expiry=4_600_000, strategy="AB_DIRECTIONAL")
+        self._bar(4_060_000)
+        with mock.patch.dict(os.environ, {"CONTINUATION_LIVE_LONG": "0", "AB_DIRECTIONAL_LIVE_LONG": "1"}, clear=False):
+            result = live.drain()
+        self.assertEqual(1, result["processed"])
+        row = live.rows()[0]
+        self.assertEqual("SENT", row["state"])
+        self.assertEqual("AB-DIR-L", row["strategy_class"])
+        self.assertEqual("LIQUIDITY CHAIN · FIXED 2R", row["setup_class"])
 
 
 if __name__ == "__main__":

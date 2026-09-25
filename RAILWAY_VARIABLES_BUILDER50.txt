@@ -86,7 +86,15 @@ NO_CACHE=1
 CONTINUATION_SHADOW_ENABLED=1
 CONTINUATION_LIVE_LONG=1
 CONTINUATION_LIVE_SHORT=1
+CONTINUATION_HTF_THESIS_MODE=allow_none
 CONTINUATION_RISK_USD_50K=250
+
+# ---------- A/B DIRECTIONAL FIXED 2R ----------
+# LONG is the selected live candidate. SHORT is coded and visible in shadow,
+# but remains deliberately disabled until an explicit deployment decision.
+AB_DIRECTIONAL_LIVE_LONG=1
+AB_DIRECTIONAL_LIVE_SHORT=0
+AB_DIRECTIONAL_RISK_USD_50K=250
 
 # ---------- SESSIONS / NEWS ----------
 # New York time: PREM 05:00-09:30, NYAM 09:30-11:00, NYL 11:00-13:30,

@@ -25,6 +25,7 @@ if Path(detcore.__file__).resolve().parent != (RUNTIME / "detcore").resolve():
 
 from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline as freeze  # noqa: E402
 import continuation_short_engine as short_engine  # noqa: E402
+import ab_directional_engine  # noqa: E402
 
 
 THESIS_MODES = {"strict", "allow_none"}
@@ -114,6 +115,10 @@ def main() -> None:
         raw, outputs, triggers, directional_theses(theses, "LONG", mode))
     short_candidates, short_orders, short_funnel = short_engine.build_manifests(
         raw, short_outputs, directional_theses(theses, "SHORT", mode))
+    abdir_long_candidates, abdir_long_orders, abdir_long_funnel = ab_directional_engine.build_manifests(
+        raw, outputs, "LONG")
+    abdir_short_candidates, abdir_short_orders, abdir_short_funnel = ab_directional_engine.build_manifests(
+        raw, short_outputs, "SHORT")
     annotate_policy(candidates, orders, theses, "LONG", mode)
     annotate_policy(short_candidates, short_orders, theses, "SHORT", mode)
     funnel["thesis_mode"] = mode
@@ -131,6 +136,10 @@ def main() -> None:
         "short_outputs": short_outputs, "short_triggers": short_triggers,
         "short_candidates": short_candidates, "short_orders": short_orders,
         "short_funnel": short_funnel, "short_detector_meta": short_detector_meta,
+        "abdir_long_candidates": abdir_long_candidates, "abdir_long_orders": abdir_long_orders,
+        "abdir_long_funnel": abdir_long_funnel,
+        "abdir_short_candidates": abdir_short_candidates, "abdir_short_orders": abdir_short_orders,
+        "abdir_short_funnel": abdir_short_funnel,
     }), sort_keys=True, separators=(",", ":"), allow_nan=False))
 
 

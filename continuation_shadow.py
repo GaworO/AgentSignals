@@ -30,7 +30,7 @@ from flask import Response, jsonify, request
 
 
 IDENTITY = "MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1"
-SCHEMA = "CONTINUATION_DIRECTIONAL_POLICY_B_SHADOW_V2"
+SCHEMA = "CONTINUATION_AND_AB_DIRECTIONAL_SHADOW_V3"
 TICK = 0.25
 POINT_VALUE = 2.0
 ROUND_TRIP_COST_USD = 3.50
@@ -115,6 +115,7 @@ def _init_db() -> None:
             );
             CREATE TABLE IF NOT EXISTS continuation_candidates (
               candidate_id TEXT PRIMARY KEY,
+              strategy TEXT NOT NULL DEFAULT 'CONTINUATION',
               direction TEXT NOT NULL DEFAULT 'LONG',
               event_kind TEXT NOT NULL,
               decision_ms INTEGER NOT NULL,
@@ -139,6 +140,7 @@ def _init_db() -> None:
               ON continuation_candidates(status, rejection_reason);
             CREATE TABLE IF NOT EXISTS continuation_orders (
               order_id TEXT PRIMARY KEY,
+              strategy TEXT NOT NULL DEFAULT 'CONTINUATION',
               direction TEXT NOT NULL DEFAULT 'LONG',
               candidate_id TEXT NOT NULL,
               instrument_id INTEGER NOT NULL,
@@ -159,6 +161,7 @@ def _init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_cont_orders_state ON continuation_orders(state);
             CREATE TABLE IF NOT EXISTS continuation_trades (
               trade_id TEXT PRIMARY KEY,
+              strategy TEXT NOT NULL DEFAULT 'CONTINUATION',
               direction TEXT NOT NULL DEFAULT 'LONG',
               order_id TEXT UNIQUE NOT NULL,
               candidate_id TEXT NOT NULL,
@@ -186,6 +189,8 @@ def _init_db() -> None:
             columns = {row[1] for row in con.execute(f"PRAGMA table_info({table})")}
             if "direction" not in columns:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN direction TEXT NOT NULL DEFAULT 'LONG'")
+            if "strategy" not in columns:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN strategy TEXT NOT NULL DEFAULT 'CONTINUATION'")
 
 
 def _meta(con: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
@@ -258,6 +263,11 @@ def _verify_freeze() -> dict[str, Any]:
             or not short_source.is_file()
             or hashlib.sha256(short_source.read_bytes()).hexdigest() != short_lock["short_engine_sha256"]):
         raise RuntimeError("SHORT research source lock mismatch")
+    abdir_lock = json.loads((HERE / "AB_DIRECTIONAL_SOURCE_LOCK.json").read_text(encoding="utf-8"))
+    abdir_source = HERE / abdir_lock["engine_path"]
+    if (not abdir_source.is_file()
+            or hashlib.sha256(abdir_source.read_bytes()).hexdigest() != abdir_lock["engine_sha256"]):
+        raise RuntimeError("A/B Directional source lock mismatch")
     baseline = json.loads((root / "BASELINE_CONFIGURATION.json").read_text(encoding="utf-8"))
     return {
         "verification_mode": "complete_outcome_free_freeze",
@@ -267,6 +277,8 @@ def _verify_freeze() -> dict[str, Any]:
         "effective_detector_environment": baseline["effective_detector_environment"],
         "short_research_identity": SHORT_IDENTITY,
         "short_engine_sha256": short_lock["short_engine_sha256"],
+        "ab_directional_identity": abdir_lock["identity"],
+        "ab_directional_engine_sha256": abdir_lock["engine_sha256"],
     }
 
 
@@ -320,13 +332,13 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
             payload = dict(trigger, candidate_id=cid, stage=stage, status=status)
             con.execute(
                 """INSERT INTO continuation_candidates
-                (candidate_id,direction,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
+                (candidate_id,strategy,direction,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
                  forward_eligible,bsl_name,payload_json,first_seen_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(candidate_id) DO UPDATE SET stage=excluded.stage,status=excluded.status,
                   rejection_reason=excluded.rejection_reason,payload_json=excluded.payload_json,
                   updated_at=excluded.updated_at""",
-                (cid, direction, "CLOSE_THROUGH", tms, _iso(trigger.get("trading_day")), stage, status,
+                (cid, "CONTINUATION", direction, "CLOSE_THROUGH", tms, _iso(trigger.get("trading_day")), stage, status,
                  "NO_CANONICAL_CONFIRMATION" if expired and not emitted else None, 0, 0, name,
                  _json(payload), now, now),
             )
@@ -334,6 +346,7 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
         order_by_candidate = {str(x["candidate_id"]): x for x in orders}
         for row in candidates:
             cid = str(row["candidate_id"])
+            strategy = str(row.get("strategy") or "CONTINUATION")
             direction = str(row.get("dir", "LONG"))
             decision_ms = int(row.get("entry_ms") or row.get("bos_ms"))
             stage, status = _candidate_state(row)
@@ -341,15 +354,15 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
             payload = dict(row, forward_eligible=forward, shadow_schema=SCHEMA)
             con.execute(
                 """INSERT INTO continuation_candidates
-                (candidate_id,direction,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
+                (candidate_id,strategy,direction,event_kind,decision_ms,trading_day,stage,status,rejection_reason,eligible,
                  forward_eligible,bsl_name,entry_price,stop_price,target_price,dol_id,payload_json,first_seen_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(candidate_id) DO UPDATE SET stage=excluded.stage,status=excluded.status,
                   rejection_reason=excluded.rejection_reason,eligible=excluded.eligible,
                   forward_eligible=MAX(continuation_candidates.forward_eligible,excluded.forward_eligible),
                   entry_price=excluded.entry_price,stop_price=excluded.stop_price,target_price=excluded.target_price,
                   dol_id=excluded.dol_id,payload_json=excluded.payload_json,updated_at=excluded.updated_at""",
-                (cid, direction, "CANONICAL_OUTPUT", decision_ms, _iso(row.get("trading_day")), stage, status,
+                (cid, strategy, direction, "CANONICAL_OUTPUT", decision_ms, _iso(row.get("trading_day")), stage, status,
                  row.get("rejection_reason"), int(bool(row.get("eligible"))), int(forward),
                  row.get("source_event", {}).get("bsl_name") or row.get("source_event", {}).get("ssl_name"), row.get("final_entry"),
                  row.get("final_structural_sl"), row.get("policy_B_target"), row.get("dol_id"),
@@ -362,10 +375,10 @@ def _upsert_scan(raw: pd.DataFrame, outputs: list[dict], triggers: list[dict], c
             expiry = _ms(order["expiry_timestamp"])
             con.execute(
                 """INSERT OR IGNORE INTO continuation_orders
-                (order_id,direction,candidate_id,instrument_id,activation_ms,expiry_ms,entry_price,stop_price,
+                (order_id,strategy,direction,candidate_id,instrument_id,activation_ms,expiry_ms,entry_price,stop_price,
                  target_price,risk_points,dol_id,state,fill_ms,payload_json,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)""",
-                (order["order_id"], direction, cid, int(order["instrument_id"]), activation, expiry,
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)""",
+                (order["order_id"], strategy, direction, cid, int(order["instrument_id"]), activation, expiry,
                  float(order["entry_price"]), float(order["structural_sl_price"]),
                  float(order["policy_B_target"]), float(order["initial_risk_points"]),
                  str(order["dol_id"]), "PENDING", _json(order), now, now),
@@ -408,9 +421,9 @@ def _reconcile(raw: pd.DataFrame) -> None:
                 trade_id = "TRADE_" + hashlib.sha256(str(order["order_id"]).encode()).hexdigest()[:20]
                 con.execute(
                     """INSERT OR IGNORE INTO continuation_trades
-                    (trade_id,direction,order_id,candidate_id,instrument_id,fill_ms,entry_price,stop_price,target_price,
-                     risk_points,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)""",
-                    (trade_id, direction, order["order_id"], order["candidate_id"], int(order["instrument_id"]), fill_ms,
+                    (trade_id,strategy,direction,order_id,candidate_id,instrument_id,fill_ms,entry_price,stop_price,target_price,
+                     risk_points,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)""",
+                    (trade_id, order["strategy"], direction, order["order_id"], order["candidate_id"], int(order["instrument_id"]), fill_ms,
                      float(order["entry_price"]), float(order["stop_price"]), float(order["target_price"]),
                      float(order["risk_points"]), now, now),
                 )
@@ -436,14 +449,16 @@ def _reconcile(raw: pd.DataFrame) -> None:
                         exit_i, exit_price, reason = j, min(float(a["open"][j]), float(trade["stop_price"])), "STRUCTURAL_SL"
                         break
                     if a["high"][j] >= float(trade["target_price"]):
-                        exit_i, exit_price, reason = j, float(trade["target_price"]), "FROZEN_OPEN_DOL"
+                        exit_i, exit_price, reason = j, float(trade["target_price"]), (
+                            "FIXED_2R" if trade["strategy"] == "AB_DIRECTIONAL" else "FROZEN_OPEN_DOL")
                         break
                 else:
                     if a["high"][j] >= float(trade["stop_price"]):
                         exit_i, exit_price, reason = j, max(float(a["open"][j]), float(trade["stop_price"])), "STRUCTURAL_SL"
                         break
                     if a["low"][j] <= float(trade["target_price"]):
-                        exit_i, exit_price, reason = j, float(trade["target_price"]), "FROZEN_OPEN_DOL"
+                        exit_i, exit_price, reason = j, float(trade["target_price"]), (
+                            "FIXED_2R" if trade["strategy"] == "AB_DIRECTIONAL" else "FROZEN_OPEN_DOL")
                         break
             # A later physical epoch proves the roll. The current live epoch remains open.
             if exit_i is None and last_same < len(a["ms"]) - 1:
@@ -488,7 +503,11 @@ def scan_once() -> dict[str, Any]:
     triggers += scan["short_triggers"]
     candidates += scan["short_candidates"]
     orders += scan["short_orders"]
+    candidates += scan["abdir_long_candidates"] + scan["abdir_short_candidates"]
+    orders += scan["abdir_long_orders"] + scan["abdir_short_orders"]
     funnel = {"LONG": scan["funnel"], "SHORT": scan["short_funnel"],
+              "AB_DIRECTIONAL_LONG": scan["abdir_long_funnel"],
+              "AB_DIRECTIONAL_SHORT": scan["abdir_short_funnel"],
               "canonical_outputs": scan["funnel"]["canonical_outputs"] + scan["short_funnel"]["canonical_outputs"]}
     _upsert_scan(raw, outputs, triggers, candidates, orders, funnel)
     with _connect() as con:
@@ -795,26 +814,26 @@ async function list(){
   let q=new URLSearchParams(location.search),d=await j('/continuation/api/candidates?'+q),rows=d.rows||[],s=d.funnel_stats||{};
   let reasons=[...new Set(rows.map(x=>x.rejection_reason).filter(Boolean))].sort();
   let body=rows.map(x=>{
-    let p=x.payload||{},side=x.direction||p.dir||p.direction||'LONG',short=side==='SHORT';
-    let canonical=x.event_kind==='CANONICAL_OUTPUT',thesis=p.jade_thesis===side;
+    let p=x.payload||{},side=x.direction||p.dir||p.direction||'LONG',short=side==='SHORT',strategy=x.strategy||p.strategy||'CONTINUATION',abdir=strategy==='AB_DIRECTIONAL';
+    let canonical=x.event_kind==='CANONICAL_OUTPUT',thesis=abdir||p.jade_thesis===side;
     let close=x.event_kind==='CLOSE_THROUGH'||p.source_event?.close_through===true;
-    let dol=x.eligible===1&&!!x.dol_id,risk=dol&&x.entry_price!=null&&x.stop_price!=null;
+    let dol=x.eligible===1&&(abdir||!!x.dol_id),risk=dol&&x.entry_price!=null&&x.stop_price!=null;
     let closed=x.trade_state==='CLOSED',open=x.trade_state==='OPEN',filled=x.order_state==='FILLED',ready=x.order_state==='PENDING',tracking=x.status==='TRACKING';
     let outcome=closed?(x.net_r>0?'WIN':x.net_r<0?'LOSS':'FLAT'):null;
     let status=closed?'CLOSED · '+outcome:open?'OPEN TRADE':filled?'FILLED':ready?'PENDING ORDER':x.order_state==='UNFILLED_EXPIRED'?'UNFILLED EXPIRED':tracking?'TRACKING':x.status==='SUPERSEDED'?'CANONICAL CONFIRMED':'REJECTED';
     let cls=closed?(x.net_r>0?'green':x.net_r<0?'red':'warn'):open?'warn':filled||ready?'green':tracking||x.status==='SUPERSEDED'?'warn':'red';
     let finalState=(filled||ready||closed||open)?'ok':tracking?'wait':'bad';
     let source=p.source_event||{},level=source.bsl_price??source.ssl_price??p.bsl_price??p.ssl_price;
-    return `<div class="card"><div class="head"><div class="title"><a href="/continuation/candidate/${encodeURIComponent(x.candidate_id)}"><span class="${short?'red':'green'}">${side}</span> · ${esc(x.bsl_name||p.cat||'LIQUIDITY')} · ${esc(x.decision_at)}</a></div><div class="${cls}"><b>${esc(status)}</b></div></div><div class="steps">
-      ${step(1,'HTF '+side+' thesis',esc(p.jade_thesis||'not yet available')+' · fixed at 18:00 ET',thesis?'ok':'bad')}
+    return `<div class="card"><div class="head"><div class="title"><a href="/continuation/candidate/${encodeURIComponent(x.candidate_id)}"><span class="${short?'red':'green'}">${side}</span> · ${esc(abdir?'A/B DIRECTIONAL FIXED 2R':'CONTINUATION OPEN DOL')} · ${esc(x.bsl_name||p.cat||'LIQUIDITY')} · ${esc(x.decision_at)}</a></div><div class="${cls}"><b>${esc(status)}</b></div></div><div class="steps">
+      ${step(1,abdir?'Directional rule':'HTF '+side+' thesis',abdir?'No HTF gate · frozen V1':esc(p.jade_thesis||'not yet available')+' · fixed at 18:00 ET',thesis?'ok':'bad')}
       ${step(2,(short?'SSL':'BSL')+' close-through',esc(x.bsl_name||source.bsl_name||source.ssl_name)+' @ '+esc(level),close?'ok':'bad')}
       ${step(3,'Displacement + owned FVG',canonical?('FVG '+esc(p.fvg_lo)+'–'+esc(p.fvg_hi)):'Waiting for canonical chain',canonical?'ok':tracking?'wait':'bad')}
       ${step(4,'Pullback + hold + BOS',canonical?('BOS '+esc(p.bos_iso||p.bos_ms)):'Not confirmed',canonical?'ok':tracking?'wait':'bad')}
-      ${step(5,'OPEN '+(short?'bearish':'bullish')+' DOL',dol?(esc(x.dol_id)+' @ '+fmt(x.target_price,2)):esc(x.rejection_reason||'not selected'),dol?'ok':'bad')}
-      ${step(6,'Entry + risk / fill',risk?('Entry '+fmt(x.entry_price,2)+' · SL '+fmt(x.stop_price,2)+' · DOL TP '+fmt(x.target_price,2)):status,finalState)}</div>
+      ${step(5,abdir?'Fixed 2R target':'OPEN '+(short?'bearish':'bullish')+' DOL',dol?(esc(x.dol_id)+' @ '+fmt(x.target_price,2)):esc(x.rejection_reason||'not selected'),dol?'ok':'bad')}
+      ${step(6,'Entry + risk / fill',risk?('Entry '+fmt(x.entry_price,2)+' · SL '+fmt(x.stop_price,2)+' · '+(abdir?'2R':'DOL')+' TP '+fmt(x.target_price,2)):status,finalState)}</div>
       <div class="levels"><b>Candidate:</b> ${esc(x.candidate_id)} <b>Stage:</b> ${esc(x.stage)} <b>Order:</b> ${esc(x.order_state)} <b>Trade:</b> ${esc(x.trade_state)} ${x.net_r==null?'':('<b>Net:</b> '+fmt(x.net_r)+'R')}</div><div class="reason"><b>${closed?'Exit':open?'Execution':'Decision reason'}:</b> ${esc(closed?x.exit_reason:open?'Position open · no realized P&L':x.rejection_reason||status)}</div></div>`;
   }).join('')||`<div class="empty">${s.filled===0?'No forward shadow fills yet. Historical candidates are warm-up records, not executed trades.':q.get('execution')?'No trades match this execution-state filter.':'No candidates match these filters.'}</div>`;
-  $('#app').innerHTML=`<div class="top"><div><h2>MNQ Continuation · LONG + SHORT candidates</h2><div class="mut">Independent directional shadow; SHORT is exploratory and has no inherited LONG performance claim.</div></div><div class="badge">SHADOW ONLY · independent scanner</div></div><div class="kpis">${k('All event records',s.candidates||0)}${k('Close-through events',s.close_through||0)}${k('Canonical setups',s.canonical_confirmed||0)}${k('HTF LONG matched',s.htf_long||0)}${k('HTF SHORT matched',s.htf_short||0)}${k('OPEN DOL eligible',s.dol_aligned||0)}${k('Forward fills',s.filled||0)}${k('Open trades',s.open_trades||0)}${k('Closed trades',s.closed_trades||0)}</div><div class="help"><b>How to read these totals</b><br><span class="mut">All event records = close-through events + canonical setups. One setup can appear in both stages; these are not independent trades. The totals include historical scanner warm-up and are not changed by the list filters below. Only orders armed after warm-up can become forward fills.</span><br><br><b>What each step means</b><br><span class="mut">1 matching JadeCap HTF thesis fixed at 18:00 ET → 2 registered BSL/SSL close-through → 3 directional displacement + event-owned FVG → 4 later pullback/hold + BOS → 5 causal directional OPEN DOL → 6 frozen Entry/SL/DOL target and shadow fill.</span></div><div class="filters"><select id="direction"><option value="">LONG + SHORT</option><option>LONG</option><option>SHORT</option></select><select id="execution"><option value="">all execution states</option><option value="FILLED">all filled trades</option><option value="OPEN">open trades</option><option value="CLOSED">closed trades</option><option value="PENDING">pending orders</option><option value="UNFILLED_EXPIRED">unfilled expired</option></select><select id="status"><option value="">all candidate statuses</option>${['TRACKING','REJECTED','SUPERSEDED','UNFILLED_OR_PENDING','FILLED_OR_PENDING_REPLAY'].map(x=>`<option>${x}</option>`)}</select><select id="reason"><option value="">all reasons</option>${reasons.map(x=>`<option>${esc(x)}</option>`)}</select><input id="start" type="date"><input id="end" type="date"><button id="go">Filter</button></div><div class="cards">${body}</div>`;
+  $('#app').innerHTML=`<div class="top"><div><h2>MNQ Continuation + A/B Directional candidates</h2><div class="mut">Continuation uses HTF + OPEN DOL; A/B Directional uses the causal liquidity chain with fixed 2R and no HTF/DOL gate.</div></div><div class="badge">FORWARD LEDGER · independent scanner</div></div><div class="kpis">${k('All event records',s.candidates||0)}${k('Close-through events',s.close_through||0)}${k('Canonical setups',s.canonical_confirmed||0)}${k('HTF LONG matched',s.htf_long||0)}${k('HTF SHORT matched',s.htf_short||0)}${k('Executable geometry',s.dol_aligned||0)}${k('Forward fills',s.filled||0)}${k('Open trades',s.open_trades||0)}${k('Closed trades',s.closed_trades||0)}</div><div class="help"><b>How to read these totals</b><br><span class="mut">All event records = close-through events + canonical setups. The same causal detector output is recorded separately for Continuation and A/B Directional, because their eligibility and target rules differ. Historical scanner warm-up is never sent LIVE.</span><br><br><b>A/B Directional</b><br><span class="mut">Registered BSL/SSL close-through → directional displacement + event-owned FVG → pullback/hold + BOS → structural SL + fixed 2R target. LONG and SHORT have separate LIVE switches.</span></div><div class="filters"><select id="direction"><option value="">LONG + SHORT</option><option>LONG</option><option>SHORT</option></select><select id="execution"><option value="">all execution states</option><option value="FILLED">all filled trades</option><option value="OPEN">open trades</option><option value="CLOSED">closed trades</option><option value="PENDING">pending orders</option><option value="UNFILLED_EXPIRED">unfilled expired</option></select><select id="status"><option value="">all candidate statuses</option>${['TRACKING','REJECTED','SUPERSEDED','UNFILLED_OR_PENDING','FILLED_OR_PENDING_REPLAY'].map(x=>`<option>${x}</option>`)}</select><select id="reason"><option value="">all reasons</option>${reasons.map(x=>`<option>${esc(x)}</option>`)}</select><input id="start" type="date"><input id="end" type="date"><button id="go">Filter</button></div><div class="cards">${body}</div>`;
   for(let z of ['direction','execution','status','reason','start','end'])$('#'+z).value=q.get(z)||'';
   $('#go').onclick=()=>{let z=new URLSearchParams();for(let a of ['direction','execution','status','reason','start','end'])if($('#'+a).value)z.set(a,$('#'+a).value);location.search=z};
 }
