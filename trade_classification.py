@@ -1,0 +1,68 @@
+"""Stable, display-only strategy classification shared by LIVE audit tables.
+
+The returned metadata is informational.  Guard and execution must never read it
+to decide whether, or at what size, an order is submitted.
+"""
+from __future__ import annotations
+
+from typing import Any, Dict
+
+
+VERSION = "TRADE_CLASSIFICATION_VIEW_V1"
+
+
+def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    strategy = str(candidate.get("_strat") or "A/B")
+    quality = candidate.get("_ab_quality")
+    quality = quality if isinstance(quality, dict) else {}
+    tier = str(quality.get("tier") or "N/A")
+    score = quality.get("score")
+    qmode = str(quality.get("mode") or ("SHADOW_ONLY" if tier != "N/A" else "N/A"))
+
+    if strategy == "DOL_DELIVERY_REVERSAL":
+        family = "DOL-REVERSAL"
+        setup = "DOL REVERSAL"
+        manager = "LIVE"
+        label = "DOL REVERSAL · MANAGER LIVE" + ((" · " + tier) if tier != "N/A" else "")
+    elif strategy.startswith("Continuation"):
+        direction = str(candidate.get("dir") or "").upper()
+        family = "CONT-L" if direction == "LONG" else "CONT-S"
+        setup = "FROZEN OPEN DOL"
+        manager = "N/A"
+        tier = "N/A"
+        qmode = "N/A_AB_ONLY"
+        label = family + " · FROZEN OPEN DOL"
+    else:
+        family = "AB-SHALLOW" if "shallow" in strategy.lower() else "AB"
+        setup = "A/B"
+        manager = "SHADOW"
+        label = family + (" · " + tier + " SHADOW" if tier != "N/A" else " · LEGACY/UNCLASSIFIED")
+
+    eligibility = candidate.get("_dol_eligibility")
+    return {
+        "version": VERSION,
+        "family": family,
+        "setup_class": setup,
+        "quality_tier": tier,
+        "quality_score": score,
+        "quality_mode": qmode,
+        "manager_mode": manager,
+        "dol_eligibility": eligibility if isinstance(eligibility, dict) else None,
+        "label": label,
+    }
+
+
+def continuation_order(row: Dict[str, Any]) -> Dict[str, Any]:
+    direction = str(row.get("direction") or "").upper()
+    family = "CONT-L" if direction == "LONG" else "CONT-S"
+    return {
+        "version": VERSION,
+        "family": family,
+        "setup_class": "FROZEN OPEN DOL",
+        "quality_tier": "N/A",
+        "quality_score": None,
+        "quality_mode": "N/A_AB_ONLY",
+        "manager_mode": "N/A",
+        "dol_id": row.get("dol_id"),
+        "label": family + " · FROZEN OPEN DOL",
+    }

@@ -86,6 +86,10 @@ class ContinuationLiveTests(unittest.TestCase):
         self.assertEqual(order_id, row["order_id"])
         self.assertEqual("SENT", row["state"])
         self.assertEqual(3, row["quantity"])
+        self.assertEqual("CONT-L", row["strategy_class"])
+        self.assertEqual("FROZEN OPEN DOL", row["setup_class"])
+        self.assertEqual("N/A", row["quality_tier"])
+        self.assertEqual("DOL1", row["dol_id"])
 
     def test_disabled_direction_is_terminal(self):
         self._bar(2_000_000); live.configure(lambda row: {"state": "SENT"}); live.drain()

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import continuation_shadow
+import trade_classification
 
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent)))
@@ -179,9 +180,22 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
 def rows(limit: int = 500) -> list[dict[str, Any]]:
     _init_db()
     with _connect() as con:
-        return [dict(row) for row in con.execute(
+        result = [dict(row) for row in con.execute(
             "SELECT * FROM live_dispatches ORDER BY activation_ms DESC LIMIT ?", (max(1, min(int(limit), 2000)),)
         ).fetchall()]
+    for row in result:
+        try:
+            source = json.loads(row.get("source_json") or "{}")
+        except Exception:
+            source = {}
+        meta = trade_classification.continuation_order({**source, **row})
+        row["classification"] = meta["label"]
+        row["strategy_class"] = meta["family"]
+        row["setup_class"] = meta["setup_class"]
+        row["quality_tier"] = meta["quality_tier"]
+        row["quality_mode"] = meta["quality_mode"]
+        row["dol_id"] = meta.get("dol_id") or source.get("dol_id")
+    return result
 
 
 def status() -> dict[str, Any]:

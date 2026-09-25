@@ -10,6 +10,7 @@ import html
 import json
 import os
 import time
+import trade_classification
 
 
 def _path(data_dir=None):
@@ -68,6 +69,7 @@ def record_note(candidate, decision, reason, account, mode, candidate_id=None, d
     status = ("SELECTED" if decision == "sent" else
               "BLOCKED_SESSION" if str(reason).startswith("session:") else
               status_by_reason.get(reason, "BLOCKED"))
+    classification = trade_classification.candidate(candidate)
     event = {
         "schema_version": 1,
         "decision_timestamp": dt.datetime.fromtimestamp(now_ms / 1000, dt.timezone.utc).isoformat(),
@@ -78,6 +80,7 @@ def record_note(candidate, decision, reason, account, mode, candidate_id=None, d
         "signal_id": candidate.get("_signal_id"),
         "client_order_id": candidate.get("_client_order_id"),
         "strategy": strategy,
+        "classification": classification,
         "direction": candidate.get("dir"),
         "entry": entry, "sl": sl, "tp": tp,
         "risk_points": risk_points, "risk_usd": risk_usd,
@@ -150,6 +153,7 @@ def _page(rows):
             "requested_quantity": row.get("requested_quantity"),
             "submitted_quantity": row.get("submitted_quantity"),
             "session": row.get("session"), "dol_eligibility": row.get("dol_eligibility"),
+            "classification": row.get("classification"),
             "manager_eligibility": row.get("manager_eligibility"),
             "pending_or_open_before": row.get("pending_or_open_before"),
             "guard_checks": row.get("guard_checks"),
@@ -164,6 +168,7 @@ def _page(rows):
         trs.append("<tr><td>" + esc(row.get("decision_timestamp")) + "</td><td>" +
                    esc(row.get("account")) + "</td><td>" + esc(row.get("candidate_ids")) +
                    "</td><td>" + esc(row.get("strategy")) + "</td><td>" +
+                   esc((row.get("classification") or {}).get("label") or "LEGACY/UNCLASSIFIED") + "</td><td>" +
                    esc(row.get("direction")) + "</td><td>" + esc(row.get("status")) +
                    "</td><td>" + esc(row.get("reason_code")) + "</td><td>" +
                    esc(row.get("explanation")) + "</td><td><details><summary>Evidence</summary><pre>" +
@@ -184,7 +189,7 @@ Continuation and DOL Reversal currently run as post-decision shadows, so no cros
 <button>Filter</button></form><p>Guard checks, portfolio before/after, collision timeline and latency are not
 available from the existing legacy Guard. They are intentionally not reconstructed.</p>
 <table><thead><tr><th>Decision time UTC</th><th>Account</th><th>Candidate IDs</th><th>Strategy</th>
-<th>Direction</th><th>Guard status</th><th>Reason code</th><th>Persisted explanation</th><th>Evidence</th></tr></thead><tbody>""" +
+<th>Class / quality</th><th>Direction</th><th>Guard status</th><th>Reason code</th><th>Persisted explanation</th><th>Evidence</th></tr></thead><tbody>""" +
         "".join(trs) + "</tbody></table></html>")
 
 

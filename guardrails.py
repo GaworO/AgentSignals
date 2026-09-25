@@ -56,8 +56,9 @@ Hardening (2026-07-19 review):
   agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
-import os, json, time, datetime as dt, hashlib, threading, sqlite3
+import os, json, time, datetime as dt, hashlib, threading
 import portfolio_guard
+import trade_classification
 try:
     import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
 except Exception:
@@ -782,67 +783,13 @@ def setup_group_risk_capacity(requested_risk_usd=None):
                     floor=0.0, cushion=0.0, error=str(e))
 
 # ---------- today's SENT book (from guard_log) + outcomes (from shadow) ----------
-def _continuation_by_key():
-    """Expose the authoritative Continuation order/trade lifecycle to /guard.
-
-    Continuation owns a separate SQLite ledger and is not written to the A/B
-    shadow_log.json.  Joining by the same stable Guard key also resolves rows
-    recorded before this adapter was deployed.
-    """
-    path = os.environ.get('CONTINUATION_DB') or os.path.join(DATA_DIR, 'continuation_shadow.sqlite3')
-    if not os.path.exists(path):
-        return {}
-    try:
-        con = sqlite3.connect(path, timeout=5)
-        con.row_factory = sqlite3.Row
-        rows = con.execute(
-            """SELECT o.direction,o.activation_ms,o.entry_price,o.state order_state,
-                      t.state trade_state,t.exit_reason,t.raw_r,t.cost_r,t.net_r
-                 FROM continuation_orders o
-                 LEFT JOIN continuation_trades t ON t.order_id=o.order_id"""
-        ).fetchall()
-        con.close()
-        result = {}
-        for row in rows:
-            x = dict(row)
-            direction = str(x.get('direction') or '').upper()
-            strategy = 'Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'
-            key = (shadow._key(strategy, direction, int(x['activation_ms']), float(x['entry_price']))
-                   if shadow is not None else
-                   "%s|%s|%d|%.*f" % (strategy, direction, int(x['activation_ms']),
-                                        _envi('GUARD_PRICE_DP', 2), float(x['entry_price'])))
-            order_state = str(x.get('order_state') or '')
-            trade_state = str(x.get('trade_state') or '')
-            if order_state == 'UNFILLED_EXPIRED':
-                outcome = 'no_fill'
-            elif trade_state == 'CLOSED' and x.get('net_r') is not None:
-                net_r = float(x['net_r'])
-                outcome = 'win' if net_r > 0 else ('loss' if net_r < 0 else 'timeout')
-            else:
-                outcome = 'open'
-            result[key] = dict(
-                key=key, outcome=outcome,
-                R=(None if x.get('net_r') is None else round(float(x['net_r']), 3)),
-                raw_r=x.get('raw_r'), cost_r=x.get('cost_r'),
-                exit_reason=x.get('exit_reason'), order_state=order_state,
-                trade_state=trade_state, _continuation=True,
-            )
-        return result
-    except Exception as e:
-        print('[guard] continuation outcomes err', e, flush=True)
-        return {}
-
-
 def _shadow_by_key():
-    result = {}
+    if shadow is None: return {}
     try:
-        if shadow is not None:
-            log = shadow.refresh()                     # resolve A/B against live bars
-            result.update({t.get('key'): t for t in log if t.get('key')})
+        log = shadow.refresh()                          # resolve against live bars
+        return {t.get('key'): t for t in log if t.get('key')}
     except Exception as e:
-        print('[guard] shadow.refresh err', e, flush=True)
-    result.update(_continuation_by_key())
-    return result
+        print('[guard] shadow.refresh err', e, flush=True); return {}
 
 def _actualize(g, sh):
     """Join a guard row with its shadow outcome, repriced at the ACTUAL sent quantity.
@@ -854,28 +801,6 @@ def _actualize(g, sh):
                 'net': g.get('ext_net'), 'R': g.get('R')}
     oc = sh.get('outcome', 'open')
     out = {**g, 'outcome': oc, 'R': sh.get('R'), 'net': sh.get('net')}
-    if sh.get('_continuation'):
-        try:
-            # Backfill presentation metadata for Guard rows created before
-            # Continuation started writing these two labels explicitly.
-            out['sl_src'] = out.get('sl_src') or 'struct'
-            out['tp_src'] = out.get('tp_src') or 'open_dol'
-            net_r = sh.get('R')
-            if net_r is not None and oc in ('win', 'loss', 'timeout'):
-                q = g.get('qty')
-                if q and g.get('entry') is not None and g.get('sl') is not None:
-                    modeled_risk = (float(q) * abs(float(g['entry']) - float(g['sl']))
-                                    * _envf('POINT_VALUE', 2.0))
-                else:
-                    modeled_risk = float(g.get('planned_group_risk_usd') or
-                                         (250.0 if account_profile().get('plan') in ('builder50', 'rapid_eod50') else 500.0))
-                out['net'] = round(float(net_r) * modeled_risk)
-            out['exit_reason'] = sh.get('exit_reason')
-            out['order_state'] = sh.get('order_state')
-            out['trade_state'] = sh.get('trade_state')
-        except Exception as e:
-            print('[guard] continuation reprice err', e, flush=True)
-        return out
     try:
         q = g.get('qty')
         if q and oc in ('win', 'loss', 'timeout') and g.get('entry') is not None and g.get('sl') is not None:
@@ -1380,6 +1305,7 @@ def note(x, decision, reason=''):
                          projected_buffer_after_risk=x.get('_projected_buffer_after_risk'),
                          batch_group_id=x.get('_batch_group_id'),
                          rollback_confirmed=x.get('_rollback_confirmed'),
+                         classification=trade_classification.candidate(x),
                          decision=decision, reason=reason))
         _save(GLOG, glog)
         try:
@@ -1945,7 +1871,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
  <a class="btn fblk" href="#" onclick="return setf('blocked')">Blocked only</a>
  <span class=g style="font-size:11px">blocked rows never traded — their R/Net$ are model-priced (shown gray)</span>
 </div>
-<table><thead><tr><th>Strat</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>SL type</th><th>TP</th><th>TP type</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
+<table><thead><tr><th>Strat</th><th>Class / quality</th><th>Time ET</th><th>Sess</th><th>Dir</th><th>Entry</th><th>SL</th><th>SL type</th><th>TP</th><th>TP type</th><th>Qty</th><th>Decision</th><th>Outcome</th><th>R</th><th>Net$ (model)</th><th>Real$ (broker)</th></tr></thead><tbody id=tb></tbody></table>
 <div class="pinep">
  <div class="ph">🧾 <b>Reconcile with broker</b> — paste OR drag &amp; drop the Tradovate Performance CSV; matched rows switch from model outcomes to REAL fills
   <input type="file" id="recfile" accept=".csv,text/csv" style="display:none" onchange="recFile(this.files)">
@@ -2027,13 +1953,17 @@ async function load(){
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
   if(!v)return '<span style="color:#6b7688">—</span>';
-  let lab=v=='open_dol'?'OPEN DOL':v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'||v=='open_dol'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
+  let lab=v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
   let tt=x.legs?x.legs.map(function(l){return l.qty+'@'+l.tp;}).join(' + '):'';
   return '<span style="color:'+col+'" title="v30 target: last confirmed swing beyond 1R (capped 3R) or fixed 2R fallback. Brackets: '+tt+'">'+lab+legs+'</span>';};
- let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';
+	 let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';
   let lab=v=='struct'?'STRUCT':v=='fvg_edge'?'FVG edge':v=='fvg_edge+capped'?'FVG edge · capped 40':v;
   let col=v=='struct'?'#3ecb3e':v.indexOf('capped')>-1?'#e0a93b':'#3987e5';
-  return '<span style="color:'+col+'" title="v29 stop anchor: struct when the displacement-leg extreme is within 30pt, else the far edge of the held FVG; re-anchored to MAX_STOP_R when wider">'+lab+'</span>';};
+	  return '<span style="color:'+col+'" title="v29 stop anchor: struct when the displacement-leg extreme is within 30pt, else the far edge of the held FVG; re-anchored to MAX_STOP_R when wider">'+lab+'</span>';};
+	 let classif=x=>{let c=x.classification||{};let lab=c.label||((x.strat||'A/B')+' · LEGACY/UNCLASSIFIED');
+	  let col=(c.family||'').indexOf('CONT-')===0?'#a78bfa':(c.family=='DOL-REVERSAL'?'#f59e0b':(c.quality_tier=='Q2'||c.quality_tier=='Q3')?'#4ade80':c.quality_tier=='Q1'?'#e0a93b':'#94a3b8');
+	  let tt='setup '+(c.setup_class||'not recorded')+' · quality '+(c.quality_tier||'N/A')+' · '+(c.quality_mode||'N/A');
+	  return '<span style="color:'+col+'" title="'+tt+'"><b>'+lab+'</b></span>';};
  let dec=x=>{let dup=x.duplicate_count?(' · dup×'+x.duplicate_count):'';
   return x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');};
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
@@ -2042,7 +1972,7 @@ async function load(){
    h+=' <a href="#" data-k="'+encodeURIComponent(x.key||'')+'" title="I canceled this order at the broker — mark it canceled and free the slot" onclick="return cancelRow(this.dataset.k)" style="color:#e0a93b;text-decoration:none">✕</a>';
   return h;};
  let fired=x=>x.decision=='sent'||x.decision=='manual';
- window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._book=d.book||[];
+	 window._dec=dec;window._oc=oc;window._fired=fired;window._slsrc=slsrc;window._tpsrc=tpsrc;window._classif=classif;window._book=d.book||[];
  renderBook();
  let ps=document.getElementById('pineday');
  let opts='<option value="">all trades</option>'+((d.pine_days||[]).map(dd=>'<option value="'+dd+'">'+dd+'</option>').join(''));
@@ -2052,7 +1982,7 @@ let _filter='all';
 function setf(f){_filter=f;document.querySelectorAll('.btn.fall,.btn.fsent,.btn.fblk').forEach(b=>b.classList.remove('act'));
  document.querySelector('.btn.f'+(f=='all'?'all':f=='sent'?'sent':'blk')).classList.add('act');renderBook();return false;}
 function renderBook(){
- let dec=window._dec,oc=window._oc,fired=window._fired,slsrc=window._slsrc||(x=>''),tpsrc=window._tpsrc||(x=>'');if(!dec)return;
+	 let dec=window._dec,oc=window._oc,fired=window._fired,slsrc=window._slsrc||(x=>''),tpsrc=window._tpsrc||(x=>''),classif=window._classif||(x=>'');if(!dec)return;
  let rows=(window._book||[]).filter(x=>_filter=='all'||(_filter=='sent'?fired(x):!fired(x)));
  document.getElementById('tb').innerHTML=rows.map(x=>{
   let isB=!fired(x);                         // blocked rows never traded -> model-priced R/Net$, render gray
@@ -2063,7 +1993,7 @@ function renderBook(){
   let real=rec?('<b>'+(x.net!=null?x.net:'')+'</b> <span title="broker-reconciled" style="color:#3ecb3e">✓</span>'):'';
   if(isB&&(rv!==''||nv!=='')){rv=rv!==''?('('+rv+')'):'';nv=nv!==''?('('+nv+')'):'';}
   let mc=rec?' style="color:#6b7688" title="model verdict — see Real$ for the broker result"':'';
-  return '<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
+	  return '<tr><td><b>'+(x.strat||'A/B')+'</b></td><td>'+classif(x)+'</td><td>'+(x.et||'')+'</td><td>'+(x.sess||'')+'</td><td>'+(x.dir||'')+
   '</td><td>'+(x.entry||'')+'</td><td>'+(x.sl||'')+'</td><td>'+slsrc(x)+'</td><td>'+(x.tp||'')+'</td><td>'+tpsrc(x)+'</td><td>'+(x.qty||'')+'</td><td>'+dec(x)+'</td><td'+(isB?rc:'')+'>'+oc(x)+
   '</td><td'+rc+'>'+rv+'</td><td'+(isB?rc:mc)+'>'+nv+'</td><td>'+real+'</td></tr>';}).join('');
 }
