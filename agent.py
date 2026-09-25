@@ -37,6 +37,7 @@ import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
+import ab_quality  # causal Q0-Q3 A/B label; shadow-only, never changes execution
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 import portfolio_guard  # append-only audit of actual Guard notes; read-only dashboard
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
@@ -65,7 +66,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.20-async-bars-intake'
+VERSION = 'v31.21-ab-quality-shadow'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -102,9 +103,11 @@ def _init_db():
         entry REAL, ote62 REAL, ote79 REAL, SL REAL, TP REAL,
         fvg_lo REAL, fvg_hi REAL, bias TEXT, bias_align TEXT,
         trail TEXT, alert TEXT, posted TEXT, result TEXT, pnl REAL,
-        dol_json TEXT)''')
+        dol_json TEXT, quality_json TEXT)''')
     if 'dol_json' not in {row[1] for row in c.execute('PRAGMA table_info(signals)')}:
         c.execute('ALTER TABLE signals ADD COLUMN dol_json TEXT')
+    if 'quality_json' not in {row[1] for row in c.execute('PRAGMA table_info(signals)')}:
+        c.execute('ALTER TABLE signals ADD COLUMN quality_json TEXT')
     c.commit(); c.close()
 
 def _save_db(x, alert_text, code):
@@ -126,13 +129,14 @@ def _save_db(x, alert_text, code):
         print('[DOL_DELIVERY_REVERSAL] persistence err', _dr, flush=True)
     c=sqlite3.connect(DB)
     c.execute('''INSERT OR IGNORE INTO signals
-        (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl,dol_json)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (key,logged_at,date,model,cat,dir,trig,disp_end,bounce,bos,entry,ote62,ote79,SL,TP,fvg_lo,fvg_hi,bias,bias_align,trail,alert,posted,result,pnl,dol_json,quality_json)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (live_emit.key(x), dt.datetime.utcnow().isoformat(timespec='seconds'),
          x['date'],x['model'],x['cat'],x['dir'],x.get('trig',''),x.get('disp_end',''),x.get('bounce',''),x['bos'],
          x['entry'],x.get('ote62'),x.get('ote79'),x['SL'],x['TP'],x['fvg_lo'],x['fvg_hi'],
          x['bias'],x['bias_align'], json.dumps(x.get('trail',[])), alert_text, str(code), '', None,
-         json.dumps(x.get('_dol')) if x.get('_dol') is not None else None))
+         json.dumps(x.get('_dol')) if x.get('_dol') is not None else None,
+         json.dumps(x.get('_ab_quality')) if x.get('_ab_quality') is not None else None))
     c.commit(); c.close()
 
     # Observe only after canonical signal persistence. This module has no
@@ -607,20 +611,12 @@ def _load_calendar():
     try:
         r=requests.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json', timeout=15)
         evs=[]; raw=[]
-        # MNQ execution reacts only to the configured currencies.  The old
-        # implementation accepted every high-impact ForexFactory event, so a
-        # CHF/AUD/GBP release could incorrectly block a Nasdaq setup.  Keep an
-        # explicit env override for deployments that intentionally trade a
-        # different instrument, while defaulting this MNQ service to USD only.
-        currencies={x.strip().upper() for x in
-                    (os.environ.get('NEWS_CURRENCIES', 'USD') or 'USD').split(',') if x.strip()}
         for e in r.json():
-            country=str(e.get('country') or e.get('currency') or '').strip().upper()
-            if str(e.get('impact','')).lower()!='high' or country not in currencies: continue
+            if str(e.get('impact','')).lower()!='high': continue
             t=dt.datetime.fromisoformat(e['date']).timestamp()
             title=e.get('title','event')
             evs.append((t, title))
-            raw.append(dict(epoch=t, title=title, country=country,
+            raw.append(dict(epoch=t, title=title, country=e.get('country') or e.get('currency') or '',
                             impact='high', source='ForexFactory'))
         _cal['events']=evs; _cal['raw_events']=raw; _cal['at']=dt.datetime.utcnow()
     except Exception as ex:
@@ -744,7 +740,6 @@ def _continuation_live_signal(order):
         'date': when.strftime('%Y-%m-%d'), 'model': 'Continuation', 'cat': strategy + ' · OPEN DOL',
         'dir': direction, 'bos': when.strftime('%H:%M'), 'bos_ms': activation_ms,
         'entry_ms': activation_ms, 'entry': entry, 'SL': sl, 'TP': tp,
-        'sl_src': 'struct', 'tp_src': 'open_dol',
         'fvg_lo': min(entry, sl), 'fvg_hi': max(entry, sl),
         'bias': direction, 'bias_align': 'Y', 'trail': [], 'brk': 1,
         'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),
@@ -918,6 +913,15 @@ def _process_new(now_ms=None, gap_min=None):
         except Exception as _dre:
             repx['_dol_state'] = 'DOL_STATE_UNAVAILABLE'
             print('[dol-reversal-live] classification error', _dre, flush=True)
+        # Forward-observation label only. It is deliberately attached after the
+        # canonical setup exists and is never read by Guard or the executor.
+        try:
+            if repx.get('_ab_quality') is None:
+                if repx.get('signal_close') is None:
+                    repx['signal_close'] = _signal_bar_close(repx)
+                ab_quality.attach(repx)
+        except Exception as _aqe:
+            print('[ab-quality] classification error', _aqe, flush=True)
         # The human-facing alert is built before the floor-aware group is
         # prepared. Stamp the maximum equal sibling allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
@@ -929,6 +933,8 @@ def _process_new(now_ms=None, gap_min=None):
             repx['_risk_pct_override'] = (100.0 * _preview_budget / _preview_acct) if _preview_acct > 0 else 0.0
         fl, hard = flags_for(rep)
         txt=live_emit.to_alert(repx)
+        if repx.get('_ab_quality'):
+            txt = ab_quality.tagline(repx) + '\n' + txt
         _age=(now_ms-rep['bos_ms'])/60000.0 if (now_ms and rep.get('bos_ms')) else None   # v20: stempel swiezosci
         _hdr='🕒 '+dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')+((f' · setup sprzed {_age:.0f} min'+(' ⚠️ STARY!' if _age>20 else '')) if _age is not None else '')
         txt=_hdr+'\n'+txt                                                                   # pierwsza linia = KIEDY -> stary alert widac na pierwszy rzut oka
@@ -1899,15 +1905,6 @@ allview.register(app)                       # /all/trades + /all/candidates - jo
 def _continuation_live_status():
     """Read-only status/decision ledger; secrets and webhook URLs are never exposed."""
     return jsonify(status=continuation_live.status(), decisions=continuation_live.rows(200))
-
-@app.route('/continuation/live/dashboard')
-def _continuation_live_dashboard():
-    """Human-readable LIVE dispatch table; JSON remains at /continuation/live."""
-    from flask import Response
-    return Response(r'''<!doctype html><meta charset="utf-8"><title>Continuation LIVE</title>
-<style>*{box-sizing:border-box}body{margin:0;padding:18px;background:#0b0e14;color:#e6e9ef;font:13px system-ui}.cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.card{background:#111827;border:1px solid #263248;border-radius:9px;padding:10px 14px;min-width:145px}.mut{color:#94a3b8}.ok{color:#4ade80}.bad{color:#f87171}.wrap{overflow:auto;border:1px solid #263248;border-radius:10px}table{border-collapse:collapse;width:100%;font:12px ui-monospace,monospace}th,td{padding:8px 9px;border-bottom:1px solid #202b40;text-align:left;white-space:nowrap}th{color:#94a3b8;background:#111827;position:sticky;top:0}</style>
-<h2>Continuation LONG + SHORT · LIVE dispatch</h2><div class="mut">Każdy nowy order przechodzi przez account-local Guard. Szczegóły blokad są również w /guard.</div><div id="cards" class="cards"></div><div class="wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
-<script>const C=['activation_ms','direction','state','guard_reason','account_label','quantity','route_id','order_id'];const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function load(){fetch('/continuation/live',{cache:'no-store'}).then(r=>r.json()).then(x=>{const s=x.status||{},d=x.decisions||[];cards.innerHTML=[['LONG',s.long_enabled],['SHORT',s.short_enabled],['Dispatcher',s.dispatcher_ready],['Armed after',s.armed_after_ms],['Counts',JSON.stringify(s.counts||{})]].map(v=>'<div class="card"><b>'+esc(v[0])+'</b><br><span class="'+(v[1]===false?'bad':'ok')+'">'+esc(v[1])+'</span></div>').join('');head.innerHTML=C.map(k=>'<th>'+esc(k)+'</th>').join('');body.innerHTML=d.map(r=>'<tr>'+C.map(k=>'<td>'+esc(k==='activation_ms'&&r[k]?new Date(r[k]).toISOString():r[k])+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="8" class="mut">Brak nowych decyzji LIVE. Pierwszy skan tylko uzbraja adapter i nie wysyła historii.</td></tr>'}).catch(e=>{body.innerHTML='<tr><td class="bad">'+esc(e)+'</td></tr>'})}load();setInterval(load,15000)</script>''',mimetype='text/html')
 
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()

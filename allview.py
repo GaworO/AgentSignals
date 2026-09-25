@@ -25,6 +25,7 @@ except Exception:
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
 _OUTCOMES = os.path.join(_DATA_DIR, 'outcomes.json')
+_SIGNALS_DB = os.path.join(_DATA_DIR, 'journal.db')
 _CONT_DB = os.environ.get('CONTINUATION_DB', os.path.join(_DATA_DIR, 'continuation_shadow.sqlite3'))
 _ANNOT_DB = os.path.join(_DATA_DIR, 'all_annotations.db')   # user marks: took? + comment (own SQLite table, isolated)
 def _annot_conn():
@@ -112,26 +113,42 @@ def _hhmm(ms):
         return ''
 
 
-def _norm(strat, ts_ms, dir_, cat, entry, sl, r, status, key='', chartable=False, target=None):
+def _norm(strat, ts_ms, dir_, cat, entry, sl, r, status, key='', chartable=False, target=None,
+          quality=None):
     """Common trade/candidate record."""
     return dict(strat=strat, ts_ms=int(ts_ms or 0), day=_day_of(ts_ms), time=_hhmm(ts_ms),
                 dir=dir_ or '', cat=cat or strat, entry=entry, sl=sl, r=r,
-                status=status or '', key=key or '', chartable=bool(chartable), target=target)
+                status=status or '', key=key or '', chartable=bool(chartable), target=target,
+                quality=quality)
 
 
 # ───────────────────────── per-source loaders ─────────────────────────
 def _ab_trades():
     try:
-        outs = json.load(open(_OUTCOMES))
+        with open(_OUTCOMES, encoding='utf-8') as handle:
+            outs = json.load(handle)
     except Exception:
         return []
+    quality = {}
+    try:
+        con = sqlite3.connect(_SIGNALS_DB)
+        cols = {row[1] for row in con.execute('PRAGMA table_info(signals)')}
+        if 'quality_json' in cols:
+            for key, raw in con.execute('SELECT key,quality_json FROM signals WHERE quality_json IS NOT NULL'):
+                try: quality[str(key)] = json.loads(raw)
+                except Exception: pass
+        con.close()
+    except Exception:
+        pass
     res = []
     for o in outs:
         e = _f(o.get('entry')); sl = _f(o.get('sl'))
         if e is None or sl is None:
             continue
+        key = str(o.get('key', ''))
         res.append(_norm('AB', o.get('bos_ms') or o.get('closed_ms'), o.get('dir'), o.get('cat'),
-                         e, sl, o.get('r'), o.get('reason'), key=str(o.get('key', '')), chartable=True))
+                         e, sl, o.get('r'), o.get('reason'), key=key, chartable=True,
+                         quality=quality.get(key)))
     return res
 
 
@@ -304,9 +321,19 @@ def _num(x):
     return ('%.2f' % x) if isinstance(x, (int, float)) else (x if x not in (None, '') else '—')
 
 
+def _qcell(quality):
+    if not isinstance(quality, dict):
+        return "<td class='mut'>—</td>"
+    tier = str(quality.get('tier') or '—')
+    mult = quality.get('suggested_risk_mult')
+    title = 'shadow only; suggestion, not execution sizing'
+    suffix = (' · %.0f%%' % (100.0 * float(mult))) if isinstance(mult, (int, float)) else ''
+    return "<td title='%s'><b>%s</b><span class='mut'>%s</span></td>" % (title, tier, suffix)
+
+
 def _strat_filter_bar(present):
     """Checkbox row (one per strategy present) that filters the table + the day Pine."""
-    order = [s for s in ('AB', 'C', 'F') if s in present]
+    order = [s for s in ('AB', 'CONT-L', 'CONT-S', 'C', 'F') if s in present]
     boxes = ''.join(
         "<label style='display:inline-flex;align-items:center;gap:5px'>"
         "<input type='checkbox' class='fstrat' value='%s' checked onchange='rebuild()'>%s</label>"
@@ -349,9 +376,9 @@ def render_trades():
         took = ("<td style='text-align:center'><input type='checkbox' class='ann-took' data-uid=\"%s\" %s onchange='saveTook(this)'></td>") % (_u, ('checked' if _a.get('taken') else ''))
         cbtn = ("<td style='text-align:center'><button type='button' class='cbtn%s' data-uid=\"%s\" data-comment=\"%s\" title=\"%s\" onclick='openComment(this)'>%s</button></td>") % (
             (' has' if _cm else ''), _u, _ce, _ce, ('\U0001F4DD' if _cm else '\U0001F4AC'))
-        trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s<td>%s</td><td>%s</td>%s%s</tr>") % (
+        trs += ("<tr data-strat='%s'><td class='mut'>%s %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>%s%s<td>%s</td><td>%s</td>%s%s</tr>") % (
             r['strat'], r['day'], r['time'], _chip(r['strat']), r['dir'], catd, _num(r['entry']), _num(r['sl']),
-            _rcell(r['r']), chart, pine, took, cbtn)
+            _qcell(r.get('quality')), _rcell(r['r']), chart, pine, took, cbtn)
 
     body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
             _NAV + "<h1>All trades — A/B · Continuation LONG/SHORT · C · F</h1>"
@@ -364,8 +391,8 @@ def render_trades():
             "<span class='mut'>obeys the strategy filter · pick a day → copy → TradingView → Pine Editor → paste → Add to chart</span></div>"
             "<textarea id='psbox' readonly></textarea>"
             "<table><thead><tr><th>When (UTC)</th><th>Strat</th><th>Dir</th><th>Cat</th><th>Entry</th><th>SL</th>"
-            "<th>Result</th><th>Chart</th><th>Pine</th><th>Took?</th><th>Comment</th></tr></thead><tbody>" + (trs or
-            "<tr><td colspan=11 class='mut'>no trades yet (or no service URLs set)</td></tr>") + "</tbody></table>"
+            "<th>Quality</th><th>Result</th><th>Chart</th><th>Pine</th><th>Took?</th><th>Comment</th></tr></thead><tbody>" + (trs or
+            "<tr><td colspan=12 class='mut'>no trades yet (or no service URLs set)</td></tr>") + "</tbody></table>"
             "<div id='cmodal' style='display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:9999' onclick='if(event.target.id==&quot;cmodal&quot;)closeComment()'>""<div style='background:#fff;max-width:440px;margin:9% auto;padding:18px 20px;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)'>""<div style='font-weight:700;font-size:15px;margin-bottom:4px'>Trade comment</div>""<div id='cmeta' class='mut' style='font-size:11px;margin-bottom:8px;word-break:break-all'></div>""<textarea id='ctext' style='width:100%;height:110px;box-sizing:border-box;font:inherit;padding:8px'></textarea>""<div style='margin-top:12px;text-align:right'>""<button onclick='closeComment()' style='padding:6px 14px;margin-right:8px'>Cancel</button>""<button onclick='saveComment()' style='padding:6px 16px;font-weight:700;background:#1565c0;color:#fff;border:0;border-radius:5px;cursor:pointer'>Save</button>""</div></div></div>""<script>var _curBtn=null;""function openComment(b){_curBtn=b;document.getElementById('ctext').value=b.getAttribute('data-comment')||'';document.getElementById('cmeta').textContent=b.getAttribute('data-uid');document.getElementById('cmodal').style.display='block';document.getElementById('ctext').focus();}""function closeComment(){document.getElementById('cmodal').style.display='none';_curBtn=null;}""function saveComment(){if(!_curBtn)return;var cm=document.getElementById('ctext').value,uid=_curBtn.getAttribute('data-uid');""fetch('/all/annotate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:uid,comment:cm})}).then(function(r){return r.json();}).then(function(j){var h=!!cm.trim();_curBtn.setAttribute('data-comment',cm);_curBtn.title=cm;_curBtn.classList.toggle('has',h);_curBtn.textContent=h?String.fromCodePoint(0x1F4DD):String.fromCodePoint(0x1F4AC);closeComment();}).catch(function(e){alert('save failed');});}""function saveTook(el){fetch('/all/annotate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:el.getAttribute('data-uid'),taken:el.checked})}).catch(function(e){});}""var TRADES=" + json.dumps(js_trades) + ";"
             "function selStrats(){return Array.from(document.querySelectorAll('.fstrat:checked')).map(c=>c.value);}"
             "function applyRows(){var ss=selStrats();document.querySelectorAll('tr[data-strat]').forEach(function(tr){"
@@ -389,13 +416,20 @@ def _reach_note():
 # ─────────────────────── candidates (best-effort) ───────────────────────
 def _ab_candidates():
     try:
-        tr = json.load(open(os.path.join(_DATA_DIR, 'trace.json')))
+        path = os.path.join(_DATA_DIR, 'candidate_trace.json')
+        if not os.path.exists(path):
+            path = os.path.join(_DATA_DIR, 'trace.json')
+        with open(path, encoding='utf-8') as handle:
+            tr = json.load(handle)
     except Exception:
         return []
     res = []
     for r in tr[-200:]:
+        quality = r.get('quality') if isinstance(r.get('quality'), dict) else None
+        qtag = (' · %s SHADOW' % quality.get('tier')) if quality else ''
         res.append(dict(strat='AB', day=_day_of(r.get('trig_ms')), time=_hhmm(r.get('trig_ms')),
-                        dir=r.get('dir', ''), stage=r.get('stage', ''), note=r.get('cat', r.get('note', ''))))
+                        dir=r.get('dir', ''), stage=r.get('stage', ''),
+                        note=str(r.get('cat', r.get('note', ''))) + qtag))
     return res
 
 

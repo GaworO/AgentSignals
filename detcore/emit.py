@@ -5,6 +5,7 @@
 #   _trc       -> optional debug trace ; session_end_bar -> legacy helper (kept for parity)
 # Bodies verbatim from det_v11; ctx replaces the old module globals (out, _cur_break, df, ...).
 import pandas as pd
+import ab_quality
 
 from .confirmation import (find_displacement, find_displacement_dib, find_setup_v10, bias_for,
                            rejection_untested, find_setup_orphan)
@@ -44,7 +45,7 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
     if su is None:
         _trc(ctx, t, dr, model, name, 'brak setupu (odbicie/BOS)', disp)
         # v31: an FVG the price ran away from (no test, no CE break inside retwin) stays watched
-        # until a body closes through CE or the day ends. ORPHAN_FVG=0 disables.
+        # until a body closes through the configured hold threshold or the day ends. ORPHAN_FVG=0 disables.
         import os as _os
         if _os.environ.get('ORPHAN_FVG', '1') == '1' and rejection_untested(ctx, disp, dr):
             ctx.orphans.append(dict(t=int(t), model=model, name=name, dr=dr, disp=dict(disp)))
@@ -79,7 +80,12 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
                  if int(e['start_bar']) < ctx.n
                  else int(df.dt[su['bos_bar']].timestamp() * 1000) + 60000 * (int(e['start_bar']) - int(su['bos_bar'])),
         bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
+        signal_close=round(float(ctx.cl[su['bos_bar']]), 10),
+        disp_len=int(disp['u']) - int(disp['s']) + 1,
+        bos_delay=int(su['bos_bar']) - int(disp['u']),
+        disp_body=disp.get('body'), atr5=disp.get('atr5'),
         bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000))
+    ab_quality.attach(record)
     # The combined candidate page needs the real confirmed levels and the BOS
     # close used by production to derive A/B-shallow.  This enriches DEBUG_TRACE
     # only; the detector's output record and trading logic remain unchanged.
@@ -88,7 +94,8 @@ def emit(ctx, t, model, name, dr, disp, conf=None):
         'entry': record['entry'], 'SL': record['SL'], 'TP': record['TP'],
         'risk': record['risk'], 'sl_src': record.get('sl_src'),
         'tp_src': record.get('tp_src'),
-        'signal_close': round(float(ctx.cl[su['bos_bar']]), 10),
+        'signal_close': record['signal_close'],
+        'quality': record['_ab_quality'],
     })
     out.append(record)
 
@@ -123,7 +130,7 @@ def emit_orphan(ctx, o):
     model, name = o['model'], o['name'] + '+ORPH'
     b, pdv = bias_for(ctx, su['bos_bar'])
     align = 'Y' if b.replace('?', '') == dr else ('?' if '?' in b or b == 'niejasny' else 'N')
-    out.append(dict(brk=ctx.cur_break, date=str(dates[su['bos_bar']]), model=model, cat=name, dir=dr,
+    record = dict(brk=ctx.cur_break, date=str(dates[su['bos_bar']]), model=model, cat=name, dir=dr,
         cls='A', entry=e['entry'], SL=e['sl'], TP=e['tp'], risk=e['risk'], kind=e['kind'],
         bias=b, bias_align=align, bos=df.dt[su['bos_bar']].strftime('%H:%M'),
         s=int(disp['s']), u=int(disp['u']), fvg_lo=round(disp['fvg'][0], 2), fvg_hi=round(disp['fvg'][1], 2),
@@ -138,7 +145,13 @@ def emit_orphan(ctx, o):
                  if int(e['start_bar']) < ctx.n
                  else int(df.dt[su['bos_bar']].timestamp() * 1000) + 60000 * (int(e['start_bar']) - int(su['bos_bar'])),
         bos_iso=df.dt[su['bos_bar']].strftime('%Y-%m-%dT%H:%M:%SZ'),
-        bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000)))
+        signal_close=round(float(ctx.cl[su['bos_bar']]), 10),
+        disp_len=int(disp['u']) - int(disp['s']) + 1,
+        bos_delay=int(su['bos_bar']) - int(disp['u']),
+        disp_body=disp.get('body'), atr5=disp.get('atr5'),
+        bos_ms=int(df.dt[su['bos_bar']].timestamp() * 1000))
+    ab_quality.attach(record)
+    out.append(record)
 
 
 def try_chain(ctx, trigger, dr, model, name):
