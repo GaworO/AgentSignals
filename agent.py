@@ -744,6 +744,7 @@ def _continuation_live_signal(order):
         'date': when.strftime('%Y-%m-%d'), 'model': 'Continuation', 'cat': strategy + ' · OPEN DOL',
         'dir': direction, 'bos': when.strftime('%H:%M'), 'bos_ms': activation_ms,
         'entry_ms': activation_ms, 'entry': entry, 'SL': sl, 'TP': tp,
+        'sl_src': 'struct', 'tp_src': 'open_dol',
         'fvg_lo': min(entry, sl), 'fvg_hi': max(entry, sl),
         'bias': direction, 'bias_align': 'Y', 'trail': [], 'brk': 1,
         'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),

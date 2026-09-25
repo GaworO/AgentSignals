@@ -56,7 +56,7 @@ Hardening (2026-07-19 review):
   agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
-import os, json, time, datetime as dt, hashlib, threading
+import os, json, time, datetime as dt, hashlib, threading, sqlite3
 import portfolio_guard
 try:
     import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
@@ -782,13 +782,67 @@ def setup_group_risk_capacity(requested_risk_usd=None):
                     floor=0.0, cushion=0.0, error=str(e))
 
 # ---------- today's SENT book (from guard_log) + outcomes (from shadow) ----------
-def _shadow_by_key():
-    if shadow is None: return {}
+def _continuation_by_key():
+    """Expose the authoritative Continuation order/trade lifecycle to /guard.
+
+    Continuation owns a separate SQLite ledger and is not written to the A/B
+    shadow_log.json.  Joining by the same stable Guard key also resolves rows
+    recorded before this adapter was deployed.
+    """
+    path = os.environ.get('CONTINUATION_DB') or os.path.join(DATA_DIR, 'continuation_shadow.sqlite3')
+    if not os.path.exists(path):
+        return {}
     try:
-        log = shadow.refresh()                          # resolve against live bars
-        return {t.get('key'): t for t in log if t.get('key')}
+        con = sqlite3.connect(path, timeout=5)
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            """SELECT o.direction,o.activation_ms,o.entry_price,o.state order_state,
+                      t.state trade_state,t.exit_reason,t.raw_r,t.cost_r,t.net_r
+                 FROM continuation_orders o
+                 LEFT JOIN continuation_trades t ON t.order_id=o.order_id"""
+        ).fetchall()
+        con.close()
+        result = {}
+        for row in rows:
+            x = dict(row)
+            direction = str(x.get('direction') or '').upper()
+            strategy = 'Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'
+            key = (shadow._key(strategy, direction, int(x['activation_ms']), float(x['entry_price']))
+                   if shadow is not None else
+                   "%s|%s|%d|%.*f" % (strategy, direction, int(x['activation_ms']),
+                                        _envi('GUARD_PRICE_DP', 2), float(x['entry_price'])))
+            order_state = str(x.get('order_state') or '')
+            trade_state = str(x.get('trade_state') or '')
+            if order_state == 'UNFILLED_EXPIRED':
+                outcome = 'no_fill'
+            elif trade_state == 'CLOSED' and x.get('net_r') is not None:
+                net_r = float(x['net_r'])
+                outcome = 'win' if net_r > 0 else ('loss' if net_r < 0 else 'timeout')
+            else:
+                outcome = 'open'
+            result[key] = dict(
+                key=key, outcome=outcome,
+                R=(None if x.get('net_r') is None else round(float(x['net_r']), 3)),
+                raw_r=x.get('raw_r'), cost_r=x.get('cost_r'),
+                exit_reason=x.get('exit_reason'), order_state=order_state,
+                trade_state=trade_state, _continuation=True,
+            )
+        return result
     except Exception as e:
-        print('[guard] shadow.refresh err', e, flush=True); return {}
+        print('[guard] continuation outcomes err', e, flush=True)
+        return {}
+
+
+def _shadow_by_key():
+    result = {}
+    try:
+        if shadow is not None:
+            log = shadow.refresh()                     # resolve A/B against live bars
+            result.update({t.get('key'): t for t in log if t.get('key')})
+    except Exception as e:
+        print('[guard] shadow.refresh err', e, flush=True)
+    result.update(_continuation_by_key())
+    return result
 
 def _actualize(g, sh):
     """Join a guard row with its shadow outcome, repriced at the ACTUAL sent quantity.
@@ -800,6 +854,28 @@ def _actualize(g, sh):
                 'net': g.get('ext_net'), 'R': g.get('R')}
     oc = sh.get('outcome', 'open')
     out = {**g, 'outcome': oc, 'R': sh.get('R'), 'net': sh.get('net')}
+    if sh.get('_continuation'):
+        try:
+            # Backfill presentation metadata for Guard rows created before
+            # Continuation started writing these two labels explicitly.
+            out['sl_src'] = out.get('sl_src') or 'struct'
+            out['tp_src'] = out.get('tp_src') or 'open_dol'
+            net_r = sh.get('R')
+            if net_r is not None and oc in ('win', 'loss', 'timeout'):
+                q = g.get('qty')
+                if q and g.get('entry') is not None and g.get('sl') is not None:
+                    modeled_risk = (float(q) * abs(float(g['entry']) - float(g['sl']))
+                                    * _envf('POINT_VALUE', 2.0))
+                else:
+                    modeled_risk = float(g.get('planned_group_risk_usd') or
+                                         (250.0 if account_profile().get('plan') in ('builder50', 'rapid_eod50') else 500.0))
+                out['net'] = round(float(net_r) * modeled_risk)
+            out['exit_reason'] = sh.get('exit_reason')
+            out['order_state'] = sh.get('order_state')
+            out['trade_state'] = sh.get('trade_state')
+        except Exception as e:
+            print('[guard] continuation reprice err', e, flush=True)
+        return out
     try:
         q = g.get('qty')
         if q and oc in ('win', 'loss', 'timeout') and g.get('entry') is not None and g.get('sl') is not None:
@@ -1951,7 +2027,7 @@ async function load(){
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
  let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
   if(!v)return '<span style="color:#6b7688">—</span>';
-  let lab=v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
+  let lab=v=='open_dol'?'OPEN DOL':v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'||v=='open_dol'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
   let tt=x.legs?x.legs.map(function(l){return l.qty+'@'+l.tp;}).join(' + '):'';
   return '<span style="color:'+col+'" title="v30 target: last confirmed swing beyond 1R (capped 3R) or fixed 2R fallback. Brackets: '+tt+'">'+lab+legs+'</span>';};
  let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';
