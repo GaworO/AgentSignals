@@ -56,7 +56,7 @@ Hardening (2026-07-19 review):
   agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
-import os, json, time, datetime as dt, hashlib, threading
+import os, json, time, datetime as dt, hashlib, threading, sqlite3
 import portfolio_guard
 import trade_classification
 try:
@@ -831,12 +831,95 @@ def setup_group_risk_capacity(requested_risk_usd=None):
 
 # ---------- today's SENT book (from guard_log) + outcomes (from shadow) ----------
 def _shadow_by_key():
-    if shadow is None: return {}
+    result = {}
     try:
-        log = shadow.refresh()                          # resolve against live bars
-        return {t.get('key'): t for t in log if t.get('key')}
+        if shadow is not None:
+            log = shadow.refresh()                     # resolve A/B against live bars
+            result.update({t.get('key'): t for t in log if t.get('key')})
     except Exception as e:
-        print('[guard] shadow.refresh err', e, flush=True); return {}
+        print('[guard] shadow.refresh err', e, flush=True)
+    result.update(_continuation_by_key())
+    return result
+
+
+def _continuation_by_key():
+    """Join Guard rows to the authoritative Continuation forward ledger.
+
+    Continuation and A/B Directional do not write to ``shadow_log.json``.  A
+    Guard row therefore stayed ``open`` forever even after its independent
+    SQLite trade had closed.  Prefer the persisted order id for new rows and
+    also build the legacy Guard key so already-recorded rows are repaired.
+    """
+    path = os.environ.get('CONTINUATION_DB') or os.path.join(DATA_DIR, 'continuation_shadow.sqlite3')
+    if not os.path.exists(path):
+        return {}
+    con = None
+    try:
+        con = sqlite3.connect(path, timeout=5)
+        con.row_factory = sqlite3.Row
+        last_close_row = con.execute(
+            "SELECT value FROM continuation_meta WHERE key='last_close'"
+        ).fetchone()
+        try: last_close = float(last_close_row[0]) if last_close_row else None
+        except Exception: last_close = None
+        rows = con.execute(
+            """SELECT o.order_id,o.strategy,o.direction,o.activation_ms,o.entry_price,
+                      o.stop_price,o.risk_points,o.state order_state,
+                      t.state trade_state,t.exit_reason,t.raw_r,t.cost_r,t.net_r
+                 FROM continuation_orders o
+                 LEFT JOIN continuation_trades t ON t.order_id=o.order_id"""
+        ).fetchall()
+        result = {}
+        for row in rows:
+            x = dict(row)
+            direction = str(x.get('direction') or '').upper()
+            is_abdir = str(x.get('strategy') or '').upper() == 'AB_DIRECTIONAL'
+            strategy = (('A/B Directional LONG' if direction == 'LONG' else 'A/B Directional SHORT')
+                        if is_abdir else
+                        ('Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'))
+            legacy_key = (shadow._key(strategy, direction, int(x['activation_ms']), float(x['entry_price']))
+                          if shadow is not None else
+                          "%s|%s|%d|%.*f" % (strategy, direction, int(x['activation_ms']),
+                                               _envi('GUARD_PRICE_DP', 2), float(x['entry_price'])))
+            order_state = str(x.get('order_state') or '')
+            trade_state = str(x.get('trade_state') or '')
+            net_r = None if x.get('net_r') is None else float(x['net_r'])
+            if order_state == 'UNFILLED_EXPIRED':
+                outcome = 'no_fill'
+            elif trade_state == 'CLOSED' and net_r is not None:
+                outcome = 'win' if net_r > 0 else ('loss' if net_r < 0 else 'timeout')
+            else:
+                outcome = 'open'
+            mark_r = None
+            if trade_state == 'OPEN' and last_close is not None and float(x.get('risk_points') or 0) > 0:
+                sign = 1.0 if direction == 'LONG' else -1.0
+                raw_mark = sign * (last_close - float(x['entry_price'])) / float(x['risk_points'])
+                cost_r = float(x.get('cost_r') or 0.0)
+                if not cost_r:
+                    cost_r = _envf('CONTINUATION_ROUND_TRIP_COST_USD', 3.50) / (
+                        float(x['risk_points']) * _envf('POINT_VALUE', 2.0))
+                mark_r = raw_mark - cost_r
+            item = dict(
+                key=legacy_key, outcome=outcome,
+                R=(None if net_r is None else round(net_r, 3)),
+                unrealized_R=(None if mark_r is None else round(mark_r, 3)),
+                raw_r=x.get('raw_r'), cost_r=x.get('cost_r'),
+                exit_reason=x.get('exit_reason'), order_state=order_state,
+                trade_state=trade_state, continuation_order_id=str(x['order_id']),
+                _continuation=True,
+            )
+            # New rows use this collision-proof id; legacy rows use the same
+            # detector key that Guard wrote before the id was persisted.
+            result['CONT_ORDER|' + str(x['order_id'])] = item
+            result[legacy_key] = item
+        return result
+    except Exception as e:
+        print('[guard] continuation outcomes err', e, flush=True)
+        return {}
+    finally:
+        if con is not None:
+            try: con.close()
+            except Exception: pass
 
 def _actualize(g, sh):
     """Join a guard row with its shadow outcome, repriced at the ACTUAL sent quantity.
@@ -848,6 +931,26 @@ def _actualize(g, sh):
                 'net': g.get('ext_net'), 'R': g.get('R')}
     oc = sh.get('outcome', 'open')
     out = {**g, 'outcome': oc, 'R': sh.get('R'), 'net': sh.get('net')}
+    if sh.get('_continuation'):
+        try:
+            out['sl_src'] = out.get('sl_src') or 'struct'
+            out['tp_src'] = out.get('tp_src') or ('2R' if str(out.get('strat') or '').startswith('A/B Directional') else 'open_dol')
+            risk_usd = float(g.get('planned_group_risk_usd') or
+                             (250.0 if account_profile().get('plan') in ('builder50', 'rapid_eod50') else 500.0))
+            if g.get('qty') and g.get('entry') is not None and g.get('sl') is not None:
+                risk_usd = (float(g['qty']) * abs(float(g['entry']) - float(g['sl']))
+                            * _envf('POINT_VALUE', 2.0))
+            if sh.get('R') is not None and oc in ('win', 'loss', 'timeout'):
+                out['net'] = round(float(sh['R']) * risk_usd)
+            if sh.get('unrealized_R') is not None and oc == 'open':
+                out['unrealized_R'] = sh['unrealized_R']
+                out['unrealized_net'] = round(float(sh['unrealized_R']) * risk_usd)
+            out['exit_reason'] = sh.get('exit_reason')
+            out['order_state'] = sh.get('order_state')
+            out['trade_state'] = sh.get('trade_state')
+        except Exception as e:
+            print('[guard] continuation reprice err', e, flush=True)
+        return out
     try:
         q = g.get('qty')
         if q and oc in ('win', 'loss', 'timeout') and g.get('entry') is not None and g.get('sl') is not None:
@@ -1335,7 +1438,11 @@ def note(x, decision, reason=''):
                     except Exception as audit_error:
                         print('[guard] decision audit append err', audit_error, flush=True)
                     return
+        continuation_order_id=x.get('_continuation_order_id')
+        if continuation_order_id:
+            k = 'CONT_ORDER|' + str(continuation_order_id)
         glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), setup_group_id=gid,
+                         continuation_order_id=continuation_order_id,
                          ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
                          et=_et(_now_ms()).strftime('%Y-%m-%d %H:%M'),
                          sess=_sess_of(x), dir=x.get('dir'), entry=x.get('entry'), sl=x.get('SL'),
@@ -2039,8 +2146,9 @@ function renderBook(){
   let isB=!fired(x);                         // blocked rows never traded -> model-priced R/Net$, render gray
   let rc=isB?' style="color:#6b7688" title="model-priced — trade was NOT executed"':'';
   let rec=!!x.reconciled;
-  let rv=(x.R!=null?x.R:'');
-  let nv=rec?(x.model_net!=null?x.model_net:''):(x.net!=null?x.net:'');   // Net$ column = MODEL verdict
+  let isOpen=x.outcome=='open';
+  let rv=(x.R!=null?x.R:(isOpen&&x.unrealized_R!=null?('u '+x.unrealized_R):''));
+  let nv=rec?(x.model_net!=null?x.model_net:''):(x.net!=null?x.net:(isOpen&&x.unrealized_net!=null?('u '+x.unrealized_net):''));   // u = unrealized mark, final values have no prefix
   let real=rec?('<b>'+(x.net!=null?x.net:'')+'</b> <span title="broker-reconciled" style="color:#3ecb3e">✓</span>'):'';
   if(isB&&(rv!==''||nv!=='')){rv=rv!==''?('('+rv+')'):'';nv=nv!==''?('('+nv+')'):'';}
   let mc=rec?' style="color:#6b7688" title="model verdict — see Real$ for the broker result"':'';
