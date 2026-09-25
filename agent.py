@@ -66,7 +66,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.22-classification-tables'
+VERSION = 'v31.23-classification-backfill'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -742,6 +742,9 @@ def _continuation_live_signal(order):
         'entry_ms': activation_ms, 'entry': entry, 'SL': sl, 'TP': tp,
         'fvg_lo': min(entry, sl), 'fvg_hi': max(entry, sl),
         'bias': direction, 'bias_align': 'Y', 'trail': [], 'brk': 1,
+        # Explicit audit/display provenance. Continuation uses the structural
+        # protection level and the frozen open-DOL target, not A/B swing/2R.
+        'sl_src': 'struct', 'tp_src': 'open_dol',
         'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),
         '_continuation_candidate_id': str(order['candidate_id']), '_continuation_dol_id': str(order['dol_id']),
         '_disable_partial': True, '_strict_risk_budget': True,
@@ -830,6 +833,11 @@ def _dispatch_continuation_live(order):
 def _process_new(now_ms=None, gap_min=None):
     global _primed
     setups, _ = _detect()
+    # Causal display-only repair for Guard rows created before classification
+    # fields existed. It uses detector inputs available at the original BOS,
+    # never outcomes, and cannot alter Guard/execution decisions.
+    try: guardrails.backfill_trade_classifications(setups)
+    except Exception as _bce: print('[guard] classification backfill err', _bce, flush=True)
     sent=_load_sent()
     keys=[live_emit.key(x) for x in setups]
     if not _primed:                       # pierwszy przebieg: oznacz wszystko jako widziane

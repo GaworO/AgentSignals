@@ -184,6 +184,7 @@ def classify(signal: dict[str, Any], buffer_path: str) -> dict[str, Any]:
     if _live_entry():
         signal["_strat"] = "DOL_DELIVERY_REVERSAL"
         signal["TP"] = _fixed_2r(signal)
+        signal["tp_src"] = "dol_fixed_2r"
     return {**gate, "signal_id": sid, "client_order_id": cid, "live": _live_entry()}
 
 

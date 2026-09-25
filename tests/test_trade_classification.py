@@ -21,6 +21,14 @@ class TradeClassificationTests(unittest.TestCase):
         self.assertEqual("CONT-S · FROZEN OPEN DOL", row["label"])
         self.assertEqual("N/A_AB_ONLY", row["quality_mode"])
 
+    def test_legacy_continuation_guard_row_is_inferred(self):
+        row = subject.guard_row({"strat": "Continuation LONG", "dir": "LONG"})
+        self.assertEqual("CONT-L · FROZEN OPEN DOL", row["label"])
+
+    def test_old_ab_without_features_is_not_given_a_fake_grade(self):
+        row = subject.guard_row({"strat": "A/B", "dir": "LONG"})
+        self.assertEqual("AB · QUALITY NOT RECORDED", row["label"])
+
 
 if __name__ == "__main__":
     unittest.main()

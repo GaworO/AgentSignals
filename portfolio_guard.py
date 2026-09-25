@@ -147,13 +147,17 @@ def _page(rows):
     esc = lambda value: html.escape(str(value if value is not None else "not recorded"))
     trs = []
     for row in reversed(rows[-200:]):
+        display_class = trade_classification.guard_row({
+            "strat": row.get("strategy"), "dir": row.get("direction"),
+            "classification": row.get("classification"),
+        })
         details = {
             "entry": row.get("entry"), "sl": row.get("sl"), "tp": row.get("tp"),
             "risk_points": row.get("risk_points"), "risk_usd": row.get("risk_usd"),
             "requested_quantity": row.get("requested_quantity"),
             "submitted_quantity": row.get("submitted_quantity"),
             "session": row.get("session"), "dol_eligibility": row.get("dol_eligibility"),
-            "classification": row.get("classification"),
+            "classification": display_class,
             "manager_eligibility": row.get("manager_eligibility"),
             "pending_or_open_before": row.get("pending_or_open_before"),
             "guard_checks": row.get("guard_checks"),
@@ -168,7 +172,7 @@ def _page(rows):
         trs.append("<tr><td>" + esc(row.get("decision_timestamp")) + "</td><td>" +
                    esc(row.get("account")) + "</td><td>" + esc(row.get("candidate_ids")) +
                    "</td><td>" + esc(row.get("strategy")) + "</td><td>" +
-                   esc((row.get("classification") or {}).get("label") or "LEGACY/UNCLASSIFIED") + "</td><td>" +
+                   esc(display_class.get("label") or "QUALITY NOT RECORDED") + "</td><td>" +
                    esc(row.get("direction")) + "</td><td>" + esc(row.get("status")) +
                    "</td><td>" + esc(row.get("reason_code")) + "</td><td>" +
                    esc(row.get("explanation")) + "</td><td><details><summary>Evidence</summary><pre>" +

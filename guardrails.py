@@ -243,6 +243,53 @@ def _skey(x):
     except Exception: pass
     return "%s|%s|%s|%s" % (x.get('_strat', 'A/B'), x.get('dir'), x.get('entry'), x.get('bos_ms'))
 
+
+def backfill_trade_classifications(setups=None):
+    """Repair display metadata on legacy Guard rows without using outcomes.
+
+    Continuation/DOL family and SL/TP provenance are inherent in the strategy.
+    An A/B Q tier is backfilled only when the current causal detector output
+    contains an exact BOS+direction match; otherwise it stays explicitly
+    unrecorded.
+    """
+    rows = _load(GLOG, [])
+    if not rows:
+        return 0
+    by_event = {}
+    for signal in setups or []:
+        quality = signal.get('_ab_quality')
+        if not isinstance(quality, dict):
+            continue
+        key = (int(signal.get('bos_ms') or 0), str(signal.get('dir') or ''))
+        by_event.setdefault(key, []).append(signal)
+    changed = 0
+    for row in rows:
+        strat = str(row.get('strat') or 'A/B')
+        if strat.startswith('Continuation'):
+            if not row.get('sl_src'): row['sl_src'] = 'struct'; changed += 1
+            if not row.get('tp_src'): row['tp_src'] = 'open_dol'; changed += 1
+        elif strat == 'DOL_DELIVERY_REVERSAL' and not row.get('tp_src'):
+            row['tp_src'] = 'dol_fixed_2r'; changed += 1
+        old_class = row.get('classification')
+        candidates = by_event.get((int(row.get('bar_ms') or 0), str(row.get('dir') or '')), [])
+        needs_quality = (strat in ('A/B', 'A/B-shallow', 'DOL_DELIVERY_REVERSAL') and candidates and
+                         (not isinstance(old_class, dict) or old_class.get('quality_tier') in (None, 'N/A')))
+        needs_class = (not isinstance(old_class, dict) or needs_quality or
+                       'LEGACY/UNCLASSIFIED' in str(old_class.get('label') or ''))
+        if needs_class:
+            if strat in ('A/B', 'A/B-shallow', 'DOL_DELIVERY_REVERSAL') and candidates:
+                try:
+                    match = min(candidates, key=lambda x: abs(float(x.get('entry')) - float(row.get('entry'))))
+                    if abs(float(match.get('entry')) - float(row.get('entry'))) <= 2.0:
+                        row['ab_quality'] = match.get('_ab_quality')
+                except Exception:
+                    pass
+            row['classification'] = trade_classification.guard_row(row)
+            changed += 1
+    if changed:
+        _save(GLOG, rows)
+    return changed
+
 def _wd(x):
     """weekday of the signal (0=Mon) by ET clock."""
     try: return _et(int(x.get('bos_ms') or _now_ms())).weekday()
@@ -1589,6 +1636,9 @@ def register(app):
     except Exception: return app
 
     def _data():
+        # One-time deterministic migration for rows written before display
+        # classification and Continuation SL/TP provenance were persisted.
+        backfill_trade_classifications()
         s = _state(); d = _day_stats(); sm = _shadow_by_key()
         all_rows = [_actualize(g, sm.get(g.get('key'), {})) for g in _load(GLOG, [])]
         loss_streak = _loss_streak_stats(all_rows)
@@ -1951,16 +2001,17 @@ async function load(){
   ['Broker reconciled setups',ts.broker_reconciled_setups||0],
   ['Inactivity',ia.enabled?((ia.days_without_trade==null?'unknown':ia.days_without_trade+'d')+' · '+(ia.days_left==null?'?':ia.days_left)+'d left'):'off']
  ].map(c=>'<div class=c><div class=l>'+c[0]+'</div><div class=v>'+c[1]+'</div></div>').join('');
- let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
-  if(!v)return '<span style="color:#6b7688">—</span>';
-  let lab=v=='swing'?'SWING':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'?'#3ecb3e':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
+	 let tpsrc=x=>{let v=x.tp_src||'';let legs=(x.legs&&x.legs.length>1)?(' · '+x.legs.length+' legs'):'';
+	  if(!v&&String(x.strat||'').indexOf('Continuation')===0)v='open_dol';
+	  if(!v)return '<span style="color:#6b7688">—</span>';
+	  let lab=v=='swing'?'SWING':v=='open_dol'?'OPEN DOL':v=='dol_fixed_2r'?'DOL 2R':v=='shallow_3R'?'SHALLOW 3R':v=='shallow_2R'?'SHALLOW 2R':'2R';let col=v=='swing'?'#3ecb3e':v=='open_dol'?'#a78bfa':v=='dol_fixed_2r'?'#f59e0b':v.indexOf('shallow_')===0?'#60a5fa':'#3987e5';
   let tt=x.legs?x.legs.map(function(l){return l.qty+'@'+l.tp;}).join(' + '):'';
   return '<span style="color:'+col+'" title="v30 target: last confirmed swing beyond 1R (capped 3R) or fixed 2R fallback. Brackets: '+tt+'">'+lab+legs+'</span>';};
-	 let slsrc=x=>{let v=x.sl_src||'';if(!v)return '<span style="color:#6b7688">—</span>';
+	 let slsrc=x=>{let v=x.sl_src||'';if(!v&&String(x.strat||'').indexOf('Continuation')===0)v='struct';if(!v)return '<span style="color:#6b7688">—</span>';
   let lab=v=='struct'?'STRUCT':v=='fvg_edge'?'FVG edge':v=='fvg_edge+capped'?'FVG edge · capped 40':v;
   let col=v=='struct'?'#3ecb3e':v.indexOf('capped')>-1?'#e0a93b':'#3987e5';
 	  return '<span style="color:'+col+'" title="v29 stop anchor: struct when the displacement-leg extreme is within 30pt, else the far edge of the held FVG; re-anchored to MAX_STOP_R when wider">'+lab+'</span>';};
-	 let classif=x=>{let c=x.classification||{};let lab=c.label||((x.strat||'A/B')+' · LEGACY/UNCLASSIFIED');
+	 let classif=x=>{let c=x.classification||{};let st=String(x.strat||'A/B');let fallback=st.indexOf('Continuation')===0?((x.dir=='SHORT'?'CONT-S':'CONT-L')+' · FROZEN OPEN DOL'):st=='DOL_DELIVERY_REVERSAL'?'DOL REVERSAL · MANAGER LIVE · QUALITY NOT RECORDED':(st+' · QUALITY NOT RECORDED');let lab=c.label||fallback;
 	  let col=(c.family||'').indexOf('CONT-')===0?'#a78bfa':(c.family=='DOL-REVERSAL'?'#f59e0b':(c.quality_tier=='Q2'||c.quality_tier=='Q3')?'#4ade80':c.quality_tier=='Q1'?'#e0a93b':'#94a3b8');
 	  let tt='setup '+(c.setup_class||'not recorded')+' · quality '+(c.quality_tier||'N/A')+' · '+(c.quality_mode||'N/A');
 	  return '<span style="color:'+col+'" title="'+tt+'"><b>'+lab+'</b></span>';};

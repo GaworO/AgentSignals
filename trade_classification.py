@@ -36,7 +36,7 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         family = "AB-SHALLOW" if "shallow" in strategy.lower() else "AB"
         setup = "A/B"
         manager = "SHADOW"
-        label = family + (" · " + tier + " SHADOW" if tier != "N/A" else " · LEGACY/UNCLASSIFIED")
+        label = family + (" · " + tier + " SHADOW" if tier != "N/A" else " · QUALITY NOT RECORDED")
 
     eligibility = candidate.get("_dol_eligibility")
     return {
@@ -66,3 +66,17 @@ def continuation_order(row: Dict[str, Any]) -> Dict[str, Any]:
         "dol_id": row.get("dol_id"),
         "label": family + " · FROZEN OPEN DOL",
     }
+
+
+def guard_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Infer only what an old Guard row proves; never invent an A/B Q grade."""
+    existing = row.get("classification")
+    if (isinstance(existing, dict) and existing.get("label") and
+            "LEGACY/UNCLASSIFIED" not in str(existing.get("label"))):
+        return existing
+    strategy = str(row.get("strat") or "A/B")
+    payload = {"_strat": strategy, "dir": row.get("dir")}
+    quality = row.get("ab_quality")
+    if isinstance(quality, dict):
+        payload["_ab_quality"] = quality
+    return candidate(payload)
