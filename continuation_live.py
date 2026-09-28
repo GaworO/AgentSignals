@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 import continuation_shadow
 import trade_classification
+import ab_v3_live
 
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent)))
@@ -179,6 +180,10 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
             except Exception as exc:
                 result = {"state": "ERROR", "reason": f"{type(exc).__name__}: {exc}"}
         _finish(str(row["order_id"]), result, now)
+        try:
+            ab_v3_live.record_dispatch(row, result)
+        except Exception as exc:
+            print("[ab-v3] dispatch audit error", type(exc).__name__, flush=True)
         processed.append({"order_id": row["order_id"], "direction": row["direction"], **result})
     return {"status": "ok", "processed": len(processed), "results": processed}
 

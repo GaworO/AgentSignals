@@ -32,6 +32,9 @@ import dol_reversal_control  # fail-closed activation gate + immutable DOL ident
 import dol_reversal_live  # DOL fixed-bracket entry lifecycle via the account-specific TradersPost webhook
 import continuation_shadow  # independent canonical HTF Continuation Policy-B shadow; broker-inert
 import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
+import ab_v3_live  # V3 broker-confirmed monitor; LIVE blocked until integration validated
+import ab_v3_tv
+import tv_seconds_feed
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
 import allview     # /all/trades + /all/candidates - joined view across active strategies (isolated add-on)
@@ -64,7 +67,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.23-classification-backfill'
+VERSION = 'v31.23-v3-integrated-validation'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -168,6 +171,8 @@ def _exec_order(x, text=None):
     Z auto-submit OFF w TradersPost zlecenie czeka na Twoje 1-klik zatwierdzenie (MFF: nadzór nad
     każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście.
     EXEC_QTY='auto' (domyślnie) = ryzyko jak w alercie (size_for); liczba = sztywno; EXEC_MAX_QTY = limit."""
+    if ab_v3_live.mode() == 'LIVE':
+        return {'sent': False, 'status': 400, 'reason': 'v3_release_not_live_validated', 'qty': 0}
     if os.environ.get('EXEC_FX', '') == '1':          # FX services: MetaApi/MT5 adapter (exec_fx.py)
         try:
             import exec_fx
@@ -297,6 +302,17 @@ def _exec_order(x, text=None):
                 "time": dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
                 "rejectAfter": _signal_reject_after_sec(),
             }
+            if x.get('_continuation_order_id') and x.get('_v3_directional'):
+                remaining = int((int(x['_v3_expiry_ms']) - ab_v3_live.now_ms()) / 1000)
+                if remaining < 1:
+                    return {'sent': False, 'status': 400, 'reason': 'v3_order_expired', 'qty': qty}
+                payload['cancelAfter'] = min(payload['cancelAfter'], remaining)
+                payload['extras'] = {'v3OrderId': x['_continuation_order_id'],
+                    'v3CandidateId': x.get('_continuation_candidate_id'),
+                    'v3Policy': 'AB_V3_MTF_SOURCE_DOL_2R',
+                    'routeId': guardrails._exec_route_id(),
+                    'accountLabel': os.environ.get('ACCOUNT_LABEL', 'account')}
+                ab_v3_live.record_quantity(x['_continuation_order_id'], qty)
             if _i == 0 and x.get('_strat') == 'DOL_DELIVERY_REVERSAL':
                 _claimed, _claim_reason = dol_reversal_live.claim_entry(x, qty, payload)
                 if not _claimed:
@@ -731,6 +747,9 @@ def _continuation_live_signal(order):
         'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),
         '_continuation_candidate_id': str(order['candidate_id']), '_continuation_dol_id': str(order['dol_id']),
         '_disable_partial': True, '_strict_risk_budget': True,
+        '_v3_directional': is_abdir,
+        '_v3_expiry_ms': order.get('expiry_ms', activation_ms + 600000),
+        '_v3_manager_mode': ab_v3_live.mode() if is_abdir else None,
     }
 
 
@@ -759,6 +778,10 @@ def _dispatch_continuation_live(order):
     x = _continuation_live_signal(order)
     profile = guardrails.account_profile()
     base = {'account_label': profile.get('label'), 'route_id': guardrails._exec_route_id()}
+    v3_block = ab_v3_live.entry_blocker(order)
+    if v3_block:
+        guardrails.note(x, 'blocked', v3_block)
+        return dict(base, state='BLOCKED', reason=v3_block)
     if not profile.get('config_ok'):
         reason = 'account_config:' + ','.join(profile.get('config_warnings') or ['invalid'])
         guardrails.note(x, 'blocked', reason)
@@ -799,6 +822,11 @@ def _dispatch_continuation_live(order):
         guardrails.note(x, 'blocked', reason)
         return dict(base, state='BLOCKED', reason=reason)
     gid = ('ab_directional_' if is_abdir else 'continuation_') + str(order['order_id'])
+    try:
+        ab_v3_live.prepare(order, claim=True)
+    except Exception:
+        guardrails.note(x, 'blocked', 'v3_order_claim_failed')
+        return dict(base, state='BLOCKED', reason='v3_order_claim_failed')
     if not guardrails.begin_sibling_batch(gid, budget, [x['_strat']]):
         guardrails.note(x, 'blocked', 'batch_reservation_failed')
         return dict(base, state='BLOCKED', reason='batch_reservation_failed')
@@ -1833,6 +1861,8 @@ _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
+tv_seconds_feed.register(app, on_batch=ab_v3_tv.on_batch)
+ab_v3_live.register(app, route_callback=guardrails._exec_route_id)
 dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
 dol_delivery_reversal_shadow.register(app)       # /dol-delivery-reversal — shadow-only; GET routes only
 dol_reversal_control.register(app)                 # /dol-reversal/readiness — hashes, modes and live blockers

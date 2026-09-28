@@ -514,6 +514,7 @@ def scan_once() -> dict[str, Any]:
         _set_meta(con, "current_thesis", _json(scan["current_thesis"]))
         _set_meta(con, "thesis_mode", scan.get("thesis_mode", "strict"))
         _set_meta(con, "last_close", float(raw.close.iloc[-1]))
+        _set_meta(con, "v3_market", _json(scan.get("v3_market")))
     _reconcile(raw)
     completed = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     _LAST.update(status="ok", last_bar=raw.ts_event.iloc[-1].isoformat(), last_scan_completed=completed,

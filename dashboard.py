@@ -140,6 +140,7 @@ var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut"><b>Summary = would-be results.</b> Every setup the detector confirms is modeled to its outcome (win +2R / breakeven 0 / loss -1R): <b>n</b> = how many trades would have been taken, <b>total_R</b> = would-be P&L in R (&times; your risk-per-trade = money), <b>exp_R</b> = per-trade edge, <b>win_pct</b> = hit rate. Backtest reference: EUR/USD +0.23R, USD/JPY +0.18R net.</div>'+
  '<div class="card mut"><b>Candidates &amp; setups</b> = the live funnel right now (which levels armed, which displaced, which confirmed). In-sample backtest; live fills are the open question.</div>';
 var STRAT={
+ abv3:{name:'A/B V3 · LONG + SHORT',sub:'Directional 2R · DOL + BSL/SSL + 1s/M1/M5/M15/H1 · integration validation',tabs:[['desk','Detector + DOL + manager','/ab/v3','grid'],['feed','TradingView 1s feed','/feed/1s','grid']]},
  portfolio:{name:'Portfolio Guard',sub:'Persisted account Guard decisions · factual A/B audit only',
    tabs:[['decisions','100K decisions','/portfolio-guard','grid'],
          ['builder','50K decisions',BUILDER50?BUILDER50+'/portfolio-guard':{html:'<h2>50K unavailable</h2><div class="card mut">Set BUILDER50_URL and deploy the same decision-audit code to the isolated 50K service.</div>'},'grid']]},
@@ -170,7 +171,7 @@ var STRAT={
 var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Portfolio',[['portfolio','Portfolio Guard','grid']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
-         ['Strategies',[['dolrev','DOL Delivery Reversal · LIVE','target'],['continuation','Continuation','target'],['ab','A/B + Shallow · Legacy benchmark','ab']]],
+         ['Strategies',[['abv3','A/B V3 · LONG + SHORT','ab'],['dolrev','DOL Delivery Reversal · LIVE','target'],['continuation','Continuation','target'],['ab','A/B + Shallow · Legacy benchmark','ab']]],
          ['Context & Management',[['dol','Draw on Liquidity · Diagnostics','target'],['dmshadow','Downside Manager Shadow','grid']]],
          ['Archived Research',[['ab15','A/B + Shallow M15→M5 · Shadow','ab']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];

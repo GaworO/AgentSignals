@@ -26,6 +26,7 @@ if Path(detcore.__file__).resolve().parent != (RUNTIME / "detcore").resolve():
 from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline as freeze  # noqa: E402
 import continuation_short_engine as short_engine  # noqa: E402
 import ab_directional_engine  # noqa: E402
+import ab_v3_snapshot  # noqa: E402 -- metadata only; hashed entry engine unchanged
 
 
 THESIS_MODES = {"strict", "allow_none"}
@@ -119,6 +120,9 @@ def main() -> None:
         raw, outputs, "LONG")
     abdir_short_candidates, abdir_short_orders, abdir_short_funnel = ab_directional_engine.build_manifests(
         raw, short_outputs, "SHORT")
+    v3_market = ab_v3_snapshot.attach(raw,
+        abdir_long_candidates + abdir_short_candidates,
+        abdir_long_orders + abdir_short_orders, freeze, short_engine)
     annotate_policy(candidates, orders, theses, "LONG", mode)
     annotate_policy(short_candidates, short_orders, theses, "SHORT", mode)
     funnel["thesis_mode"] = mode
@@ -140,6 +144,7 @@ def main() -> None:
         "abdir_long_funnel": abdir_long_funnel,
         "abdir_short_candidates": abdir_short_candidates, "abdir_short_orders": abdir_short_orders,
         "abdir_short_funnel": abdir_short_funnel,
+        "v3_market": v3_market,
     }), sort_keys=True, separators=(",", ":"), allow_nan=False))
 
 

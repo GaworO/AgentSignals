@@ -32,6 +32,10 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
         tier = "N/A"
         qmode = "CAUSAL_FIXED_V1"
         label = family + " · FIXED 2R"
+        v3_mode = candidate.get('_v3_manager_mode')
+        if v3_mode in {'SHADOW', 'LIVE'}:
+            manager = 'V3 ' + v3_mode + ' / REQUIRES BROKER FILL'
+            label = family + ' · V3 2R · ' + v3_mode
     elif strategy.startswith("Continuation"):
         direction = str(candidate.get("dir") or "").upper()
         family = "CONT-L" if direction == "LONG" else "CONT-S"
