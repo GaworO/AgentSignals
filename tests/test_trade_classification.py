@@ -14,7 +14,7 @@ class TradeClassificationTests(unittest.TestCase):
         row = subject.candidate({"_strat": "DOL_DELIVERY_REVERSAL", "dir": "SHORT", "_ab_quality": {
             "tier": "Q3", "score": 4, "mode": "SHADOW_ONLY"}})
         self.assertEqual("DOL-REVERSAL", row["family"])
-        self.assertEqual("DOL REVERSAL · MANAGER LIVE · Q3", row["label"])
+        self.assertEqual("DOL REVERSAL · FIXED 2R · Q3", row["label"])
 
     def test_continuation_is_not_given_an_ab_quality_grade(self):
         row = subject.continuation_order({"direction": "SHORT", "dol_id": "D1"})

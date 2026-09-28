@@ -1,27 +1,9 @@
 #!/usr/bin/env python3
-"""
-allview.py — JOINED "All trades" + "All candidates" across strategies A/B, C, F.
-
-Isolated add-on (same pattern as pnl.py / forex_pnl.py): adds read-only routes on the MAIN agent:
-    /all/trades      — every strategy's modeled trades in one table + a PER-DAY Pine export
-    /all/candidates  — every strategy's live candidates in one table
-
-It NEVER touches detector logic. A/B is read locally (outcomes.json + signals key for /chart);
-C / F are fetched over HTTP from their own services (server-side, no CORS) using env URLs:
-
-    STRAT_C_URL   = https://<model-c service>        (reads  <url>/journal , <url>/candidates)
-    STRAT_F_URL   = https://<strategy-f service>     (reads  <url>/performance_f , <url>/candidates?format=json)
-Any URL left unset is skipped — the view degrades gracefully to whatever is reachable.
-
-Wire into agent.py (next to the other registers):
-    import allview ; allview.register(app)
+"""Read-only joined trades and candidates for A/B, Continuation and A/B Directional.
+A/B reads outcomes.json and journal.db; Continuation uses its local SQLite ledger.
 """
 import os, json, datetime as dt, sqlite3
 
-try:
-    import requests
-except Exception:
-    requests = None
 # ---- where A/B keeps its resolved outcomes (same file manage.py writes) ----
 _DATA_DIR = os.environ.get('DATA_DIR', '/data') or '.'
 _OUTCOMES = os.path.join(_DATA_DIR, 'outcomes.json')
@@ -62,8 +44,6 @@ def _migrate_json_once():
 # strategy -> (Pine color, HTML chip color)
 STRAT_COLORS = {
     'AB':  ('color.aqua',    '#22d3ee'),
-    'C':   ('color.lime',    '#4ade80'),
-    'F':   ('color.orange',  '#f59e0b'),
     'CONT-L': ('color.blue',   '#3b82f6'),
     'CONT-S': ('color.purple', '#a855f7'),
     'AB-DIR-L': ('color.teal', '#14b8a6'),
@@ -72,16 +52,6 @@ STRAT_COLORS = {
 
 
 # ───────────────────────────── helpers ─────────────────────────────
-def _get(url, path, timeout=12):
-    if not url or requests is None:
-        return None
-    try:
-        r = requests.get(url.rstrip('/') + path, timeout=timeout)
-        if getattr(r, 'status_code', 0) != 200:
-            return None
-        return r.json()
-    except Exception:
-        return None
 
 
 def _f(x):
@@ -154,34 +124,8 @@ def _ab_trades():
     return res
 
 
-def _c_trades():
-    j = _get(os.environ.get('STRAT_C_URL', ''), '/journal')
-    if not isinstance(j, dict):
-        return []
-    res = []
-    for t in j.values():
-        if not isinstance(t, dict):
-            continue
-        e = _f(t.get('entry')); sl = _f(t.get('SL', t.get('sl')))
-        if e is None or sl is None:
-            continue
-        ts = t.get('fill_ts') or _iso_ms(t.get('alert_ts'))
-        res.append(_norm('C', ts, t.get('dir'), 'C', e, sl, t.get('R'), t.get('status')))
-    return res
 
 
-def _f_trades():
-    j = _get(os.environ.get('STRAT_F_URL', ''), '/performance_f')
-    if not isinstance(j, dict):
-        return []
-    res = []
-    for t in j.get('trades', []) or []:
-        e = _f(t.get('entry')); sl = _f(t.get('SL', t.get('sl')))
-        if e is None or sl is None:
-            continue
-        ts = t.get('disp_end_ms') or _iso_ms(t.get('alert_ts'))
-        res.append(_norm('F', ts, t.get('dir'), 'F.P.FVG', e, sl, t.get('R'), t.get('status')))
-    return res
 
 
 def _continuation_trades():
@@ -244,7 +188,7 @@ def _dedup(rows):
 
 def _all_trades():
     out = []
-    for fn in (_ab_trades, _continuation_trades, _c_trades, _f_trades):
+    for fn in (_ab_trades, _continuation_trades):
         try:
             out += fn()
         except Exception:
@@ -338,7 +282,7 @@ def _qcell(quality):
 
 def _strat_filter_bar(present):
     """Checkbox row (one per strategy present) that filters the table + the day Pine."""
-    order = [s for s in ('AB', 'CONT-L', 'CONT-S', 'C', 'F') if s in present]
+    order = [s for s in ('AB', 'CONT-L', 'CONT-S', 'AB-DIR-L', 'AB-DIR-S') if s in present]
     boxes = ''.join(
         "<label style='display:inline-flex;align-items:center;gap:5px'>"
         "<input type='checkbox' class='fstrat' value='%s' checked onchange='rebuild()'>%s</label>"
@@ -386,7 +330,7 @@ def render_trades():
             _qcell(r.get('quality')), _rcell(r['r']), chart, pine, took, cbtn)
 
     body = (CSS + "<style>.cbtn{background:none;border:1px solid #cfcfcf;border-radius:5px;cursor:pointer;padding:2px 7px;font-size:13px;line-height:1.2}.cbtn.has{border-color:#e0a800;background:#fff3cd}</style>" +
-            _NAV + "<h1>All trades — A/B · Continuation LONG/SHORT · C · F</h1>"
+            _NAV + "<h1>All trades — A/B · Continuation LONG/SHORT · A/B Directional</h1>"
             "<div class='sub'>modeled outcomes across every strategy · read-only · " + _reach_note() + "</div>"
             + _strat_filter_bar(present) +
             "<div class='bar'><b>Per-day Pine for TradingView:</b>"
@@ -412,10 +356,7 @@ def render_trades():
 
 
 def _reach_note():
-    have = ['A/B(local)']
-    for lbl, env in (('C', 'STRAT_C_URL'), ('F', 'STRAT_F_URL')):
-        have.append(lbl + ('✓' if os.environ.get(env) else '✗'))
-    return ' '.join(have)
+    return 'A/B · Continuation · A/B Directional (local)'
 
 
 # ─────────────────────── candidates (best-effort) ───────────────────────
@@ -438,24 +379,8 @@ def _ab_candidates():
     return res
 
 
-def _c_candidates():
-    j = _get(os.environ.get('STRAT_C_URL', ''), '/candidates')
-    cands = (j or {}).get('cands', []) if isinstance(j, dict) else []
-    res = []
-    for x in cands or []:
-        res.append(dict(strat='C', day='', time=x.get('disp_start', ''), dir=x.get('dir', ''),
-                        stage=x.get('step', ''), note='FVG %s-%s' % (x.get('fvg_lo', ''), x.get('fvg_hi', ''))))
-    return res
 
 
-def _f_candidates():
-    j = _get(os.environ.get('STRAT_F_URL', ''), '/candidates?format=json')
-    arr = j if isinstance(j, list) else (j.get('candidates') if isinstance(j, dict) else [])
-    res = []
-    for x in arr or []:
-        res.append(dict(strat='F', day=x.get('date', ''), time=x.get('disp_end', ''), dir=x.get('dir', ''),
-                        stage=x.get('status', ''), note='FVG %s-%s' % (x.get('fvg_lo', ''), x.get('fvg_hi', ''))))
-    return res
 
 
 def _continuation_candidates():
@@ -487,7 +412,7 @@ def _continuation_candidates():
 
 def render_candidates():
     rows = []
-    for fn in (_ab_candidates, _continuation_candidates, _c_candidates, _f_candidates):
+    for fn in (_ab_candidates, _continuation_candidates):
         try:
             rows += fn()
         except Exception:

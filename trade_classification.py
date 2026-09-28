@@ -22,8 +22,8 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     if strategy == "DOL_DELIVERY_REVERSAL":
         family = "DOL-REVERSAL"
         setup = "DOL REVERSAL"
-        manager = "LIVE"
-        label = "DOL REVERSAL · MANAGER LIVE" + ((" · " + tier) if tier != "N/A" else "")
+        manager = "NONE"
+        label = "DOL REVERSAL · FIXED 2R" + ((" · " + tier) if tier != "N/A" else "")
     elif strategy.startswith("A/B Directional"):
         direction = str(candidate.get("dir") or "").upper()
         family = "AB-DIR-L" if direction == "LONG" else "AB-DIR-S"

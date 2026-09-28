@@ -17,7 +17,7 @@ $100k @ 0.5% => $500 = 1R.
 
 Wire into agent.py (next to dashboard.register):   import shadow ; shadow.register(app)
 Then log A/B signals:   shadow.record('A/B', x['dir'], x['entry'], x['SL'], x['TP'], x['bos_ms'])
-Model C / Strategy F services POST to /shadow/log (set SHADOW_URL on those services).
+External observations can be recorded through /shadow/log.
 
 Env: DATA_DIR (persist dir, def '.'), SHADOW_BUF or BUF (live bar CSV for outcome resolution),
      SHADOW_STALE_DAYS (def 3).

@@ -9,15 +9,11 @@ shell FEDERATING the pages that already exist. It runs no detector / intake / jo
               (All trades / All candidates / Reconcile / P&L removed from the nav; the
                /all/* and /pnl routes stay live and are still used per-account.)
   A/B       : Candidates=/ab/candidates - Journal=/journal - How=/how
-  C         : Dashboard=/c - How=/c/how
-  F  (ext)  : How (inline) - Candidates - Log - Performance
 
 Wire into agent.py (next to pnl.register):  import dashboard ; dashboard.register(app)
-Env (optional): STRAT_F_URL.
 """
 import os
 
-_F   = os.environ.get('STRAT_F_URL',  'https://strategy-f-production.up.railway.app').rstrip('/')
 # --- Forex observe-only services (public URLs of forex-eur / forex-jpy) ---
 _EUR = os.environ.get('FX_EUR_URL', 'https://forex-eur-production.up.railway.app').rstrip('/')
 _JPY = os.environ.get('FX_JPY_URL', 'https://forex-jpy-production.up.railway.app').rstrip('/')
@@ -95,7 +91,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
 function toggleMenu(){document.body.classList.toggle('nomenu');try{localStorage.setItem('deskmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}
 try{if(localStorage.getItem('deskmenu')==='0')document.body.classList.add('nomenu');}catch(e){}
-var F="__F__", EUR="__EUR__", JPY="__JPY__", ACCOUNT_LABEL="__ACCOUNT_LABEL__", BUILDER50="__BUILDER50__";
+var EUR="__EUR__", JPY="__JPY__", ACCOUNT_LABEL="__ACCOUNT_LABEL__", BUILDER50="__BUILDER50__";
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
  pnl:'<svg '+S+'><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
@@ -117,23 +113,15 @@ var ICONS={
 };
 function ic(n){return '<span class="ic">'+(ICONS[n]||'')+'</span>';}
 
-var F_HOW='<h2>Strategy F - first-presentation FVG</h2>'+
- '<div class="card mut">A momentum-continuation read on the first clean fair-value gap of the session.<ol>'+
- '<li><b>First-presentation FVG.</b> The first clean FVG of the session in the trend direction.</li>'+
- '<li><b>First touch.</b> Price returns to that gap for the first time - the entry.</li>'+
- '<li><b>Order.</b> Limit at the gap, fixed R target.</li></ol></div>'+
- '<div class="card mut">Honest note (from the F audit): the FVG mechanics are right but F lacks bias / draw-on-liquidity / premium-discount - its edge is <b>momentum continuation, not textbook ICT</b>. Realistic additive &asymp; +0.045R. Its own service has the live candidates / log / performance.</div>';
-
 var COMPARE_HTML='<h2>Strategy scorecard - timing, win rate &amp; frequency</h2>'+ 
  '<div class="card mut">Real trade logs, 4yr MNQ. Active strategies only, sorted by expectancy. (A/B: log=6,569 signals, ~1,181 finals/yr traded.)</div>'+ 
  '<div class="card"><table>'+
  '<tr><th>Strategy</th><th>When / session</th><th>Win%</th><th>Exp R</th><th>PF</th><th>/yr</th><th>/mo</th><th>/wk</th></tr>'+
- '<tr><td><b>Model C</b></td><td>NY-AM + PREM</td><td>50%</td><td><b>+0.68</b></td><td>3.30</td><td>14</td><td>1.2</td><td>0.27</td></tr>'+
  '<tr><td>S2 Up-Gap Fade</td><td>Gap days (RTH open)</td><td>54%</td><td>+0.32</td><td>2.58</td><td>9</td><td>0.7</td><td>0.17</td></tr>'+ 
  '<tr><td>S1 Monday-Rebuy</td><td>Mondays (RTH)</td><td>62%</td><td>+0.22</td><td>2.68</td><td>16</td><td>1.3</td><td>0.31</td></tr>'+
  '<tr><td>A/B</td><td>All sessions</td><td>31%</td><td>+0.20</td><td>1.50</td><td>293</td><td>24.4</td><td>5.64</td></tr>'+
  '</table></div>'+
- '<div class="card mut"><b>Best session per active strategy:</b> Model C &rarr; NY-AM (+0.84) &middot; A/B &rarr; London (+0.28) / PREM (+0.25) &middot; S2 &rarr; the open &middot; S1 &rarr; Mondays.</div>'+'<h2>A/B forward &mdash; $100k @ 0.5% risk, last 12 months (ATRMULT 1.0)</h2>'+'<div class="card mut">Modeled net R per calendar month, $500 = 1R. Broad detector (all catalysts); realistically executable (~1/day) is a fraction of this. 2025-06 &amp; 2026-06 partial.</div>'+'<div class="card"><table>'+'<tr><th>Month</th><th>Net R</th><th>Net $</th></tr>'+'<tr><td>2025-06 (part)</td><td style=\"color:#17864a\">+36.4</td><td style=\"color:#17864a\">+$18,217</td></tr>'+'<tr><td>2025-07</td><td style=\"color:#c0392b\">-19.3</td><td style=\"color:#c0392b\">-$9,661</td></tr>'+'<tr><td>2025-08</td><td style=\"color:#17864a\">+45.3</td><td style=\"color:#17864a\">+$22,635</td></tr>'+'<tr><td>2025-09</td><td style=\"color:#c0392b\">-7.8</td><td style=\"color:#c0392b\">-$3,917</td></tr>'+'<tr><td>2025-10</td><td style=\"color:#17864a\">+72.3</td><td style=\"color:#17864a\">+$36,151</td></tr>'+'<tr><td>2025-11</td><td style=\"color:#17864a\">+33.9</td><td style=\"color:#17864a\">+$16,947</td></tr>'+'<tr><td>2025-12</td><td style=\"color:#17864a\">+56.8</td><td style=\"color:#17864a\">+$28,381</td></tr>'+'<tr><td>2026-01</td><td style=\"color:#17864a\">+39.3</td><td style=\"color:#17864a\">+$19,634</td></tr>'+'<tr><td>2026-02</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,347</td></tr>'+'<tr><td>2026-03</td><td style=\"color:#c0392b\">-12.4</td><td style=\"color:#c0392b\">-$6,222</td></tr>'+'<tr><td>2026-04</td><td style=\"color:#17864a\">+21.2</td><td style=\"color:#17864a\">+$10,619</td></tr>'+'<tr><td>2026-05</td><td style=\"color:#17864a\">+40.9</td><td style=\"color:#17864a\">+$20,443</td></tr>'+'<tr><td>2026-06 (part)</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,348</td></tr>'+'<tr><td><b>TOTAL</b></td><td style="color:#17864a"><b>+323.8</b></td><td style="color:#17864a"><b>+$161,921</b></td></tr>'+'</table></div>';
+ '<div class="card mut"><b>Best session per active strategy:</b> A/B &rarr; London (+0.28) / PREM (+0.25) &middot; S2 &rarr; the open &middot; S1 &rarr; Mondays.</div>'+'<h2>A/B forward &mdash; $100k @ 0.5% risk, last 12 months (ATRMULT 1.0)</h2>'+'<div class="card mut">Modeled net R per calendar month, $500 = 1R. Broad detector (all catalysts); realistically executable (~1/day) is a fraction of this. 2025-06 &amp; 2026-06 partial.</div>'+'<div class="card"><table>'+'<tr><th>Month</th><th>Net R</th><th>Net $</th></tr>'+'<tr><td>2025-06 (part)</td><td style=\"color:#17864a\">+36.4</td><td style=\"color:#17864a\">+$18,217</td></tr>'+'<tr><td>2025-07</td><td style=\"color:#c0392b\">-19.3</td><td style=\"color:#c0392b\">-$9,661</td></tr>'+'<tr><td>2025-08</td><td style=\"color:#17864a\">+45.3</td><td style=\"color:#17864a\">+$22,635</td></tr>'+'<tr><td>2025-09</td><td style=\"color:#c0392b\">-7.8</td><td style=\"color:#c0392b\">-$3,917</td></tr>'+'<tr><td>2025-10</td><td style=\"color:#17864a\">+72.3</td><td style=\"color:#17864a\">+$36,151</td></tr>'+'<tr><td>2025-11</td><td style=\"color:#17864a\">+33.9</td><td style=\"color:#17864a\">+$16,947</td></tr>'+'<tr><td>2025-12</td><td style=\"color:#17864a\">+56.8</td><td style=\"color:#17864a\">+$28,381</td></tr>'+'<tr><td>2026-01</td><td style=\"color:#17864a\">+39.3</td><td style=\"color:#17864a\">+$19,634</td></tr>'+'<tr><td>2026-02</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,347</td></tr>'+'<tr><td>2026-03</td><td style=\"color:#c0392b\">-12.4</td><td style=\"color:#c0392b\">-$6,222</td></tr>'+'<tr><td>2026-04</td><td style=\"color:#17864a\">+21.2</td><td style=\"color:#17864a\">+$10,619</td></tr>'+'<tr><td>2026-05</td><td style=\"color:#17864a\">+40.9</td><td style=\"color:#17864a\">+$20,443</td></tr>'+'<tr><td>2026-06 (part)</td><td style=\"color:#17864a\">+8.7</td><td style=\"color:#17864a\">+$4,348</td></tr>'+'<tr><td><b>TOTAL</b></td><td style="color:#17864a"><b>+323.8</b></td><td style="color:#17864a"><b>+$161,921</b></td></tr>'+'</table></div>';
 
 var SETTINGS_AB='<h2>A/B settings (Railway env)</h2><div class="card"><table>'+
  [['DISPWIN','30','bars to find the impulse'],['MODE','confirm','confirm | sweep'],['DISP_MODE','chain','chain (&ge;3) | orig (1-3)'],['ALLOW_SINGLE','off','single big candle (tested = wash)'],['MAX_STOP_R','40','drop wider stops (pts) — unchanged in v29'],['SL_STRUCT_MAX_R','30','v29: use the displacement-leg (struct) stop only while it fits inside this (pts); above it the stop goes to the far edge of the held FVG'],['SL_ANCHOR_BUF','0.25','v29: points beyond the chosen level (1 MNQ tick)'],['ORPHAN_WINDOW','caps','v31.2 DEFAULT caps: retwin/boswin kept inside the re-arm (sweep: removing them loses ~$9-11k regardless of lifetime). day = uncapped sequence'],['ORPHAN_LIFE','day','v31.3: day (default) — the 120-bar cap below is the binding limit, exactly as measured. session = also clip at session end'],['ORPHAN_MAX_BARS','120','v31.3 DEFAULT: zone lives 120 bars (2h) from the FVG — the sweep winner on $ (+$4,125, 6W/2L, 0 degraded months). 0 = off'],['ORPHAN_FVG','1','v31.1: every displacement FVG is watched from birth TO END OF DAY (no 20/30-bar caps); zone dies only on a body close through CE or day end; CE-holding return re-arms the full sequence (+ORPH)'],['SWING_TP','1','v30: TP = last swing low/high left of BOS (deeper than 1R), capped 3R; no level → fixed 2R. 0 = always 2R'],['SWING_TP_K','5','v30: bars on each side that confirm a swing'],['SWING_TP_MAX_R','3','v30: target cap in R (clamped)'],['PARTIAL_AT_1R','0','v30.1: OFF by default (cost ~14%/yr in test). 1 = bank PARTIAL_ACCT_PCT at +1R via a second bracket leg'],['PARTIAL_ACCT_PCT','0.2','v30: account % realized at +1R (0.2/0.5 risk = 40% of contracts)'],['NO_TRADE_SUPPRESS','1','mute &plusmn;30min around high-impact news (ON)']]
@@ -171,11 +159,7 @@ var STRAT={
  ab:{name:'A/B + Shallow',sub:'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
  dol:{name:'Draw on Liquidity',sub:'Ranked A/B DOL narrative · diagnostics only · no execution effect',tabs:[['live','Live DOL','/dol','target'],['raw','Raw data','/dol/data','file']]},
  ab15:{name:'A/B + Shallow M15 → M5',sub:'M15 setup · closed-candle M5 BOS · forward shadow only · zero orders',tabs:[['candidates','Candidates','/m15/candidates','list'],['shadow','Shadow trades','/m15/shadow','book'],['examples','Graphical examples','/m15/examples','chart'],['pine','Pine · current shadow','/m15/shadow/pine','file'],['how','Rules & settings','/m15/how','help'],['health','Health','/m15/status','grid']]},
- c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
- f:{name:'F',sub:'Displacement → FVG → first touch · momentum',ext:F,tabs:[['how','How it works',F+'/how','help'],['cand','Candidates',F+'/candidates','list'],['log','Log',F+'/log','file'],['perf','Performance',F+'/performance_f','chart']]},
- acba:{name:'A Continuation — Both Aligned',sub:'Canonical A Continuation · HTF + execution DOL aligned · forward shadow only',tabs:[['live','Shadow dashboard','/a-cont-both-aligned','grid'],['data','Forward log','/a-cont-both-aligned/data','file']]},
  dolrev:{name:'DOL Delivery Reversal',sub:'One classified A/B order · fixed 2R · account-specific TradersPost lifecycle',tabs:[['live','LIVE lifecycle','/dol-reversal-live','grid'],['readiness','Readiness','/dol-reversal/readiness','grid'],['candidates','Candidates','/dol-delivery-reversal/candidates','list'],['trades','Trades','/dol-delivery-reversal/trades','book'],['successful','Successful Setups','/dol-delivery-reversal/successful','chart'],['data','Forward log','/dol-delivery-reversal/data','file']]},
- dolrevmgr:{name:'DOL Reversal Manager',sub:'Frozen 58-feature policy · LIVE actions via the account-specific TradersPost webhook',tabs:[['lifecycle','LIVE lifecycle','/dol-reversal-live','grid'],['model','Model audit','/dol-reversal-manager','grid'],['trades','Trade History','/dol-reversal-manager/trades','file'],['replays','Real Trade Replays','/dol-reversal-manager/real-replays','file'],['metrics','Metrics','/dol-reversal-manager/metrics','grid']]},
  continuation:{name:'Continuation + A/B Directional',sub:'Continuation OPEN-DOL plus causal A/B Directional fixed-2R · shared Guard-routed live ledger',tabs:[['candidates','Candidates','/continuation/candidates','list'],['trades','Filled trades','/continuation/candidates?execution=FILLED','book'],['live','Dashboard','/continuation/dashboard','grid'],['dispatch','LIVE dispatch','/continuation/live/dashboard','target'],['pine','Pine · forward fills','/continuation/pine','file']]},
  dmshadow:{name:'Downside Manager Shadow',sub:'Fixed 2R control versus frozen downside policy · SHADOW ONLY — NO BROKER EXECUTION',tabs:[['live','Live Shadow','/downside-shadow','grid'],['trades','Trade History','/downside-shadow/trades','file'],['replays','Real Trade Replays','/downside-shadow/real-replays','file'],['metrics','Metrics','/downside-shadow/metrics','grid']]},
  eur:{name:'EUR/USD',sub:'Forex · observe only · EURUSD-calibrated',ext:EUR,tabs:[['sum','Summary',EUR+'/performance','chart'],['trades','Trades',EUR+'/outcomes','book'],['pine','Pine for TV',EUR+'/pine','file'],['cand','Candidates & setups',EUR+'/candidates','list'],['status','Status',EUR+'/status','grid'],['about','About',{html:FX_NOTE},'help']]},
@@ -186,9 +170,9 @@ var STRAT={
 var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Portfolio',[['portfolio','Portfolio Guard','grid']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
-         ['Strategies',[['dolrev','DOL Delivery Reversal · LIVE','target'],['continuation','Continuation','target'],['c','C','c'],['acba','A Continuation — Both Aligned','target'],['ab','A/B + Shallow · Legacy benchmark','ab']]],
-         ['Context & Management',[['dol','Draw on Liquidity · Diagnostics','target'],['dolrevmgr','DOL Reversal Manager · LIVE','grid'],['dmshadow','Downside Manager Shadow','grid']]],
-         ['Archived Research',[['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['f','F','f']]],
+         ['Strategies',[['dolrev','DOL Delivery Reversal · LIVE','target'],['continuation','Continuation','target'],['ab','A/B + Shallow · Legacy benchmark','ab']]],
+         ['Context & Management',[['dol','Draw on Liquidity · Diagnostics','target'],['dmshadow','Downside Manager Shadow','grid']]],
+         ['Archived Research',[['ab15','A/B + Shallow M15→M5 · Shadow','ab']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
 
 var frame=document.getElementById('frame'), stat=document.getElementById('static'),
@@ -337,8 +321,6 @@ tr.seed td{opacity:.60}.tag{font-size:10px;color:#6b7280;border:1px solid #2a355
 <div class="bar">
   <div class="grp"><b>strategies</b>
     <label class="cb"><input type="checkbox" class="stratcb" value="A/B" checked> A/B</label>
-    <label class="cb"><input type="checkbox" class="stratcb" value="C" checked> C</label>
-    <label class="cb"><input type="checkbox" class="stratcb" value="F" checked> F</label>
   </div>
   <div class="grp"><b>week</b><select id="wk"></select></div>
   <div class="grp"><b>dates</b><input type="date" id="dfrom" title="from"><span class="mut">&ndash;</span><input type="date" id="dto" title="to"><span class="mut" id="dclear" style="cursor:pointer;padding:0 4px" title="clear date range">&times;</span></div>
@@ -412,11 +394,11 @@ function renderCmp(){
 function initWeeks(){var wks={};DATA.forEach(function(t){wks[t.week]=1;});var arr=Object.keys(wks).sort();
  document.getElementById('wk').innerHTML='<option value="all">All weeks ('+arr.length+')</option>'+arr.map(function(w){return '<option value="'+w+'">week of '+w+'</option>';}).join('');}
 function copyPine(){var d=filt();if(!d.length){document.getElementById('cpstat').textContent='nothing selected';return;}
- var SC={'A/B':0,'C':1,'F':2};var wk=curWeek();
+ var SC={'A/B':0};var wk=curWeek();
  function A(f){return 'array.from('+d.map(f).join(',')+')';}
  var pine='//@version=5\n'+
   'indicator("Shadow '+(wk==='all'?'all weeks':'week '+wk)+' ('+d.length+' trades)", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)\n'+
-  '// Entry line: A/B blue / C orange / F green. Red box=risk, green box=reward (2R). $100k@0.5%.\n'+
+  '// Entry line: A/B blue. Red box=risk, green box=reward (2R). $100k@0.5%.\n'+
   'var int[]   T  = '+A(function(t){return t.ms;})+'\n'+
   'var bool[]  L  = '+A(function(t){return t.dir==="LONG"?"true":"false";})+'\n'+
   'var float[] EN = '+A(function(t){return t.entry;})+'\n'+
@@ -425,8 +407,8 @@ function copyPine(){var d=filt();if(!d.length){document.getElementById('cpstat')
   'var int[]   STR= '+A(function(t){return SC[t.strategy];})+'\n'+
   'var int[]   W  = '+A(function(t){return t.outcome==="win"?1:0;})+'\n'+
   'ext=input.int(10,"bracket bars")\n'+
-  'f_col(si)=> si==0?color.blue: si==1?color.orange: color.green\n'+
-  'f_nm(si)=> si==0?"A/B": si==1?"C":"F"\n'+
+  'f_col(si)=> color.blue\n'+
+  'f_nm(si)=> "A/B"\n'+
   'for i=0 to array.size(T)-1\n'+
   '    if time==array.get(T,i)\n'+
   '        e=array.get(EN,i), s=array.get(SLA,i), t=array.get(TPA,i)\n'+
@@ -454,8 +436,7 @@ load();
 
 
 def render_home():
-    return (PAGE.replace('__F__', _F)
-                .replace('__EUR__', _EUR).replace('__JPY__', _JPY)
+    return (PAGE.replace('__EUR__', _EUR).replace('__JPY__', _JPY)
                 .replace('__ACCOUNT_LABEL__', _ACCOUNT_LABEL.replace('"', '\\"'))
                 .replace('__BUILDER50__', _BUILDER50.replace('"', '\\"')))
 

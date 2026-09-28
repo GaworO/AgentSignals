@@ -39,7 +39,7 @@ class DolBarsEndpointTests(unittest.TestCase):
             time.sleep(.01)
         raise AssertionError("/bars worker did not finish")
 
-    def test_chronological_replay_through_bars_sends_one_virtual_exit(self):
+    def test_chronological_replay_through_bars_sends_no_manager_exit(self):
         s = signal()
         with mock.patch.object(live.strategy, "observe", return_value=True):
             live.classify(s, "unused.csv")
@@ -48,7 +48,8 @@ class DolBarsEndpointTests(unittest.TestCase):
         self.assertTrue(live.claim_entry(s, 4, payload)[0])
         live.record_entry_response(s, Response())
         row = live._connect().execute("select * from trades").fetchone()
-        live._post_action(row, "vp-endpoint", "VIRTUAL_PROTECTED_STOP", 1, .95, [1], 98.0)
+        with live._connect() as con:
+            con.execute("UPDATE trades SET virtual_protected_stop=98,manager_active=1")
 
         processed = []
         def after(bar, _now_ms):
@@ -62,8 +63,7 @@ class DolBarsEndpointTests(unittest.TestCase):
             mock.patch.object(agent, "_after_bar_processed", side_effect=after),
             mock.patch.object(agent.shadow, "refresh"),
             mock.patch.object(agent.guardrails, "sweep_orphans"),
-            mock.patch.object(live, "_manager_decision", return_value=("HOLD", None, None, None)),
-            mock.patch.object(live.requests, "post", return_value=Response()),
+            mock.patch.object(agent.requests, "post", return_value=Response()),
         ]
         started = [patcher.start() for patcher in patches]
         try:
@@ -77,8 +77,8 @@ class DolBarsEndpointTests(unittest.TestCase):
                 self._wait_worker()
             self.assertEqual(processed, ["2027-01-15T08:01:00Z", "2027-01-15T08:02:00Z",
                                          "2027-01-15T08:03:00Z"])
-            self.assertEqual(started[-1].call_count, 1)
-            self.assertEqual(sum(a["action"] == "FULL_CLOSE" for a in live.actions()), 1)
+            self.assertEqual(started[-1].call_count, 0)
+            self.assertEqual(live.rows()[0]["current_sl"], 95.0)
         finally:
             for patcher in reversed(patches):
                 patcher.stop()

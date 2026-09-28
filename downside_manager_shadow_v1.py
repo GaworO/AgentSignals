@@ -135,12 +135,6 @@ def observe_signal(signal,source_key,quantity):
     if value is None:return 0
     direction,entry,sl,tp,qty,risk,bos,anchor,safe=value
     strategies=["A/B"]
-    try:
-        import a_cont_both_aligned_shadow as aligned
-        if aligned.eligibility(signal,signal.get("_dol")).get("accepted"):
-            strategies.append("A_CONT_BOTH_ALIGNED")
-    except Exception as exc:
-        print("[downside-shadow] aligned eligibility unavailable:",exc,flush=True)
     inserted=0
     with _connect() as c:
         for strategy in strategies:
@@ -341,7 +335,7 @@ def refresh():
     if not all_bars:return 0
     model=_model()
     with _connect() as c:
-        active=c.execute("SELECT * FROM downside_shadow_trades WHERE status IN ('PENDING','OPEN') ORDER BY id").fetchall()
+        active=c.execute("SELECT * FROM downside_shadow_trades WHERE strategy_id='A/B' AND status IN ('PENDING','OPEN') ORDER BY id").fetchall()
     if not active:return 0
     engine=None
     changed=0
@@ -447,9 +441,9 @@ def notify_bar():
 
 def status():
     if not ENABLED:return {"enabled":False,"shadow_only":True,"broker_execution":False,
-                           "policy_version":VERSION,"strategies":{"A/B":"READY","A_CONT_BOTH_ALIGNED":"READY","C":"NOT CONNECTED"}}
+                           "policy_version":VERSION,"strategies":{"A/B":"READY"}}
     with _connect() as c:
-        records=[dict(r) for r in c.execute("SELECT strategy_id,status,source_key,control_final_r,manager_final_r,delta_r,recommendation,state_quality FROM downside_shadow_trades ORDER BY id")]
+        records=[dict(r) for r in c.execute("SELECT strategy_id,status,source_key,control_final_r,manager_final_r,delta_r,recommendation,state_quality FROM downside_shadow_trades WHERE strategy_id='A/B' ORDER BY id")]
     def metric(values):
         gains=sum(x for x in values if x>0);losses=-sum(x for x in values if x<0)
         curve=np.r_[0.0,np.cumsum(values)]
@@ -457,7 +451,7 @@ def status():
                 "pf":gains/losses if losses else None,"net_r":sum(values),
                 "max_dd_r":float(np.max(np.maximum.accumulate(curve)-curve))}
     grouped={}
-    for strategy in ("A/B","A_CONT_BOTH_ALIGNED"):
+    for strategy in ("A/B",):
         done=[r for r in records if r["strategy_id"]==strategy and r["control_final_r"] is not None and r["manager_final_r"] is not None]
         control=metric([r["control_final_r"] for r in done]);manager=metric([r["manager_final_r"] for r in done])
         losers=[r for r in done if r["control_final_r"]<0]
@@ -473,8 +467,7 @@ def status():
             "model_hash":_sha(MODEL),"threshold":THRESHOLD,
             "total":len(records),"pending":sum(r["status"]=="PENDING" for r in records),
             "open":sum(r["status"]=="OPEN" for r in records),
-            "done":sum(r["status"]=="DONE" for r in records),"strategies":grouped,
-            "strategy_c":"NOT CONNECTED: separate Railway service lacks the frozen 58-feature observer"}
+            "done":sum(r["status"]=="DONE" for r in records),"strategies":grouped}
 
 
 def _page():
@@ -494,7 +487,7 @@ def _page():
                str(row["winners_damaged"]),fmt(row["avg_loser_before"])+" / "+fmt(row["avg_loser_after"]),
                fmt(c["max_dd_r"])+" / "+fmt(m["max_dd_r"]),active]
         lines.append("<tr>"+"".join("<td>"+html.escape(x)+"</td>" for x in cells)+"</tr>")
-    lines.append("</table><p>Strategy C: NOT CONNECTED. <a href='/downside-shadow/status'>JSON status</a></p></body></html>")
+    lines.append("</table><p><a href='/downside-shadow/status'>JSON status</a></p></body></html>")
     return "".join(lines)
 
 

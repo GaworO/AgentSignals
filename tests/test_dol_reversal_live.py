@@ -68,47 +68,24 @@ class DolLiveTests(unittest.TestCase):
         with self.audit.open() as f:
             self.assertEqual(next(csv.DictReader(f))["local_fill_status"],"NOT_FILLED")
 
-    def test_hold_has_no_webhook(self):
-        self.accepted(); row=live._connect().execute("select * from trades").fetchone()
-        with mock.patch.object(live.requests,"post") as post:
-            result=live._post_action(row,"hold-1","HOLD",1_800_000_120_000,.5,[1,2])
-        self.assertEqual(result,"NO_WEBHOOK"); post.assert_not_called()
-
-    def test_breakeven_and_full_close_payloads(self):
-        self.accepted(); row=live._connect().execute("select * from trades").fetchone()
-        with mock.patch.object(live.requests,"post",return_value=Response()) as post:
-            self.assertEqual(live._post_action(row,"be-1","BREAKEVEN",1,.9,[1]),"WEBHOOK_ACCEPTED")
-            self.assertEqual(post.call_args.kwargs["json"]["action"],"breakeven")
-        row=live._connect().execute("select * from trades").fetchone()
-        with mock.patch.object(live.requests,"post",return_value=Response()) as post:
-            self.assertEqual(live._post_action(row,"exit-1","FULL_CLOSE",2,.9,[1]),"EXIT_REQUEST_ACCEPTED")
-            self.assertEqual(post.call_args.kwargs["json"],mock.ANY)
-            body=post.call_args.kwargs["json"]
-            self.assertEqual(body["action"],"exit"); self.assertTrue(body["cancel"]); self.assertTrue(body["ignoreTradingWindows"])
-
-    def test_no_open_position_reconciles_without_second_order(self):
-        self.accepted(); row=live._connect().execute("select * from trades").fetchone()
-        with mock.patch.object(live.requests,"post",return_value=NoPositionResponse()) as post:
-            result=live._post_action(row,"exit-none","FULL_CLOSE",2,.9,[1])
-        self.assertEqual(result,"NO_OPEN_POSITION_AT_TRADERSPOST")
-        self.assertEqual(post.call_count,1)
-        updated=live.rows()[0]
-        self.assertEqual(updated["manager_active"],0)
-        self.assertEqual(updated["close_reason"],"NO_OPEN_POSITION_AT_TRADERSPOST")
-
-    def test_virtual_stop_keeps_physical_sl_and_exits_once(self):
-        self.accepted(); row=live._connect().execute("select * from trades").fetchone()
-        with mock.patch.object(live.requests,"post") as post:
-            live._post_action(row,"vp-1","VIRTUAL_PROTECTED_STOP",1,.9,[1],98.0)
-            post.assert_not_called()
-        before=live.rows()[0]; self.assertEqual(before["current_sl"],95.0); self.assertEqual(before["virtual_protected_stop"],98.0)
-        # First bar causally detects the entry; second breaches the virtual stop.
-        live.on_closed_bar({"ts_event":"2027-01-15T08:01:00Z","high":101,"low":99.5})
-        with mock.patch.object(live.requests,"post",return_value=Response()) as post, mock.patch.object(live,"_manager_decision",return_value=("HOLD",None,None,None)):
-            live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":101,"low":97.5})
-            live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":101,"low":97.5})
-            live.on_closed_bar({"ts_event":"2027-01-15T08:03:00Z","high":101,"low":97.0})
-            self.assertEqual(post.call_count,1)
+    def test_retired_manager_variables_cannot_trigger_exit_or_change_stop(self):
+        import requests
+        self.accepted()
+        # Simulate a persisted position managed by an earlier release.
+        with live._connect() as con:
+            con.execute("UPDATE trades SET virtual_protected_stop=98,manager_active=1,manager_action_status='VIRTUAL_PROTECTED_STOP'")
+            con.execute("CREATE TABLE manager_actions(action_id TEXT PRIMARY KEY)")
+            con.execute("INSERT INTO manager_actions VALUES('historical-action')")
+        with mock.patch.object(requests, "post") as post:
+            for minute, low in [(1,99.5),(2,97.5),(3,97.0)]:
+                live.on_closed_bar({"ts_event":f"2027-01-15T08:0{minute}:00Z","high":101,"low":low})
+        post.assert_not_called()
+        row=live.rows()[0]
+        self.assertEqual(row["current_sl"],95.0)
+        self.assertEqual(row["local_fill_status"],"LOCAL_FILL_DETECTED")
+        self.assertEqual(row["manager_active"],0)
+        with live._connect() as con:
+            self.assertEqual(con.execute("SELECT count(*) FROM manager_actions").fetchone()[0],1)
 
     def test_accounts_share_signal_but_not_client_order_id(self):
         first=self.classified()
@@ -120,8 +97,7 @@ class DolLiveTests(unittest.TestCase):
     def test_local_fill_and_sl_first(self):
         self.accepted()
         live.on_closed_bar({"ts_event":"2027-01-15T08:01:00Z","high":101,"low":99.5})
-        with mock.patch.object(live,"_manager_decision",return_value=("HOLD",None,None,None)):
-            live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":111,"low":94})
+        live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":111,"low":94})
         row=live.rows()[0]
         self.assertEqual(row["local_fill_status"],"CLOSED_LOCALLY")
         self.assertEqual(row["close_reason"],"SL")
@@ -131,14 +107,19 @@ class DolLiveTests(unittest.TestCase):
         with mock.patch.dict(os.environ,{"DOL_KILL_SWITCH":"1"},clear=False):
             self.assertFalse(live.claim_entry(s,1,{})[0])
 
-    def test_kill_switch_blocks_manager_action_but_keeps_lifecycle(self):
+    def test_local_target_remains_fixed_2r(self):
         self.accepted()
-        with mock.patch.dict(os.environ,{"DOL_KILL_SWITCH":"1"},clear=False), \
-             mock.patch.object(live,"_manager_decision",return_value=("FULL_CLOSE",.99,[1],None)), \
-             mock.patch.object(live.requests,"post") as post:
-            live.on_closed_bar({"ts_event":"2027-01-15T08:01:00Z","high":101,"low":99.5,"close":100})
-            live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":101,"low":99,"close":100})
-        post.assert_not_called()
+        live.on_closed_bar({"ts_event":"2027-01-15T08:01:00Z","high":101,"low":99.5})
+        live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":111,"low":99.0})
+        row=live.rows()[0]
+        self.assertEqual(row["close_reason"],"TP")
+        self.assertEqual(row["realized_r"],2.0)
+
+    def test_open_position_ignores_out_of_order_bars_after_manager_removal(self):
+        self.accepted()
+        live.on_closed_bar({"ts_event":"2027-01-15T08:01:00Z","high":101,"low":99.5})
+        live.on_closed_bar({"ts_event":"2027-01-15T08:03:00Z","high":102,"low":99.0})
+        live.on_closed_bar({"ts_event":"2027-01-15T08:02:00Z","high":111,"low":99.0})
         self.assertEqual(live.rows()[0]["local_fill_status"],"LOCAL_FILL_DETECTED")
 
 

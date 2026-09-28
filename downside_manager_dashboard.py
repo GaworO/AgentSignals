@@ -31,13 +31,13 @@ def _live_rows():
              direction,entry,initial_sl,fixed_tp,quantity,initial_risk,signal_ms,fill_ms,
              current_r,mfe_r,mae_r,manager_probability,recommendation,control_final_r,
              manager_final_r,delta_r,control_exit_reason,manager_exit_reason,state_quality
-             FROM downside_shadow_trades ORDER BY id DESC LIMIT 300""")]
+             FROM downside_shadow_trades WHERE strategy_id='A/B' ORDER BY id DESC LIMIT 300""")]
 
 
 def _live_detail(identifier):
     if not shadow.ENABLED:abort(404)
     with shadow._connect() as c:
-        stored=c.execute("SELECT * FROM downside_shadow_trades WHERE id=?",(identifier,)).fetchone()
+        stored=c.execute("SELECT * FROM downside_shadow_trades WHERE strategy_id='A/B' AND id=?",(identifier,)).fetchone()
     if stored is None:abort(404)
     row=dict(stored)
     signal=json.loads(row["signal_json"])

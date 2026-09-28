@@ -52,7 +52,7 @@ class Builder50DashboardTests(unittest.TestCase):
 
     def test_builder_rejects_bar_fanout_variables_copied_from_100k(self):
         bad = dict(BUILDER_ENV, BUILDER50_URL='https://builder.example',
-                   STRAT_C_FORWARD_URL='https://strategy-c.example/bars')
+                   STRAT_AMD_FORWARD_URL='https://strategy-amd.example/bars')
         with mock.patch.dict(os.environ, bad, clear=True):
             profile = guardrails.account_profile()
         self.assertFalse(profile['config_ok'])
@@ -164,8 +164,9 @@ class Builder50DashboardTests(unittest.TestCase):
         deep = {'date': '2026-08-31', 'model': 'Reversal', 'cat': 'F.P.FVG',
                 'dir': 'SHORT', 'bos_ms': 1785505320000, 'entry': 28545.0,
                 'SL': 28576.0, 'TP': 28456.5, '_signal_close': 28478.5}
-        child = ab_shallow.build_shallow_signal(deep, env)
-        ab_shallow.apply_shared_group_budget(deep, child, env)
+        with mock.patch.object(ab_shallow.ab_risk_config, 'SHALLOW_RISK_SHARE', 0.5):
+            child = ab_shallow.build_shallow_signal(deep, env)
+            ab_shallow.apply_shared_group_budget(deep, child, env)
         sized = [live_emit.size_for_budget(x['entry'], x['SL'], x['_risk_budget_usd'], 2.24)
                  for x in (deep, child)]
         self.assertLessEqual(sum(x[3] for x in sized), 500.0)

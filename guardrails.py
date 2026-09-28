@@ -148,8 +148,7 @@ def account_profile():
             warnings.append('EXEC_TIF must be day; Builder positions cannot be held overnight')
         if os.environ.get('BUILDER50_URL', '').strip():
             warnings.append('BUILDER50_URL belongs only on the 100K service; remove it here to prevent a bar loop')
-        duplicate_forwards = [k for k in ('STRAT_C_FORWARD_URL', 'STRAT_F_FORWARD_URL',
-                                           'STRAT_AMD_FORWARD_URL') if os.environ.get(k, '').strip()]
+        duplicate_forwards = [k for k in ('STRAT_AMD_FORWARD_URL',) if os.environ.get(k, '').strip()]
         if duplicate_forwards:
             warnings.append('Builder must not fan out bars to strategy services; remove ' + ', '.join(duplicate_forwards))
         rules = dict(profit_target=3000, max_eod_loss=2000, daily_soft_pause=1000,
@@ -967,6 +966,36 @@ def _actualize(g, sh):
     return out
 
 
+def _trade_book_rows(rows):
+    """One visible decision per candidate; preserve every actual order record.
+
+    Repeated blocked evaluations (including older Continuation key bugs) are
+    audit events, not additional trades. Keep their latest decision until the
+    candidate has a sent/manual row. Never merge actual orders by price or group:
+    siblings and repeated broker submissions must remain visible for reconciliation.
+    The raw log and portfolio decision audit remain unchanged.
+    """
+    def identity(row):
+        key = row.get('key')
+        if row.get('continuation_order_id'):
+            key = 'CONT_ORDER|' + str(row['continuation_order_id'])
+        if not key:
+            return None
+        return (row.get('date'), row.get('strat', 'A/B'), key)
+
+    fired = {identity(r) for r in rows if r.get('decision') in ('sent', 'manual')}
+    seen = set()
+    result = []
+    for row in reversed(rows):
+        key = identity(row)
+        if row.get('decision') == 'blocked' and key is not None:
+            if key in fired or key in seen:
+                continue
+            seen.add(key)
+        result.append(row)
+    return list(reversed(result))
+
+
 def trade_summary(rows):
     """Summarize orders honestly: MANUAL is review-only, SENT is a broker order.
 
@@ -1400,7 +1429,9 @@ def ramp_qty(x):
 def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
-        glog = _load(GLOG, []); k = _skey(x)
+        glog = _load(GLOG, [])
+        continuation_order_id = x.get('_continuation_order_id')
+        k = ('CONT_ORDER|' + str(continuation_order_id)) if continuation_order_id else _skey(x)
         gid = x.get('_setup_group_id')
         group_already_sent = bool(gid and any(
             g.get('setup_group_id') == gid and g.get('decision') in ('sent', 'manual')
@@ -1412,7 +1443,8 @@ def note(x, decision, reason=''):
                 # the original sent/manual setup and preserve alternate target info.
                 for g in reversed(glog):
                     if g.get('date') != day: continue
-                    same_group = bool(gid and g.get('setup_group_id') == gid)
+                    same_group = bool(gid and g.get('setup_group_id') == gid
+                                      and g.get('strat', 'A/B') == x.get('_strat', 'A/B'))
                     same_key = g.get('key') == k
                     if g.get('decision') in ('sent', 'manual') and (same_group or same_key):
                         g['duplicate_count'] = int(g.get('duplicate_count') or 0) + 1
@@ -1429,8 +1461,8 @@ def note(x, decision, reason=''):
                             print('[guard] decision audit append err', audit_error, flush=True)
                         return
             # Any other identical blocked row is stored once per day/reason.
-            for g in reversed(glog[-100:]):
-                if g.get('date') != day: break
+            for g in reversed(glog):
+                if g.get('date') != day: continue
                 if g.get('key') == k and g.get('decision') == 'blocked' and g.get('reason') == reason:
                     try:
                         portfolio_guard.record_note(x, decision, reason, account_profile()['label'],
@@ -1438,9 +1470,6 @@ def note(x, decision, reason=''):
                     except Exception as audit_error:
                         print('[guard] decision audit append err', audit_error, flush=True)
                     return
-        continuation_order_id=x.get('_continuation_order_id')
-        if continuation_order_id:
-            k = 'CONT_ORDER|' + str(continuation_order_id)
         glog.append(dict(key=k, strat=x.get('_strat', 'A/B'), setup_group_id=gid,
                          continuation_order_id=continuation_order_id,
                          ts=_now_ms(), bar_ms=int(x.get('bos_ms') or 0), date=_today(),
@@ -1749,7 +1778,7 @@ def register(app):
         s = _state(); d = _day_stats(); sm = _shadow_by_key()
         all_rows = [_actualize(g, sm.get(g.get('key'), {})) for g in _load(GLOG, [])]
         loss_streak = _loss_streak_stats(all_rows)
-        book = list(reversed(all_rows))[:80]
+        book = list(reversed(_trade_book_rows(all_rows)))[:80]
         # fired vs actually-filled, all-time over the visible book (v27.3c): 'fired' = every SENT/ARMED
         # row; 'filled' = those that really held a position (win/loss/timeout incl. reconciled)
         _sent_rows = [b for b in book if b.get('decision') in ('sent', 'manual')]
@@ -2118,7 +2147,7 @@ async function load(){
   let lab=v=='struct'?'STRUCT':v=='fvg_edge'?'FVG edge':v=='fvg_edge+capped'?'FVG edge · capped 40':v;
   let col=v=='struct'?'#3ecb3e':v.indexOf('capped')>-1?'#e0a93b':'#3987e5';
 	  return '<span style="color:'+col+'" title="v29 stop anchor: struct when the displacement-leg extreme is within 30pt, else the far edge of the held FVG; re-anchored to MAX_STOP_R when wider">'+lab+'</span>';};
-	 let classif=x=>{let c=x.classification||{};let st=String(x.strat||'A/B');let fallback=st.indexOf('Continuation')===0?((x.dir=='SHORT'?'CONT-S':'CONT-L')+' · FROZEN OPEN DOL'):st=='DOL_DELIVERY_REVERSAL'?'DOL REVERSAL · MANAGER LIVE · QUALITY NOT RECORDED':(st+' · QUALITY NOT RECORDED');let lab=c.label||fallback;
+	 let classif=x=>{let c=x.classification||{};let st=String(x.strat||'A/B');let fallback=st.indexOf('Continuation')===0?((x.dir=='SHORT'?'CONT-S':'CONT-L')+' · FROZEN OPEN DOL'):st=='DOL_DELIVERY_REVERSAL'?'DOL REVERSAL · FIXED 2R · QUALITY NOT RECORDED':(st+' · QUALITY NOT RECORDED');let lab=c.label||fallback;
 	  let col=(c.family||'').indexOf('CONT-')===0?'#a78bfa':(c.family=='DOL-REVERSAL'?'#f59e0b':(c.quality_tier=='Q2'||c.quality_tier=='Q3')?'#4ade80':c.quality_tier=='Q1'?'#e0a93b':'#94a3b8');
 	  let tt='setup '+(c.setup_class||'not recorded')+' · quality '+(c.quality_tier||'N/A')+' · '+(c.quality_mode||'N/A');
 	  return '<span style="color:'+col+'" title="'+tt+'"><b>'+lab+'</b></span>';};

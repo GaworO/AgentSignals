@@ -147,11 +147,10 @@ EXEC_TEST_SECRET=CREATE-A-DIFFERENT-LONG-ONE-TIME-TEST-SECRET
 # Optional, but these should also be unique to this service.
 HEALTHCHECK_URL=https://hc-ping.com/PASTE-NEW-BUILDER-CHECK-ID
 HEARTBEAT_EVERY_SEC=30
-SAT_WATCH=0
 WEBHOOK_URL=https://PASTE-ALERT-RELAY/webhook?secret=PASTE-ROTATED-ALERT-SECRET
 
 # INTENTIONALLY ABSENT ON BUILDER:
 # BUILDER50_URL / BUILDER50_FORWARD_BARS (100K service owns the fan-out)
-# STRAT_C_FORWARD_URL / STRAT_F_FORWARD_URL (would duplicate strategy bars)
+# C/F services, URLs and fan-out were removed (2026-09-28).
 # STRAT_AMD_* / STRAT_ORB_* (removed strategies)
 # TRADERSPOST_WEBHOOK (legacy relay variable; executor reads EXEC_WEBHOOK)

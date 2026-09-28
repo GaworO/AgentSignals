@@ -27,16 +27,14 @@ import dol_dashboard  # /dol — read-only ranked DOL metadata panel
 import shadow      # /shadow/data + /shadow/log — LIVE shadow-executor log (hands-off, no money; isolated add-on)
 import downside_manager_shadow_v1  # read-only fixed-2R vs frozen downside manager; feature-flagged
 import ab_dol_live # ranked DOL/narrative metadata; attached only at persistence, never read by execution
-import a_cont_both_aligned_shadow  # post-decision A Continuation + frozen multi-horizon DOL shadow
 import dol_delivery_reversal_shadow  # post-decision DOL Delivery Reversal shadow; no broker authority
-import dol_reversal_manager_shadow_v1  # dedicated DOL Reversal manager challenger; shadow-only
 import dol_reversal_control  # fail-closed activation gate + immutable DOL identities
-import dol_reversal_live  # DOL entry/manager lifecycle via the account-specific TradersPost webhook
+import dol_reversal_live  # DOL fixed-bracket entry lifecycle via the account-specific TradersPost webhook
 import continuation_shadow  # independent canonical HTF Continuation Policy-B shadow; broker-inert
 import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
-import allview     # /all/trades + /all/candidates - joined view across A/B/C/F (isolated add-on)
+import allview     # /all/trades + /all/candidates - joined view across active strategies (isolated add-on)
 import ab_quality  # causal Q0-Q3 A/B label; shadow-only, never changes execution
 import guardrails  # /guard — MFF-eval-safe auto-exec gate (dedup, sessions, DD/target halt) — isolated add-on
 import portfolio_guard  # append-only audit of actual Guard notes; read-only dashboard
@@ -84,17 +82,6 @@ HEARTBEAT       = os.environ.get('HEARTBEAT', '1') != '0'                 # defa
 STALE_MIN       = float(os.environ.get('STALE_MIN', '20'))               # min w/o a new bar = stale (market hours)
 HEARTBEAT_EVERY = float(os.environ.get('HEARTBEAT_EVERY_SEC', '300'))    # how often to check (seconds)
 
-# ====== v25: PER-SATELLITE WATCH (C, F) — down + disabled + starved ======
-# C and F are SEPARATE Railway services. Two ways they silently break: (1) the service dies (crash/sleep/
-# redeploy) — A/B's own feed is fine so its heartbeat stays happy; (2) the service is UP but DISABLED
-# (enabled=false) — it still 200s on bars but produces ZERO signals (exactly the F config-drift on 07-17).
-# The heartbeat loop below therefore CACHE-BUSTS each satellite's /health and checks reachable + enabled,
-# plus uses the fanout timestamp (recorded here) to catch "up+enabled but A/B stopped forwarding" (starved).
-_sat = {'C': {'ok_at': None, 'alerted': False},
-        'F': {'ok_at': None, 'alerted': False}}
-SAT_STALE_MIN = float(os.environ.get('SAT_STALE_MIN', '20'))   # min without an accepted bar = satellite stale
-SAT_WATCH     = os.environ.get('SAT_WATCH', '1') != '0'        # default ON; SAT_WATCH=0 to silence C/F alerts
-
 def _init_db():
     c=sqlite3.connect(DB)
     c.execute('''CREATE TABLE IF NOT EXISTS signals(
@@ -115,13 +102,6 @@ def _save_db(x, alert_text, code):
     # value can influence whether or how this A/B signal trades.
     if x.get('_strat', 'A/B') == 'A/B' and '_dol' not in x:
         ab_dol_live.attach_metadata(x, BUF)
-    # Read-only shadow consumer.  This runs after the canonical decision and
-    # cannot alter, submit, or retry the existing A/B order.
-    try:
-        a_cont_both_aligned_shadow.observe(
-            x, x.get('_dol'), candidate_id=live_emit.key(x))
-    except Exception as _ba:
-        print('[A_CONT_BOTH_ALIGNED] persistence err', _ba, flush=True)
     try:
         dol_delivery_reversal_shadow.observe(
             x, x.get('_dol'), candidate_id=live_emit.key(x))
@@ -1180,20 +1160,6 @@ def _after_bar_processed(b, now_ms):
             print('[continuation-shadow] scan scheduled', b.get('ts_event'), flush=True)
     except Exception as e:
         print('[continuation-shadow] on_bar err', e, flush=True)
-    # --- Strategy F: przekaz bar do serwisu F (fire-and-forget; NIE wplywa na A/B) ---
-    _furl = os.environ.get('STRAT_F_FORWARD_URL', '')
-    if _furl and requests is not None:
-        try:
-            _rf = requests.post(_furl, json=b, timeout=3)
-            if getattr(_rf, 'status_code', 0) == 200: _sat['F']['ok_at'] = dt.datetime.utcnow()
-        except Exception: pass
-    # --- Strategy C: przekaz bar do serwisu C (fire-and-forget; NIE wplywa na A/B) ---
-    _curl = os.environ.get('STRAT_C_FORWARD_URL', '')
-    if _curl and requests is not None:
-        try:
-            _rc = requests.post(_curl, json=b, timeout=3)
-            if getattr(_rc, 'status_code', 0) == 200: _sat['C']['ok_at'] = dt.datetime.utcnow()
-        except Exception: pass
     # --- Builder 50K: market-data fanout only, outside TradingView's request path. ---
     _burl = os.environ.get('BUILDER50_URL', '').rstrip('/')
     if (_burl and os.environ.get('BUILDER50_FORWARD_BARS', '1') == '1'
@@ -1205,7 +1171,6 @@ def _after_bar_processed(b, now_ms):
     # Queue a read-only shadow refresh after the canonical bar work. The
     # shadow worker reads persisted bars and never blocks trade execution.
     downside_manager_shadow_v1.notify_bar()
-    dol_reversal_manager_shadow_v1.notify_bar()
     try:
         _dol_live = dol_reversal_live.on_closed_bar(b)
         if _dol_live.get('events'):
@@ -1249,14 +1214,10 @@ _VIEW_CSS = ("<style>body{background:#0a0a0a;color:#ebebeb;font-family:system-ui
  "tr:hover td{background:#161616}tr.new td{background:#102a1a}tr.new td:first-child{border-left:2px solid #4ade80}"
  ".bdg{background:#4ade80;color:#04210f;font:8px monospace;padding:1px 5px;border-radius:3px;margin-right:6px;text-transform:uppercase}"
  ".empty{padding:20px;color:#555;font:12px monospace}</style>")
-_F_URL = os.environ.get('STRAT_F_URL', 'https://strategy-f-production.up.railway.app').rstrip('/')
-_VIEW_NAV = ("<div class='nav'><a href='/'>home</a><a href='/pnl'>P&amp;L</a><a href='/journal'>journal</a><a href='/candidates'>candidates</a><a href='/how'>how</a><a href='/all/trades'>all·trades</a><a href='/all/reconcile'>reconcile</a>"
- "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;F:</span>"
- f"<a href='{_F_URL}/candidates'>F·candidates</a><a href='{_F_URL}/log'>F·log</a>"
- f"<a href='{_F_URL}/performance_f'>F·perf</a>"
- "<span style='color:#444'>&nbsp;|&nbsp;C:</span>"
- "<a href='/c'>C·dashboard</a><a href='/c/candidates'>C·candidates</a><a href='/c/performance'>C·perf</a></div>")
+_VIEW_NAV = ("<div class='nav'><a href='/'>home</a><a href='/pnl'>P&amp;L</a>"
+ "<a href='/journal'>journal</a><a href='/candidates'>candidates</a><a href='/how'>how</a>"
+ "<a href='/all/trades'>all·trades</a><a href='/all/reconcile'>reconcile</a>"
+ "<a href='/regime'>regime</a><a href='/status'>status</a><a href='/monitor'>monitor</a></div>")
 _TIMEKEYS = ('bos_ms','entry_ms','trig_ms','bos','ts','date','id')
 _PREF = ['date','bos','time','dir','cat','model','entry','SL','T1','T2','T3','TP','stage','magnet','result','pnl','rr']
 
@@ -1865,42 +1826,6 @@ def _heartbeat_loop():
                 except Exception as e: print('[heartbeat] post err', e, flush=True)
                 _hb['alerted'] = False
                 print('[heartbeat] RECOVERED', flush=True)
-            # v25: per-satellite watch (C, F). Three real failures, one latched alert each, market hours only:
-            #   (a) DOWN     — /health GET fails or non-200 (crashed / asleep / redeploy)
-            #   (b) DISABLED — /health 200 but enabled=false (F 07-17: 200s on bars, produces NOTHING)
-            #   (c) STARVED  — reachable+enabled but A/B's fanout stopped landing (ok_at stale => not fed)
-            # /health is CACHE-BUSTED (bare endpoints are edge-cached and lie). C via internal C_URL, F via _F_URL.
-            if SAT_WATCH and WEBHOOK_URL and requests is not None and _market_open_now():
-                _nowu = dt.datetime.utcnow()
-                _bases = {'C': os.environ.get('C_URL', '').rstrip('/'), 'F': _F_URL}
-                for _name in ('C', 'F'):
-                    _s = _sat[_name]; _base = _bases.get(_name) or ''
-                    if not _base: continue                               # can't watch without a URL
-                    _reason = None
-                    try:
-                        _hr = requests.get('%s/health?cb=%d' % (_base, int(_time.time())), timeout=5)
-                        if _hr.status_code != 200:
-                            _reason = 'serwis nie odpowiada (HTTP %s) — padł / redeploy' % _hr.status_code
-                        elif not (_hr.json() or {}).get('enabled', True):
-                            _reason = 'WYŁĄCZONY (enabled=false) — przyjmuje bary, ale sygnałów ZERO'
-                    except Exception:
-                        _reason = 'brak odpowiedzi (padł / śpi / redeploy)'
-                    if _reason is None and _s['ok_at'] is not None:
-                        _sage = (_nowu - _s['ok_at']).total_seconds() / 60.0
-                        if _sage > SAT_STALE_MIN:
-                            _reason = 'nie dostaje barów od %.0f min (A/B nie forwarduje)' % _sage
-                    if _reason and not _s['alerted']:
-                        _m = '⚠️ STRATEGY %s: %s' % (_name, _reason)
-                        if PUBLIC_URL: _m += '\n%s/status' % PUBLIC_URL
-                        try: live_emit.post_webhook(_m, WEBHOOK_URL)
-                        except Exception as e: print('[heartbeat] %s post err' % _name, e, flush=True)
-                        _s['alerted'] = True
-                        print('[heartbeat] SAT %s PROBLEM: %s' % (_name, _reason), flush=True)
-                    elif (_reason is None) and _s['alerted']:
-                        try: live_emit.post_webhook('✅ STRATEGY %s — znowu OK (feed + enabled).' % _name, WEBHOOK_URL)
-                        except Exception as e: print('[heartbeat] %s post err' % _name, e, flush=True)
-                        _s['alerted'] = False
-                        print('[heartbeat] SAT %s RECOVERED' % _name, flush=True)
         except Exception as e:
             print('[heartbeat] loop err', e, flush=True)   # never die
 
@@ -1909,9 +1834,7 @@ pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unifie
 how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
 dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
-a_cont_both_aligned_shadow.register(app)      # /a-cont-both-aligned — shadow-only; GET routes only
 dol_delivery_reversal_shadow.register(app)       # /dol-delivery-reversal — shadow-only; GET routes only
-dol_reversal_manager_shadow_v1.register(app)      # /dol-reversal-manager — dedicated 58-feature shadow manager
 dol_reversal_control.register(app)                 # /dol-reversal/readiness — hashes, modes and live blockers
 dol_reversal_live.register(app)                    # /dol-reversal-live — webhook/local-fill lifecycle audit
 continuation_shadow.register(app, archive_path=ARCHIVE)  # /continuation — independent Policy-B shadow
@@ -1943,23 +1866,6 @@ def _continuation_live_dashboard():
 if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
-
-# ── Strategy C — OSOBNY serwis (własny proces + detekcja). Agent tylko PROXY-uje jego stronę pod /c
-#    przez sieć WEWNĘTRZNĄ Railway (C_URL, np. http://strategy-c.railway.internal:8080). C nie ma
-#    publicznej domeny — wchodzisz do niego przez agenta. A/B (kod, /bars, detektor) — nietknięte.
-@app.route('/c', defaults={'_p': ''})
-@app.route('/c/<path:_p>')
-def _c_proxy(_p):
-    from flask import Response, request as _rq
-    base = os.environ.get('C_URL', '')
-    if not base: return ('Ustaw C_URL = wewnętrzny adres serwisu C (np. http://strategy-c.railway.internal:8080)', 503)
-    if requests is None: return ('requests missing', 503)
-    try:
-        r = requests.get(base.rstrip('/') + '/' + _p, params=_rq.args, timeout=15)
-        return Response(r.content, status=r.status_code,
-                        content_type=r.headers.get('content-type', 'text/html; charset=utf-8'))
-    except Exception as _e:
-        return ('Strategy C nieosiągalny (' + str(_e) + ')', 502)
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))

@@ -29,11 +29,13 @@ def dol():
 
 
 class DolActivationTests(unittest.TestCase):
-    def test_frozen_hashes_and_threshold(self):
-        frozen = control.frozen_artifacts()
-        self.assertTrue(frozen["model_hash_ok"])
-        self.assertTrue(frozen["threshold_hash_ok"])
-        self.assertTrue(frozen["threshold_value_ok"])
+    def test_fixed_bracket_activation_ignores_retired_manager_config(self):
+        with patch.dict(os.environ, {"DOL_REVERSAL_MODE": "LIVE", "DOL_MANAGER_MODE": "OFF",
+                                    "EXEC_WEBHOOK": "https://example.invalid/hook", "DOL_KILL_SWITCH": "0"}):
+            ready = control.readiness()
+        self.assertTrue(ready["live_activation_allowed"])
+        self.assertEqual(ready["exit_policy"], "FIXED_SL_TP_2R")
+        self.assertNotIn("manager", ready["effective_modes"])
 
     def test_fixed_2r_and_shared_identity(self):
         row = strategy._record(signal(), dol(), "canonical-1")
@@ -50,25 +52,24 @@ class DolActivationTests(unittest.TestCase):
         self.assertEqual(gate["reason"], "DOL_STATE_UNAVAILABLE")
 
     def test_live_request_is_fail_closed(self):
-        with patch.dict(os.environ, {"DOL_REVERSAL_MODE": "LIVE", "DOL_MANAGER_MODE": "LIVE"}, clear=False):
+        with patch.dict(os.environ, {"DOL_REVERSAL_MODE": "LIVE", "EXEC_WEBHOOK": ""}, clear=False):
             ready = control.readiness()
         self.assertFalse(ready["live_activation_allowed"])
-        self.assertEqual(ready["effective_modes"], {"reversal": "SHADOW", "manager": "SHADOW"})
-        self.assertTrue(any(x.startswith("TRADERSPOST_LIVE_CAPABILITY:") for x in ready["activation_blockers"]))
+        self.assertEqual(ready["effective_modes"], {"reversal": "SHADOW"})
+        self.assertIn("EXEC_WEBHOOK_MISSING", ready["activation_blockers"])
 
-    def test_kill_switch_disables_both_components(self):
+    def test_kill_switch_disables_reversal(self):
         with patch.dict(os.environ, {"DOL_KILL_SWITCH": "1"}, clear=False):
             ready = control.readiness()
-            self.assertEqual(ready["effective_modes"], {"reversal": "OFF", "manager": "OFF"})
+            self.assertEqual(ready["effective_modes"], {"reversal": "OFF"})
 
     def test_observer_is_idempotent_and_does_not_mutate_ab(self):
         original_log = strategy.LOG
         original = signal()
         candidate = copy.deepcopy(original)
         with tempfile.TemporaryDirectory() as tmp, patch.object(strategy, "LOG", str(Path(tmp) / "rows.json")):
-            with patch("dol_reversal_manager_shadow_v1.observe_candidate", return_value=True):
-                self.assertTrue(strategy.observe(candidate, dol(), candidate_id="same"))
-                self.assertFalse(strategy.observe(candidate, dol(), candidate_id="same"))
+            self.assertTrue(strategy.observe(candidate, dol(), candidate_id="same"))
+            self.assertFalse(strategy.observe(candidate, dol(), candidate_id="same"))
             rows = json.loads(Path(strategy.LOG).read_text())
         self.assertEqual(len(rows), 1)
         self.assertEqual(candidate, original)
