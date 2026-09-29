@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import execution_policy
 from typing import Any
 
 VALID_MODES = {"OFF", "SHADOW", "LIVE"}
@@ -38,6 +39,10 @@ def readiness() -> dict[str, Any]:
     blockers = ["DOL_KILL_SWITCH"] if killed() else []
     if modes["reversal"] == "LIVE":
         blockers.extend(live_blockers)
+        if execution_policy.shadow_family('DOL_DELIVERY_REVERSAL'):
+            blockers.append('STRATEGY_POLICY_SHADOW')
+        if execution_policy.mode() == 'INVALID':
+            blockers.append('EXECUTION_POLICY_INVALID')
     effective = "OFF" if killed() else modes["reversal"]
     if blockers and effective == "LIVE":
         effective = "SHADOW"

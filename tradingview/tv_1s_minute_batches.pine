@@ -1,0 +1,54 @@
+//@version=6
+indicator("AgentSignals — 1s OHLCV minute batches", overlay = false)
+
+// Separate alert, separate URL /bars/1s. Keep the existing M1 alert unchanged.
+// Requires access to 1-second data and real-time CME data on this account.
+bool enabled = input.bool(false, "Enable minute-batch alerts")
+string feedToken = input.string("", "Dedicated TV_1S_TOKEN (not broker/API credentials)")
+
+jsonEscape(string value) =>
+    str.replace_all(str.replace_all(value, "\\", "\\\\"), "\"", "\\\"")
+
+numberJson(float value) =>
+    na(value) ? "null" : str.tostring(value, "#.########")
+
+barJson(int stamp, float o, float h, float l, float c, float v) =>
+    "{\"ts_ms\":" + str.tostring(stamp) + ",\"open\":" + numberJson(o) + ",\"high\":" + numberJson(h) + ",\"low\":" + numberJson(l) + ",\"close\":" + numberJson(c) + ",\"volume\":" + numberJson(v) + "}"
+
+if barstate.isfirst and (not timeframe.isminutes or timeframe.multiplier != 1)
+    runtime.error("Run this indicator on a standard 1-minute chart, NOT a 1-second chart.")
+if barstate.isfirst and not chart.is_standard
+    runtime.error("Use standard candles, not Heikin Ashi / Renko / synthetic bars.")
+
+[stamps, closesAt, opens, highs, lows, closes, volumes] = request.security_lower_tf(syminfo.tickerid, "1S", [time, time_close, open, high, low, close, volume])
+
+var int lastCount = 0
+if barstate.isrealtime and barstate.isconfirmed and enabled and str.length(feedToken) >= 32
+    string rows = ""
+    int observed = 0
+    int count = array.size(stamps)
+    if count > 0
+        for i = 0 to count - 1
+            int at = array.get(stamps, i)
+            int endAt = array.get(closesAt, i)
+            float o = array.get(opens, i)
+            float h = array.get(highs, i)
+            float l = array.get(lows, i)
+            float c = array.get(closes, i)
+            float v = array.get(volumes, i)
+            bool valid = not na(o) and not na(h) and not na(l) and not na(c) and not na(v)
+            if valid and at >= time and endAt <= time_close and endAt == at + 1000
+                rows += (observed > 0 ? "," : "") + barJson(at, o, h, l, c, v)
+                observed += 1
+    string payload = "{\"schema\":\"tv_1s_batch_v1\",\"source\":\"TradingView\",\"tf\":\"1S\",\"symbol\":\"" + jsonEscape(syminfo.tickerid) + "\",\"feed_token\":\"" + jsonEscape(feedToken) + "\",\"minute\":" + barJson(time, open, high, low, close, volume) + ",\"bars\":[" + rows + "]}"
+    // Empty/partial arrays are still reported: the receiver marks gaps, not fake data.
+    alert(payload, alert.freq_once_per_bar_close)
+    lastCount := observed
+
+plot(array.size(stamps), "Available seconds in current minute", color = color.aqua)
+hline(60, "Complete minute")
+var table info = table.new(position.top_right, 1, 3)
+if barstate.islast
+    table.cell(info, 0, 0, syminfo.tickerid)
+    table.cell(info, 0, 1, "1s resolution / one batch per minute")
+    table.cell(info, 0, 2, "Last emitted: " + str.tostring(lastCount) + "/60; enabled=" + str.tostring(enabled))

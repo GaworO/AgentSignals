@@ -14,11 +14,13 @@ import os
 from pathlib import Path
 import sqlite3
 import time
+import threading
 
 SCHEMA = "tv_1s_batch_v1"
 FIELDS = ("open", "high", "low", "close", "volume")
 MAX_BYTES = 32768
 _BATCH_CALLBACK = None
+_STORE_LOCK = threading.RLock()
 
 
 def now_ms():
@@ -36,32 +38,35 @@ def expected_symbol():
 
 @contextmanager
 def connect():
-    path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(path, timeout=.75)
-    c.row_factory = sqlite3.Row
-    try:
-        c.execute("PRAGMA journal_mode=WAL")
-        c.execute("PRAGMA busy_timeout=750")
-        c.executescript("""
-          CREATE TABLE IF NOT EXISTS seconds(
-            symbol TEXT,ts_ms INTEGER,open REAL,high REAL,low REAL,close REAL,volume REAL,
-            received_ms INTEGER NOT NULL,PRIMARY KEY(symbol,ts_ms));
-          CREATE TABLE IF NOT EXISTS minutes(
-            symbol TEXT,ts_ms INTEGER,minute_json TEXT NOT NULL,
-            first_received_ms INTEGER NOT NULL,last_received_ms INTEGER NOT NULL,
-            observed_seconds INTEGER NOT NULL,quality TEXT NOT NULL,
-            PRIMARY KEY(symbol,ts_ms));
-          CREATE TABLE IF NOT EXISTS counters(key TEXT PRIMARY KEY,value INTEGER NOT NULL);
-          CREATE TABLE IF NOT EXISTS bridge_status(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-        """)
-        yield c
-        c.commit()
-    except Exception:
-        c.rollback()
-        raise
-    finally:
-        c.close()
+    # Serialize local initialization and short DB transactions. Concurrent first
+    # requests otherwise race on PRAGMA journal_mode before the tables exist.
+    with _STORE_LOCK:
+        path = db_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        c = sqlite3.connect(path, timeout=.75)
+        c.row_factory = sqlite3.Row
+        try:
+            c.execute("PRAGMA busy_timeout=750")
+            c.execute("PRAGMA journal_mode=WAL")
+            c.executescript("""
+              CREATE TABLE IF NOT EXISTS seconds(
+                symbol TEXT,ts_ms INTEGER,open REAL,high REAL,low REAL,close REAL,volume REAL,
+                received_ms INTEGER NOT NULL,PRIMARY KEY(symbol,ts_ms));
+              CREATE TABLE IF NOT EXISTS minutes(
+                symbol TEXT,ts_ms INTEGER,minute_json TEXT NOT NULL,
+                first_received_ms INTEGER NOT NULL,last_received_ms INTEGER NOT NULL,
+                observed_seconds INTEGER NOT NULL,quality TEXT NOT NULL,
+                PRIMARY KEY(symbol,ts_ms));
+              CREATE TABLE IF NOT EXISTS counters(key TEXT PRIMARY KEY,value INTEGER NOT NULL);
+              CREATE TABLE IF NOT EXISTS bridge_status(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+            """)
+            yield c
+            c.commit()
+        except Exception:
+            c.rollback()
+            raise
+        finally:
+            c.close()
 
 
 def _stamp(v, alignment):

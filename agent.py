@@ -34,6 +34,7 @@ import continuation_shadow  # independent canonical HTF Continuation Policy-B sh
 import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
 import ab_v3_live  # V3 broker-confirmed monitor; LIVE blocked until integration validated
 import ab_v3_tv
+import execution_policy
 import tv_seconds_feed
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
@@ -67,7 +68,7 @@ MARKET_PREDICTIONS_DB = os.environ.get(
     'MARKET_PREDICTIONS_DB', os.path.join(DATA_DIR, market_context.PREDICTION_DATABASE_FILE))
 WEBHOOK_URL = os.environ.get('WEBHOOK_URL','')
 BUFFER_BARS = int(os.environ.get('BUFFER_BARS','14000'))
-VERSION = 'v31.23-v3-integrated-validation'
+VERSION = 'v31.24-v3-entry-only-shadow-isolation'
 COLS = ['ts_event','open','high','low','close','volume']
 _lock = threading.Lock()
 _primed = os.path.exists(SENT)
@@ -171,6 +172,9 @@ def _exec_order(x, text=None):
     Z auto-submit OFF w TradersPost zlecenie czeka na Twoje 1-klik zatwierdzenie (MFF: nadzór nad
     każdym wejściem). NIE rusza strategii — to tylko dodatkowe wyjście.
     EXEC_QTY='auto' (domyślnie) = ryzyko jak w alercie (size_for); liczba = sztywno; EXEC_MAX_QTY = limit."""
+    policy_block = execution_policy.entry_blocker(x)
+    if policy_block:
+        return {'sent': False, 'status': 400, 'reason': policy_block, 'qty': 0}
     if ab_v3_live.mode() == 'LIVE':
         return {'sent': False, 'status': 400, 'reason': 'v3_release_not_live_validated', 'qty': 0}
     if os.environ.get('EXEC_FX', '') == '1':          # FX services: MetaApi/MT5 adapter (exec_fx.py)
@@ -287,7 +291,7 @@ def _exec_order(x, text=None):
         except Exception as _pe:
             print('EXEC partial split err (single bracket fallback)', _pe, flush=True)
         x['_legs'] = [{"qty": q_, "tp": _t(t_ + off)} for q_, t_ in legs]
-        st = None; body = ''; leg_results = []; accepted_legs = 0
+        st = None; body = ''; leg_results = []; accepted_legs = 0; submission_unknown = False
         for _i, (q_, t_) in enumerate(legs):
             payload = {
                 "ticker": os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!')),
@@ -332,6 +336,18 @@ def _exec_order(x, text=None):
                 try: body = (r.text or '')[:200]
                 except Exception: body = ''
                 ok_leg = st is not None and 200 <= int(st) < 300
+                if ok_leg and execution_policy.mode() == 'V3_ONLY':
+                    try:
+                        reply = r.json()
+                    except Exception:
+                        reply = None
+                    # A signal acknowledgement is still NOT a fill. A malformed
+                    # acknowledgement is ambiguous and must never be retried.
+                    if not isinstance(reply, dict) or not isinstance(reply.get('success'), bool):
+                        ok_leg = False
+                        submission_unknown = True
+                    elif not reply['success']:
+                        ok_leg = False
             except Exception as e:
                 st = None; body = str(e)[:200]; ok_leg = False
                 if _i == 0 and x.get('_strat') == 'DOL_DELIVERY_REVERSAL':
@@ -348,7 +364,8 @@ def _exec_order(x, text=None):
         return {"sent": all_ok, "accepted_any": accepted_legs > 0,
                 "accepted_legs": accepted_legs, "status": st, "resp": body,
                 "legs": len(legs), "leg_results": leg_results,
-                "route_id": guardrails._exec_route_id(), "qty": qty}
+                "route_id": guardrails._exec_route_id(), "qty": qty,
+                "submission_unknown": submission_unknown}
     except Exception as ex:
         print('EXEC err', ex, flush=True)
         return {"sent": False, "error": str(ex), "route_id": guardrails._exec_route_id()}
@@ -372,6 +389,23 @@ def _signal_bar_close(x):
     except Exception as e:
         print('A/B-shallow signal close lookup err', e, flush=True)
     return None
+
+def _prepare_shadow_siblings(repx):
+    """Keep legacy benchmarks without touching live reservations/floor sizing."""
+    deep = dict(repx)
+    deep['_execution_scope'] = 'SHADOW'
+    items = [deep]
+    if deep.get('_strat', 'A/B') == 'A/B' and ab_shallow.enabled():
+        try:
+            deep['_signal_close'] = _signal_bar_close(deep)
+            deep['_setup_group_id'] = ab_shallow.setup_group_id(deep)
+            child = ab_shallow.build_shallow_signal(deep)
+            ab_shallow.apply_shared_group_budget(deep, child)
+            items.append(child)
+        except (ValueError, TypeError, KeyError) as exc:
+            deep['_shallow_skip'] = str(exc)
+    return items
+
 
 def _prepare_ab_siblings(repx):
     """Build one causal setup group: normal A/B plus optional A/B-shallow.
@@ -477,6 +511,10 @@ def _exec_sibling_batch(items, base_text):
     """
     if not items:
         return False, [], {'ok': False, 'reason': 'empty_batch'}
+    for item in items:
+        policy_block = execution_policy.entry_blocker(item)
+        if policy_block:
+            return False, [(item, {'sent': False, 'reason': policy_block}, '')], {'ok': True, 'reason': policy_block}
     gid = _batch_group_id(items)
     planned = max(float(i.get('_planned_group_risk_usd') or 0.0) for i in items)
     # Preflight every sibling before the first network call.
@@ -778,6 +816,13 @@ def _dispatch_continuation_live(order):
     x = _continuation_live_signal(order)
     profile = guardrails.account_profile()
     base = {'account_label': profile.get('label'), 'route_id': guardrails._exec_route_id()}
+    if execution_policy.mode() == 'INVALID':
+        guardrails.note(x, 'blocked', 'execution_policy_invalid')
+        return dict(base, state='BLOCKED', reason='execution_policy_invalid')
+    if execution_policy.shadow_family(str(order.get('strategy') or 'CONTINUATION')):
+        policy_block = 'shadow_strategy:' + execution_policy.mode()
+        guardrails.note(x, 'shadow', policy_block)
+        return dict(base, state='SHADOW', reason=policy_block)
     v3_block = ab_v3_live.entry_blocker(order)
     if v3_block:
         guardrails.note(x, 'blocked', v3_block)
@@ -795,6 +840,10 @@ def _dispatch_continuation_live(order):
     x['_risk_budget_usd'] = budget
     x['_planned_group_risk_usd'] = budget
     x['_risk_pct_override'] = 100.0 * budget / float(os.environ.get('ACCOUNT', '100000') or 100000)
+    policy_block = execution_policy.entry_blocker(x)
+    if policy_block:
+        guardrails.note(x, 'blocked', policy_block)
+        return dict(base, state='BLOCKED', reason=policy_block)
     text = ('🧭 %s · %s\n%s LIMIT %.2f · SL %.2f · TP %.2f\n'
             'Account: %s · max risk $%.0f · order %s' %
             (x['_strat'], 'fixed 2R' if is_abdir else 'frozen OPEN DOL',
@@ -841,7 +890,7 @@ def _dispatch_continuation_live(order):
         return dict(base, state='SENT', reason='ok', quantity=result.get('qty'),
                     route_id=result.get('route_id') or base['route_id'], broker=result)
     # A timeout/no HTTP status may have reached the external route. Never retry it.
-    unknown = result.get('accepted_any') or result.get('status') is None
+    unknown = result.get('submission_unknown') or result.get('accepted_any') or result.get('status') is None
     if unknown:
         guardrails.touch_sibling_batch(gid, x['_strat'], result.get('status'))
         rollback = guardrails.rollback_sibling_batch(gid, 'continuation_submission_unknown')
@@ -988,18 +1037,24 @@ def _process_new(now_ms=None, gap_min=None):
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
         if fl: txt += '  ⚠ ' + ', '.join(fl)
-        if _rskip and _rcolor=='red':                        # regime gate: w choppy nie alarmuj (edge ~0 po kosztach)
+        _policy_shadow = execution_policy.shadow_family(execution_policy.signal_family(repx))
+        if not _policy_shadow and _rskip and _rcolor=='red':  # live regime gate; retain shadow observations
             print('CHOP-SKIP', txt, flush=True); _save_db(repx, txt+' [CHOP-SKIP]', 'chop-skip')
             for kk in allkeys: sentn.add(kk)
             continue
         if _rsg: txt += f"\n🌡️ Reżim: {_rlabel} — sugerowany rozmiar {_rfac}× (chop = mniejszy/odpuść)"
-        if hard and NO_TRADE_SUPPRESS:                       # twarde wyciszenie tylko jak wlaczone
+        if not _policy_shadow and hard and NO_TRADE_SUPPRESS:
             print('SUPPRESS (high-impact)', txt, flush=True)
             _save_db(repx, txt+' [SUPPRESSED]', 'suppressed')
             for kk in allkeys: sentn.add(kk)
             continue
         _book_items = [repx]
-        if os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':   # FX services: MetaApi, no webhook
+        if _policy_shadow:
+            _book_items = _prepare_shadow_siblings(repx)
+            for item in _book_items:
+                guardrails.note(item, 'shadow', 'shadow_strategy:' + execution_policy.mode())
+            code = 'shadow'
+        elif os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')
             _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
             repx['_alert_txt'] = txt
@@ -1075,7 +1130,7 @@ def _process_new(now_ms=None, gap_min=None):
                                _item.get('_exec_tp') or _item.get('TP'), _item.get('bos_ms'),
                                entry_ms=_item.get('entry_ms'), metadata=_item.get('_dol'))
             except Exception as e: print('shadow.record err', e, flush=True)
-        if code in ('exec', 'exec-manual') or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
+        if code in ('exec', 'exec-manual', 'shadow') or (WEBHOOK_URL and str(code).startswith('2')) or not WEBHOOK_URL:
             for kk in allkeys: sentn.add(kk)
         nfired+=1
     # ====== (usunięte) PRE-ALERTY — stary etap odbicia od CE „czekaj na BOS" zniesiony.

@@ -20,6 +20,7 @@ from typing import Any
 import ab_dol_live
 import dol_delivery_reversal_shadow as strategy
 import dol_reversal_control
+import execution_policy
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(HERE)))
@@ -56,6 +57,8 @@ def _mode(name: str) -> str:
 
 
 def _live_entry() -> bool:
+    if execution_policy.shadow_family('DOL_DELIVERY_REVERSAL') or execution_policy.mode() == 'INVALID':
+        return False
     ready = dol_reversal_control.readiness()
     return (_mode("DOL_REVERSAL_MODE") == "LIVE" and ready["live_activation_allowed"]
             and not dol_reversal_control.killed())

@@ -59,6 +59,7 @@ Hardening (2026-07-19 review):
 import os, json, time, datetime as dt, hashlib, threading, sqlite3
 import portfolio_guard
 import trade_classification
+import execution_policy
 try:
     import shadow                                   # reuse its resolver + ledger (same DATA_DIR)
 except Exception:
@@ -988,7 +989,7 @@ def _trade_book_rows(rows):
     result = []
     for row in reversed(rows):
         key = identity(row)
-        if row.get('decision') == 'blocked' and key is not None:
+        if row.get('decision') in ('blocked', 'shadow') and key is not None:
             if key in fired or key in seen:
                 continue
             seen.add(key)
@@ -1433,6 +1434,11 @@ def note(x, decision, reason=''):
         continuation_order_id = x.get('_continuation_order_id')
         k = ('CONT_ORDER|' + str(continuation_order_id)) if continuation_order_id else _skey(x)
         gid = x.get('_setup_group_id')
+        if decision == 'shadow':
+            # Observer rows never become SENT, consume ramp, reserve risk or count losses.
+            if any(g.get('key') == k and g.get('date') == _today()
+                   and g.get('decision') == 'shadow' for g in glog):
+                return
         group_already_sent = bool(gid and any(
             g.get('setup_group_id') == gid and g.get('decision') in ('sent', 'manual')
             for g in glog[-200:]))
@@ -1489,6 +1495,7 @@ def note(x, decision, reason=''):
                          batch_group_id=x.get('_batch_group_id'),
                          rollback_confirmed=x.get('_rollback_confirmed'),
                          classification=trade_classification.candidate(x),
+                         execution_scope=('SHADOW' if decision == 'shadow' else 'LIVE_ORDER' if decision == 'sent' else 'NO_ORDER'),
                          decision=decision, reason=reason))
         _save(GLOG, glog)
         try:
@@ -1786,6 +1793,7 @@ def register(app):
         filled_n = sum(1 for b in _sent_rows if b.get('outcome') in ('win', 'loss', 'timeout'))
         summary = trade_summary(all_rows)
         return jsonify(profile=account_profile(), inactivity=inactivity_status(all_rows),
+                       execution=execution_policy.status(),
                        trade_summary=summary,
                        exec_route_id=_exec_route_id(),
                        mode=exec_mode(), auto=os.environ.get('AUTO_SUBMIT', '0') == '1', kill=_kill_active(s),
@@ -2152,7 +2160,7 @@ async function load(){
 	  let tt='setup '+(c.setup_class||'not recorded')+' · quality '+(c.quality_tier||'N/A')+' · '+(c.quality_mode||'N/A');
 	  return '<span style="color:'+col+'" title="'+tt+'"><b>'+lab+'</b></span>';};
  let dec=x=>{let dup=x.duplicate_count?(' · dup×'+x.duplicate_count):'';
-  return x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');};
+  return x.decision=='shadow'?'<span class=blk>SHADOW · bez zlecenia</span>':x.decision=='sent'?('<span class=sent>SENT'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):x.decision=='manual'?('<span class=sent>ARMED'+(x.qty?(' ×'+x.qty):'')+dup+'</span>'):('<span class=blk>BLOCK: '+(x.reason||'')+'</span>');};
  let oc=x=>{let o=x.outcome||'';let c=o=='win'?'win':o=='loss'?'loss':o=='open'?'open':'g';
   let h='<span class='+c+'>'+o+'</span>';
   if(o=='open'&&(x.decision=='sent'||x.decision=='manual'))

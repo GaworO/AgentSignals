@@ -29,6 +29,8 @@ def _explanation(decision, reason, strategy):
                 "accepted the submitted order. Broker fill is not implied.")
     if decision == "manual":
         return strategy + " was retained for manual review. No broker order was submitted."
+    if decision == "shadow":
+        return strategy + " is an observer only. No order, live reservation or account P&L."
     if reason == "duplicate":
         return strategy + " was blocked because this physical setup was already recorded by the account Guard."
     if reason == "group_pending":
@@ -66,7 +68,7 @@ def record_note(candidate, decision, reason, account, mode, candidate_id=None, d
         "dd_proximity": "BLOCKED_RISK_LIMIT", "projected_dd_risk": "BLOCKED_RISK_LIMIT",
         "sl_too_tight": "BLOCKED_RISK_LIMIT", "late_day": "BLOCKED_SESSION",
     }
-    status = ("SELECTED" if decision == "sent" else
+    status = ("SHADOW" if decision == "shadow" else "SELECTED" if decision == "sent" else
               "BLOCKED_SESSION" if str(reason).startswith("session:") else
               status_by_reason.get(reason, "BLOCKED"))
     classification = trade_classification.candidate(candidate)

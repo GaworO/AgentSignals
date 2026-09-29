@@ -21,6 +21,7 @@ from typing import Any, Callable
 import continuation_shadow
 import trade_classification
 import ab_v3_live
+import execution_policy
 
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent)))
@@ -169,7 +170,9 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         if not _claim(row, now):
             continue
-        if not _enabled(str(row["direction"]), str(row.get("strategy") or "CONTINUATION")):
+        if execution_policy.shadow_family(str(row.get('strategy') or 'CONTINUATION')):
+            result = {"state": "SHADOW", "reason": "shadow_strategy:" + execution_policy.mode()}
+        elif not _enabled(str(row["direction"]), str(row.get("strategy") or "CONTINUATION")):
             result = {"state": "DISABLED", "reason": "direction_not_enabled"}
         elif _DISPATCHER is None:
             result = {"state": "ERROR", "reason": "dispatcher_unavailable"}
@@ -219,4 +222,5 @@ def status() -> dict[str, Any]:
             "long_enabled": _enabled("LONG"), "short_enabled": _enabled("SHORT"),
             "ab_directional_long_enabled": _enabled("LONG", "AB_DIRECTIONAL"),
             "ab_directional_short_enabled": _enabled("SHORT", "AB_DIRECTIONAL"),
-            "dispatcher_ready": _DISPATCHER is not None, "counts": counts, "db_path": str(DB_PATH)}
+            "dispatcher_ready": _DISPATCHER is not None, "counts": counts, "db_path": str(DB_PATH),
+            "execution": execution_policy.status()}

@@ -1,0 +1,25 @@
+# DODAJ/AKTUALIZUJ TYLKO TE ZMIENNE w serwisie Builder 50K.
+# To etap kontrolny — nie uruchamia wejść. Nie zastępuje obecnych limitów Guard.
+EXEC_STRATEGY_POLICY=V3_ONLY
+V3_ENTRY_ARMED=0
+AB_V3_MODE=SHADOW
+AB_DIRECTIONAL_LIVE_LONG=1
+AB_DIRECTIONAL_LIVE_SHORT=1
+CONTINUATION_SHADOW_ENABLED=1
+CONTINUATION_LIVE_LONG=0
+CONTINUATION_LIVE_SHORT=0
+DOL_REVERSAL_MODE=SHADOW
+EXEC_MODE=manual
+AUTO_SUBMIT=0
+AB_V3_EXCLUSIVE_ROUTE=0
+AB_V3_DETECTOR_CONTRACT_VERIFIED=0
+
+# USTAW RĘCZNIE, nie kopiuj tekstu placeholdera:
+# GUARD_TOKEN=<osobny silny sekret minimum 32 znaki; zachowaj istniejący jeśli spełnia wymóg>
+# EXEC_TICKER=<rzeczywisty aktywny kontrakt MNQ akceptowany przez TradersPost>
+# AB_V3_CONTRACT=<DOKŁADNIE ta sama wartość co EXEC_TICKER>
+# AB_V3_EXCLUSIVE_ROUTE=1 dopiero po potwierdzeniu wyłączności konta/route
+# AB_V3_DETECTOR_CONTRACT_VERIFIED=1 po sprawdzeniu fizycznego kontraktu feedu M1
+# Dopiero po checklist: V3_ENTRY_ARMED=1 i Guard -> AUTO.
+# Nie ustawiaj AB_V3_MODE=LIVE. Pełny manager nadal zablokowany.
+# Nie zmieniaj dotychczasowych Guard: sesje, news, ryzyko, max qty, DD, loss streak.

@@ -18,6 +18,7 @@ import time
 import pandas as pd
 
 import ab_v3_policy as policy
+import execution_policy
 
 HERE = Path(__file__).resolve().parent
 _LOCK = threading.Lock()
@@ -398,7 +399,18 @@ def status():
     if not any(o.get('broker_position') and o['state'] == 'OPEN' for o in orders):
         blockers.append("no_broker_confirmed_V3_positions")
     blockers += [f["tf"]+":"+f["state"] for f in feeds if f["state"] != "FRESH"]
+    execution = execution_policy.status()
+    try:
+        import guardrails
+        execution['guard_mode'] = guardrails.exec_mode()
+        execution['guard_health'] = guardrails.health().get('status')
+    except Exception:
+        execution['guard_mode'] = 'UNKNOWN'
+        execution['guard_health'] = 'UNKNOWN'
+    execution['directional_long_requested'] = os.environ.get('AB_DIRECTIONAL_LIVE_LONG', '0') == '1'
+    execution['directional_short_requested'] = os.environ.get('AB_DIRECTIONAL_LIVE_SHORT', '0') == '1'
     return dict(policy=policy.POLICY,mode=mode(),contract=contract() or None,route_id=route(),
+                execution=execution,
                 account_label=os.environ.get("ACCOUNT_LABEL","account"),blockers=blockers,
                 feeds=feeds,orders=orders,actions=actions,decisions=logs,
                 execution_note="HTTP acceptance is not broker fill; CLOSED only from authenticated broker bridge.")
