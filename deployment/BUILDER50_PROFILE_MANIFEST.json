@@ -1,0 +1,17 @@
+{
+  "release": "builder50-profile-repair-v1",
+  "requires": "v31.24-v3-entry-only-shadow-isolation",
+  "variant": "ENTRY_ONLY_NOT_FULL_MANAGER_LIVE",
+  "base_zip_sha256": "2f7f813a16f08bf96139bd6d08a4e14e1ffcf4e1d4a1f6c0e51493905716509c",
+  "previous_guardrails_sha256": "2c569642c72cbe215e027c28e40b46944c7f99670a1627354ff9bb54a8f0b81d",
+  "manager_live_ready": false,
+  "entry_armed_by_default": false,
+  "selected_test_executions_passed": 163,
+  "files": {
+    "guardrails.py": "bc5684ec161540dfc06d8ddc52d548c126fd865ba7e14f727a9f313f392e7a78",
+    "tests/test_builder50_profile_repair.py": "93e57fd78f9c988249a96cee11f48904ea08888fc36842dfd7faa309d3c5a8e7",
+    "deployment/BUILDER50_PROFILE_VARIABLES.txt": "01f2df20e65cff41caa5c0bf189e5ef4e75185dafc9e0a32e7f7920f88547f0a",
+    "deployment/BUILDER50_KOREKTA_PL.md": "9cce98c0230c52fc15877db69825dc35a8bff28ab64f0b57f0c7464721fa0e1a",
+    "deployment/BUILDER50_WERYFIKACJA.md": "b16d3cc7561117acda9f1622b76282e37f83138cf57f86f042976f649fd1db18"
+  }
+}

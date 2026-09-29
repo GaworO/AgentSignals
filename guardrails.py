@@ -56,7 +56,7 @@ Hardening (2026-07-19 review):
   agent.py: EXEC_TIF=day default (was gtc), EXEC_MAX_QTY default 15, exec result checked before
   booking 'sent', orphan-limit sweep cancels broker orders the model wrote off as no_fill.
 """
-import os, json, time, datetime as dt, hashlib, threading, sqlite3
+import os, json, time, datetime as dt, hashlib, threading, sqlite3, math, tempfile
 import portfolio_guard
 import trade_classification
 import execution_policy
@@ -127,13 +127,17 @@ def account_profile():
     if plan == 'builder50':
         expected = [
             ('START_BALANCE', start, 50000.0), ('TARGET_BALANCE', target, 53000.0),
-            ('DD_FLOOR', _envf('DD_FLOOR', 97000.0), 48000.0),
             ('DD_TRAIL_USD', _envf('DD_TRAIL_USD', 3000.0), 2000.0),
             ('DD_FLOOR_CAP', _envf('DD_FLOOR_CAP', 0.0), 50100.0),
         ]
         for key, actual, wanted in expected:
-            if abs(actual - wanted) > 0.01:
+            if not math.isfinite(actual) or abs(actual - wanted) > 0.01:
                 warnings.append('%s=%s; Builder 50K expected %s' % (key, actual, wanted))
+        # DD_FLOOR is the CURRENT verified floor, not the initial plan floor.
+        # A valid EOD trail must not be forced back down to $48,000.
+        floor = _envf('DD_FLOOR', 97000.0)
+        if not math.isfinite(floor) or not 48000.0 <= floor <= 50100.0:
+            warnings.append('DD_FLOOR must be the verified current Builder floor within 48000..50100')
         if risk > 500.0 + 0.01:
             warnings.append('SETUP_GROUP_RISK_USD %.0f exceeds the reviewed $500 Builder budget' % risk)
         if leg_cap * 2 > 40:
@@ -359,6 +363,85 @@ def _state():
     if s.get('equity') is None: s['equity'] = _envf('START_EQUITY', 99887.0)
     return s
 def _set_state(s): _save(GSTATE, s)
+
+
+def _write_repair_json(path, value):
+    """Strict atomic write: unlike the legacy writer, errors must abort repair."""
+    fd, temporary = tempfile.mkstemp(prefix='.builder-realign-', dir=DATA_DIR)
+    try:
+        with os.fdopen(fd, 'w') as handle:
+            json.dump(value, handle, allow_nan=False)
+            handle.flush(); os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+
+
+def realign_builder_account(body):
+    """Operator-attested correction of a mislabeled SAME account; never clear latches.
+
+    This is NOT broker feedback, a new-account reset or a trade reconciliation.
+    Only the absolute equity baseline and derived EOD reference are corrected.
+    The original state is backed up before a strict write; the book is untouched.
+    """
+    if not isinstance(body, dict): raise ValueError('JSON object required')
+    if execution_policy.mode() != 'V3_ONLY' or os.environ.get('V3_ENTRY_ARMED', '0') != '0':
+        raise ValueError('V3_ONLY and V3_ENTRY_ARMED=0 required')
+    if len(os.environ.get('GUARD_TOKEN', '')) < 32:
+        raise ValueError('GUARD_TOKEN minimum 32 characters required')
+    profile = account_profile()
+    if profile['plan'] != 'builder50' or profile['phase'] != 'evaluation' or not profile['config_ok']:
+        raise ValueError('valid Builder 50K DEFAULT evaluation profile required')
+    route_id = _exec_route_id()
+    if not route_id or body.get('expected_route_id') != route_id:
+        raise ValueError('current route fingerprint must match')
+    confirmations = ('same_broker_account', 'broker_flat', 'no_pending_broker_orders',
+                     'current_mff_snapshot', 'volume_backup_taken')
+    if any(body.get(key) is not True for key in confirmations):
+        raise ValueError('all operator confirmations required; these are not API confirmations')
+    if isinstance(body.get('equity'), bool) or isinstance(body.get('floor'), bool):
+        raise ValueError('numeric equity and floor required')
+    equity, floor = float(body['equity']), float(body['floor'])
+    if not math.isfinite(equity) or not math.isfinite(floor):
+        raise ValueError('finite equity and floor required')
+    if not 0 < equity < 53000 or not 48000 <= floor <= 50100 or equity <= floor:
+        raise ValueError('snapshot must be an unpassed, unbreached Builder DEFAULT evaluation')
+    if floor < _envf('DD_FLOOR', 97000) - 0.01:
+        raise ValueError('snapshot cannot lower configured current floor')
+    with _BATCH_LOCK:
+        if not os.path.isfile(GSTATE): raise ValueError('existing state required; not a new-account initializer')
+        before, corrupt = _load_failclosed(GSTATE, {})
+        if corrupt or not isinstance(before, dict): raise ValueError('state corrupt; repair refused')
+        if str(before.get('mode') or _env('EXEC_MODE', 'manual')).lower() != 'manual':
+            raise ValueError('persisted Guard mode must be MANUAL')
+        if before.get('pending_group'): raise ValueError('resolve pending setup reservation first')
+        if (before.get('account_realignment') or {}).get('route_id') not in (None, route_id):
+            raise ValueError('state previously bound to a different route; not a same-account repair')
+        if floor < float(before.get('verified_broker_floor') or 0) - 0.01:
+            raise ValueError('previously verified floor cannot be lowered')
+        day = _day_stats()
+        if day.get('openpos'): raise ValueError('reconcile Guard open commitments first')
+        # Model EOD high is inferred from the verified CURRENT floor; no 100K
+        # high-water mark is carried into a 50K account. Normal sync stays conservative.
+        stamp = _now_ms()
+        after = dict(before)
+        after.update(equity=equity, equity_ts=stamp, equity_sync_day=_today(),
+                     equity_day_net_at_sync=float(day.get('net') or 0),
+                     eq_high=floor + _envf('DD_TRAIL_USD', 2000),
+                     verified_broker_floor=floor,
+                     account_realignment=dict(ts_ms=stamp, route_id=route_id,
+                                              plan='builder50', phase='evaluation',
+                                              source='operator_verified_MFF_snapshot',
+                                              automatic_broker_feedback=False))
+        repair_id = str(stamp) + '-' + os.urandom(6).hex()
+        backup_name = 'guard_account_realign_backup_' + repair_id + '.json'
+        _write_repair_json(os.path.join(DATA_DIR, backup_name),
+                           dict(before=before, after=after, note='Guard log and latches preserved'))
+        _write_repair_json(GSTATE, after)
+        return dict(ok=True, equity=equity, floor=max(_envf('DD_FLOOR', floor), floor),
+                    mode='manual', backup=backup_name, history_preserved=True,
+                    kill_preserved=before.get('kill'), broker_feedback=False,
+                    note='No orders sent. Loss streak and trade book were NOT reset.')
 
 def _kill_active(s):
     if not s.get('kill'): return False
@@ -1793,6 +1876,9 @@ def register(app):
         filled_n = sum(1 for b in _sent_rows if b.get('outcome') in ('win', 'loss', 'timeout'))
         summary = trade_summary(all_rows)
         return jsonify(profile=account_profile(), inactivity=inactivity_status(all_rows),
+                       profile_repair_version='builder50-profile-repair-v1',
+                       account_alignment=s.get('account_realignment'),
+                       verified_broker_floor=s.get('verified_broker_floor'),
                        execution=execution_policy.status(),
                        trade_summary=summary,
                        exec_route_id=_exec_route_id(),
@@ -1827,6 +1913,8 @@ def register(app):
             # The caller always supplies ABSOLUTE broker equity. Record today's guard P&L
             # alongside it, so eval_progress adds only P&L accrued after this snapshot.
             v = float(request.args.get('equity'))
+            if not math.isfinite(v) or v <= 0:
+                return jsonify(ok=False, err='finite positive equity required'), 400
             d = _day_stats()
             s = _state(); s['equity'] = v; s['equity_ts'] = _now_ms()
             s['equity_sync_day'] = _today()
@@ -1838,6 +1926,21 @@ def register(app):
                            sync_day=s['equity_sync_day'], eq_high=s['eq_high'], floor=_dd_floor())
         except Exception as e:
             return jsonify(ok=False, err=str(e)), 400
+
+    def _account_realign():
+        # Unlike legacy routes, this repair NEVER runs with an absent token.
+        token = os.environ.get('GUARD_TOKEN', '')
+        supplied = request.headers.get('X-Guard-Token', '') or request.args.get('t', '')
+        import hmac
+        if len(token) < 32 or not hmac.compare_digest(token, supplied):
+            return jsonify(ok=False, err='auth'), 401
+        try:
+            out = realign_builder_account(request.get_json(silent=True))
+            return jsonify(**out)
+        except (ValueError, TypeError, KeyError, OverflowError) as exc:
+            return jsonify(ok=False, err=str(exc)), 400
+        except Exception:
+            return jsonify(ok=False, err='repair storage failure; remain MANUAL and inspect backup'), 500
 
     def _kill():
         if not _authed(): return jsonify(ok=False, err='auth'), 401
@@ -2006,6 +2109,7 @@ def register(app):
     app.add_url_rule('/guard', 'guard_page', _page)
     app.add_url_rule('/guard/data', 'guard_data', _data)
     app.add_url_rule('/guard/sync', 'guard_sync', _sync)
+    app.add_url_rule('/guard/account-realign', 'guard_account_realign', _account_realign, methods=['POST'])
     app.add_url_rule('/guard/kill', 'guard_kill', _kill)
     app.add_url_rule('/guard/mode', 'guard_mode', _mode)
     app.add_url_rule('/guard/health', 'guard_health', _health)
@@ -2058,6 +2162,17 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 <div class="evalbar"><div class="top"><span class="ttl" id=ev_head></span><span class="st" id=ev_state></span></div>
 <div class="trackp"><div class="fillp" id=ev_fill></div></div></div>
 <div class=cards id=cards></div>
+<details class="rulebar" id="builder_repair">
+ <summary>Builder 50K — korekta profilu i rzeczywistego salda/floor (bez resetu historii)</summary>
+ <p>Tylko to samo konto Evaluation DEFAULT ($2,000 MLL), MANUAL i V3_ENTRY_ARMED=0.
+ To ręczny odczyt MFF, nie automatyczne potwierdzenie brokera. Nie kasuje strat ani HALT.</p>
+ <label>Aktualne dokładne saldo MFF <input id="repair_equity" type="number" step="0.01"></label>
+ <label>Aktualny minimum balance/floor MFF <input id="repair_floor" type="number" step="0.01"></label>
+ <p><label><input id="repair_confirm" type="checkbox">Potwierdzam: to samo konto, świeży odczyt MFF,
+ brak pozycji i oczekujących zleceń w Tradovate oraz wykonana kopia całego wolumenu.</label></p>
+ <button class="cpy" onclick="return repairBuilder(this)">Zapisz korektę i kopię stanu — NIE uzbraja</button>
+ <span id="repair_out"></span>
+</details>
 <div class=modebar style="margin-top:4px">
  <span class=lb>SHOW</span>
  <a class="btn fall act" href="#" onclick="return setf('all')">All decisions</a>
@@ -2196,6 +2311,28 @@ function renderBook(){
 let _tok=new URLSearchParams(location.search).get('t');
 try{ if(_tok) localStorage.setItem('guard_t',_tok); else _tok=localStorage.getItem('guard_t'); }catch(e){}
 const _t=_tok?('&t='+encodeURIComponent(_tok)):'';
+async function repairBuilder(btn){
+ const out=document.getElementById('repair_out');
+ if(!_tok){out.textContent='Wymagany token Guard. Nie publikuj go.';return false;}
+ if(!document.getElementById('repair_confirm').checked){out.textContent='Najpierw sprawdź i potwierdź wszystkie warunki.';return false;}
+ const equityText=document.getElementById('repair_equity').value;
+ const floorText=document.getElementById('repair_floor').value;
+ if(!equityText||!floorText){out.textContent='Wpisz dokładne, aktualne wartości z MFF.';return false;}
+ btn.disabled=true;
+ try{
+  const state=await (await fetch('/guard/data',{cache:'no-store'})).json();
+  const response=await fetch('/guard/account-realign',{method:'POST',cache:'no-store',
+   headers:{'Content-Type':'application/json','X-Guard-Token':_tok},
+   body:JSON.stringify({equity:Number(equityText),floor:Number(floorText),expected_route_id:state.exec_route_id,
+    same_broker_account:true,broker_flat:true,no_pending_broker_orders:true,current_mff_snapshot:true,volume_backup_taken:true})});
+  const result=await response.json();
+  out.textContent=result.ok?'Zapisano. Kopia: '+result.backup+'. Historia i blokady zachowane; MANUAL.':'Odmowa: '+(result.err||'błąd');
+  document.getElementById('repair_confirm').checked=false;
+  await load();
+ }catch(e){out.textContent='Brak pewności zapisu — pozostań MANUAL i sprawdź /guard/data przed ponowieniem.';}
+ finally{btn.disabled=false;}
+ return false;
+}
 function authErr(){let h=document.getElementById('healthbar');h.textContent='AUTH REQUIRED — open this Builder Guard as /guard?t=YOUR_GUARD_TOKEN';h.style.color='#e66';}
 async function flip(m){let r=await fetch('/guard/mode?set='+m+_t,{cache:'no-store'});if(!r.ok){authErr();return false;}load();return false;}
 async function dokill(){let r=await fetch('/guard/kill?on=1'+_t,{cache:'no-store'});if(!r.ok){authErr();return false;}load();return false;}

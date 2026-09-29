@@ -1,0 +1,53 @@
+# KOREKTA ISTNIEJĄCEGO Builder 50K Evaluation DEFAULT ($2,000 MLL).
+# Dane odczytane ze zrzutu 29.09.2026. Potwierdź aktualne saldo/floor przed synchronizacją.
+# Nie stosować do innego konta, Add-On $1,500 ani Sim Funded/real Live Funded.
+# PRZED REDEPLOY: Guard -> MANUAL; brak pozycji i oczekujących zleceń; backup wolumenu.
+ACCOUNT_PLAN=builder50
+ACCOUNT_LABEL=Builder 50K
+ACCOUNT_PHASE=evaluation
+ACCOUNT=50000
+START_BALANCE=50000
+TARGET_BALANCE=53000
+START_EQUITY=49637
+ACCOUNT_STARTED_ON=2026-08-30
+DD_FLOOR=48161.90
+DD_TRAIL_USD=2000
+DD_FLOOR_CAP=50100
+AB_DIRECTIONAL_RISK_USD_50K=250
+SETUP_GROUP_RISK_USD=250
+RISK_PCT=0.5
+EXEC_QTY=auto
+EXEC_MAX_QTY=15
+POINT_VALUE=2
+EXEC_TICK=0.25
+PRICE_OFFSET=0
+EXEC_TIF=day
+PARTIAL_AT_1R=0
+MANAGE_BE=0
+EXEC_STRATEGY_POLICY=V3_ONLY
+V3_ENTRY_ARMED=0
+AB_V3_MODE=SHADOW
+AB_DIRECTIONAL_LIVE_LONG=1
+AB_DIRECTIONAL_LIVE_SHORT=1
+CONTINUATION_SHADOW_ENABLED=1
+CONTINUATION_LIVE_LONG=0
+CONTINUATION_LIVE_SHORT=0
+DOL_REVERSAL_MODE=SHADOW
+EXEC_MODE=manual
+AUTO_SUBMIT=0
+AB_V3_EXCLUSIVE_ROUTE=0
+AB_V3_DETECTOR_CONTRACT_VERIFIED=0
+
+# ZACHOWAJ obecną DATA_DIR i wolumen: historia należy do tego istniejącego konta.
+# Nie zeruj guard_state/guard_log, kill, streak ani historii SENT.
+# Zachowaj dotychczasowe session/news/DD/loss controls; nie zwiększaj limitów.
+# GUARD_SYNC_MAX_H ma pozostać <=24 i >0; LOSS_STREAK_N nie wyłączaj.
+# Sprawdź DD_BUFFER>=100, DD_PROJECTED_RISK=1 oraz GUARD_FLATTEN=1; nie osłabiaj mocniejszych ustawień.
+# Jeśli istnieją ostrzejsze limity qty/ryzyka, zachowaj je zamiast zwiększać do powyższych wartości.
+# Zachowaj obecny GUARD_TOKEN (minimum 32 znaki) i webhook TEGO SAMEGO Builder 50K.
+# Nie kopiuj webhooku 100K ani fan-outu BUILDER50_URL/STRAT_AMD_FORWARD_URL do Buildera.
+# EXEC_TICKER oraz AB_V3_CONTRACT ustaw ręcznie na ten sam jawny kontrakt
+# w formacie zaakceptowanym przez TradersPost, po sprawdzeniu fizycznego feedu M1.
+# MNQZ6 na ekranie Tradovate oznacza grudzień 2026; do TradersPost w przesłanym sygnale
+# użyto MNQZ2026. To nie potwierdza zgodności aktywnego alertu TV.
+# Powyższe NIE synchronizuje starego zapisanego stanu. Wykonaj korektę w /guard zgodnie z instrukcją.
