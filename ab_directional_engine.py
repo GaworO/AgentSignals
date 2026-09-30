@@ -2,8 +2,9 @@
 """Outcome-free A/B Directional manifests built from the canonical chain.
 
 This module deliberately applies no HTF-thesis or DOL eligibility gate.  It
-only converts an already causal LONG/SHORT liquidity -> displacement/FVG ->
-pullback/hold/BOS output into the predeclared fixed-2R resting order.
+converts an already causal LONG/SHORT liquidity -> displacement/FVG ->
+pullback/hold/BOS output into the predeclared fixed-2R resting order. The V3
+entry variant excludes DIB and requires a closed directional BOS body >=50%.
 """
 from __future__ import annotations
 
@@ -12,11 +13,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import ab_directional_entry_rules as entry_rules
 
 from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline as base
 
 
-IDENTITY = "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_V1"
+IDENTITY = "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_NO_DIB_BOS50_V1"
 ORDER_EXPIRY_MS = 10 * 60_000
 
 
@@ -43,6 +45,20 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
                    trading_day=base.trading_day_at(row["bos_ms"]),
                    strategy="AB_DIRECTIONAL", research_identity=IDENTITY,
                    eligible=False, rejection_reason=None)
+        # Lookup by physical contract and timestamp, not a shifting row index.
+        # Later bars may exist in raw for audit purposes; none enter this gate.
+        bos_ms = int(row["bos_ms"])
+        lo = int(np.searchsorted(ms, bos_ms, side="left"))
+        hi = int(np.searchsorted(ms, bos_ms, side="right"))
+        matches = np.flatnonzero(iid[lo:hi] == int(row["instrument_id"]))
+        bos = raw.iloc[lo + int(matches[0])] if len(matches) == 1 else None
+        evidence = entry_rules.evaluate(row.get("cat"), side, bos, bos_ms, decision_ms)
+        row["entry_rules"] = evidence
+        if not evidence["eligible"]:
+            row["rejection_reason"] = evidence["rejection_reason"]
+            reasons[row["rejection_reason"]] += 1
+            candidates.append(row)
+            continue
         if risk <= 0:
             row["rejection_reason"] = "INVALID_FINAL_ENTRY_SL_GEOMETRY"
             reasons[row["rejection_reason"]] += 1
@@ -75,6 +91,7 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
         orders.append({
             "order_id": base.stable_id("ORDER_ABDIR_" + side, candidate_id, activation, entry, stop),
             "candidate_id": candidate_id, "strategy": "AB_DIRECTIONAL", "direction": side,
+            "setup_category": row["cat"], "entry_rules": evidence,
             "chronological_index": n, "trading_day": row["trading_day"],
             "instrument_id": int(row["instrument_id"]), "epoch": int(row["epoch"]),
             "activation_timestamp": row["entry_activation_timestamp"],
@@ -89,6 +106,8 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
         })
     return candidates, orders, {
         "identity": IDENTITY, "direction": side, "canonical_outputs": len(outputs),
+        "entry_rules_version": entry_rules.VERSION,
+        "dib_enabled": False, "min_directional_bos_body_fraction": entry_rules.MIN_BODY_FRACTION,
         "valid_geometry": sum(bool(x.get("eligible")) for x in candidates),
         "resting_orders": len(orders), "estimated_fills": sum(bool(x["estimated_fill"]) for x in orders),
         "physical_geometry_duplicates_removed": reasons.get("DUPLICATE_PHYSICAL_GEOMETRY", 0),

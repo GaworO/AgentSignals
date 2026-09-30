@@ -268,6 +268,10 @@ def _verify_freeze() -> dict[str, Any]:
     if (not abdir_source.is_file()
             or hashlib.sha256(abdir_source.read_bytes()).hexdigest() != abdir_lock["engine_sha256"]):
         raise RuntimeError("A/B Directional source lock mismatch")
+    for name, wanted in abdir_lock.get("entry_rule_dependencies", {}).items():
+        path = HERE / name
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != wanted:
+            raise RuntimeError("A/B Directional entry-rule source lock mismatch: " + name)
     baseline = json.loads((root / "BASELINE_CONFIGURATION.json").read_text(encoding="utf-8"))
     return {
         "verification_mode": "complete_outcome_free_freeze",

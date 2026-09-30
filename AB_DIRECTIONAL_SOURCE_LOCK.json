@@ -1,8 +1,19 @@
 {
-  "identity": "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_V1",
+  "identity": "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_NO_DIB_BOS50_V1",
   "engine_path": "ab_directional_engine.py",
-  "engine_sha256": "9890bad8b2734e6d0c364f0473d786c0f79b373c7d38db88d75b5934051fc418",
+  "engine_sha256": "6cf42f2c092d3ffa09a2926ca687b03b1325d77e5de741be22b047976194066c",
   "long_detector": "immutable Continuation LONG freeze",
   "short_detector": "CONTINUATION_SHORT_SOURCE_LOCK.json",
-  "outcome_derived_parameter_search": false
+  "outcome_derived_parameter_search": true,
+  "entry_rule_dependencies": {
+    "ab_directional_entry_rules.py": "c0da5e799d2b34d8fddf24a013375643e18b3ff7f2b35c6cfe01d89f549d1ba4"
+  },
+  "entry_policy": {
+    "version": "AB_DIRECTIONAL_NO_DIB_BOS50_V1",
+    "exclude_category_token": "DIB",
+    "min_directional_bos_body_fraction": 0.5,
+    "bar_required_closed": true,
+    "manager_enabled_by_this_patch": false
+  },
+  "validation_status": "USER_REQUESTED_RESEARCH_VARIANT_NOT_PROVEN_PROFITABLE_WITH_GUARD"
 }

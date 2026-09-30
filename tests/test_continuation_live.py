@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 import sys
@@ -63,6 +64,12 @@ class ContinuationLiveTests(unittest.TestCase):
             )
             con.execute("UPDATE continuation_candidates SET strategy=? WHERE candidate_id=?", (strategy, candidate))
             con.execute("UPDATE continuation_orders SET strategy=? WHERE order_id=?", (strategy, order))
+            if strategy == 'AB_DIRECTIONAL':
+                evidence = live.ab_directional_entry_rules.evaluate('PDH' if direction == 'LONG' else 'PDL', direction,
+                    dict(open=100, high=104, low=96, close=104 if direction == 'LONG' else 96),
+                    activation // 60000 * 60000 - 60000, activation)
+                con.execute("UPDATE continuation_orders SET payload_json=? WHERE order_id=?",
+                            (json.dumps(dict(entry_rules=evidence, setup_category=evidence['category'])), order))
         return order
 
     def test_first_drain_arms_without_catchup(self):
@@ -120,6 +127,22 @@ class ContinuationLiveTests(unittest.TestCase):
         self.assertEqual("SENT", row["state"])
         self.assertEqual("AB-DIR-L", row["strategy_class"])
         self.assertEqual("LIQUIDITY CHAIN · FIXED 2R", row["setup_class"])
+
+    def test_legacy_pending_directional_order_cannot_bypass_entry_rules(self):
+        self._bar(4_000_000)
+        called = []
+        live.configure(lambda row: called.append(row) or {"state": "SENT"})
+        live.drain()
+        oid = self._order(4_060_000, suffix='old', expiry=4_600_000, strategy='AB_DIRECTIONAL')
+        with shadow._connect() as con:
+            con.execute("UPDATE continuation_orders SET payload_json='{}' WHERE order_id=?", (oid,))
+        self._bar(4_060_000)
+        with mock.patch.dict(os.environ, {'AB_DIRECTIONAL_LIVE_LONG': '1', 'AB_V3_MODE': 'OFF'}, clear=False):
+            result = live.drain()
+        self.assertEqual(1, result['processed'])
+        self.assertEqual([], called)
+        self.assertEqual('BLOCKED', live.rows()[0]['state'])
+        self.assertEqual('v3_entry:missing_or_old_evidence', live.rows()[0]['guard_reason'])
 
 
 if __name__ == "__main__":

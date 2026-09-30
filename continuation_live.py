@@ -22,6 +22,7 @@ import continuation_shadow
 import trade_classification
 import ab_v3_live
 import execution_policy
+import ab_directional_entry_rules
 
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent)))
@@ -170,7 +171,10 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         if not _claim(row, now):
             continue
-        if execution_policy.shadow_family(str(row.get('strategy') or 'CONTINUATION')):
+        entry_block = ab_directional_entry_rules.dispatch_blocker(row)
+        if entry_block:
+            result = {"state": "BLOCKED", "reason": entry_block}
+        elif execution_policy.shadow_family(str(row.get('strategy') or 'CONTINUATION')):
             result = {"state": "SHADOW", "reason": "shadow_strategy:" + execution_policy.mode()}
         elif not _enabled(str(row["direction"]), str(row.get("strategy") or "CONTINUATION")):
             result = {"state": "DISABLED", "reason": "direction_not_enabled"}
