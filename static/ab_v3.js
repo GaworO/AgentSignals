@@ -33,6 +33,13 @@ function renderTrade(){
  el('layers').innerHTML=table(['Warstwa','Pomiar','Stan','Szczegóły','Dostępność / znaczenie'],rows);
  el('decision').textContent=d?`${utc(d.decision_ms)} · ${d.cause} · ${d.action_state}. Przeciwne TF: ${d.opposition??'—'}, zgodne: ${d.support??'—'}. DOL dostarczony: ${m.dol_delivered??'UNKNOWN'}.`:'Oczekiwanie na potwierdzenie fillu i pełne dane do decyzji M1.';
 }
+function renderCandidates(){
+ const all=snapshot?.candidates||[];
+ el('candidate-metrics').innerHTML=card('Ostatnie rekordy',all.length,'Maksymalnie 120 potwierdzonych kandydatur V3')+card('Forward eligible',all.filter(c=>c.forward_eligible).length,'Sygnały po rozgrzewce detektora')+card('Eligible',all.filter(c=>c.eligible).length,'Poprawna geometria wejścia i ryzyka')+card('Rejected',all.filter(c=>!c.eligible).length,'Odrzucone przez detektor');
+ const side=el('candidate-side').value,status=el('candidate-status').value;
+ const rows=all.filter(c=>(!side||(c.direction||c.dir)===side)&&(!status||(status==='forward'?c.forward_eligible:status==='ready'?c.eligible:!c.eligible)));
+ el('candidates').innerHTML=table(['Czas UTC','Candidate ID','Kierunek','Status','Etap','Forward','Powód','BSL / SSL','Entry','SL · STRUCT','TP · 2R','DOL FROZEN'],rows.map(c=>{const s=c.v3_snapshot||{},src=c.source_event||{};return [utc(c.decision_ms||c.entry_ms||c.trigger_ms||c.bos_ms),c.candidate_id,c.direction||c.dir,c.status,c.stage,c.forward_eligible?'YES':'NO',c.rejection_reason,s.source_level??src.bsl_price??src.ssl_price,c.final_entry,c.final_structural_sl,c.policy_B_target,s.frozen_dol?.price];}));
+}
 function render(x){
  snapshot=x;
  renderExits(x.exits);
@@ -45,14 +52,22 @@ function render(x){
  el('position').innerHTML=(x.orders||[]).map(o=>`<option value="${esc(o.order_id)}">${esc(o.direction+' · '+o.state+' · '+o.order_id)}</option>`).join('');
  if((x.orders||[]).some(o=>o.order_id===selected))el('position').value=selected;
  renderTrade();
- el('candidates').innerHTML=table(['Czas UTC','Klasa','Kierunek','Etap / status','BSL / SSL','Entry','SL · STRUCT','TP · 2R','DOL FROZEN'],(x.candidates||[]).map(c=>{const s=c.v3_snapshot||{},src=c.source_event||{};return [utc(c.entry_ms||c.trigger_ms||c.bos_ms),c.strategy||'Source trigger',c.dir||c.direction,c.stage||c.status||(c.eligible?'LIMIT READY':c.rejection_reason),s.source_level??src.bsl_price??src.ssl_price,c.final_entry,c.final_structural_sl,c.policy_B_target,s.frozen_dol?.price];}));
+ renderCandidates();
  el('logs').innerHTML=table(['Decyzja UTC','Order','Decyzja','Akcja','Speed ATR','ER60','Progress R','MFE R','DOL delivered','M5 / M15 / H1'],(x.decisions||[]).map(d=>[utc(d.decision_ms),d.order_id,d.cause,d.action_state,num(d.measurements?.speed),num(d.measurements?.efficiency),num(d.measurements?.progress),num(d.measurements?.mfe),d.measurements?.dol_delivered,['M5','M15','H1'].map(tf=>d.context?.[tf]?.vote??'UNKNOWN').join(' / ')]));
  el('actions').innerHTML=table(['Decyzja UTC','Order','Action ID','Stan'],(x.actions||[]).map(a=>[utc(a.decision_ms),a.order_id,a.action_id,a.state]));
  el('refresh').textContent='Aktualizacja '+new Date().toLocaleTimeString();
 }
 el('position').addEventListener('change',renderTrade);
-function showTab(which){const exits=which==='exits';el('main-view').hidden=exits;el('exits-view').hidden=!exits;el('tab-main').classList.toggle('active',!exits);el('tab-exits').classList.toggle('active',exits);}
+el('candidate-side').addEventListener('change',renderCandidates);
+el('candidate-status').addEventListener('change',renderCandidates);
+function showTab(which,updateUrl=true){
+ const tab=['main','candidates','exits'].includes(which)?which:'main';
+ for(const name of ['main','candidates','exits']){el(name+'-view').hidden=name!==tab;el('tab-'+name).classList.toggle('active',name===tab);}
+ if(updateUrl){const url=new URL(location.href);if(tab==='main')url.searchParams.delete('tab');else url.searchParams.set('tab',tab);history.replaceState(null,'',url);}
+}
 el('tab-main').addEventListener('click',()=>showTab('main'));
+el('tab-candidates').addEventListener('click',()=>showTab('candidates'));
 el('tab-exits').addEventListener('click',()=>showTab('exits'));
-async function load(){try{const r=await fetch('/ab/v3/data',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());}catch(e){el('refresh').textContent='Dane niedostępne: '+e.message;el('blockers').textContent='Brak świeżego odczytu panelu — nie traktuj poprzedniego stanu jako aktualnego.';}}
+showTab(new URLSearchParams(location.search).get('tab'),false);
+async function load(){try{const r=await fetch('/ab/v3/data',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());el('candidate-warning').hidden=true;}catch(e){el('refresh').textContent='Dane niedostępne: '+e.message;el('blockers').textContent='Brak świeżego odczytu panelu — nie traktuj poprzedniego stanu jako aktualnego.';el('candidate-warning').textContent='Brak świeżego odczytu kandydatów — poprzedni stan może być nieaktualny.';el('candidate-warning').hidden=false;}}
 load();setInterval(load,5000);

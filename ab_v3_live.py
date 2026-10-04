@@ -94,6 +94,7 @@ def exit_enabled():
 
 def exit_blockers():
     blockers = []
+    staging_test = os.environ.get("V3_EXIT_STAGING_TEST", "false").lower() == "true"
     if exit_mode() != "real": blockers.append("exit_mode:"+exit_mode())
     if os.environ.get("V3_EXIT_REAL_EXECUTION", "false").lower() != "true":
         blockers.append("real_execution_not_enabled")
@@ -101,7 +102,10 @@ def exit_blockers():
         blockers.append("live_event_parity_not_attested")
     if os.environ.get("V3_EXIT_SHADOW_VERIFIED", "false").lower() != "true":
         blockers.append("shadow_stage_not_verified")
-    if os.environ.get("V3_EXIT_STAGING_CLOSE_VERIFIED", "false").lower() != "true":
+    if staging_test and (not os.environ.get("V3_EXIT_STAGING_ACCOUNT_LABEL") or
+                         os.environ.get("V3_EXIT_STAGING_ACCOUNT_LABEL") != os.environ.get("ACCOUNT_LABEL", "account")):
+        blockers.append("staging_account_label_not_confirmed")
+    if os.environ.get("V3_EXIT_STAGING_CLOSE_VERIFIED", "false").lower() != "true" and not staging_test:
         blockers.append("broker_staging_close_not_verified")
     blockers.extend(setting_blockers())
     if not any(exit_enabled().values()): blockers.append("no_exit_manager_enabled")
@@ -745,6 +749,15 @@ def _tick():
         _LOCK.release()
 
 
+def _v3_candidates(c):
+    return [dict(json.loads(r["payload_json"]),
+        candidate_id=r["candidate_id"], direction=r["direction"],
+        decision_ms=r["decision_ms"], stage=r["stage"], status=r["status"],
+        rejection_reason=r["rejection_reason"], eligible=bool(r["eligible"]),
+        forward_eligible=bool(r["forward_eligible"]))
+        for r in c.execute("SELECT candidate_id,direction,decision_ms,stage,status,rejection_reason,eligible,forward_eligible,payload_json FROM continuation_candidates WHERE strategy='AB_DIRECTIONAL' ORDER BY decision_ms DESC LIMIT 120")]
+
+
 def register(app, m1_callback=None, route_callback=None):
     from flask import Response, jsonify, request
     global _M1_CALLBACK, _ROUTE_CALLBACK
@@ -779,7 +792,7 @@ def register(app, m1_callback=None, route_callback=None):
             with shadow._connect() as c:
                 row = c.execute("SELECT value FROM continuation_meta WHERE key='v3_market'").fetchone()
                 value["market"] = json.loads(row[0]) if row else None
-                value["candidates"] = [json.loads(r[0]) for r in c.execute("SELECT payload_json FROM continuation_candidates WHERE strategy='AB_DIRECTIONAL' OR event_kind='CLOSE_THROUGH' ORDER BY decision_ms DESC LIMIT 120")]
+                value["candidates"] = _v3_candidates(c)
         except Exception:
             value.update(market=None,candidates=[])
         response = jsonify(value)

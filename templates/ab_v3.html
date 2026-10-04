@@ -2,7 +2,7 @@
 <html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>A/B V3 — DOL + detector + manager</title><link rel="stylesheet" href="/static/ab_v3.css"></head>
 <body><header><div><span class="eyebrow">STRATEGIES / A/B V3</span><h1>LONG + SHORT · jedno stanowisko</h1></div><span id="refresh">Ładowanie…</span></header>
-<nav class="tabs"><button id="tab-main" class="active" type="button">Overview</button><button id="tab-exits" type="button">Exits</button></nav>
+<nav class="tabs"><button id="tab-main" class="active" type="button">Overview</button><button id="tab-candidates" type="button">Candidates</button><button id="tab-exits" type="button">Exits</button></nav>
 <div id="main-view">
 <p class="mut">Directional LIMIT · oryginalny SL · pełny TP 2R. DOL jest kontekstem, nie podmienianym TP. Decyzja na zamknięciu M1; 1s daje wgląd w przebieg świecy.</p>
 <div id="health" class="cards"></div><div id="blockers" class="notice"></div>
@@ -11,10 +11,12 @@
 <section><h2>Transakcja i manager</h2><label>Pozycja <select id="position"></select></label><div id="trade" class="cards"></div>
 <div id="layers" class="wrap"></div><div id="decision" class="notice"></div>
 <p class="mut">SENT = przyjęty webhook, nie fill. OPEN/CLOSED brokera wymagają uwierzytelnionego potwierdzenia. Wynik modelowy nie jest rzeczywistym P&amp;L.</p></section>
-<section><h2>Detektor — kandydaci LONG / SHORT</h2><p class="mut">BSL/SSL → displacement/FVG → pullback/hold → BOS → LIMIT na 10 minut. DOL nie wyklucza wejścia. Stary A/B i Shallow pozostają oddzielnym benchmarkiem poniżej.</p><div id="candidates" class="wrap"></div></section>
 <section><h2>Bieżące decyzje M1 i zlecenia managera</h2><div id="logs" class="wrap"></div><h3>Zlecenia do brokera</h3><div id="actions" class="wrap"></div></section>
 <details><summary>A/B + Shallow · legacy candidates (nie są zarządzane przez V3)</summary><iframe src="/ab/candidates" title="Legacy A/B + Shallow"></iframe></details>
 <details><summary>Dane i zasady wdrożenia</summary><p>1s i M1: ten sam jawny kontrakt, rzeczywiste zamknięte OHLCV. M5/M15/H1 są wyliczane z pełnych grup M1, bez przyszłych świec. Historyczny kontrakt archiwum wymaga weryfikacji.</p><p>TV: zamknięte M1 na /ab/v3/feed. 1s: osobny feed Databento, nie alert co sekundę. Potwierdzenia pozycji: /ab/v3/broker z zaufanego mostu brokera. Każde konto ma osobny serwis, bazę i route.</p><p>LIVE wymaga wyłączności route, świeżych danych i potwierdzonej pozycji. Bez nich pozostaje oryginalny SL/TP; manager nie zgaduje fillu i nie wysyła zamknięcia.</p></details>
+</div>
+<div id="candidates-view" hidden>
+<section><h2>V3 Candidates · LONG / SHORT</h2><p class="mut">Kandydatury A/B Directional: BSL/SSL → displacement/FVG → pullback/hold → BOS → LIMIT na 10 minut. Lista obejmuje ostatnie 120 rekordów z detektora; FORWARD odróżnia sygnał po rozgrzewce od historycznego skanu. DOL jest kontekstem, a TP pozostaje na 2R. Status detektora nie potwierdza rzeczywistego fillu u brokera.</p><div id="candidate-warning" class="notice" hidden></div><div id="candidate-metrics" class="cards"></div><div class="candidate-filters"><label>Kierunek <select id="candidate-side"><option value="">LONG + SHORT</option><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></label><label>Status <select id="candidate-status"><option value="">Wszystkie</option><option value="forward">Forward eligible</option><option value="ready">Eligible</option><option value="rejected">Rejected</option></select></label></div><div id="candidates" class="wrap"></div></section>
 </div>
 <div id="exits-view" hidden>
 <section><h2 id="exit-title">V3 exits</h2><div id="exit-mode" class="notice"></div><div id="exit-metrics" class="cards"></div></section>
