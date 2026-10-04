@@ -1,0 +1,30 @@
+{
+  "id": "V3_LIVE_EXIT_PARITY_V1",
+  "status": "PASS",
+  "checked": 939,
+  "signal_mismatches": 0,
+  "production_sha256": "44526063059adc08703d80619223e7b3d6e786055a423ee5ba8a255afef37d90",
+  "signal_ledger_sha256": "096f1ea48d9e753c0b9e939fbf6f130ff413b45e39753c4cf6ef1953b002dc66",
+  "frozen_spec_sha256": {
+    "exit_library": "41025a9175a31a85dcfafc886191c39c4b802bbaa57eb3eed3dfb4243f6cb9ef",
+    "manager_configs": "0693de00a47302b299a66aad54ed446b87bd8cbc956335dccaae94183b436769"
+  },
+  "benchmark": {
+    "M1": {
+      "pf": 1.0605899225066255,
+      "net_usd": 7224.5
+    },
+    "M2": {
+      "pf": 1.055670703928224,
+      "net_usd": 6782.0
+    },
+    "M3": {
+      "pf": 1.0655553175493198,
+      "net_usd": 7804.0
+    }
+  },
+  "model0_m3": {
+    "pf": 1.1143256905578625,
+    "net_usd": 13931.5
+  }
+}

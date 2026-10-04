@@ -5,6 +5,21 @@ const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>'
 const num=v=>v==null?'—':Number(v).toFixed(3);
 const utc=v=>v?new Date(Number(v)).toISOString():'—';
 const card=(label,value,note='')=>`<div class="card"><small>${esc(label)}</small><strong>${esc(value)}</strong><p>${esc(note)}</p></div>`;
+const percent=v=>v==null?'—':(100*Number(v)).toFixed(1)+'%';
+function exitLabel(x){const s=x.status;if(s==='OPEN'||s==='MONITORING')return x.research?.ne2||x.research?.opposing_displacement||x.research?.mss?'WARNING':'WAIT';if(s==='EXIT_SIGNALLED')return 'EXIT SIGNAL';if(s==='EXIT_REQUESTED'||s==='EXIT_ACKNOWLEDGED')return 'EXIT REQUESTED';if(s==='EXIT_FILLED'||s==='CLOSED')return 'EXIT FILLED';if(s==='EXIT_BLOCKED'||s==='EXIT_REJECTED'||s==='BROKER_MISMATCH'||s==='STALE_DATA')return 'BLOCKED';return s;}
+function renderExits(ex){
+ if(!ex)return;
+ el('exit-title').textContent=ex.title;
+ el('exit-mode').textContent=`Exit mode: ${ex.mode?.toUpperCase()} · real execution flag: ${ex.real_execution} · historical parity: ${ex.historical_parity?'PASS':'FAIL'} · Model 0: ${ex.runner_status||'UNKNOWN'} · managers: ${Object.entries(ex.enabled||{}).filter(([,v])=>v).map(([k])=>k).join(', ')||'NONE'}${ex.blockers?.length?' · Blockers: '+ex.blockers.join(', '):''}`;
+ const m=ex.metrics||{};
+ el('exit-metrics').innerHTML=[['TRADES',m.trades],['WR',percent(m.win_rate)],['PF',num(m.pf)],['NET',m.net_pnl==null?'—':'$'+num(m.net_pnl)],['EXPECTANCY',m.expectancy==null?'—':'$'+num(m.expectancy)],['DD',m.max_dd==null?'—':'$'+num(m.max_dd)],['EARLY EXIT RATE',percent(m.exit_rate)],['AVG EXIT R',num(m.avg_exit_r)]].map(([a,b])=>card(a,b)).join('');
+ el('exit-open').innerHTML=table(['TRADE','DIR','ENTRY','CURRENT R','MFE','ACTIVE FVG','NE2','OPP DISP','MSS','M1','M2','M3','EXIT STATUS','EVIDENCE'],(ex.open||[]).map(x=>{const s=x.research||{},t=s.signals||{};return [x.trade_id,x.direction,num(x.entry),num(s.current_r),num(s.mfe_r),s.active_fvg?`${num(s.active_fvg.lower)}–${num(s.active_fvg.upper)}`:'—',s.ne2,s.opposing_displacement,s.mss,t.manager_status?.M1,t.manager_status?.M2,t.manager_status?.M3,exitLabel(x),x.error_reason||JSON.stringify(s.first_events||{})];}));
+ el('exit-completed').innerHTML=table(['DATE','TRADE ID','DIR','SESSION','ENTRY','ORIGINAL SL','ORIGINAL TP','REAL EXIT TIME','REAL EXIT PRICE','REAL EXIT R','REAL P&L','TRIGGERED BY','PRIMARY REASON','ALL MANAGERS','ALL REASONS','M1','M2','M3','BASELINE TP2R/SL','DELTA VS BASELINE','STATUS'],(ex.completed||[]).map(x=>[utc(x.fill_time),x.trade_id,x.direction,x.session,num(x.entry),num(x.original_sl),num(x.original_tp),utc(x.fill_time),num(x.fill_price),num(x.exit_r),x.exit_pnl==null?'—':'$'+num(x.exit_pnl),x.primary_manager,x.primary_reason,(x.triggered_managers||[]).join('+'),(x.triggered_reasons||[]).join('+'),(x.triggered_managers||[]).includes('M1'),(x.triggered_managers||[]).includes('M2'),(x.triggered_managers||[]).includes('M3'),x.baseline_outcome,num(x.delta_vs_baseline),x.status]));
+ el('exit-reasons').innerHTML=table(['REASON','EXITS','WINNERS','LOSERS','AVG EXIT R','AVG PNL','PF CONTRIBUTION','EXPLANATION'],(ex.reason_stats||[]).map(x=>[x.reason,x.exits,x.winners,x.losers,num(x.avg_exit_r),num(x.avg_pnl),num(x.pf_contribution),x.explanation]));
+ el('exit-contribution').innerHTML=Object.entries(ex.manager_contribution||{}).map(([k,v])=>card(k+' involved',v)).join('')+Object.entries(ex.overlap||{}).map(([k,v])=>card(k,v,'same-bar participation')).join('');
+ const cuts=[];for(const [kind,rows] of Object.entries(ex.cuts||{}))for(const x of rows)cuts.push([kind,x.bucket,x.trades,percent(x.win_rate),num(x.pf),num(x.net_pnl),num(x.expectancy),num(x.max_dd),percent(x.exit_rate)]);
+ el('exit-cuts').innerHTML=table(['CUT','BUCKET','TRADES','WR','PF','NET','EXPECTANCY','DD','EARLY EXIT RATE'],cuts);
+}
 function table(headers,rows){return '<table><thead><tr>'+headers.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr></thead><tbody>'+(rows.length?rows.map(r=>'<tr>'+r.map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join(''):'<tr><td colspan="'+headers.length+'">Brak rekordów — to nie oznacza braku feedu.</td></tr>')+'</tbody></table>';}
 function nearest(tag){return (tag?.open_directional_liquidity_pools||[]).filter(x=>x.status==='OPEN').sort((a,b)=>a.distance_points-b.distance_points)[0];}
 function poolLabel(pool){return pool?(pool.constituent_levels||[]).map(x=>x.kind+' '+x.price).join(' · '):'Brak znanego OPEN poziomu';}
@@ -20,11 +35,9 @@ function renderTrade(){
 }
 function render(x){
  snapshot=x;
- const micro=x.micro||{},tv=x.tv_feed||{};
- el('micro').innerHTML=card('TV paczki',tv.state,tv.symbol)+card('Most danych V3',tv.v3_bridge?.v3_data_bridge||'Brak połączenia',tv.v3_bridge?.v3_contract)+card('Ostatnie 1s',micro.observed_seconds,`Do ${utc(micro.end_ms)} · ciągłość ${micro.complete??'UNKNOWN'}`)+card('Displacement / ER',`${num(micro.displacement_points)} pts / ${num(micro.efficiency)}`,`Volume ${micro.volume??'—'}`);
- const exec=x.execution||{};
- el('health').innerHTML=card('Konto / route',x.account_label,x.route_id)+card('Polityka wejść',exec.policy||'UNKNOWN',`Uzbrojone: ${exec.entry_armed??'UNKNOWN'} · Guard: ${exec.guard_mode||'UNKNOWN'} (${exec.guard_health||'UNKNOWN'})`)+card('Kierunki wejść',`LONG ${exec.directional_long_requested??'—'} / SHORT ${exec.directional_short_requested??'—'}`,'Przełączniki nie są dowodem wykonania')+card('Manager V3',x.mode,'Aktywne wyjścia LIVE zablokowane; wejścia ENTRY-ONLY to osobny wariant')+card('Kontrakt',x.contract,'Jawny kontrakt feedu i brokera')+(x.feeds||[]).map(f=>card('Feed '+f.tf,f.state,`Age ${num(f.age_seconds)}s · ${f.rows} bars`)).join('');
- el('blockers').textContent=(x.blockers||[]).length?'Blokery pełnego MANAGERA LIVE (nie status wejść ENTRY-ONLY): '+x.blockers.join(' · '):'Brak wykrytych blokad konfiguracji; nie jest to potwierdzenie gotowości LIVE.';
+ renderExits(x.exits);
+ el('health').innerHTML=card('Konto / route',x.account_label,x.route_id)+card('V3 mode',x.mode,x.policy)+card('Kontrakt',x.contract,'Jawny kontrakt feedu i brokera')+(x.feeds||[]).map(f=>card('Feed '+f.tf,f.state,`Age ${num(f.age_seconds)}s · ${f.rows} bars`)).join('');
+ el('blockers').textContent=(x.blockers||[]).length?'LIVE blokery: '+x.blockers.join(' · '):'Konfiguracja LIVE gotowa. Zamykanie nadal wymaga świeżej, przypisanej pozycji brokera.';
  const market=x.market,L=market?.LONG,S=market?.SHORT,bsl=nearest(L),ssl=nearest(S);
  el('market').innerHTML=card('Aktualna OPEN BSL',bsl?.pool_price,poolLabel(bsl))+card('Aktualna OPEN SSL',ssl?.pool_price,poolLabel(ssl))+card('DOL rynku LONG',L?.current_dol?.pool_price,L?.dol_status+' · '+poolLabel(L?.current_dol))+card('DOL rynku SHORT',S?.current_dol?.pool_price,S?.dol_status+' · '+poolLabel(S?.current_dol));
  el('market-age').textContent=market?`Skan dostępny na ${utc(market.evaluated_at_ms)} · to nie jest DOL zamrożony dla pozycji · kontrakt archiwum: ${market.contract_identity}`:'Oczekiwanie na skan detektora. DOL nie jest jeszcze znany.';
@@ -38,5 +51,8 @@ function render(x){
  el('refresh').textContent='Aktualizacja '+new Date().toLocaleTimeString();
 }
 el('position').addEventListener('change',renderTrade);
+function showTab(which){const exits=which==='exits';el('main-view').hidden=exits;el('exits-view').hidden=!exits;el('tab-main').classList.toggle('active',!exits);el('tab-exits').classList.toggle('active',exits);}
+el('tab-main').addEventListener('click',()=>showTab('main'));
+el('tab-exits').addEventListener('click',()=>showTab('exits'));
 async function load(){try{const r=await fetch('/ab/v3/data',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);render(await r.json());}catch(e){el('refresh').textContent='Dane niedostępne: '+e.message;el('blockers').textContent='Brak świeżego odczytu panelu — nie traktuj poprzedniego stanu jako aktualnego.';}}
 load();setInterval(load,5000);

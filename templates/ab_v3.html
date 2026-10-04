@@ -2,10 +2,10 @@
 <html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>A/B V3 — DOL + detector + manager</title><link rel="stylesheet" href="/static/ab_v3.css"></head>
 <body><header><div><span class="eyebrow">STRATEGIES / A/B V3</span><h1>LONG + SHORT · jedno stanowisko</h1></div><span id="refresh">Ładowanie…</span></header>
+<nav class="tabs"><button id="tab-main" class="active" type="button">Overview</button><button id="tab-exits" type="button">Exits</button></nav>
+<div id="main-view">
 <p class="mut">Directional LIMIT · oryginalny SL · pełny TP 2R. DOL jest kontekstem, nie podmienianym TP. Decyzja na zamknięciu M1; 1s daje wgląd w przebieg świecy.</p>
 <div id="health" class="cards"></div><div id="blockers" class="notice"></div>
-<p class="mut">Wariant ENTRY-ONLY: A/B Directional LONG/SHORT może wysyłać bracket LIMIT + SL + TP2R przez Guard. Aktywne wyjścia managera LIVE pozostają zablokowane. To nie pełny V3 z managerem. Most danych TV nie potwierdza pozycji Tradovate.</p>
-<section><h2>TradingView 1s — ostatnia odebrana minuta</h2><div id="micro" class="cards"></div><p class="mut">Rozdzielczość 1s, dostawa paczkami co minutę. To pomiar rynku, nie decyzja managera ani dowód potwierdzonej pozycji. <a href="/feed/1s">Pełny status odbiornika</a></p></section>
 <section><h2>DOL i BSL / SSL — aktualny rynek</h2><p class="mut">Poziomy z ostatniego zamkniętego skanu. Źródło BSL/SSL konkretnej transakcji jest pokazane osobno niż bieżąca pula płynności. Nieznane ≠ przeciwne.</p>
 <div id="market" class="cards"></div><div id="market-age" class="mut"></div></section>
 <section><h2>Transakcja i manager</h2><label>Pozycja <select id="position"></select></label><div id="trade" class="cards"></div>
@@ -14,5 +14,13 @@
 <section><h2>Detektor — kandydaci LONG / SHORT</h2><p class="mut">BSL/SSL → displacement/FVG → pullback/hold → BOS → LIMIT na 10 minut. DOL nie wyklucza wejścia. Stary A/B i Shallow pozostają oddzielnym benchmarkiem poniżej.</p><div id="candidates" class="wrap"></div></section>
 <section><h2>Bieżące decyzje M1 i zlecenia managera</h2><div id="logs" class="wrap"></div><h3>Zlecenia do brokera</h3><div id="actions" class="wrap"></div></section>
 <details><summary>A/B + Shallow · legacy candidates (nie są zarządzane przez V3)</summary><iframe src="/ab/candidates" title="Legacy A/B + Shallow"></iframe></details>
-<details><summary>Dane i zasady wdrożenia</summary><p>1s i M1: ten sam jawny kontrakt, rzeczywiste zamknięte OHLCV. M5/M15/H1 są wyliczane z pełnych grup M1, bez przyszłych świec. Historyczny kontrakt archiwum wymaga weryfikacji.</p><p>TV: obecny alert detektora M1 na /bars pozostaje. Drugi wskaźnik wysyła sekundowe paczki z referencją M1 na /bars/1s. Most po jawnej weryfikacji kontraktu zasila tylko magazyn managera. Bez Databento i bez 60 alertów/minutę.</p><p>Potwierdzenia pozycji: /ab/v3/broker to protokół dla brakującego jeszcze zaufanego konektora Tradovate, nie działająca subskrypcja konta. LIVE w tej paczce jest zablokowane. Manager nie zgaduje fillu i nie wysyła zamknięcia.</p></details>
+<details><summary>Dane i zasady wdrożenia</summary><p>1s i M1: ten sam jawny kontrakt, rzeczywiste zamknięte OHLCV. M5/M15/H1 są wyliczane z pełnych grup M1, bez przyszłych świec. Historyczny kontrakt archiwum wymaga weryfikacji.</p><p>TV: zamknięte M1 na /ab/v3/feed. 1s: osobny feed Databento, nie alert co sekundę. Potwierdzenia pozycji: /ab/v3/broker z zaufanego mostu brokera. Każde konto ma osobny serwis, bazę i route.</p><p>LIVE wymaga wyłączności route, świeżych danych i potwierdzonej pozycji. Bez nich pozostaje oryginalny SL/TP; manager nie zgaduje fillu i nie wysyła zamknięcia.</p></details>
+</div>
+<div id="exits-view" hidden>
+<section><h2 id="exit-title">V3 exits</h2><div id="exit-mode" class="notice"></div><div id="exit-metrics" class="cards"></div></section>
+<section><h2>Live open trades</h2><div id="exit-open" class="wrap"></div></section>
+<section><h2>Completed broker exits</h2><div id="exit-completed" class="wrap"></div><p class="mut">Real P&amp;L and fill price appear only when confirmed by the broker bridge. Baseline outcome and delta remain UNKNOWN without a factual replay.</p></section>
+<section><h2>Exit reasons</h2><div id="exit-reasons" class="wrap"></div><h3>Manager contribution</h3><div id="exit-contribution" class="cards"></div></section>
+<section><h2>Performance by period, side and session</h2><div id="exit-cuts" class="wrap"></div></section>
+</div>
 <script src="/static/ab_v3.js"></script></body></html>
