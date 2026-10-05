@@ -1,6 +1,7 @@
 """Account-local entry permissions; never gates protective cancel/flatten.
 
-V3_ONLY permits frozen Directional brackets, NOT active V3 manager exits.
+V3_ONLY permits Directional 2R or explicitly enabled Model 0 runner brackets.
+Active exits have separate ownership, parity and execution gates.
 It does not replace Guard, prove broker fills or change detector rules.
 """
 import math
@@ -61,11 +62,15 @@ def entry_blocker(signal):
             return 'v3_execution_geometry_config_mismatch'
         direction = signal.get('dir')
         risk = e-sl if direction == 'LONG' else sl-e
-        expected = e+2*risk if direction == 'LONG' else e-2*risk
+        is_runner = signal.get('_v3_runner') is True
+        if is_runner and (os.environ.get('V3_RUNNER_ENABLED','false').lower() != 'true' or os.environ.get('AB_V3_MODE','SHADOW').upper() != 'LIVE'):
+            return 'v3_runner_not_enabled'
+        multiple = 3 if is_runner else 2
+        expected = e+multiple*risk if direction == 'LONG' else e-multiple*risk
         if direction not in {'LONG', 'SHORT'} or risk <= 0 or min(e,sl,tp) <= 0:
             return 'v3_invalid_bracket'
         if abs(tp-expected) > 1e-6 or any(abs(v/tick-round(v/tick)) > 1e-6 for v in (e,sl,tp)):
-            return 'v3_fixed_2r_bracket_required'
+            return 'v3_runner_3r_bracket_required' if is_runner else 'v3_fixed_2r_bracket_required'
         if signal.get('_strict_risk_budget') is not True or signal.get('_disable_partial') is not True:
             return 'v3_strict_single_bracket_required'
         budget = float(signal.get('_risk_budget_usd') or 0)
@@ -79,6 +84,7 @@ def entry_blocker(signal):
 
 def status():
     return dict(policy=mode(), entry_armed=os.environ.get('V3_ENTRY_ARMED', '0') == '1',
-                entry_variant='DIRECTIONAL_FIXED_SL_TP_2R', active_manager_live=False,
+                entry_variant=('DIRECTIONAL_MODEL0_RUNNER_2R_3R' if os.environ.get('V3_RUNNER_ENABLED','false').lower()=='true' and os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' else 'DIRECTIONAL_FIXED_SL_TP_2R'),
+                active_manager_live=os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real',
                 broker_fill_proven_by_http=False,
-                note='Entry-only permission; Guard still decides. Active manager release remains blocked.')
+                note='Entry permission; Guard, broker ownership and active exit readiness are checked separately.')

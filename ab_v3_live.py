@@ -19,6 +19,7 @@ import pandas as pd
 
 import ab_v3_policy as policy
 import v3_frozen_exit as frozen_exit
+import v3_runner as runner
 
 HERE = Path(__file__).resolve().parent
 _LOCK = threading.Lock()
@@ -57,6 +58,9 @@ def connect():
       CREATE TABLE IF NOT EXISTS actions(action_id TEXT PRIMARY KEY,order_id TEXT NOT NULL,
         decision_ms INTEGER,state TEXT NOT NULL,payload_json TEXT NOT NULL,updated_ms INTEGER NOT NULL,
         UNIQUE(order_id));
+      CREATE TABLE IF NOT EXISTS runner_decisions(
+        order_id TEXT PRIMARY KEY,touch_ms INTEGER NOT NULL,touch_bar_ms INTEGER NOT NULL,
+        selected INTEGER NOT NULL,payload_json TEXT NOT NULL,created_ms INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS exit_trades(
         trade_id TEXT PRIMARY KEY, exit_mode TEXT NOT NULL, status TEXT NOT NULL,
@@ -90,6 +94,32 @@ def exit_mode():
 def exit_enabled():
     return {m: os.environ.get(f"V3_EXIT_{m}_ENABLED", "true").strip().lower() == "true"
             for m in ("M1", "M2", "M3")}
+
+
+def runner_enabled():
+    return os.environ.get("V3_RUNNER_ENABLED", "false").strip().lower() == "true"
+
+
+def runner_parity_ok():
+    try:
+        proof=json.loads((HERE/"v3_exit_parity.json").read_text())["runner"]
+        return (proof["status"] == "PASS" and proof["candidate_count"] > 0
+                and proof["pick_mismatches"] == 0 and proof["feature_mismatches"] == 0
+                and proof["production_sha256"] == hashlib.sha256((HERE/"v3_runner.py").read_bytes()).hexdigest()
+                and proof["model_sha256"] == runner.MODEL_SHA256 and runner.model_ok())
+    except (OSError,ValueError,KeyError,TypeError):
+        return False
+
+
+def entry_target(order):
+    """The exact target both entry payload and durable ownership record use."""
+    if not runner_enabled() or mode() != "LIVE" or order.get("strategy") != "AB_DIRECTIONAL":
+        return float(order["target_price"])
+    z=1 if order["direction"] == "LONG" else -1
+    entry=float(order["entry_price"]);risk=float(order["risk_points"])
+    if risk <= 0 or abs(float(order["target_price"])-(entry+z*2*risk)) > 1e-8:
+        raise ValueError("runner_requires_original_2r_geometry")
+    return entry+z*3*risk
 
 
 def exit_blockers():
@@ -218,6 +248,9 @@ def prepare(order, claim=False):
                  target_price=float(order["target_price"]), risk_points=float(order["risk_points"]),
                  contract=contract(), route_id=route(), account_label=os.environ.get("ACCOUNT_LABEL", "account"),
                  snapshot=snap, policy=policy.POLICY)
+    value['baseline_target_price'] = value['target_price']
+    value['target_price'] = entry_target(order)
+    value['runner_enabled'] = value['target_price'] != value['baseline_target_price']
     with connect() as c:
         if claim and mode() == 'LIVE':
             c.execute('BEGIN IMMEDIATE')
@@ -361,6 +394,17 @@ def entry_blocker(order):
     if order.get("strategy") != "AB_DIRECTIONAL": return "v3_exclusive_route_other_strategy"
     blockers = setting_blockers()
     if blockers: return "v3:"+blockers[0]
+    if os.environ.get("V3_RUNNER_ENABLED","false").strip().lower() not in ("true","false"):
+        return "v3:invalid_runner_flag"
+    if runner_enabled():
+        blocks=exit_blockers()
+        if blocks: return "v3:runner_requires_live_exits:"+blocks[0]
+        if not frozen_parity_ok() or not runner_parity_ok(): return "v3:runner_parity_failed"
+        if not runner.model_ok(now_ms()): return "v3:runner_model_year_not_supported"
+        if os.environ.get("AB_V3_LEGACY_EXIT_ENABLED","false").lower() == "true":
+            return "v3:runner_requires_legacy_exit_disabled"
+        try: entry_target(order)
+        except (ValueError,KeyError,TypeError): return "v3:runner_entry_geometry_invalid"
     source = _payload(order)
     snap = source.get("v3_snapshot") or {}
     if not all(policy.finite(snap.get(k)) for k in ("source_level", "fvg_edge")): return "v3:snapshot_missing"
@@ -373,6 +417,36 @@ def entry_blocker(order):
         if not flat or not 0 <= current-json.loads(flat[0])["event_ms"] <= 2000: return "v3:broker_flat_not_fresh"
         s = c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?", (contract(),)).fetchone()[0]
         if s is None or not 0 <= current-(s+1000) <= 5000: return "v3:1s_feed_not_fresh"
+    return None
+
+
+def prepared_entry_blocker(signal):
+    """Recheck ownership and attestations immediately before entry HTTP dispatch."""
+    if mode() != 'LIVE': return None
+    if not signal.get('_v3_directional') or not signal.get('_continuation_order_id'):
+        return 'v3_exclusive_route_other_strategy'
+    blockers=exit_blockers()
+    if blockers: return 'v3:'+blockers[0]
+    if not frozen_parity_ok(): return 'v3:historical_parity_failed'
+    oid=signal['_continuation_order_id'];current=now_ms()
+    with connect() as c:
+        row=c.execute("SELECT * FROM orders WHERE order_id=?",(oid,)).fetchone()
+        if not row or row['state'] != 'PREPARED': return 'v3:entry_not_prepared'
+        o=json.loads(row['order_json'])
+        if o['contract'] != contract() or o['route_id'] != route() or o['account_label'] != os.environ.get('ACCOUNT_LABEL','account'):
+            return 'v3:prepared_route_mismatch'
+        if not o['activation_ms'] <= current < o['expiry_ms']: return 'v3:prepared_entry_expired'
+        if any(signal.get(k) != o[field] for k,field in [('entry','entry_price'),('SL','stop_price'),('TP','target_price'),('dir','direction')]):
+            return 'v3:prepared_geometry_mismatch'
+        if o.get('runner_enabled') and (not runner_parity_ok() or not runner.model_ok(current)):
+            return 'v3:runner_parity_or_year_failed'
+        if c.execute("SELECT 1 FROM orders WHERE order_id<>? AND state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH') LIMIT 1",(oid,)).fetchone():
+            return 'v3:other_order_unresolved'
+        flat=c.execute("SELECT value FROM meta WHERE key='flat'").fetchone()
+        if not flat or not 0 <= current-json.loads(flat[0])['event_ms'] <= 2000:
+            return 'v3:broker_flat_not_fresh'
+        sec=c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?",(o['contract'],)).fetchone()[0]
+        if sec is None or not 0 <= current-sec-1000 <= 5000: return 'v3:1s_feed_not_fresh'
     return None
 
 
@@ -401,6 +475,7 @@ def monitor():
             saved = c.execute("SELECT payload_json FROM decisions WHERE order_id=? AND decision_ms=?", (oid,decision_ms)).fetchone()
             if saved and json.loads(saved[0]).get('cause') != 'HOLD_DATA_GAP': continue
             o = json.loads(row["order_json"])
+            if o.get('runner_enabled'): continue
             if o['route_id'] != route() or o['contract'] != contract() or o['account_label'] != os.environ.get('ACCOUNT_LABEL','account'): continue
             p = json.loads(row["position_json"])
             if decision_ms <= p["fill_ms"]: continue
@@ -423,8 +498,10 @@ def frozen_parity_ok():
     """Fail closed if the audited live module or compact parity proof drifts."""
     try:
         proof = json.loads((HERE/"v3_exit_parity.json").read_text())
-        if (proof.get("id") != "V3_LIVE_EXIT_PARITY_V1" or proof.get("status") != "PASS"
-                or proof.get("checked") != 939 or proof.get("signal_mismatches") != 0):
+        if (proof.get("id") != "V3_LIVE_EXIT_PARITY_V3" or proof.get("status") != "PASS"
+                or proof.get("checked") != 939 or proof.get("legacy_signal_mismatches") != 0
+                or proof.get("obfh_signal_mismatches") != 0
+                or proof.get("ten_minute_signal_mismatches") != 0):
             return False
         if hashlib.sha256((HERE/"v3_frozen_exit.py").read_bytes()).hexdigest() != proof["production_sha256"]:
             return False
@@ -442,7 +519,18 @@ def frozen_parity_ok():
             if abs(float(row["pf"])-pf)>1e-12 or float(row["net_usd"])!=net:
                 return False
         row=proof["model0_m3"]
-        return abs(float(row["pf"])-1.1143256905578625)<1e-12 and float(row["net_usd"])==13931.5
+        if not (abs(float(row["pf"])-1.1143256905578625)<1e-12 and float(row["net_usd"])==13931.5):
+            return False
+        ten=proof["m3_ten_minute"]
+        if ten != {"rule":"OBFH_3_CLOSES_10M", "window_minutes":10, "adverse_closes":3,
+                   "expiry_exits":False, "selected_trades":895, "selected_net_usd":7855.5}:
+            return False
+        added=proof["m3_obfh_strict"]
+        return (added["rule"] == "E_ATR1_AFTER_H1" and added["queue_trades"] == 900
+                and float(added["queue_net_usd"]) == 7896.5
+                and abs(float(added["queue_pf"])-1.0671519625142973)<1e-12
+                and isinstance(added["research_sha256"],str)
+                and len(added["research_sha256"]) == 64)
     except (OSError,ValueError,KeyError,IndexError,TypeError):
         return False
 
@@ -466,6 +554,13 @@ def monitor_frozen():
                     continue
             order = json.loads(row["order_json"])
             position = json.loads(row["position_json"])
+            rd=c.execute("SELECT touch_bar_ms FROM runner_decisions WHERE order_id=?",(oid,)).fetchone()
+            if rd and decision_ms > rd['touch_bar_ms']:
+                continue
+            if order.get('runner_enabled') and not rd:
+                hit=_runner_first_touch(c,order,position,current)
+                if hit and decision_ms > int(hit['ts_ms'])//60000*60000:
+                    continue  # A late M1 batch cannot create a post-2R M3 exit.
             if order["contract"] != contract() or order["route_id"] != route() or order["account_label"] != os.environ.get("ACCOUNT_LABEL","account"):
                 _exit_transition(c,oid,"BROKER_MISMATCH",current,"local_order_identity_mismatch")
                 continue
@@ -500,6 +595,71 @@ def monitor_frozen():
             _exit_transition(c,oid,"EXIT_SIGNALLED",current)
 
 
+def _runner_first_touch(c, order, position, current):
+    z=1 if order['direction']=='LONG' else -1
+    start=int(position['fill_ms'])//60000*60000+60000
+    field,comparison=('high','>=') if z==1 else ('low','<=')
+    return c.execute("SELECT ts_ms,bar_json FROM bars WHERE tf='1s' AND contract=? AND ts_ms>=? AND ts_ms+1000<=? "
+                     +"AND CAST(json_extract(bar_json,'$."+field+"') AS REAL)"+comparison+"? ORDER BY ts_ms LIMIT 1",
+                     (order['contract'],start,current,order['baseline_target_price'])).fetchone()
+
+
+def monitor_runner():
+    """Persist the first 2R decision once, before evaluating post-touch M3 bars."""
+    if mode() != "LIVE": return
+    current=now_ms()
+    with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        rows=c.execute("SELECT * FROM orders WHERE state='OPEN'").fetchall()
+        for row in rows:
+            oid=row['order_id'];order=json.loads(row['order_json'])
+            if not order.get('runner_enabled') or not row['position_json']: continue
+            if c.execute("SELECT 1 FROM runner_decisions WHERE order_id=?",(oid,)).fetchone(): continue
+            position=json.loads(row['position_json']);z=1 if order['direction']=='LONG' else -1
+            start=int(position['fill_ms'])//60000*60000+60000
+            target=order['baseline_target_price']
+            hit=_runner_first_touch(c,order,position,current)
+            if not hit: continue
+            touch=int(hit['ts_ms'])+1000;touch_bar=int(hit['ts_ms'])//60000*60000
+            minutes=frame(c,'M1',order['contract'],start,touch_bar)
+            try:
+                # Require all seconds from this minute's open to the detected touch.
+                seconds=frame(c,'1s',order['contract'],touch_bar,touch)
+                expected=pd.date_range(pd.Timestamp(touch_bar,unit='ms',tz='UTC'),
+                                       pd.Timestamp(touch-1000,unit='ms',tz='UTC'),freq='s')
+                if not seconds.index.equals(expected): raise ValueError('runner_touch_seconds_gap')
+                result=runner.decide(order,position,minutes,touch_bar)
+            except (ValueError,KeyError,TypeError,OSError) as exc:
+                if str(exc) in ('runner_prebar_m1_gap','runner_touch_seconds_gap') and current-touch < 3000:
+                    continue  # Allow the just-completed M1/feed batch to arrive.
+                # Missing model inputs never select an extension. A fresh 2R touch
+                # instead requests a market close, through the same guarded adapter.
+                result=dict(selected=False,probability=None,error=str(exc),threshold=.75)
+            result.update(touch_ms=touch,touch_bar_ms=touch_bar,price_2r=target,
+                          broker_target=order['target_price'],decision_kind='HOLD_3R' if result['selected'] else 'EXIT_2R')
+            c.execute("INSERT OR IGNORE INTO runner_decisions VALUES(?,?,?,?,?,?)",
+                      (oid,touch,touch_bar,int(result['selected']),dump(result),current))
+
+
+def signal_runner_exits():
+    current=now_ms()
+    with connect() as c:
+        rows=c.execute("SELECT r.*,e.status AS exit_status,e.signal_time FROM runner_decisions r "
+                       "JOIN orders o ON o.order_id=r.order_id JOIN exit_trades e ON e.trade_id=r.order_id "
+                       "WHERE o.state='OPEN' AND r.selected=0").fetchall()
+        for row in rows:
+            if row['exit_status'] not in ('OPEN','MONITORING','STALE_DATA','EXIT_BLOCKED','BROKER_MISMATCH'): continue
+            if row['signal_time'] is not None: continue
+            oid=row['order_id'];data=json.loads(row['payload_json']);signal=int(row['touch_ms'])
+            if not 0 <= current-signal <= 5000:
+                _exit_transition(c,oid,'EXIT_BLOCKED',current,'runner_missed_2r_touch_no_catchup')
+                continue
+            reason='RUNNER_2R_DATA_FALLBACK' if data.get('error') else 'RUNNER_2R_EXIT'
+            c.execute("UPDATE exit_trades SET exit_mode=?,primary_manager='RUNNER',primary_reason=?,triggered_managers=?,triggered_reasons=?,signal_time=?,requested_price=?,error_reason=NULL,updated_ms=? WHERE trade_id=?",
+                      (exit_mode(),reason,dump(['RUNNER']),dump([reason]),signal,data['price_2r'],current,oid))
+            _exit_transition(c,oid,'EXIT_SIGNALLED',current)
+
+
 def _send_broker_exit(payload):
     import requests
     return requests.post(os.environ["EXEC_WEBHOOK"],json=payload,timeout=3)
@@ -519,6 +679,7 @@ def dispatch_frozen_exits():
             reason=None
             age=current-int(row["signal_time"] or 0)
             if not frozen_parity_ok(): reason="historical_parity_failed"
+            elif row["primary_manager"] == "RUNNER" and not runner_parity_ok(): reason="runner_parity_failed"
             elif exit_blockers(): reason=";".join(exit_blockers())
             elif row["state"] != "OPEN": reason="trade_not_open"
             elif row["signal_time"] is None or age > 10000 or age < 0: reason="stale_signal_or_no_next_open"
@@ -543,7 +704,7 @@ def dispatch_frozen_exits():
                          quantity=position["quantity"],
                          time=pd.Timestamp(current,unit="ms",tz="UTC").isoformat(),rejectAfter=3,
                          extras=dict(v3ActionId=aid,v3OrderId=oid,v3PositionId=position["position_id"],
-                                     v3Policy="V3_FAILURE_EXIT_LIBRARY_V1",v3PrimaryReason=row["primary_reason"]))
+                                     v3Policy="V3_M3_OBFH_10M_RUNNER_V1",v3PrimaryReason=row["primary_reason"]))
             inserted=c.execute("INSERT OR IGNORE INTO actions VALUES(?,?,?,?,?,?)",
                                (aid,oid,row["signal_time"],"EXIT_UNKNOWN",dump(payload),current)).rowcount
             if not inserted:
@@ -597,6 +758,7 @@ def dispatch_exits():
             v = json.loads(row["payload_json"])
             p = json.loads(row["position_json"])
             o = json.loads(row["order_json"])
+            if o.get('runner_enabled'): continue
             if o['route_id'] != route() or o['contract'] != contract() or o['account_label'] != os.environ.get('ACCOUNT_LABEL','account'): continue
             if not v.get("exit") or not 1000 <= current-row["decision_ms"] <= 10000: continue
             if not row["decision_ms"]+1000 <= p["event_ms"] <= current or current-p["event_ms"] > 2000: continue
@@ -671,7 +833,7 @@ def _metrics(rows):
     equity=high=dd=0.0
     for x in pnl:
         equity+=x;high=max(high,equity);dd=max(dd,high-equity)
-    exits=[x for x in rows if x["primary_reason"]]
+    exits=[x for x in rows if x["primary_reason"] and x["primary_manager"] != "RUNNER"]
     rr=[x["exit_r"] for x in exits if x["exit_r"] is not None]
     return dict(trades=len(rows),confirmed_pnl_trades=len(pnl),early_exits=len(exits),
                 exit_rate=len(exits)/len(rows) if rows else None,
@@ -694,15 +856,21 @@ def exit_status():
             r["triggered_managers"]=json.loads(r["triggered_managers"] or "[]")
             r["triggered_reasons"]=json.loads(r["triggered_reasons"] or "[]")
             r.update(direction=order["direction"],entry=position.get("entry_price",order["entry_price"]),
-                     original_sl=order["stop_price"],original_tp=order["target_price"],
+                     original_sl=order["stop_price"],original_tp=order.get("baseline_target_price",order["target_price"]),
+                     broker_tp=order["target_price"],
                      quantity=order.get("quantity"),activation_ms=order["activation_ms"],
                      session=_session(order["activation_ms"]),
                      baseline_outcome="UNKNOWN",delta_vs_baseline=None)
+            rd=c.execute("SELECT payload_json FROM runner_decisions WHERE order_id=?",(r['trade_id'],)).fetchone()
+            r['runner']=json.loads(rd[0]) if rd else dict(decision_kind='WAIT_2R' if order.get('runner_enabled') else 'OFF')
             records.append(r)
     real_closed=sorted((x for x in records if x["status"]=="CLOSED" and x["exit_mode"]=="real"),
                        key=lambda x:(x["fill_time"] or 0,x["trade_id"]))
     reason_stats=[]
-    for reason in frozen_exit.REASONS:
+    explanations=dict(frozen_exit.EXPLANATIONS,
+                      RUNNER_2R_EXIT="Model 0 did not select a runner: market exit after first 2R touch.",
+                      RUNNER_2R_DATA_FALLBACK="2R market exit because runner inputs were unavailable.")
+    for reason in (*frozen_exit.REASONS,'RUNNER_2R_EXIT','RUNNER_2R_DATA_FALLBACK'):
         subset=[x for x in real_closed if x["primary_reason"]==reason]
         pnl=[float(x["exit_pnl"]) for x in subset if x["exit_pnl"] is not None]
         rr=[float(x["exit_r"]) for x in subset if x["exit_r"] is not None]
@@ -711,8 +879,8 @@ def exit_status():
                                  avg_pnl=sum(pnl)/len(pnl) if pnl else None,
                                  pf_contribution=sum(x for x in pnl if x>0)/(-sum(x for x in pnl if x<0))
                                  if any(x<0 for x in pnl) else None,
-                                 explanation=frozen_exit.EXPLANATIONS[reason]))
-    contributions={m:sum(m in x["triggered_managers"] for x in real_closed) for m in ("M1","M2","M3")}
+                                 explanation=explanations[reason]))
+    contributions={m:sum(m in x["triggered_managers"] for x in real_closed) for m in ("M1","M2","M3","RUNNER")}
     overlaps={}
     for x in real_closed:
         label="+".join(x["triggered_managers"]) or "NONE"
@@ -727,8 +895,9 @@ def exit_status():
         cuts[field]=[dict(bucket=k,**_metrics(v)) for k,v in sorted(groups.items())]
     return dict(mode=exit_mode(),real_execution=os.environ.get("V3_EXIT_REAL_EXECUTION","false").lower()=="true",
                 enabled=exit_enabled(),blockers=exit_blockers(),historical_parity=frozen_parity_ok(),
-                title="PRODUCTION V3 + LIVE EXIT ENGINE · Model 0 research benchmark",
-                runner_status="RESEARCH_ONLY",
+                title="A/B V3 · M3 OBFH + 10-minute window · Model 0 runner",
+                runner_status=("LIVE_2R_TO_3R" if runner_enabled() and runner_parity_ok() and runner.model_ok(now_ms()) and not exit_blockers()
+                               else "BLOCKED" if runner_enabled() else "OFF_FOR_NEW_ENTRIES"),
                 open=[x for x in records if x["broker_state"] not in ("CLOSED","CANCELLED")],
                 completed=[x for x in records if x["status"]=="CLOSED"],
                 metrics=_metrics(real_closed),reason_stats=reason_stats,
@@ -739,7 +908,9 @@ def _tick():
     if not _LOCK.acquire(blocking=False): return
     try:
         monitor()
+        monitor_runner()
         monitor_frozen()
+        signal_runner_exits()
         dispatch_frozen_exits()
         dispatch_exits()
     except Exception as exc:

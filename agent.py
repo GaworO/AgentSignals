@@ -176,7 +176,9 @@ def _exec_order(x, text=None):
     if policy_block:
         return {'sent': False, 'status': 400, 'reason': policy_block, 'qty': 0}
     if ab_v3_live.mode() == 'LIVE':
-        return {'sent': False, 'status': 400, 'reason': 'v3_release_not_live_validated', 'qty': 0}
+        blocker = ab_v3_live.prepared_entry_blocker(x)
+        if blocker:
+            return {'sent': False, 'status': 400, 'reason': blocker, 'qty': 0}
     if os.environ.get('EXEC_FX', '') == '1':          # FX services: MetaApi/MT5 adapter (exec_fx.py)
         try:
             import exec_fx
@@ -313,7 +315,9 @@ def _exec_order(x, text=None):
                 payload['cancelAfter'] = min(payload['cancelAfter'], remaining)
                 payload['extras'] = {'v3OrderId': x['_continuation_order_id'],
                     'v3CandidateId': x.get('_continuation_candidate_id'),
-                    'v3Policy': 'AB_V3_MTF_SOURCE_DOL_2R',
+                    'v3Policy': 'V3_MODEL0_RUNNER_2R_3R_V1' if x.get('_v3_runner') else 'AB_V3_MTF_SOURCE_DOL_2R',
+                    'v3Runner': bool(x.get('_v3_runner')),
+                    'v3BrokerTarget': _t(t_ + off),
                     'routeId': guardrails._exec_route_id(),
                     'accountLabel': os.environ.get('ACCOUNT_LABEL', 'account')}
                 ab_v3_live.record_quantity(x['_continuation_order_id'], qty)
@@ -759,6 +763,8 @@ def _continuation_live_signal(order):
     when = dt.datetime.fromtimestamp(activation_ms / 1000.0, tz=dt.timezone.utc).astimezone(NY)
     direction = str(order['direction']).upper()
     entry = float(order['entry_price']); sl = float(order['stop_price']); tp = float(order['target_price'])
+    if str(order.get('strategy') or '').upper() == 'AB_DIRECTIONAL':
+        tp = ab_v3_live.entry_target(order)
     risk = abs(entry - sl)
     if direction not in ('LONG', 'SHORT') or risk <= 0:
         raise ValueError('invalid Continuation direction/geometry')
@@ -774,18 +780,19 @@ def _continuation_live_signal(order):
                 ('Continuation LONG' if direction == 'LONG' else 'Continuation SHORT'))
     return {
         'date': when.strftime('%Y-%m-%d'), 'model': ('A/B Directional' if is_abdir else 'Continuation'),
-        'cat': strategy + (' · Fixed 2R' if is_abdir else ' · OPEN DOL'),
+        'cat': strategy + ((' · Runner 2R→3R' if tp != float(order['target_price']) else ' · Fixed 2R') if is_abdir else ' · OPEN DOL'),
         'dir': direction, 'bos': when.strftime('%H:%M'), 'bos_ms': activation_ms,
         'entry_ms': activation_ms, 'entry': entry, 'SL': sl, 'TP': tp,
         'fvg_lo': min(entry, sl), 'fvg_hi': max(entry, sl),
         'bias': direction, 'bias_align': 'Y', 'trail': [], 'brk': 1,
         # Explicit audit/display provenance. Continuation uses the structural
         # protection level and the frozen open-DOL target, not A/B swing/2R.
-        'sl_src': 'struct', 'tp_src': ('2R' if is_abdir else 'open_dol'),
+        'sl_src': 'struct', 'tp_src': (('runner_3R' if tp != float(order['target_price']) else '2R') if is_abdir else 'open_dol'),
         'sess': sess, '_strat': strategy, '_continuation_order_id': str(order['order_id']),
         '_continuation_candidate_id': str(order['candidate_id']), '_continuation_dol_id': str(order['dol_id']),
         '_disable_partial': True, '_strict_risk_budget': True,
         '_v3_directional': is_abdir,
+        '_v3_runner': is_abdir and tp != float(order['target_price']),
         '_v3_expiry_ms': order.get('expiry_ms', activation_ms + 600000),
         '_v3_manager_mode': ab_v3_live.mode() if is_abdir else None,
     }
@@ -846,7 +853,7 @@ def _dispatch_continuation_live(order):
         return dict(base, state='BLOCKED', reason=policy_block)
     text = ('🧭 %s · %s\n%s LIMIT %.2f · SL %.2f · TP %.2f\n'
             'Account: %s · max risk $%.0f · order %s' %
-            (x['_strat'], 'fixed 2R' if is_abdir else 'frozen OPEN DOL',
+            (x['_strat'], ('runner 2R→3R' if x['tp_src']=='runner_3R' else 'fixed 2R') if is_abdir else 'frozen OPEN DOL',
              'BUY' if x['dir'] == 'LONG' else 'SELL', x['entry'], x['SL'], x['TP'],
              profile.get('label'), budget, order['order_id']))
     x['_alert_txt'] = text

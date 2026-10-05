@@ -1,9 +1,10 @@
 {
-  "id": "V3_LIVE_EXIT_PARITY_V1",
+  "id": "V3_LIVE_EXIT_PARITY_V3",
   "status": "PASS",
   "checked": 939,
-  "signal_mismatches": 0,
-  "production_sha256": "44526063059adc08703d80619223e7b3d6e786055a423ee5ba8a255afef37d90",
+  "legacy_signal_mismatches": 0,
+  "obfh_signal_mismatches": 0,
+  "production_sha256": "f2349c4f979f905641002fa0356b7c8ea3239aa2088182701c0a3b9f9cfeb0b9",
   "signal_ledger_sha256": "096f1ea48d9e753c0b9e939fbf6f130ff413b45e39753c4cf6ef1953b002dc66",
   "frozen_spec_sha256": {
     "exit_library": "41025a9175a31a85dcfafc886191c39c4b802bbaa57eb3eed3dfb4243f6cb9ef",
@@ -26,5 +27,31 @@
   "model0_m3": {
     "pf": 1.1143256905578625,
     "net_usd": 13931.5
+  },
+  "m3_obfh_strict": {
+    "rule": "E_ATR1_AFTER_H1",
+    "queue_trades": 900,
+    "queue_net_usd": 7896.5,
+    "queue_pf": 1.0671519625142973,
+    "research_sha256": "2c89e77450097f0657761a438764b3bcb9dcc35b3b640125294e3ceb3efcef88"
+  },
+  "ten_minute_signal_mismatches": 0,
+  "m3_ten_minute": {
+    "rule": "OBFH_3_CLOSES_10M",
+    "window_minutes": 10,
+    "adverse_closes": 3,
+    "expiry_exits": false,
+    "selected_trades": 895,
+    "selected_net_usd": 7855.5
+  },
+  "runner": {
+    "status": "PASS",
+    "candidate_count": 112,
+    "feature_mismatches": 0,
+    "pick_mismatches": 0,
+    "max_probability_error": 8.912429401874977e-06,
+    "production_sha256": "6a59f2cad89cff9237be206b67a1e73e804d3952c4dc2514895ecc728d4e5907",
+    "model_sha256": "bc081baa5f53c1e63b4ed8be077361523266817539542fcc5ca8ff0f20059c70",
+    "errors": []
   }
 }
