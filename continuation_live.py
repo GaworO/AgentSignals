@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 import sqlite3
 from pathlib import Path
@@ -98,7 +99,8 @@ def _source_orders() -> tuple[int | None, list[dict[str, Any]]]:
     with continuation_shadow._connect() as con:
         last_bar_ms = _shadow_meta(con, "last_bar_ms")
         rows = con.execute(
-            """SELECT o.*,c.forward_eligible,c.decision_ms,c.trading_day
+            """SELECT o.*,c.forward_eligible,c.decision_ms,c.trading_day,
+                      c.payload_json AS candidate_payload_json
                FROM continuation_orders o
                JOIN continuation_candidates c USING(candidate_id)
                WHERE c.forward_eligible=1 AND o.state='PENDING'
@@ -144,6 +146,26 @@ def _finish(order_id: str, result: dict[str, Any], now: str) -> None:
         )
 
 
+def _v3_entry_filter(row: dict[str, Any]) -> str | None:
+    """Use the persisted candidate and final initial stop before dispatch."""
+    if row.get("strategy") != "AB_DIRECTIONAL":
+        return None
+    try:
+        candidate = json.loads(row["candidate_payload_json"])
+        break_number = int(candidate["brk"])
+        entry = float(row["entry_price"])
+        stop = float(row["stop_price"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return "v3_entry_filter_missing_fields"
+    if not math.isfinite(entry) or not math.isfinite(stop):
+        return "v3_entry_filter_invalid_fields"
+    if break_number == 1:
+        return "v3_first_break"
+    if abs(entry - stop) < 10.0:
+        return "v3_initial_stop_lt_10_points"
+    return None
+
+
 def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
     """Dispatch each new forward order at most once.
 
@@ -180,6 +202,8 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
             result = {"state": "DISABLED", "reason": "direction_not_enabled"}
         elif _DISPATCHER is None:
             result = {"state": "ERROR", "reason": "dispatcher_unavailable"}
+        elif (v3_filter := _v3_entry_filter(row)):
+            result = {"state": "BLOCKED", "reason": v3_filter}
         else:
             try:
                 result = dict(_DISPATCHER(dict(row)) or {})
