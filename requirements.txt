@@ -9,3 +9,6 @@ tzdata
 ctrader-open-api
 twisted
 protobuf
+
+# Frozen Win/Loss/Boundary artifacts were serialized with this version.
+scikit-learn==1.7.2

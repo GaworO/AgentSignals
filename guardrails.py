@@ -501,11 +501,18 @@ def flatten_all(reason):
         url = os.environ.get('EXEC_WEBHOOK', '')
         if not url or requests is None: return False
         tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
+        try:
+            import v3_position_manager
+            v3_position_manager.guard_exit_requested(str(reason))
+        except Exception as exc:
+            print('[guard] V3 lifecycle notification failed', type(exc).__name__, flush=True)
         ok = []
         for action in ('exit', 'cancel'):
             try:
                 r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
                 ok.append('%s:%s' % (action, getattr(r, 'status_code', '?')))
+                if action == 'exit' and 200 <= r.status_code < 300 and r.json().get('success') is True:
+                    v3_position_manager.guard_exit_accepted()
             except Exception as e:
                 ok.append('%s:err' % action); print('[guard] flatten %s err' % action, e, flush=True)
         print('[guard] FLATTEN (%s) ->' % reason, ' '.join(ok), flush=True)
@@ -590,7 +597,16 @@ def _relay_action(action):
         return dict(action=action, ok=False, status=None, error='exec webhook unavailable')
     tick = os.environ.get('EXEC_TICKER', os.environ.get('CONTRACT', 'MNQ1!'))
     try:
+        if action == 'exit':
+            try:
+                import v3_position_manager
+                v3_position_manager.guard_exit_requested('guard_relay')
+            except Exception: pass
         r = requests.post(url, json={'ticker': tick, 'action': action}, timeout=10)
+        if action == 'exit' and 200 <= r.status_code < 300:
+            try:
+                if r.json().get('success') is True: v3_position_manager.guard_exit_accepted()
+            except Exception: pass
         st = getattr(r, 'status_code', None)
         return dict(action=action, ok=(st is not None and 200 <= int(st) < 300), status=st)
     except Exception as e:
@@ -630,6 +646,10 @@ def sweep_orphans():
     try:
         d = _day_stats()
         if d['openpos']: return 0                     # never cancel while a bracket protects a position
+        import ab_v3_live
+        with ab_v3_live.connect() as c:
+            if c.execute("SELECT 1 FROM orders WHERE state IN ('ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','EXIT_PENDING','EXIT_UNKNOWN','GUARD_EXIT_PENDING') LIMIT 1").fetchone():
+                return 0  # The legacy modeled NO_FILL is not an explicit position event.
         s = _state(); swept = s.get('swept') or {}
         sm = _shadow_by_key(); n = 0
         for g in _load(GLOG, []):

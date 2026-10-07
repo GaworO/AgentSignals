@@ -1,7 +1,7 @@
 """Durable account-local V3 monitor and fail-closed broker exit adapter.
 
-SENT is not FILLED. Only a trusted, authenticated broker bridge can confirm
-position ownership. No model fills, catch-up closes, exit retries or SL widening.
+SENT creates ASSUMED_OPEN for the Boundary/M3 lifecycle. Broker confirmation
+is optional and explicitly distinguished. No exit retries or SL widening.
 """
 from __future__ import annotations
 
@@ -20,9 +20,11 @@ import pandas as pd
 import ab_v3_policy as policy
 import v3_frozen_exit as frozen_exit
 import v3_runner as runner
+import v3_position_manager as position_manager
 
 HERE = Path(__file__).resolve().parent
 _LOCK = threading.Lock()
+_TICK_PENDING = threading.Event()
 _M1_CALLBACK = None
 _ROUTE_CALLBACK = None
 
@@ -61,6 +63,9 @@ def connect():
       CREATE TABLE IF NOT EXISTS runner_decisions(
         order_id TEXT PRIMARY KEY,touch_ms INTEGER NOT NULL,touch_bar_ms INTEGER NOT NULL,
         selected INTEGER NOT NULL,payload_json TEXT NOT NULL,created_ms INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS boundary_states(order_id TEXT,known_ms INTEGER,payload_json TEXT NOT NULL,
+        PRIMARY KEY(order_id,known_ms));
+      CREATE TABLE IF NOT EXISTS manager_states(order_id TEXT PRIMARY KEY,payload_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS exit_trades(
         trade_id TEXT PRIMARY KEY, exit_mode TEXT NOT NULL, status TEXT NOT NULL,
@@ -165,7 +170,8 @@ def setting_blockers():
     if not contract() or "!" in contract(): reasons.append("explicit_contract_required")
     if contract() != os.environ.get("EXEC_TICKER", "").strip(): reasons.append("feed_broker_contract_mismatch")
     if not os.environ.get("AB_V3_FEED_TOKEN"): reasons.append("feed_token_missing")
-    if not os.environ.get("AB_V3_BROKER_TOKEN"): reasons.append("broker_token_missing")
+    if not (os.environ.get("AB_V3_POSITION_TOKEN") or os.environ.get("AB_V3_BROKER_TOKEN")):
+        reasons.append("position_event_token_missing")
     if os.environ.get("AB_V3_EXCLUSIVE_ROUTE", "0") != "1": reasons.append("exclusive_route_not_confirmed")
     if os.environ.get("AB_V3_DETECTOR_CONTRACT_VERIFIED", "0") != "1": reasons.append("detector_archive_contract_unverified")
     try:
@@ -193,7 +199,7 @@ def _bar(raw, tf, current):
     return at, dict(ts_event=stamp.tz_convert("UTC").isoformat(), **vals)
 
 
-def ingest(body, current=None):
+def ingest(body, current=None, notify_m1=True):
     current = now_ms() if current is None else int(current)
     if body.get("contract") != contract() or not contract(): raise ValueError("contract mismatch")
     tf = body.get("tf")
@@ -213,7 +219,7 @@ def ingest(body, current=None):
                 changed.append((at,bar))
     # Forward one M1 stream into the existing detector, never 1s. Historical
     # preload intentionally does not send old bars into the live worker.
-    if tf == "M1" and _M1_CALLBACK:
+    if tf == "M1" and notify_m1 and _M1_CALLBACK:
         for at,bar in sorted(changed):
             if 0 <= current-(at+60000) <= 10000:
                 _M1_CALLBACK(bar)
@@ -248,13 +254,15 @@ def prepare(order, claim=False):
                  target_price=float(order["target_price"]), risk_points=float(order["risk_points"]),
                  contract=contract(), route_id=route(), account_label=os.environ.get("ACCOUNT_LABEL", "account"),
                  snapshot=snap, policy=policy.POLICY)
+    value['lifecycle'] = position_manager.LIFECYCLE
+    value['boundary_context'] = (snap or {}).get('boundary_context')
     value['baseline_target_price'] = value['target_price']
     value['target_price'] = entry_target(order)
     value['runner_enabled'] = value['target_price'] != value['baseline_target_price']
     with connect() as c:
         if claim and mode() == 'LIVE':
             c.execute('BEGIN IMMEDIATE')
-            if c.execute("SELECT COUNT(*) FROM orders WHERE order_id<>? AND state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')",(order['order_id'],)).fetchone()[0]:
+            if c.execute("SELECT COUNT(*) FROM orders WHERE order_id<>? AND state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')",(order['order_id'],)).fetchone()[0]:
                 raise ValueError('exclusive route already owned')
         c.execute("INSERT OR IGNORE INTO orders VALUES(?,?,?,?,?)",
                   (order["order_id"],"PREPARED",dump(value),None,now_ms()))
@@ -272,15 +280,8 @@ def record_quantity(order_id, quantity):
 def record_dispatch(order, result):
     if order.get("strategy") != "AB_DIRECTIONAL" or mode() == "OFF": return
     prepare(order)
-    state = "WAITING_BROKER_FILL" if result.get("state") == "SENT" else str(result.get("state", "ERROR"))
-    with connect() as c:
-        old = c.execute("SELECT order_json FROM orders WHERE order_id=?", (order["order_id"],)).fetchone()
-        value = json.loads(old[0])
-        value["quantity"] = result.get("quantity")
-        value["dispatch_reason"] = result.get("reason")
-        # Never regress a faster broker-confirmed state back to SENT.
-        c.execute("UPDATE orders SET state=CASE WHEN position_json IS NULL THEN ? ELSE state END,order_json=?,updated_ms=? WHERE order_id=?",
-                  (state,dump(value),now_ms(),order["order_id"]))
+    position_manager.accept_entry(order, result)
+
 
 
 def broker_event(body, current=None):
@@ -291,7 +292,7 @@ def broker_event(body, current=None):
     """
     current = now_ms() if current is None else int(current)
     kind = body.get("event")
-    if kind not in {"POSITION", "CLOSED", "CANCELLED", "FLAT"}: raise ValueError("unknown broker event")
+    if kind not in {"POSITION", "CLOSED", "CANCELLED", "NO_FILL", "EXPIRED", "FLAT"}: raise ValueError("unknown broker event")
     eid = str(body.get("event_id") or "")
     at = int(body["event_ms"])
     if not eid or len(eid)>200 or at>current+1000: raise ValueError("invalid event identity/time")
@@ -306,7 +307,7 @@ def broker_event(body, current=None):
             return dict(duplicate=True)
         if kind == "FLAT":
             if int(body.get("quantity", -1)) != 0: raise ValueError("FLAT must have zero quantity")
-            unresolved = c.execute("SELECT COUNT(*) FROM orders WHERE state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')").fetchone()[0]
+            unresolved = c.execute("SELECT COUNT(*) FROM orders WHERE state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')").fetchone()[0]
             if unresolved: raise ValueError("resolve known orders before FLAT")
             previous = c.execute("SELECT value FROM meta WHERE key='flat'").fetchone()
             if previous and json.loads(previous[0])["event_ms"] >= at: raise ValueError("stale FLAT event")
@@ -320,8 +321,14 @@ def broker_event(body, current=None):
                 raise ValueError('order belongs to a different route/account/contract')
             if at < order['activation_ms']: raise ValueError('event before order activation')
             previous = json.loads(row["position_json"]) if row["position_json"] else {}
-            if at <= previous.get("event_ms", -1): raise ValueError("out-of-order broker event")
-            if row["state"] in {"CLOSED", "CANCELLED"}: raise ValueError("terminal order")
+            if kind in position_manager.INVALIDATIONS:
+                if row['state'] == 'CLOSED': return dict(ignored=True,reason='already_closed')
+                position_manager.invalidate(c, oid, kind, current)
+                c.execute("INSERT INTO broker_events VALUES(?,?,?,?,?)", (eid,fingerprint,oid,at,current))
+                return dict(accepted=True,state=kind)
+            if at <= previous.get("event_ms", -1) and not previous.get('assumed'):
+                raise ValueError("out-of-order broker event")
+            if row["state"] in {"CLOSED", "CANCELLED", "NO_FILL", "EXPIRED"}: raise ValueError("terminal order")
             if kind == "POSITION":
                 qty = int(body["quantity"])
                 if qty != body["quantity"] or qty <= 0: raise ValueError("invalid quantity")
@@ -331,23 +338,31 @@ def broker_event(body, current=None):
                     raise ValueError("invalid fill timestamp/price")
                 if not body.get("position_id") or body.get("direction") != order["direction"]:
                     raise ValueError("position identity/direction mismatch")
-                if previous.get("position_id") and previous["position_id"] != body["position_id"]:
+                if not previous.get("assumed") and previous.get("position_id") and previous["position_id"] != body["position_id"]:
                     raise ValueError("position changed")
-                if previous.get("fill_ms") and (previous["fill_ms"] != fill or previous["entry_price"] != avg):
+                if not previous.get("assumed") and previous.get("fill_ms") and (previous["fill_ms"] != fill or previous["entry_price"] != avg):
                     raise ValueError("fill changed")
-                other = c.execute("SELECT COUNT(*) FROM orders WHERE order_id<>? AND state IN ('OPEN','EXIT_PENDING','EXIT_UNKNOWN','OWNERSHIP_MISMATCH')", (oid,)).fetchone()[0]
+                other = c.execute("SELECT COUNT(*) FROM orders WHERE order_id<>? AND state IN ('ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','OWNERSHIP_MISMATCH')", (oid,)).fetchone()[0]
                 compatible = (body.get("exclusive") is True and not other and qty == order.get("quantity")
                     and avg == order["entry_price"] and body.get("stop_price") == order["stop_price"]
                     and body.get("target_price") == order["target_price"])
-                state = row["state"] if row["state"] in {"EXIT_PENDING", "EXIT_UNKNOWN", "EXIT_REJECTED"} else "OPEN" if compatible else "OWNERSHIP_MISMATCH"
+                state = row["state"] if row["state"] in {"EXIT_PENDING", "EXIT_UNKNOWN", "EXIT_REJECTED", "GUARD_EXIT_PENDING"} else ("BROKER_CONFIRMED_OPEN" if order.get("lifecycle")==position_manager.LIFECYCLE else "OPEN") if compatible else "OWNERSHIP_MISMATCH"
             else:
                 if int(body.get("quantity", -1)) != 0: raise ValueError("terminal event needs quantity zero")
                 if kind == "CANCELLED" and previous.get("position_id"): raise ValueError("filled order cannot be cancelled")
-                if kind == "CLOSED" and (not previous.get("position_id") or body.get("position_id") != previous["position_id"]):
+                if kind == "CLOSED" and not previous.get("assumed") and (not previous.get("position_id") or body.get("position_id") != previous["position_id"]):
                     raise ValueError("closed position mismatch")
                 state = kind
                 if body.get("realized_net_usd") is not None and not math.isfinite(float(body["realized_net_usd"])):
                     raise ValueError("invalid realized PNL")
+            if kind == 'POSITION' and previous.get('assumed'):
+                # Rebuild inference using real fill time, with no stale assumed features.
+                c.execute('DELETE FROM boundary_states WHERE order_id=?',(oid,))
+                c.execute('DELETE FROM manager_states WHERE order_id=?',(oid,))
+                if not c.execute('SELECT 1 FROM actions WHERE order_id=?',(oid,)).fetchone():
+                    c.execute('UPDATE exit_trades SET signal_time=NULL,primary_reason=NULL,primary_manager=NULL WHERE trade_id=?',(oid,))
+                    _exit_transition(c,oid,'MONITORING',current,'broker_confirmation_rebuild')
+                body=dict(body,assumed=False)
             c.execute("UPDATE orders SET state=?,position_json=?,updated_ms=? WHERE order_id=?", (state,dump(body),current,oid))
             if kind in ("POSITION","CLOSED"):
                 c.execute("INSERT OR IGNORE INTO exit_trades(trade_id,exit_mode,status,updated_ms) VALUES(?,?,?,?)",
@@ -389,7 +404,7 @@ def broker_event(body, current=None):
 
 
 def entry_blocker(order):
-    """LIVE V3 requires an exclusive, fresh broker-flat route before ENTRY."""
+    """Guarded exclusive route; assumed fills do not require broker snapshots."""
     if mode() != "LIVE": return None
     if order.get("strategy") != "AB_DIRECTIONAL": return "v3_exclusive_route_other_strategy"
     blockers = setting_blockers()
@@ -405,16 +420,19 @@ def entry_blocker(order):
             return "v3:runner_requires_legacy_exit_disabled"
         try: entry_target(order)
         except (ValueError,KeyError,TypeError): return "v3:runner_entry_geometry_invalid"
+    try:
+        position_manager.check_models()
+    except Exception:
+        return 'v3:boundary_models_unavailable'
     source = _payload(order)
     snap = source.get("v3_snapshot") or {}
     if not all(policy.finite(snap.get(k)) for k in ("source_level", "fvg_edge")): return "v3:snapshot_missing"
     current = now_ms()
     if not int(order['activation_ms']) <= current < int(order['expiry_ms']): return 'v3:order_outside_activation_expiry'
     with connect() as c:
-        if c.execute("SELECT COUNT(*) FROM orders WHERE state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')").fetchone()[0]:
+        if c.execute("SELECT COUNT(*) FROM orders WHERE state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')").fetchone()[0]:
             return "v3:broker_order_unresolved"
-        flat = c.execute("SELECT value FROM meta WHERE key='flat'").fetchone()
-        if not flat or not 0 <= current-json.loads(flat[0])["event_ms"] <= 2000: return "v3:broker_flat_not_fresh"
+        # The local unresolved-order ledger is authoritative in assumed mode.
         s = c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?", (contract(),)).fetchone()[0]
         if s is None or not 0 <= current-(s+1000) <= 5000: return "v3:1s_feed_not_fresh"
     return None
@@ -440,11 +458,9 @@ def prepared_entry_blocker(signal):
             return 'v3:prepared_geometry_mismatch'
         if o.get('runner_enabled') and (not runner_parity_ok() or not runner.model_ok(current)):
             return 'v3:runner_parity_or_year_failed'
-        if c.execute("SELECT 1 FROM orders WHERE order_id<>? AND state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH') LIMIT 1",(oid,)).fetchone():
+        if c.execute("SELECT 1 FROM orders WHERE order_id<>? AND state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH') LIMIT 1",(oid,)).fetchone():
             return 'v3:other_order_unresolved'
-        flat=c.execute("SELECT value FROM meta WHERE key='flat'").fetchone()
-        if not flat or not 0 <= current-json.loads(flat[0])['event_ms'] <= 2000:
-            return 'v3:broker_flat_not_fresh'
+        # No broker FLAT dependency for assumed entries.
         sec=c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?",(o['contract'],)).fetchone()[0]
         if sec is None or not 0 <= current-sec-1000 <= 5000: return 'v3:1s_feed_not_fresh'
     return None
@@ -681,16 +697,16 @@ def dispatch_frozen_exits():
             if not frozen_parity_ok(): reason="historical_parity_failed"
             elif row["primary_manager"] == "RUNNER" and not runner_parity_ok(): reason="runner_parity_failed"
             elif exit_blockers(): reason=";".join(exit_blockers())
-            elif row["state"] != "OPEN": reason="trade_not_open"
+            elif row["state"] not in ("OPEN",*position_manager.ACTIVE): reason="trade_not_open"
             elif row["signal_time"] is None or age > 10000 or age < 0: reason="stale_signal_or_no_next_open"
-            elif age < 1000: continue
+            elif age < 1000 and order.get("lifecycle") != position_manager.LIFECYCLE: continue
             elif order["contract"] != contract() or order["route_id"] != route() or order["account_label"] != os.environ.get("ACCOUNT_LABEL","account"):
                 reason="order_identity_mismatch"
             elif not position.get("exclusive") or position.get("contract") != order["contract"] or position.get("route_id") != order["route_id"] or position.get("account_label") != order["account_label"] or position.get("direction") != order["direction"]:
                 reason="broker_position_identity_mismatch"
             elif int(position.get("quantity",0)) <= 0 or position.get("quantity") != order.get("quantity"):
                 reason="broker_position_quantity_mismatch"
-            elif not row["signal_time"]+1000 <= int(position.get("event_ms",0)) <= current or current-int(position.get("event_ms",0)) > 2000:
+            elif order.get("lifecycle") != position_manager.LIFECYCLE and (not row["signal_time"]+1000 <= int(position.get("event_ms",0)) <= current or current-int(position.get("event_ms",0)) > 2000):
                 continue  # Wait inside the 10-second window for a fresh broker snapshot.
             else:
                 s=c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?",(order["contract"],)).fetchone()[0]
@@ -712,31 +728,10 @@ def dispatch_frozen_exits():
                 continue
             c.execute("UPDATE exit_trades SET requested_time=?,broker_request_id=?,updated_ms=? WHERE trade_id=?",(current,aid,current,oid))
             _exit_transition(c,oid,"EXIT_REQUESTED",current)
-            c.execute("UPDATE orders SET state='EXIT_UNKNOWN',updated_ms=? WHERE order_id=? AND state='OPEN'",(current,oid))
+            c.execute("UPDATE orders SET state='EXIT_UNKNOWN',updated_ms=? WHERE order_id=? AND state IN ('OPEN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN')",(current,oid))
             tasks.append((aid,oid,payload))
     for aid,oid,payload in tasks:
-        status="EXIT_REQUESTED"; order_state="EXIT_UNKNOWN"; response=None; error="broker_response_unknown_no_retry"
-        try:
-            r=_send_broker_exit(payload)
-            body=r.json()
-            response={"http_status":int(r.status_code),"success":body.get("success"),
-                      "broker_order_id":body.get("orderId") or body.get("order_id") or body.get("id"),
-                      "body":body}
-            if 200 <= r.status_code < 300 and body.get("success") is True:
-                status="EXIT_ACKNOWLEDGED";order_state="EXIT_PENDING";error=None
-            elif 400 <= r.status_code < 500:
-                status="EXIT_REJECTED";order_state="EXIT_REJECTED";error="broker_rejected_close"
-        except Exception:
-            pass
-        with connect() as c:
-            c.execute("UPDATE actions SET state=?,updated_ms=? WHERE action_id=?",(order_state,now_ms(),aid))
-            c.execute("UPDATE orders SET state=?,updated_ms=? WHERE order_id=? AND state='EXIT_UNKNOWN'",(order_state,now_ms(),oid))
-            c.execute("UPDATE exit_trades SET broker_order_id=?,broker_response_json=?,broker_ack_time=?,error_reason=CASE WHEN status='EXIT_REQUESTED' THEN ? ELSE error_reason END,updated_ms=? WHERE trade_id=?",
-                      (response.get("broker_order_id") if response else None,dump(response) if response else None,
-                       now_ms() if status=="EXIT_ACKNOWLEDGED" else None,error,now_ms(),oid))
-            still=c.execute("SELECT status FROM exit_trades WHERE trade_id=?",(oid,)).fetchone()
-            if still and still[0] == "EXIT_REQUESTED":
-                _exit_transition(c,oid,status,now_ms(),error)
+        position_manager.send_exit(aid,oid,payload)
 
 
 def dispatch_exits():
@@ -810,7 +805,7 @@ def status():
                 account_label=os.environ.get("ACCOUNT_LABEL","account"),blockers=blockers,
                 feeds=feeds,orders=orders,actions=actions,decisions=logs,
                 exits=exit_status(),
-                execution_note="HTTP acceptance is not broker fill; CLOSED only from authenticated broker bridge.")
+                execution_note="ASSUMED_OPEN uses accepted entry price/time, not broker fill. Assumed CLOSED has no broker P&L; confirmation remains explicit.")
 
 
 def _session(ms):
@@ -855,7 +850,8 @@ def exit_status():
             r.pop("broker_response_json",None)
             r["triggered_managers"]=json.loads(r["triggered_managers"] or "[]")
             r["triggered_reasons"]=json.loads(r["triggered_reasons"] or "[]")
-            r.update(direction=order["direction"],entry=position.get("entry_price",order["entry_price"]),
+            r.update(assumed=bool(position.get("assumed")),closure_basis=position.get("closure_basis"),
+                     direction=order["direction"],entry=position.get("entry_price",order["entry_price"]),
                      original_sl=order["stop_price"],original_tp=order.get("baseline_target_price",order["target_price"]),
                      broker_tp=order["target_price"],
                      quantity=order.get("quantity"),activation_ms=order["activation_ms"],
@@ -864,7 +860,7 @@ def exit_status():
             rd=c.execute("SELECT payload_json FROM runner_decisions WHERE order_id=?",(r['trade_id'],)).fetchone()
             r['runner']=json.loads(rd[0]) if rd else dict(decision_kind='WAIT_2R' if order.get('runner_enabled') else 'OFF')
             records.append(r)
-    real_closed=sorted((x for x in records if x["status"]=="CLOSED" and x["exit_mode"]=="real"),
+    real_closed=sorted((x for x in records if x["status"]=="CLOSED" and x["exit_mode"]=="real" and not x.get("assumed")),
                        key=lambda x:(x["fill_time"] or 0,x["trade_id"]))
     reason_stats=[]
     explanations=dict(frozen_exit.EXPLANATIONS,
@@ -898,26 +894,34 @@ def exit_status():
                 title="A/B V3 · M3 OBFH + 10-minute window · Model 0 runner",
                 runner_status=("LIVE_2R_TO_3R" if runner_enabled() and runner_parity_ok() and runner.model_ok(now_ms()) and not exit_blockers()
                                else "BLOCKED" if runner_enabled() else "OFF_FOR_NEW_ENTRIES"),
-                open=[x for x in records if x["broker_state"] not in ("CLOSED","CANCELLED")],
+                open=[x for x in records if x["broker_state"] not in ("CLOSED","CANCELLED","NO_FILL","EXPIRED")],
                 completed=[x for x in records if x["status"]=="CLOSED"],
                 metrics=_metrics(real_closed),reason_stats=reason_stats,
                 manager_contribution=contributions,overlap=overlaps,cuts=cuts)
 
 
 def _tick():
+    # A 1s batch arriving during Boundary inference must not be dropped.
+    _TICK_PENDING.set()
     if not _LOCK.acquire(blocking=False): return
     try:
-        monitor()
-        monitor_runner()
-        monitor_frozen()
-        signal_runner_exits()
-        dispatch_frozen_exits()
-        dispatch_exits()
-    except Exception as exc:
-        with connect() as c:
-            c.execute("INSERT OR REPLACE INTO meta VALUES('monitor_error',?)", (type(exc).__name__,))
+        while _TICK_PENDING.is_set():
+            _TICK_PENDING.clear()
+            try:
+                position_manager.monitor()
+                monitor()
+                monitor_runner()
+                monitor_frozen()
+                signal_runner_exits()
+                dispatch_frozen_exits()
+                dispatch_exits()
+            except Exception as exc:
+                with connect() as c:
+                    c.execute("INSERT OR REPLACE INTO meta VALUES('monitor_error',?)", (type(exc).__name__,))
     finally:
         _LOCK.release()
+        if _TICK_PENDING.is_set():
+            threading.Thread(target=_tick,daemon=True).start()
 
 
 def _v3_candidates(c):
@@ -949,7 +953,9 @@ def register(app, m1_callback=None, route_callback=None):
 
     def broker():
         body = request.get_json(silent=True) or {}
-        if not authenticated("AB_V3_BROKER_TOKEN","X-V3-Broker-Token",body): return jsonify(error="unauthorized"),401
+        if not (authenticated("AB_V3_BROKER_TOKEN","X-V3-Broker-Token",body)
+                or authenticated("AB_V3_POSITION_TOKEN","X-V3-Position-Token",body)):
+            return jsonify(error="unauthorized"),401
         try: result = broker_event(body)
         except (ValueError,KeyError,TypeError,OverflowError): return jsonify(error="invalid broker event or ownership mismatch"),400
         threading.Thread(target=_tick,daemon=True).start()

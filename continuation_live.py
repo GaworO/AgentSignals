@@ -210,11 +210,11 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
                 result.setdefault("state", "ERROR")
             except Exception as exc:
                 result = {"state": "ERROR", "reason": f"{type(exc).__name__}: {exc}"}
-        _finish(str(row["order_id"]), result, now)
         try:
             ab_v3_live.record_dispatch(row, result)
         except Exception as exc:
             print("[ab-v3] dispatch audit error", type(exc).__name__, flush=True)
+        _finish(str(row["order_id"]), result, now)
         processed.append({"order_id": row["order_id"], "direction": row["direction"], **result})
     return {"status": "ok", "processed": len(processed), "results": processed}
 

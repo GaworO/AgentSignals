@@ -38,6 +38,13 @@ def attach(raw, candidates, orders, base, short_engine):
                 price=base.tick(price) if known else None, state="OPEN" if known else "UNKNOWN",
                 tier=pool.get("priority_tier"), constituents=pool.get("constituent_levels", []), selected_at_ms=at),
             source_contract_identity="ARCHIVE_REQUIRES_VERIFICATION", dol_tag=d)
+        epoch = next(e for e in epochs if e['epoch'] == int(row['epoch']))
+        snap['boundary_context'] = dict(
+            setup_ms=int(raw.ts_event.iloc[int(row['s'])].timestamp()*1000),
+            context_start_ms=int(raw.ts_event.iloc[int(epoch['start'])].timestamp()*1000),
+            source_price=source.get(prefix+'_price'),
+            source_formed_ms=source.get('level_formed_ms'),
+            fvg_lo=row.get('fvg_lo'),fvg_hi=row.get('fvg_hi'))
         row["v3_snapshot"] = snap
         by_id[row["candidate_id"]] = snap
     for order in orders:

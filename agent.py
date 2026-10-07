@@ -1226,6 +1226,10 @@ def _process_bar_jobs(jobs):
     return res
 
 def _after_bar_processed(b, now_ms):
+    try:
+        ab_v3_live.position_manager.on_m1(b)
+    except Exception as exc:
+        print('[ab-v3] M1 manager intake error', type(exc).__name__, flush=True)
     try:                                              # sledzenie 1R/3R — nie moze ruszyc intake'u
         _hi=float(b['high']); _lo=float(b['low'])
         def _msend(m):

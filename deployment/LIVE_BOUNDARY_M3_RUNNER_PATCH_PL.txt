@@ -1,0 +1,128 @@
+A/B DIRECTIONAL -> ASSUMED_OPEN -> BOUNDARY -> POSITION MANAGER -> M3 / MODEL 0 -> CLOSED
+
+Baza: AgentSignals-main - 2026-10-07T103736.183.zip
+SHA256 bazy: d0f3911441d314058773d4ff64868bea5a87f60db1210d9f50f645fe134cab5d
+Podmień/dodaj pliki z patcha w katalogu głównym tej wersji repo. Struktura ZIP jest względna do repo.
+Zainstaluj requirements.txt. Dodano scikit-learn==1.7.2 (wersja serializacji frozen modeli).
+Patch nie wykonuje deploymentu i nie przełącza Guard w AUTO.
+
+KONFIGURACJA DOCELOWEGO RUNTIME
+Ustawienia w istniejącym środowisku muszą odpowiadać poniższym. Stare profile ENTRY_ONLY/SHADOW
+nie uruchamiają docelowego runtime. Ten plik jest instrukcją, nie jest automatycznie wczytywany.
+
+EXEC_STRATEGY_POLICY=V3_ONLY
+AB_V3_MODE=LIVE
+AB_DIRECTIONAL_LIVE_LONG=1
+AB_DIRECTIONAL_LIVE_SHORT=1
+CONTINUATION_SHADOW_ENABLED=1
+V3_RUNNER_ENABLED=true
+V3_EXIT_MODE=real
+V3_EXIT_M1_ENABLED=false
+V3_EXIT_M2_ENABLED=false
+V3_EXIT_M3_ENABLED=true
+AB_V3_LEGACY_EXIT_ENABLED=false
+
+Zachowane bramki wykonania: V3_ENTRY_ARMED, EXEC_MODE/AUTO_SUBMIT, Guard i limity ryzyka,
+V3_EXIT_REAL_EXECUTION, V3_EXIT_LIVE_PARITY_VERIFIED, V3_EXIT_SHADOW_VERIFIED,
+V3_EXIT_STAGING_CLOSE_VERIFIED (lub dotychczasowy staging test). Nie są omijane przez assumed fill.
+Testy offline patcha nie są potwierdzeniem wykonania live/staging. Zachowaj prawdziwy stan tych bramek.
+AB_V3_CONTRACT i EXEC_TICKER: ten sam rzeczywisty kontrakt, bez !; zachowane PRICE_OFFSET=0,
+AB_V3_EXCLUSIVE_ROUTE=1 i AB_V3_DETECTOR_CONTRACT_VERIFIED=1 wymagają poprawnego przypisania feedu.
+EXEC_WEBHOOK pozostaje dotychczasowym kanałem emisji entry/close. Nie dodano broker API.
+AB_V3_FEED_TOKEN chroni istniejący intake. Potrzebny jest aktywny feed M1 + 1s.
+Dla /bars/1s nadal obowiązuje TV_1S_SYMBOL i AB_V3_TV_MAPPING_VERIFIED=1.
+Dodaj silny AB_V3_POSITION_TOKEN do jawnych zdarzeń pozycji; alternatywnie zachowany AB_V3_BROKER_TOKEN.
+Token nie jest feedem brokera i nie wymaga broker API. Żaden sekret nie znajduje się w patchu.
+
+CYKL POZYCJI
+- Dopiero wynik SENT (zaakceptowana emisja entry z prawidłową ilością) tworzy ASSUMED_OPEN.
+- Cena assumed to cena LIMIT, czas assumed to czas zaakceptowania emisji. To założenie, nie broker fill.
+- Nie czeka na POSITION ani FLAT. Nie czeka na dotknięcie LIMIT i nie wygasa automatycznie po 10 minutach.
+- NO_FILL / CANCELLED / EXPIRED z poprawnym order_id usuwa position_json, blokuje późniejsze callbacki,
+  inference i dispatch. Wiersz order pozostaje jako terminalny zapis chroniący przed odtworzeniem trade'u.
+  Historyczne score'y i decyzje pozostają do audytu, ale nie są wykonywalne.
+- POSITION z prawidłową własnością/ilością/geometrią promuje do BROKER_CONFIRMED_OPEN; częściowe fills
+  lub rozbieżności nadal trafiają do OWNERSHIP_MISMATCH. Żaden obcy trade nie jest adoptowany.
+- CLOSED po zaakceptowanym wyjściu assumed, dotknięciu SL/targetu w danych 1s lub zaakceptowanym
+  Guard flatten ma closure_basis=ASSUMED_*. Nie wpisuje ceny rzeczywistego fill ani broker P&L.
+- Po promocji na potwierdzoną pozycję final CLOSED wymaga zdarzenia CLOSED brokera.
+- Niepewny wynik HTTP wyjścia pozostaje EXIT_UNKNOWN, bez automatycznej ponownej emisji.
+- SQLite serializuje anulowanie z ostatnią kontrolą przed wysłaniem exit. Polecenia już wysłanego nie da
+  się cofnąć; anulowanie zaakceptowane przed jego emisją uniemożliwia wysłanie.
+- Guard przejmuje pozycję przed flatten; recovery nie blokuje Guard/SL. Orphan sweep nie traktuje
+  modelowanego no_fill ze starego shadow book jako jawnego NO_FILL aktywnej assumed position.
+
+BOUNDARY I MANAGER
+Niezmienione artefakty: WIN_TEMPORAL_CHECK (WinExpert), CHRONO_94_24 (LossExpert), BOUNDARY_MODEL.
+Hash każdego jest sprawdzany przy ładowaniu; żadnego fit/retrain. Brak lub uszkodzony model blokuje nowe entry LIVE.
+WIN >=0.50 i LOSS >=0.75 w tej samej minucie uruchamia frozen Boundary.
+Frozen Boundary: RECOVERY gdy score>=0.70 i bootstrap p10>0.50;
+FAILURE gdy score<=0.30 i bootstrap p90<0.50; inaczej AMBIGUOUS.
+Poza HIGH-HIGH: NO_BOUNDARY_YET. To score'y frozen, nie nowe skalibrowane prawdopodobieństwa.
+
+FAILURE -> LOSER_LIKELY, CLOSE tylko z potwierdzonym M3.
+RECOVERY -> WINNER_LIKE / RECOVERY, blokuje M3 (zgodnie z ustaleniem).
+AMBIGUOUS / NO_BOUNDARY_YET -> standardowe validated M3.
+M3: F2, B11, OBFH_EXPANSION, OBFH_3_CLOSES_10M; kolejność i formuły bez zmian w v3_frozen_exit.py.
+B13/MSS oraz S1-S4/retest A/B są wejściowymi obserwacjami frozen ekspertów, NIE dodatkowymi close rules.
+Nowe pozycje nie przechodzą przez równoległe stare M1/M2/MTF managery. Stare pozycje OPEN zachowują
+wcześniejszą ścieżkę; patch nie migruje ani nie adoptuje otwartych pozycji sprzed wdrożenia.
+
+ŹRÓDŁA STANÓW
+ab_v3_snapshot zapisuje causal setup/source/FVG i początek epoki kontraktu. Reguły entry są niezmienione.
+Przy accepted entry warmup czyta DATA_DIR/archive.csv tego samego zweryfikowanego detektora,
+wyłącznie od początku epoki do zamkniętych świec sprzed aktywacji. Dalej używa persystowanych M1 tego kontraktu.
+M1 otrzymuje zarówno /bars, jak i istniejący bridge TV; konflikt nie nadpisuje istniejącej świecy.
+Cechy 305/38 i formuły HTF są skopiowane z frozen research do niezależnego modułu produkcyjnego.
+Brak pełnych danych/metadata jest widoczny jako feature_error i NO_BOUNDARY_YET z null score'ami.
+Nie podstawiamy zmyślonych score'ów. Standardowy M3 pozostaje wtedy dostępny, jeśli jego dane są kompletne.
+Pełny stan ekspertów powstaje dopiero po pierwszej kompletnej świecy M1 po minucie fill.
+Luki M1 w czasie trade'u uniemożliwiają wiarygodną rekonstrukcję tych modeli; nie są forward-fillowane.
+
+RUNNER I CZAS WYKONANIA
+Niezmienione v3_runner.py / v3_runner_model_2026.json; probability >0.75 -> HOLD_3R, <=0.75 -> EXIT_2R.
+SL i docelowy bracket 3R pozostają oryginalne; runner jest podejmowany raz, przy pierwszym dostępnym 2R.
+Po 2R M3 nie generuje późniejszych failure exits. Boundary może dalej zapisywać obserwacje.
+Brak pełnych wejść modelu/sekund dotknięcia -> zachowany konserwatywny EXIT_2R_DATA_FALLBACK.
+Model 0 nie obsługuje dotknięcia 2R w minucie fill: ten przypadek również używa fallback, bez zmiany modelu.
+Zachowana ważność zamrożonego Model 0 na rok 2026.
+
+Feed TV wysyła zamknięte paczki minutowe. Timestamp dotknięcia i timestamp emisji są rozdzielone:
+wyjście jest rynkowe po otrzymaniu danych, a NIE gwarantowanym wykonaniem po historycznej cenie 2R.
+Runner akceptuje świeżą paczkę zawierającą touch sprzed <=75 s oraz M1 zamknięty <=15 s temu;
+przed HTTP nadal obowiązuje świeżość 1s <=5 s i sygnału <=10 s. M3 nie wykonuje historycznych zaległych sygnałów.
+Zaobserwowane SL/3R w paczce mają pierwszeństwo przed nową próbą close.
+
+JAWNE ANULOWANIE (istniejący endpoint; bez nowej usługi)
+POST /ab/v3/broker
+Header: X-V3-Position-Token: wartość AB_V3_POSITION_TOKEN
+JSON (wartości identyfikujące muszą dokładnie odpowiadać zapisowi trade'u):
+{
+  "event": "NO_FILL",
+  "event_id": "unikalny-id-zdarzenia",
+  "event_ms": 1791381601000,
+  "order_id": "rzeczywisty-order-id",
+  "route_id": "rzeczywisty-route-id",
+  "contract": "rzeczywisty-kontrakt",
+  "account_label": "rzeczywista-etykieta-konta"
+}
+CANCELLED i EXPIRED używają tego samego formatu. Powtórzony identyczny event_id jest idempotentny.
+Timestamps są w UTC ms. POST POSITION/CLOSED zachowuje dotychczasowy pełny protokół broker bridge.
+
+TESTY OFFLINE
+python -m pytest tests/test_v3_boundary_runtime.py -q
+Testy blokują sieć, izolują SQLite i sprawdzają cykl pozycji, invalidation/dispatch race, Guard,
+M3/recovery, runner > vs <=0.75, dokładne historyczne score'y wszystkich trzech klas Boundary,
+305 cech historycznego trade'u z sygnałem S4, oraz brak wpływu przyszłych świec.
+Entry: istniejące tests/test_ab_directional_entry_rules.py uruchamiać w izolowanym runtime detcore,
+jak continuation_scan_runtime (sys.path.insert(0, 'continuation_runtime'); import detcore przed pytest).
+
+PORÓWNANIE Z BAZĄ
+W szerszej regresji 81 istniejących testów: baza 77 PASS / 4 FAIL, patch 78 PASS / 3 FAIL.
+Naprawiony: authenticated_batch_goes_to_manager_not_detector (niezgodny argument notify_m1).
+Pozostałe, występujące również w bazie:
+- test_many_source_triggers_do_not_hide_confirmed_candidates: oczekuje 61, endpoint zwraca 1;
+- test_release_live_gates_cannot_be_enabled_by_variables: oczekuje usuniętej już w bazie bramki release;
+- test_ab_directional_has_independent_live_switch_and_classification: stary fixture jest odrzucany
+  przez obowiązujące już w bazie filtry/evidence entry.
+Nie zmieniano tych testów, modeli, plików research ani historycznych deklaracji wyników live.
