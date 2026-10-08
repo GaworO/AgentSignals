@@ -1,5 +1,5 @@
 'use strict';
-const titles={overview:'A clear view of every decision.',candidates:'Trade candidates',context:'AI context',executions:'50K Builder executions',feed:'Market data'};
+const titles={overview:'A clear view of every decision.',candidates:'Trade candidates',context:'AI context',plans:'Plan readiness',executions:'50K Builder executions',feed:'Market data'};
 if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');
 function route(){const key=location.hash.slice(1) in titles?location.hash.slice(1):'overview';document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!==key);document.querySelectorAll('nav a').forEach(e=>e.classList.toggle('active',e.hash==='#'+key));document.getElementById('title').textContent=titles[key];document.getElementById('section-label').textContent=key.toUpperCase();}
 window.addEventListener('hashchange',route);route();
@@ -11,6 +11,7 @@ function show(d){
  const paired=d.feeds.ES.count>0&&d.feeds.MNQ.count>0;text('progress-feed',paired?'Both markets have stored candles':'Waiting for both one-minute feeds');
  rows('candidate-rows',d.candidates.map(c=>[at(c.as_of),c.direction.toUpperCase(),c.timeframe+'m',c.lower+' – '+c.upper,'Needs context']));document.getElementById('candidate-empty').hidden=d.candidates.length>0;
  showAI(d.ai);
+ showPlans(d.plan_observer);
  showConnectionTest(d.connection_test,d.test_csrf);
  const c=d.latest_context;document.getElementById('context-empty').hidden=!!c;const dl=document.getElementById('context-summary');dl.replaceChildren();
  if(c){const p=c.packet;for(const [k,v] of [['Market cutoff',at(p.as_of)+' NY'],['Inputs frozen',at(c.frozen_at)+' NY'],['Packet ID',p.packet_id],['Evidence items',Object.keys(p.evidence).length],['Processing lag',c.processing_delay_seconds+' seconds']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;dl.append(dt,dd);}rows('coverage',['ES','MNQ'].map(s=>[s,c.coverage[s]['1'],c.coverage[s]['5'],c.coverage[s]['60'],c.coverage[s]['240']]));text('packet',JSON.stringify(c,null,2));text('warmup',c.warmup==='PARTIAL_HISTORY'?'Partial history: fewer than three complete 4h bars in at least one market. No context approval.':'Higher-timeframe bars are present. News, contract alignment and strategy judgment still need validation.');text('progress-context','Latest snapshot: '+at(p.as_of)+' NY');}
@@ -61,3 +62,11 @@ testButton.addEventListener('click',async()=>{
  }catch(e){text('test-result',e.message+' — inspect test history before trying again.');}
  finally{testBusy=false;try{const response=await fetch('/api/state',{cache:'no-store'});if(response.ok)show(await response.json());}catch(e){text('test-result','Cannot refresh test status. Reload and inspect history before retrying.');}}
 });
+
+function showPlans(p){
+ if(!p)return;
+ const names={AI_NOT_VALIDATED:'AI review not validated',ABSTAINED:'No trade proposed',CONTEXT_NOT_READY:'Context incomplete',UNSUPPORTED_VARIANT:'Unsupported setup',UNSUPPORTED_ENTRY_MODE:'Entry method unsupported',PLAN_INCOMPLETE:'Plan incomplete',RULE_REVIEW_REQUIRED:'Rules need review',AUDIT_REJECTED:'Evidence check failed'};
+ rows('plan-rows',p.records.map(r=>[at(r.market_cutoff),at(r.available_at),names[r.state]||r.state,[...(r.reasons||[]),...(r.missing_fields||[]).map(s=>'Missing: '+s.replaceAll('_',' '))].join(' ')]));
+ document.getElementById('plan-empty').hidden=p.records.length>0;
+ for(const [id,list] of [['strategy-gaps',p.strategy_gaps],['automation-gaps',p.automation_gaps]]){const node=document.getElementById(id);node.replaceChildren();for(const message of list){const li=document.createElement('li');li.textContent=message;node.appendChild(li);}}
+}
