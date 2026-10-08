@@ -45,6 +45,7 @@ import portfolio_guard  # append-only audit of actual Guard notes; read-only das
 import ab_shallow  # causal A/B-shallow sibling; one shared setup-group budget
 import ab_candidates_view  # /ab/candidates — joined step-by-step A/B + Shallow funnel
 import m15_shadow_strategy  # M15 setup + M5 BOS; isolated candidates/forward shadow, no order path
+import tanja_menu
 
 app = Flask(__name__)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1927,6 +1928,7 @@ _init_db(); _seed_buffer()
 pnl.register(app, DB, render_page=_page, wants_html=_wants_html)   # /pnl unified journal (isolated add-on)
 how_ab.register(app)                        # /how — A/B explainer page (isolated add-on)
 dashboard.register(app)                     # /    — unified home shell (federates existing pages, isolated add-on)
+tanja_menu.install(dashboard)
 tv_seconds_feed.register(app, on_batch=ab_v3_tv.on_batch)
 ab_v3_live.register(app, route_callback=guardrails._exec_route_id)
 dol_dashboard.register(app, DB)              # /dol — A/B DOL diagnostics; no execution path
