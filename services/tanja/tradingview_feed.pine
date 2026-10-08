@@ -1,0 +1,26 @@
+//@version=6
+indicator("Tanja • closed 1m feed v1", overlay = true)
+
+// Install independently on ES1! and MNQ1!, standard 1-minute candles, ETH.
+// Create TWO alerts, each using "Any alert() function call".
+// The private webhook URL belongs in the alert dialog, never in this script.
+// This is a candle exporter, not a strategy or order-execution script.
+if not timeframe.isminutes or timeframe.multiplier != 1
+    runtime.error("Tanja feed requires a 1-minute chart.")
+if not chart.is_standard
+    runtime.error("Use standard candles, not Heikin Ashi, Renko or other synthetic bars.")
+if syminfo.root != "ES" and syminfo.root != "MNQ"
+    runtime.error("Use ES or MNQ. NQ and MES are not interchangeable in this feed.")
+
+// CME futures use "regular" for ETH and "us_regular" for RTH.
+if syminfo.session != "regular" and syminfo.session != "extended"
+    runtime.error("Enable Electronic Trading Hours (ETH). RTH is not accepted.")
+
+number(float value) =>
+    str.tostring(value, "#.########")
+
+if barstate.isrealtime and barstate.isconfirmed and not na(volume)
+    string payload = '{"schema_version":1,"feed_version":"tanja-1m-v1","symbol":"' + syminfo.root + '","ticker":"' + syminfo.prefix + ':' + syminfo.ticker + '","timeframe":"1","session":"' + syminfo.session + '","standard":true,"confirmed":true,"bar_open_ms":' + str.tostring(time) + ',"bar_close_ms":' + str.tostring(time_close) + ',"sent_at_ms":' + str.tostring(timenow) + ',"open":' + number(open) + ',"high":' + number(high) + ',"low":' + number(low) + ',"close":' + number(close) + ',"volume":' + number(volume) + '}'
+    alert(payload, alert.freq_once_per_bar_close)
+
+plot(close, "Feed close", display = display.data_window)

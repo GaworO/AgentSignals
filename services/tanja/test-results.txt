@@ -1,0 +1,23 @@
+test_auth_and_no_order_route (test_service.TestService) ... ok
+test_causal_inversion_observation_not_trade (test_service.TestService) ... ok
+test_changed_ticker_cannot_mix_existing_series (test_service.TestService) ... ok
+test_closed_payload (test_service.TestService) ... ok
+test_cme_regular_means_eth (test_service.TestService) ... ok
+test_concurrent_duplicates_one_job (test_service.TestService) ... ok
+test_duplicates_and_conflicts (test_service.TestService) ... ok
+test_future_bars_cannot_change_queued_packet (test_service.TestService) ... ok
+test_gaps_do_not_invent_candles (test_service.TestService) ... ok
+test_installer_preserves_existing_source (test_service.TestService) ... ok
+test_invalid_config (test_service.TestService) ... ok
+test_menu_validation_and_idempotency (test_service.TestService) ... ok
+test_out_of_order_and_frozen_arrivals (test_service.TestService) ... ok
+test_public_health_and_dashboard_do_not_leak_secrets (test_service.TestService) ... ok
+test_rejects_bad_payloads (test_service.TestService) ... ok
+test_restart_recovers_jobs (test_service.TestService) ... ok
+test_storage_before_ack_no_inline_analysis (test_service.TestService) ... ok
+test_symbol_isolation_and_csv (test_service.TestService) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.291s
+
+OK

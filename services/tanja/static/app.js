@@ -1,0 +1,19 @@
+'use strict';
+const titles={overview:'A clear view of every decision.',candidates:'Trade candidates',context:'AI context',executions:'50K Builder executions',feed:'Market data'};
+if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');
+function route(){const key=location.hash.slice(1) in titles?location.hash.slice(1):'overview';document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!==key);document.querySelectorAll('nav a').forEach(e=>e.classList.toggle('active',e.hash==='#'+key));document.getElementById('title').textContent=titles[key];document.getElementById('section-label').textContent=key.toUpperCase();}
+window.addEventListener('hashchange',route);route();
+const text=(id,value)=>{document.getElementById(id).textContent=value;};
+const at=t=>t?new Date(t*1000).toLocaleString('en-GB',{timeZone:'America/New_York',hour12:false}):'—';
+function rows(id,items){const target=document.getElementById(id);target.replaceChildren();for(const cells of items){const tr=document.createElement('tr');for(const value of cells){const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td);}target.appendChild(tr);}}
+function show(d){
+ for(const s of ['ES','MNQ']){const f=d.feeds[s],p=s.toLowerCase();text(p+'-state',f.state==='NO_DATA'?'No data':f.state==='CURRENT'?'Receiving':'Stale / closed');text(p+'-info',f.count+' bars · '+(f.latest_close?at(f.latest_close)+' NY':'Waiting for TradingView'));}
+ const paired=d.feeds.ES.count>0&&d.feeds.MNQ.count>0;text('progress-feed',paired?'Both markets have stored candles':'Waiting for both one-minute feeds');
+ rows('candidate-rows',d.candidates.map(c=>[at(c.as_of),c.direction.toUpperCase(),c.timeframe+'m',c.lower+' – '+c.upper,'Needs context']));document.getElementById('candidate-empty').hidden=d.candidates.length>0;
+ const c=d.latest_context;document.getElementById('context-empty').hidden=!!c;const dl=document.getElementById('context-summary');dl.replaceChildren();
+ if(c){const p=c.packet;for(const [k,v] of [['Market cutoff',at(p.as_of)+' NY'],['Inputs frozen',at(c.frozen_at)+' NY'],['Packet ID',p.packet_id],['Evidence items',Object.keys(p.evidence).length],['Processing lag',c.processing_delay_seconds+' seconds']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;dl.append(dt,dd);}rows('coverage',['ES','MNQ'].map(s=>[s,c.coverage[s]['1'],c.coverage[s]['5'],c.coverage[s]['60'],c.coverage[s]['240']]));text('packet',JSON.stringify(c,null,2));text('warmup',c.warmup==='PARTIAL_HISTORY'?'Partial history: fewer than three complete 4h bars in at least one market. No context approval.':'Higher-timeframe bars are present. News, contract alignment and strategy judgment still need validation.');text('progress-context','Latest snapshot: '+at(p.as_of)+' NY');}
+ rows('job-rows',d.jobs.map(j=>[at(j.cutoff),j.status+(j.error?' · '+j.error:''),j.processed_at?Math.round(j.processed_at-j.cutoff)+'s':'—']));
+ const ul=document.getElementById('diagnostics');ul.replaceChildren();for(const item of d.diagnostics){const li=document.createElement('li');li.textContent=at(item.at)+' · '+item.kind+' · '+item.message;ul.appendChild(li);}if(!d.diagnostics.length){const li=document.createElement('li');li.textContent='No recent intake errors recorded.';ul.appendChild(li);}
+}
+async function refresh(){try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);show(await r.json());text('connection','Service connected · refreshed '+new Date().toLocaleTimeString()+' · market times shown in New York');document.getElementById('connection').className='';}catch(e){text('connection','Cannot refresh the service. Displayed data may be old. '+e.message);document.getElementById('connection').className='error';}finally{setTimeout(refresh,10000);}}
+refresh();

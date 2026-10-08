@@ -1,0 +1,13 @@
+{
+  "source": "research_tanya_context_v3_20261008",
+  "files": {
+    "context_v3.py": "7a6fc3154da4344ebad345bc43a06d7ff41e9c692b573f33ee2303fa5c3eb077",
+    "context_layer.py": "7558dc911136b51f9a0076ba73209ba6b7630babea20f1baaf13c0b2dc2b01d7",
+    "context_api.py": "984eedad90a91d8d88a9fcf0f08e45d70fe6aabda99e704a8ef9eeaafd1d0dcf",
+    "context_geometry.py": "af727176f84510e65695774c38c8bf789b3e52320c8d1e5e5f463262352e1082",
+    "decision_engine.py": "943dda67f234986b03ff1dd1f3117ef6a6efbb0578fd71a47ca49cae3b602871",
+    "setup_recipes.py": "4ca3fd376eb42a1287dfde6a122e541af3c857fda902284952f339c259478ab9",
+    "tanya_replay.py": "9466eeec6b6bd4ef592ae63f9ce10ce3d55fe404f0dbdadcac54a61e6b0ac140",
+    "prompt_v3.txt": "cef9a066c5d1c784051415dd4ed307015df1421f3ae869bd3b8c9c20b3e62bdb"
+  }
+}

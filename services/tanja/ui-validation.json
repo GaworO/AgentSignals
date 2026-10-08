@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "views": 5,
+  "mobileOverflow": false,
+  "embeddedMode": true,
+  "populatedContextAndCandidates": true,
+  "errors": [],
+  "fixture": "empty local database, no market data or orders"
+}
