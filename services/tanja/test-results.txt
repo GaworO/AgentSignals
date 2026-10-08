@@ -1,3 +1,12 @@
+test_atomic_reservation_restart_and_daily_limit (test_ai.TestAI) ... ok
+test_disabled_missing_config_no_network (test_ai.TestAI) ... ok
+test_http_error_does_not_store_body_or_secret (test_ai.TestAI) ... ok
+test_incomplete_refusal_and_timeout_are_not_decisions (test_ai.TestAI) ... ok
+test_input_limit_and_authenticated_audit (test_ai.TestAI) ... ok
+test_rejects_forged_evidence (test_ai.TestAI) ... ok
+test_success_is_frozen_and_available_only_after_response (test_ai.TestAI) ... ok
+test_warmup_freshness_window_and_gap_gates (test_ai.TestAI) ... ok
+test_window_and_daily_reset_use_new_york (test_ai.TestAI) ... ok
 test_auth_and_no_order_route (test_service.TestService) ... ok
 test_causal_inversion_observation_not_trade (test_service.TestService) ... ok
 test_changed_ticker_cannot_mix_existing_series (test_service.TestService) ... ok
@@ -18,6 +27,6 @@ test_storage_before_ack_no_inline_analysis (test_service.TestService) ... ok
 test_symbol_isolation_and_csv (test_service.TestService) ... ok
 
 ----------------------------------------------------------------------
-Ran 18 tests in 0.291s
+Ran 27 tests in 1.300s
 
 OK

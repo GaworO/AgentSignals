@@ -1,8 +1,12 @@
-TANJA — RAILWAY OBSERVATION SERVICE v1
+TANJA — RAILWAY OBSERVATION SERVICE v2 — AI OBSERVATION
 
-Start with SETUP.html for the step-by-step Railway and TradingView guide.
+Existing users: start with API_SETUP.html for the API update.
+New users: start with SETUP.html for the Railway and TradingView feeds.
 
 Scope implemented:
+  - OpenAI Responses API reviews, strict v3 schema and evidence validation;
+  - frozen input/request/response audit, actual availability time and usage;
+  - persistent daily attempt budget, cadence and no retry after errors;
   - authenticated closed 1m bar feed; ES and MNQ stored separately;
   - durable SQLite archive and queue on a dedicated Railway /data volume;
   - per-market CSV downloads, duplicates/conflicts and arrival timestamps;
@@ -12,7 +16,6 @@ Scope implemented:
   - optional read-only Tanja section in the main AgentSignals menu.
 
 Not implemented in this service:
-  - live AI calls (the independent research v3 runner remains separate);
   - autonomous full-strategy / 1:1 discretionary decisions;
   - broker connection, order submission, fills, P&L or account guard;
   - automatic history download/import, news feed or exchange calendar;
@@ -60,6 +63,23 @@ Source provenance: vendor/source_manifest.json records the research engine copie
 from research_tanya_context_v3_20261008 without rule changes. Its research pivot,
 FVG reset and HTF alignment conventions remain hypotheses, not verified trader rules.
 
-Validation: 18 service tests pass, desktop/mobile UI and 5 main-menu sections pass.
-Pine compiled in TradingView and added to ES chart; no alerts created.
-No Railway deployment or real webhook delivery has been verified yet.
+AI operation:
+  Optional by default. TANJA_AI_ENABLED=true requires OPENAI_API_KEY and
+  OPENAI_MODEL. Defaults: 6 attempts / NY day, 15 minute spacing, 8000 output
+  tokens, low reasoning effort. Fixed pilot window weekdays 09:30–11:00 NY.
+  Minimum: 3 H4 + 3 H1 bars per market, latest shared cutoff <=120s old,
+  15 contiguous recent minutes each. Older gaps and news remain unresolved.
+  This is sampled context research, not per-candidate execution or 1:1 fidelity.
+  Failure/invalid response/restart during a call pauses reviews durably until
+  TANJA_AI_REVISION changes (or prompt/schema/model revision changes).
+  Failures count; redeploying does not reset the daily limit.
+  API key is never saved in requests/audits or included in frontend state.
+  Store:false does not imply zero provider retention. Local audit is retained.
+  API worker and bar-processing worker are separate; intake does no AI calls.
+  Restart migration adds ai_runs and preserves existing bar/queue tables.
+
+Read API_SETUP.html for exact variables, deployment and error recovery.
+No real paid API call was made during delivery validation; tests mock the provider.
+Validation results are in test-results.txt and ui-validation.json.
+The user confirmed Railway feeds; this API update still needs upload/deployment
+and the user's private API key. Main service integration is unchanged.

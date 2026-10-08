@@ -4,6 +4,14 @@
   "mobileOverflow": false,
   "embeddedMode": true,
   "populatedContextAndCandidates": true,
+  "aiStates": [
+    "disabled",
+    "warming_up",
+    "validated_synthetic",
+    "paused_error"
+  ],
+  "auditLinks": true,
+  "guide": true,
   "errors": [],
   "fixture": "empty local database, no market data or orders"
 }

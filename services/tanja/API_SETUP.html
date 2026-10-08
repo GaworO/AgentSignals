@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tanja · Connect the AI API</title><link rel="stylesheet" href="static/guide.css"></head><body>
+<p class="muted">TANJA · STEP 2 · OPENAI CONTEXT REVIEWS</p><h1>Connect AI to your Railway service.</h1>
+<p>Your ES and MNQ alerts already work. This update adds AI interpretation to the same separate <b>tanja</b> service. The API key is stored privately in Railway.</p>
+<p class="note"><b>Current mode: observation only.</b> AI answers appear in the dashboard and are saved for comparison with the strategy. There is no broker connection or order-sending function in this build. A passed evidence check is not proof of Tanja 1:1 fidelity.</p>
+<h2>1. Upload the updated service code</h2>
+<ol><li>Unzip <b>Tanja_Railway_Step2_AI_20261008.zip</b>. It contains <code>services/tanja/</code>.</li><li>In the GitHub repository connected to your existing <b>tanja</b> Railway service, update the files in <code>services/tanja/</code> with the extracted files. Keep that path exactly; do not create a second nested <code>services/tanja/services/tanja</code> folder. If using GitHub's website, open the repository root and use <b>Add file → Upload files</b> with the extracted <code>services</code> folder.</li><li>Commit the update. Let Railway deploy it, or redeploy the latest commit if automatic deployment is off.</li><li>Keep the current Railway root directory <code>/services/tanja</code>, existing <code>/data</code> volume, feed token, dashboard password and ticker variables. Keep one replica and the supplied Dockerfile start command.</li><li>Open <a href="https://tanja-production.up.railway.app/health">Tanja health</a>. The updated response includes <code>version: "2.0-ai-observe"</code>. In the dashboard, AI context now has an <b>AI reviews</b> section. AI is initially disabled. Existing candle counts should remain.</li></ol>
+<p>The database update only adds a new review table/index. Keep the existing volume attached. No TradingView alert or Pine change is needed.</p>
+<h2>2. Create a private OpenAI API key</h2>
+<ol><li>Sign in to the <a href="https://platform.openai.com/">OpenAI API platform</a> and select or create a project for Tanja.</li><li>In API billing, ensure this project can make paid requests. A ChatGPT subscription does not supply this service with an API key or API credit.</li><li>Open <a href="https://platform.openai.com/api-keys">API keys</a> and create a new secret key for this project. A restricted key must allow writing Responses requests.</li><li>Copy the key directly into Railway in the next step. Do not put it in chat, GitHub, Pine, a screenshot or the dashboard.</li></ol>
+<p>Use the API project's usage and billing controls as an additional cost check. The service limits calls and output tokens; it does not promise a fixed dollar cap.</p>
+<h2>3. Set variables on Railway → tanja → Variables</h2>
+<p>Add these to the <b>tanja service only</b>. Preserve your existing variables.</p>
+<table><thead><tr><th>Variable</th><th>Value</th></tr></thead><tbody>
+<tr><td><code>OPENAI_API_KEY</code></td><td>Your private key; paste directly into Railway</td></tr>
+<tr><td><code>OPENAI_MODEL</code></td><td><code>gpt-6.1-sol</code></td></tr>
+<tr><td><code>TANJA_AI_ENABLED</code></td><td><code>true</code></td></tr>
+<tr><td><code>TANJA_AI_MAX_CALLS_PER_DAY</code></td><td><code>6</code></td></tr>
+<tr><td><code>TANJA_AI_MIN_INTERVAL_MINUTES</code></td><td><code>15</code></td></tr>
+<tr><td><code>TANJA_AI_MAX_OUTPUT_TOKENS</code></td><td><code>8000</code></td></tr>
+<tr><td><code>TANJA_AI_REVISION</code></td><td><code>1</code></td></tr>
+</tbody></table>
+<p>Apply the changes and deploy. The recommended model supports Responses and structured output; access is still dependent on your API project. The service uses low reasoning effort and never silently switches models.</p>
+<h2>4. Understand when the first answer appears</h2>
+<p>The pilot samples the latest available snapshot between <b>09:30 and 11:00 New York, weekdays</b>. It sends at most six attempts per New York calendar day, at least 15 minutes apart. These are observation and cost-control settings, not reconstructed trading rules. This does not evaluate every entry opportunity.</p>
+<p>A call also requires both feeds to be no more than 120 seconds old, 15 consecutive recent minutes on both markets, and at least <b>three complete 4h candles and three complete 1h candles per market</b>. TradingView alerts only stream forward. Starting the alerts at 04:20 NY cannot supply three 4h candles by today's open. Allow overnight collection; the exact wait depends on candle alignment and market closures. More history, contract alignment and news are still needed for full context.</p>
+<table><tr><th>Dashboard message</th><th>Meaning / next action</th></tr>
+<tr><td>API key needed / Model needed</td><td>Check the exact variable names on tanja, then deploy.</td></tr>
+<tr><td>Warming up history</td><td>Keep both alerts running. No paid call is sent while waiting. This state does not verify the key with OpenAI.</td></tr>
+<tr><td>Outside review window</td><td>Wait for 09:30 NY on a weekday. No calls are made outside the pilot window.</td></tr>
+<tr><td>Waiting for fresh / complete data</td><td>Check both feed counters, TradingView alert logs and gaps.</td></tr>
+<tr><td>Review in progress</td><td>A request was durably recorded and sent. Wait for the response.</td></tr>
+<tr><td>Validated review in the history</td><td>A real API answer passed schema and evidence checks. Read the rationale and missing fields; abstaining is a valid result.</td></tr>
+<tr><td>Daily limit reached</td><td>The budget resets at midnight New York. Failed attempts also count; redeploying does not reset it.</td></tr>
+<tr><td>Paused after error</td><td>Read the error code in the review row. Fix its cause; then increase <code>TANJA_AI_REVISION</code> from 1 to 2 and deploy. This releases the error pause without resetting daily usage.</td></tr>
+</table>
+<h2>5. Check the first real review</h2>
+<ol><li>Open <b>Tanja → AI context → AI reviews</b>.</li><li>Confirm a row shows market cutoff, answer-received time, result and token usage. The response becomes available only at the later time; never backdate it to the candle cutoff.</li><li>Open the row's <b>JSON audit</b>. It contains the frozen input, model request (without API credentials), provider response, interpretation and evidence checks.</li><li>Review its bias, selected setup, cited levels and missing context. Compare with the chart available at that time.</li><li>Share the review result/error code here if needed, with no credentials. That lets us distinguish a working connection from a strategy-quality problem.</li></ol>
+<p><code>HTTP_401</code>: key/authentication. <code>HTTP_403</code>: project/model permissions. <code>HTTP_404</code>: model or endpoint availability. <code>HTTP_429</code>: quota, billing or rate limit. <code>RESPONSE_FAILED_EVIDENCE_VALIDATION</code>: answer refused, incomplete or failed local checks; inspect the saved raw response. Network timeout or interruption has an unknown provider outcome and may still have incurred cost. No automatic retries are made.</p>
+<h2>What is sent and saved?</h2>
+<p>Only the research prompt, schema and market-only ES/MNQ snapshot are sent to OpenAI. No broker login, Railway feed token, dashboard password or account ID is sent. Requests use <code>store:false</code>; this is not a claim of zero provider retention. Railway's private volume saves each attempted review and its response for audit. Audits use the same dashboard authentication and persist across redeploys. Monitor volume usage as the archive grows.</p>
+<p><b>To stop future AI calls:</b> set <code>TANJA_AI_ENABLED=false</code> on tanja and deploy. Candle collection continues. An already submitted request may still finish and be billed.</p>
+<h2>After the connection works</h2>
+<p>Evaluate recorded answers on unseen sessions, review disagreements and unresolved rules, then build and test the separate execution adapter and account-wide risk controls. 50K Builder remains disconnected in this version. Running other strategies on the same account must be included in that later risk design.</p>
+<p><b>Your laptop can be off.</b> TradingView delivers the bars and Railway runs the API worker.</p>
+<h2>Official references</h2><p><a href="https://developers.openai.com/api/docs/quickstart">OpenAI API setup</a> · <a href="https://developers.openai.com/api/docs/models/gpt-6.1-sol">GPT-6.1 Sol model</a> · <a href="https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses">Structured outputs</a> · <a href="https://developers.openai.com/api/docs/pricing">API pricing</a></p>
+</body></html>

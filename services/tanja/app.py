@@ -27,10 +27,13 @@ class App:
         self.origin = config.get('TANJA_PARENT_ORIGIN','').rstrip('/')
         if self.origin and (not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', self.origin)):
             raise ValueError('TANJA_PARENT_ORIGIN must be an HTTPS origin without a path')
+        from ai_review import AIReview
+        self.ai = AIReview(self.store, config)
         self.stop = threading.Event()
         if start_worker:
             from worker import run_worker
             threading.Thread(target=run_worker, args=(self.store,self.stop), daemon=True).start()
+            threading.Thread(target=self.ai.run, args=(self.stop,), daemon=True).start()
 
     def __call__(self, env, respond):
         path = env.get('PATH_INFO','/')
@@ -45,7 +48,7 @@ class App:
             return [raw]
 
         if path == '/health' and method == 'GET':
-            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False})
+            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.0-ai-observe'})
         if path.startswith('/feed/'):
             supplied = path[len('/feed/'):]
             if not hmac.compare_digest(supplied.encode(), self.token.encode()):
@@ -79,7 +82,17 @@ class App:
             return send('405 Method Not Allowed', {'error':'Read-only dashboard; execution is not implemented'})
         headers.append(('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'self' " + self.origin))
         if path == '/api/state':
-            return send('200 OK', self.store.state(time.time()))
+            now = time.time()
+            state = self.store.state(now)
+            state['ai'] = self.ai.state(now, state['latest_context'])
+            state['ai_status'] = state['ai']['status']
+            return send('200 OK', state)
+        if path.startswith('/api/ai/audit/'):
+            ident = path.rsplit('/',1)[-1]
+            audit = self.ai.audit(ident) if re.fullmatch(r'[a-f0-9]{32}', ident) else None
+            return send('200 OK', audit) if audit else send('404 Not Found', {'error':'not found'})
+        if path in ('/ai-guide','/API_SETUP.html'):
+            return send('200 OK', (ROOT/'API_SETUP.html').read_text(), 'text/html; charset=utf-8')
         if path in ('/api/bars/ES.csv','/api/bars/MNQ.csv'):
             symbol=path.split('/')[-1][:-4]
             return send('200 OK',self.store.export_csv(symbol),'text/csv',
