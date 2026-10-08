@@ -30,6 +30,8 @@ class App:
             raise ValueError('TANJA_PARENT_ORIGIN must be an HTTPS origin without a path')
         from ai_review import AIReview
         self.ai = AIReview(self.store, config)
+        from plan_observer import PlanObserver
+        self.plan_observer = PlanObserver(self.store)
         from connection_test import ConnectionTest
         self.connection_test = ConnectionTest(self.store, config)
         self.csrf = secrets.token_urlsafe(32)
@@ -39,6 +41,7 @@ class App:
             from worker import run_worker
             threading.Thread(target=run_worker, args=(self.store,self.stop), daemon=True).start()
             threading.Thread(target=self.ai.run, args=(self.stop,), daemon=True).start()
+            threading.Thread(target=self.plan_observer.run, args=(self.stop,), daemon=True).start()
 
     def __call__(self, env, respond):
         path = env.get('PATH_INFO','/')
@@ -53,7 +56,7 @@ class App:
             return [raw]
 
         if path == '/health' and method == 'GET':
-            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.1-test-only'})
+            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.2-plan-observe'})
         if path.startswith('/feed/'):
             supplied = path[len('/feed/'):]
             if not hmac.compare_digest(supplied.encode(), self.token.encode()):
@@ -111,7 +114,10 @@ class App:
             state['ai_status'] = state['ai']['status']
             state['connection_test'] = self.connection_test.state()
             state['test_csrf'] = self.csrf
+            state['plan_observer'] = self.plan_observer.state()
             return send('200 OK', state)
+        if path == '/api/plans':
+            return send('200 OK', self.plan_observer.state())
         if path.startswith('/api/ai/audit/'):
             ident = path.rsplit('/',1)[-1]
             audit = self.ai.audit(ident) if re.fullmatch(r'[a-f0-9]{32}', ident) else None
