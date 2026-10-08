@@ -12,6 +12,13 @@
   ],
   "auditLinks": true,
   "guide": true,
+  "connectionTest": {
+    "mockedTransport": true,
+    "csrfHeader": true,
+    "singleClickOneRequest": true,
+    "mobileOverflow": false,
+    "noBrokerOrders": true
+  },
   "errors": [],
   "fixture": "empty local database, no market data or orders"
 }

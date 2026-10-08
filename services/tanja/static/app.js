@@ -11,6 +11,7 @@ function show(d){
  const paired=d.feeds.ES.count>0&&d.feeds.MNQ.count>0;text('progress-feed',paired?'Both markets have stored candles':'Waiting for both one-minute feeds');
  rows('candidate-rows',d.candidates.map(c=>[at(c.as_of),c.direction.toUpperCase(),c.timeframe+'m',c.lower+' – '+c.upper,'Needs context']));document.getElementById('candidate-empty').hidden=d.candidates.length>0;
  showAI(d.ai);
+ showConnectionTest(d.connection_test,d.test_csrf);
  const c=d.latest_context;document.getElementById('context-empty').hidden=!!c;const dl=document.getElementById('context-summary');dl.replaceChildren();
  if(c){const p=c.packet;for(const [k,v] of [['Market cutoff',at(p.as_of)+' NY'],['Inputs frozen',at(c.frozen_at)+' NY'],['Packet ID',p.packet_id],['Evidence items',Object.keys(p.evidence).length],['Processing lag',c.processing_delay_seconds+' seconds']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;dl.append(dt,dd);}rows('coverage',['ES','MNQ'].map(s=>[s,c.coverage[s]['1'],c.coverage[s]['5'],c.coverage[s]['60'],c.coverage[s]['240']]));text('packet',JSON.stringify(c,null,2));text('warmup',c.warmup==='PARTIAL_HISTORY'?'Partial history: fewer than three complete 4h bars in at least one market. No context approval.':'Higher-timeframe bars are present. News, contract alignment and strategy judgment still need validation.');text('progress-context','Latest snapshot: '+at(p.as_of)+' NY');}
  rows('job-rows',d.jobs.map(j=>[at(j.cutoff),j.status+(j.error?' · '+j.error:''),j.processed_at?Math.round(j.processed_at-j.cutoff)+'s':'—']));
@@ -33,3 +34,30 @@ function showAI(a){
  text('ai-rationale',latest?latest.status==='validated'?latest.decision.rationale:'Latest attempt: '+latest.status+' · '+(latest.error||'waiting for response'):'No model answer yet.');
  text('ai-decision',latest?JSON.stringify({market_cutoff:latest.cutoff,available_at:latest.available_at,executable:false,decision:latest.decision,checks:latest.review},null,2):'No response yet.');
 }
+
+let testCSRF='',testBusy=false;
+const testButton=document.getElementById('run-test');
+function showConnectionTest(c,csrf){
+ if(!c)return;
+ testCSRF=csrf||'';
+ const labels={NOT_CONFIGURED:'Not connected',INVALID_WEBHOOK_URL:'Check webhook URL',EXPLICIT_MNQ_CONTRACT_REQUIRED:'Set MNQ contract',TEST_READY:'Ready for connection test',TEST_RECEIVED:'Test signal received',TEST_REJECTED:'Test signal rejected',SENDING:'Sending test',UNKNOWN:'Test outcome unknown'};
+ const label=labels[c.status]||c.status;
+ text('execution-state',label);text('execution-info','Test mode only · broker orders disabled');
+ text('test-state',label);text('test-config',c.configured?'Dedicated test webhook configured · '+c.contract+' · verify account mapping in TradersPost.':'Set TANJA_TRADERSPOST_TEST_WEBHOOK_URL and TANJA_TEST_CONTRACT in Railway.');
+ testButton.disabled=testBusy||!c.configured||c.status==='SENDING';
+ rows('test-rows',c.records.map(r=>[at(r.started),r.status+(r.error?' · '+r.error:''),r.receipt?.id||'—','None — test mode']));
+ document.getElementById('test-empty').hidden=!!c.records.length;
+ text('test-audit',c.records.length?JSON.stringify(c.records[0],null,2):'No test yet.');
+}
+testButton.addEventListener('click',async()=>{
+ if(testBusy||testButton.disabled)return;
+ testBusy=true;testButton.disabled=true;text('test-result','Sending a test signal to TradersPost. No broker order will be sent.');
+ try{
+  const request_id=crypto.randomUUID().replaceAll('-','');
+  const response=await fetch('/api/connection/test',{method:'POST',headers:{'Content-Type':'application/json','X-Tanja-CSRF':testCSRF},body:JSON.stringify({request_id})});
+  const result=await response.json();
+  if(!response.ok)throw Error(result.error||'Test request failed');
+  text('test-result',result.status==='test_received'?'TradersPost acknowledged the test signal. Check its Signals log and account subscription. No broker order was sent.':'Test result: '+result.status+' · '+(result.error||result.receipt?.messageCode||'Inspect test history'));
+ }catch(e){text('test-result',e.message+' — inspect test history before trying again.');}
+ finally{testBusy=false;try{const response=await fetch('/api/state',{cache:'no-store'});if(response.ok)show(await response.json());}catch(e){text('test-result','Cannot refresh test status. Reload and inspect history before retrying.');}}
+});

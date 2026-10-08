@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import threading
 import time
 from pathlib import Path
@@ -29,8 +30,12 @@ class App:
             raise ValueError('TANJA_PARENT_ORIGIN must be an HTTPS origin without a path')
         from ai_review import AIReview
         self.ai = AIReview(self.store, config)
+        from connection_test import ConnectionTest
+        self.connection_test = ConnectionTest(self.store, config)
+        self.csrf = secrets.token_urlsafe(32)
         self.stop = threading.Event()
         if start_worker:
+            self.connection_test.recover()
             from worker import run_worker
             threading.Thread(target=run_worker, args=(self.store,self.stop), daemon=True).start()
             threading.Thread(target=self.ai.run, args=(self.stop,), daemon=True).start()
@@ -48,7 +53,7 @@ class App:
             return [raw]
 
         if path == '/health' and method == 'GET':
-            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.0-ai-observe'})
+            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.1-test-only'})
         if path.startswith('/feed/'):
             supplied = path[len('/feed/'):]
             if not hmac.compare_digest(supplied.encode(), self.token.encode()):
@@ -78,19 +83,41 @@ class App:
         if not hmac.compare_digest(env.get('HTTP_AUTHORIZATION','').encode(), expected.encode()):
             return send('401 Unauthorized', {'error':'Sign in with username tanja'},
                         extra=[('WWW-Authenticate','Basic realm="Tanja", charset="UTF-8"')])
+        if path == '/api/connection/test' and method == 'POST':
+            if not hmac.compare_digest(env.get('HTTP_X_TANJA_CSRF','').encode(), self.csrf.encode()):
+                return send('403 Forbidden', {'error':'Refresh the dashboard before testing'})
+            from connection_test import TestBlocked
+            try:
+                length = int(env.get('CONTENT_LENGTH','0'))
+                if not 1 <= length <= 256:
+                    return send('413 Payload Too Large', {'error':'Expected only a test request ID'})
+                body = json.loads(env['wsgi.input'].read(length))
+                if not isinstance(body,dict) or set(body) != {'request_id'} or not isinstance(body['request_id'],str):
+                    return send('422 Unprocessable Entity', {'error':'Custom signals are not supported; fixed test only'})
+                return send('200 OK', self.connection_test.run(body['request_id']))
+            except TestBlocked as exc:
+                return send('409 Conflict', {'error':str(exc)})
+            except (ValueError,TypeError):
+                return send('422 Unprocessable Entity', {'error':'Invalid test request'})
+            except Exception:
+                return send('503 Service Unavailable', {'error':'Test status unavailable; inspect history before retrying'})
         if method != 'GET':
-            return send('405 Method Not Allowed', {'error':'Read-only dashboard; execution is not implemented'})
+            return send('405 Method Not Allowed', {'error':'Only a fixed no-order connection test is supported'})
         headers.append(('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'self' " + self.origin))
         if path == '/api/state':
             now = time.time()
             state = self.store.state(now)
             state['ai'] = self.ai.state(now, state['latest_context'])
             state['ai_status'] = state['ai']['status']
+            state['connection_test'] = self.connection_test.state()
+            state['test_csrf'] = self.csrf
             return send('200 OK', state)
         if path.startswith('/api/ai/audit/'):
             ident = path.rsplit('/',1)[-1]
             audit = self.ai.audit(ident) if re.fullmatch(r'[a-f0-9]{32}', ident) else None
             return send('200 OK', audit) if audit else send('404 Not Found', {'error':'not found'})
+        if path in ('/execution-guide','/EXECUTION_SETUP.html'):
+            return send('200 OK', (ROOT/'EXECUTION_SETUP.html').read_text(), 'text/html; charset=utf-8')
         if path in ('/ai-guide','/API_SETUP.html'):
             return send('200 OK', (ROOT/'API_SETUP.html').read_text(), 'text/html; charset=utf-8')
         if path in ('/api/bars/ES.csv','/api/bars/MNQ.csv'):

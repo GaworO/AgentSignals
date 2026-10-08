@@ -1,4 +1,4 @@
-TANJA — RAILWAY OBSERVATION SERVICE v2 — AI OBSERVATION
+TANJA — RAILWAY OBSERVATION SERVICE v2.1 — AI OBSERVATION + NO-ORDER CONNECTION TEST
 
 Existing users: start with API_SETUP.html for the API update.
 New users: start with SETUP.html for the Railway and TradingView feeds.
@@ -83,3 +83,19 @@ No real paid API call was made during delivery validation; tests mock the provid
 Validation results are in test-results.txt and ui-validation.json.
 The user confirmed Railway feeds; this API update still needs upload/deployment
 and the user's private API key. Main service integration is unchanged.
+
+Step 3A connection test (EXECUTION_SETUP.html):
+  TANJA_TRADERSPOST_TEST_WEBHOOK_URL: private dedicated Tanja webhook.
+  TANJA_TEST_CONTRACT: explicit MNQ quarterly contract, e.g. MNQZ2026 (verify).
+  POST /api/connection/test accepts only request_id, with HTTP Basic auth and
+  X-Tanja-CSRF token from the authenticated /api/state. The server constructs
+  a fixed test:true payload. It cannot send non-test orders, even if another
+  environment variable claims to enable them. No call is triggered on startup,
+  refresh, bar arrival or AI completion.
+  At most five attempts / rolling 24h, at least 60s apart; no automatic retry.
+  A receipt is not account verification or fill confirmation. No order, position,
+  broker account read API or lifecycle manager has been added.
+  Test UI requires modern secure browser context for crypto.randomUUID().
+  User requested an actual Builder entry and exit. That remains a user-submitted
+  trade after account-state review; it is not completed by this delivery.
+  Testing used mocked transport only; no TradersPost request or order was sent.

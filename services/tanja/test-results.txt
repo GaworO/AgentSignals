@@ -7,6 +7,14 @@ test_rejects_forged_evidence (test_ai.TestAI) ... ok
 test_success_is_frozen_and_available_only_after_response (test_ai.TestAI) ... ok
 test_warmup_freshness_window_and_gap_gates (test_ai.TestAI) ... ok
 test_window_and_daily_reset_use_new_york (test_ai.TestAI) ... ok
+test_ack_is_not_broker_fill_and_never_stores_url (test_connection.TestConnection) ... ok
+test_boundary_forbids_non_test_and_redacts_provider_response (test_connection.TestConnection) ... ok
+test_default_missing_invalid_and_exact_contract (test_connection.TestConnection) ... ok
+test_http_errors_do_not_leak_secret_url (test_connection.TestConnection) ... ok
+test_limits_and_changed_destination (test_connection.TestConnection) ... ok
+test_same_request_id_cannot_send_twice_even_concurrently (test_connection.TestConnection) ... ok
+test_unknown_result_not_retried_after_restart (test_connection.TestConnection) ... ok
+test_wsgi_auth_csrf_custom_payload_rejected_and_valid_test (test_connection.TestConnection) ... ok
 test_auth_and_no_order_route (test_service.TestService) ... ok
 test_causal_inversion_observation_not_trade (test_service.TestService) ... ok
 test_changed_ticker_cannot_mix_existing_series (test_service.TestService) ... ok
@@ -27,6 +35,6 @@ test_storage_before_ack_no_inline_analysis (test_service.TestService) ... ok
 test_symbol_isolation_and_csv (test_service.TestService) ... ok
 
 ----------------------------------------------------------------------
-Ran 27 tests in 1.300s
+Ran 35 tests in 1.569s
 
 OK
