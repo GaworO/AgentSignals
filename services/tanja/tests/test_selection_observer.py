@@ -78,4 +78,28 @@ class SelectionObserverTests(unittest.TestCase):
         self.assertNotEqual(r['state'],'PLAN_READY')
         self.assertLess(r['cutoff'],self.t)
 
+    def test_short_saved_plan_exports_authenticated_pine(self):
+        from test_short_selector import short_fixture
+        from app import App
+        import base64,io
+        markets,_=short_fixture()
+        with self.s.connect() as db:
+            for sym,rows in markets.items():
+                table='collection_bars' if sym=='NQ' else 'bars'
+                for b in rows:
+                    payload=dict(symbol=sym,bar_open_ms=b['time']*1000,bar_close_ms=(b['time']+60)*1000,**{k:b[k] for k in ('open','high','low','close')})
+                    db.execute(f'UPDATE {table} SET payload=? WHERE symbol=? AND start=?',(json.dumps(payload),sym,b['time']))
+        self.o.process_one(self.t+1)
+        self.assertEqual(self.o.state()['records'][0]['compiled']['plan']['direction'],'short')
+        app=App(dict(DATA_DIR=self.tmp.name,TANJA_FEED_TOKEN='a'*40,TANJA_DASHBOARD_PASSWORD='test_dashboard_password'))
+        env=dict(PATH_INFO=f'/api/automatic-selection/pine/{self.o.revision}/{self.t}',REQUEST_METHOD='GET',CONTENT_LENGTH='0',**{'wsgi.input':io.BytesIO()})
+        status=[]
+        b''.join(app(env,lambda code,headers:status.append(code)))
+        self.assertTrue(status[-1].startswith('401'))
+        env['HTTP_AUTHORIZATION']='Basic '+base64.b64encode(b'tanja:test_dashboard_password').decode()
+        body=b''.join(app(env,lambda code,headers:status.append(code))).decode()
+        self.assertTrue(status[-1].startswith('200'))
+        self.assertIn('Planned short entry',body)
+        self.assertNotIn('strategy.entry',body)
+
 if __name__=='__main__':unittest.main()
