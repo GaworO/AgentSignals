@@ -23,7 +23,8 @@ class App:
         if len(self.password) < 16 or self.password == self.token:
             raise ValueError('Set a separate TANJA_DASHBOARD_PASSWORD of at least 16 characters')
         self.tickers = {s:config.get('TANJA_'+s+'_TICKER', 'CME_MINI:'+s+'1!') for s in ('ES','MNQ','NQ')}
-        self.store = Store(config.get('DATA_DIR','/data'))
+        self.data_dir = Path(config.get('DATA_DIR','/data'))
+        self.store = Store(self.data_dir)
         self.store.bind_tickers(self.tickers)
         self.origin = config.get('TANJA_PARENT_ORIGIN','').rstrip('/')
         if self.origin and (not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', self.origin)):
@@ -113,6 +114,10 @@ class App:
         if path == '/api/state':
             now = time.time()
             state = self.store.state(now)
+            from data_health import data_health
+            state['data_health'] = data_health(state, now)
+            from data_health import account_snapshot
+            state['account_snapshot'] = account_snapshot(self.data_dir)
             state['ai'] = self.ai.state(now, state['latest_context'])
             state['ai_status'] = state['ai']['status']
             state['connection_test'] = self.connection_test.state()
