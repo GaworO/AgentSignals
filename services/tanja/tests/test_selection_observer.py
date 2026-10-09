@@ -11,6 +11,8 @@ from store import Store
 class SelectionObserverTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.balance_file=Path(self.tmp.name)/'account_snapshot.json'
+        self.balance_file.write_text(json.dumps(dict(balance=50000,minimum_balance=48000,target_balance=53000,as_of='test snapshot')))
         self.s=Store(self.tmp.name);self.m,self.t=fixture()
         with self.s.connect() as db:
             for sym,rows in self.m.items():
@@ -51,8 +53,30 @@ class SelectionObserverTests(unittest.TestCase):
 
     def test_disabled_and_risk_validation(self):
         self.assertFalse(SelectionObserver(self.s,{'TANJA_AUTO_SELECTION_ENABLED':'false'}).process_one(self.t+1))
-        for risk in ('nan','-1','1001'):
-            with self.assertRaises(ValueError):SelectionObserver(self.s,{'TANJA_AUTO_PAPER_RISK_USD':risk})
+        for limit in ('nan','-1','41'):
+            with self.assertRaises(ValueError):SelectionObserver(self.s,{'TANJA_ACCOUNT_MAX_MNQ':limit})
+
+    def test_balance_controls_size_and_old_dollar_config_is_ignored(self):
+        self.balance_file.write_text(json.dumps(dict(balance=49000,minimum_balance=48000,target_balance=53000,as_of='test snapshot')))
+        o=SelectionObserver(self.s,{'TANJA_AUTO_PAPER_RISK_USD':'100','TANJA_AUTO_PAPER_MAX_CONTRACTS':'1'})
+        o.process_one(self.t+1)
+        r=o.state()['records'][0]
+        self.assertEqual(r['sizing']['budget_usd'],245.0)
+        self.assertEqual(r['selected']['audit']['quantity'],7)
+        self.assertLessEqual(r['compiled']['price_review']['planned_price_risk_before_costs'],245.0)
+        self.assertFalse(r['sizing']['broker_verified'])
+        old=o.audit(o.revision,self.t)
+        self.balance_file.write_text(json.dumps(dict(balance=40000,minimum_balance=38000,target_balance=53000,as_of='new snapshot')))
+        self.assertEqual(o.sizing_context()['budget_usd'],200)
+        self.assertFalse(o.process_one(self.t+2))
+        self.assertEqual(o.audit(o.revision,self.t),old)
+
+    def test_no_balance_no_fallback_budget(self):
+        self.balance_file.unlink()
+        self.o.process_one(self.t+1)
+        r=self.o.state()['records'][0]
+        self.assertEqual(r['reasons'],['CURRENT_BALANCE_REQUIRED'])
+        self.assertIsNone(r['sizing']['budget_usd'])
 
     def test_api_requires_auth_and_has_no_execution_route(self):
         from app import App
