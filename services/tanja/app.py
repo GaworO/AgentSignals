@@ -127,6 +127,18 @@ class App:
             return send('200 OK', state)
         if path == '/api/automatic-selection':
             return send('200 OK', self.selection_observer.state())
+        if path.startswith('/api/automatic-selection/pine/'):
+            match = re.fullmatch(r'/api/automatic-selection/pine/([a-f0-9]{64})/([0-9]{1,12})', path)
+            audit = self.selection_observer.audit(match[1], int(match[2])) if match else None
+            if not audit:
+                return send('404 Not Found', {'error':'Research plan not found'})
+            from pine_export import export_plan
+            try:
+                script = export_plan(audit, self.tickers['MNQ'])
+            except (ValueError, TypeError, KeyError):
+                return send('409 Conflict', {'error':'A complete valid research plan is required; no trade fills are inferred'})
+            return send('200 OK', script, 'text/plain; charset=utf-8',
+                        [('Content-Disposition', f'attachment; filename="tanja-plan-{match[2]}.pine"')])
         if path.startswith('/api/automatic-selection/audit/'):
             match = re.fullmatch(r'/api/automatic-selection/audit/([a-f0-9]{64})/([0-9]{1,12})', path)
             audit = self.selection_observer.audit(match[1], int(match[2])) if match else None
