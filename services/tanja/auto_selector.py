@@ -7,6 +7,7 @@ from statistics import median
 from zoneinfo import ZoneInfo
 import math
 from entry_rules import compile_entry, fingerprint
+from risk_sizing import contracts_for_stop
 
 NY=ZoneInfo('America/New_York')
 VERSION='tanja-auto-directional-research-v2'
@@ -256,7 +257,7 @@ def _select_direction(markets,*,cutoff,now,risk_budget_usd,max_contracts,policy=
                             target=dict(price=value,id=rid,kind='level',reason='False-move projection fallback; fixed research ratio',projection=dict(ratio=p.projection_ratio,origin=own[favorable],extreme=extreme[adverse]))
                 if not target:faults.append('NO_UNTOUCHED_TARGET_OR_VALID_PROJECTION')
                 if not sign*(entry-stop)>0:faults.append('INVALID_STRUCTURAL_STOP')
-                qty=min(max_contracts,int(risk_budget_usd/(sign*(entry-stop)*2))) if sign*(entry-stop)>0 else 0
+                qty=contracts_for_stop(entry,stop,direction,risk_budget_usd,max_contracts) if stop>0 and sign*(entry-stop)>0 else 0
                 if qty<1:faults.append('RISK_BUDGET_TOO_SMALL')
                 audit=dict(direction=direction,timeframe=tf,poi=poi['name'],recipe=poi['kind'],poi_rank=poi['rank'],poi_reference=poi['ref'],
                            strength=strength,range_origin=origin,smt=poi['smt'],stop_anchor_time=anchor['time'],stop=stop,
