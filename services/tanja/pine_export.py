@@ -9,11 +9,12 @@ def export_plan(record, ticker):
     compiled=record.get('compiled') or {}
     plan=compiled.get('plan') or {}
     review=compiled.get('price_review') or {}
-    if plan.get('symbol') != 'MNQ' or plan.get('direction') != 'long' or review.get('errors') or review.get('missing'):
+    if plan.get('symbol') != 'MNQ' or plan.get('direction') not in ('long','short') or review.get('errors') or review.get('missing'):
         raise ValueError('Plan did not pass price checks')
+    direction=plan['direction'];sign=1 if direction=='long' else -1
     entry=(plan.get('entry_reference') or {}).get('price')
     stop,target=review.get('stop'),review.get('target')
-    if not all(type(v) in (int,float) and math.isfinite(v) and v>0 for v in (entry,stop,target)) or not stop<entry<target:
+    if not all(type(v) in (int,float) and math.isfinite(v) and v>0 for v in (entry,stop,target)) or not (sign*(entry-stop)>0 and sign*(target-entry)>0):
         raise ValueError('Invalid export prices')
     # Draw only from the time the recorded plan was available, never at a prior trigger.
     start=math.ceil(max(record['cutoff'],record['frozen_at'],plan['selected_at'])*1000)
@@ -22,7 +23,7 @@ def export_plan(record, ticker):
         raise ValueError('Missing or expired display interval')
     quote=lambda value:json.dumps(str(value),ensure_ascii=True)
     return f'''//@version=6
-indicator("Tanja research plan - NOT a filled trade", overlay=true, max_lines_count=10, max_labels_count=10)
+indicator("Tanja {direction} research plan - NOT a filled trade", overlay=true, max_lines_count=10, max_labels_count=10)
 // Frozen research evidence. No strategy orders, signals or simulated fills.
 // Use the same MNQ chart series and contract adjustment settings as the source.
 // Entry is a reference price; no broker entry, partial or exit is verified.
@@ -37,7 +38,7 @@ if barstate.isfirst
     line.new(planAvailable, {entry}, planExpires, {entry}, xloc=xloc.bar_time, color=color.blue, width=2)
     line.new(planAvailable, {stop}, planExpires, {stop}, xloc=xloc.bar_time, color=color.red, width=2)
     line.new(planAvailable, {target}, planExpires, {target}, xloc=xloc.bar_time, color=color.green, width=2)
-    label.new(planAvailable, {entry}, "Planned entry reference: {entry}", xloc=xloc.bar_time, style=label.style_label_left, color=color.blue, textcolor=color.white)
+    label.new(planAvailable, {entry}, "Planned {direction} entry reference: {entry}", xloc=xloc.bar_time, style=label.style_label_left, color=color.blue, textcolor=color.white)
     label.new(planAvailable, {stop}, "Planned stop: {stop}", xloc=xloc.bar_time, style=label.style_label_left, color=color.red, textcolor=color.white)
     label.new(planAvailable, {target}, "Planned target: {target}", xloc=xloc.bar_time, style=label.style_label_left, color=color.green, textcolor=color.white)
     table.cell(status, 0, 0, "RESEARCH PLAN ONLY\\nNo verified broker fills or exits", bgcolor=color.new(color.orange, 15), text_color=color.black)
