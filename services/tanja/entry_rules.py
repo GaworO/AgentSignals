@@ -1,4 +1,4 @@
-"""Compile explicitly selected Tanja long-entry evidence into a research plan.
+"""Compile explicitly selected Tanja directional-entry evidence into a research plan.
 
 This calculates confirmation and prices; it does NOT discover a discretionary
 POI, decide that a candle is 'strong', or choose the trader's preferred target.
@@ -46,7 +46,11 @@ def compile_entry(packet, selection, observations, *, now):
         if selection.get('packet_id')!=packet['packet_id']:raise ValueError('WRONG_SELECTION_PACKET')
         if selection.get('clock_id')!=packet.get('clock_id') or not str(packet.get('clock_id','')).endswith(':unix_utc'):
             raise ValueError('MARKET_CLOCK_REQUIRED')
-        if selection.get('direction')!='long' or selection.get('execution_symbol')!='MNQ':
+        direction=selection.get('direction');sign=-1 if direction=='short' else 1
+        short=direction=='short'
+        swing_side='low' if short else 'high'
+        swing_field='selected_swing_low_broken' if short else 'selected_swing_high_broken'
+        if direction not in ('long','short') or selection.get('execution_symbol')!='MNQ':
             raise ValueError('UNSUPPORTED_LIFECYCLE')
         analysis=selection.get('analysis_symbol')
         if analysis not in ('NQ','MNQ'):raise ValueError('UNSUPPORTED_ANALYSIS_SYMBOL')
@@ -77,7 +81,7 @@ def compile_entry(packet, selection, observations, *, now):
                 raise ValueError('INVALID_BAR')
             return b
 
-        # Calculate the chosen bearish gap and bullish inversion from bars, not
+        # Calculate the chosen gap and opposite-direction inversion from bars, not
         # a model's assertion that a lower-timeframe wick counts as confirmation.
         tf=selection.get('timeframe_minutes')
         if type(tf) is not int or tf not in (1,2,3,5):raise ValueError('UNSUPPORTED_TIMEFRAME')
@@ -86,26 +90,27 @@ def compile_entry(packet, selection, observations, *, now):
         a,b,c=[bar(r,tf) for r in refs];trigger=bar(selection['trigger_bar_id'],tf)
         if b['time']-a['time']!=tf*60 or c['time']-b['time']!=tf*60 or c['available_at']>trigger['time']:
             raise ValueError('GAP_BAR_SEQUENCE_INVALID')
-        if not c['high']<a['low']:raise ValueError('BEARISH_GAP_NOT_PRESENT')
+        if (c['low']<=a['high'] if short else c['high']>=a['low']):raise ValueError('DIRECTIONAL_GAP_NOT_PRESENT')
+        boundary=a['high'] if short else a['low']
         path=sorted([x for x in ev.values() if x.get('kind')=='bar' and x.get('symbol')==analysis and x.get('timeframe')==tf and c['available_at']<=x.get('time',-1)<=trigger['time']],key=lambda x:x['time'])
         if [x['time'] for x in path]!=list(range(c['available_at'],trigger['time']+1,tf*60)):
             raise ValueError('INCOMPLETE_GAP_TO_TRIGGER_HISTORY')
         for row in path:
             if not all(tick(row.get(k)) for k in ('open','high','low','close')) or row['available_at']!=row['time']+tf*60 or not row['low']<=min(row['open'],row['close'])<=max(row['open'],row['close'])<=row['high']:
                 raise ValueError('INVALID_INTERVENING_BAR')
-        if any(x['close']>a['low'] for x in path[:-1]):raise ValueError('TRIGGER_IS_NOT_FIRST_INVERSION')
-        m.update(gap_lower=c['high'],gap_upper=a['low'],inversion_closed=trigger['close']>a['low'],trigger_available_at=trigger['available_at'])
+        if any(sign*(x['close']-boundary)>0 for x in path[:-1]):raise ValueError('TRIGGER_IS_NOT_FIRST_INVERSION')
+        m.update(gap_lower=a['high'] if short else c['high'],gap_upper=c['low'] if short else a['low'],inversion_closed=sign*(trigger['close']-boundary)>0,trigger_available_at=trigger['available_at'])
         if trigger['available_at']!=cutoff:raise ValueError('FRESH_TRIGGER_PACKET_REQUIRED')
         if type(selection.get('requires_swing_break')) is bool and selection['requires_swing_break']:
             swing=evidence(selection['swing_id'],analysis)
-            if swing.get('kind')!='pivot' or swing.get('side')!='high' or swing['available_at']>trigger['time'] or not tick(swing.get('price')):
+            if swing.get('kind')!='pivot' or swing.get('side')!=swing_side or swing['available_at']>trigger['time'] or not tick(swing.get('price')):
                 raise ValueError('SWING_NOT_KNOWN_BEFORE_TRIGGER')
             mode=selection.get('swing_break_mode')
             if mode not in ('wick','close'):raise ValueError('SWING_BREAK_MODE_REQUIRED')
-            m['swing_broken']=trigger['high' if mode=='wick' else 'close']>swing['price']
+            m['swing_broken']=sign*(trigger[swing_side if mode=='wick' else 'close']-swing['price'])>0
 
-        recipe=dict(kind='momentum_long',timeframe_minutes=tf,**{k:selection.get(k) for k in ('requires_smt','requires_swing_break','requires_followthrough')})
-        derived_fields={'selected_inversion_closed','selected_swing_high_broken'}
+        recipe=dict(kind='momentum_'+direction,timeframe_minutes=tf,**{k:selection.get(k) for k in ('requires_smt','requires_swing_break','requires_followthrough')})
+        derived_fields={'selected_inversion_closed','selected_swing_high_broken','selected_swing_low_broken'}
         supplied=[]
         for o in observations:
             if o.get('packet_id')!=packet['packet_id'] or type(o.get('available_at')) is not int or o['available_at']>cutoff:
@@ -114,7 +119,7 @@ def compile_entry(packet, selection, observations, *, now):
             if not o.get('evidence_ids') or any(ref not in ev for ref in o['evidence_ids']):
                 raise ValueError('UNREFERENCED_CONTEXT_OBSERVATION')
             supplied.append(o)
-        for field,value in [('selected_inversion_closed',m['inversion_closed']),('selected_swing_high_broken',m.get('swing_broken'))]:
+        for field,value in [('selected_inversion_closed',m['inversion_closed']),(swing_field,m.get('swing_broken'))]:
             if value is not None:
                 supplied.append(dict(field=field,value=value,available_at=cutoff,clock_id=packet['clock_id'],packet_id=packet['packet_id'],source=selection['trigger_bar_id'],timeframe_minutes=tf))
         context=review_context(recipe,supplied,as_of=cutoff,clock_id=packet['clock_id']);result['context']=context
@@ -129,7 +134,7 @@ def compile_entry(packet, selection, observations, *, now):
         if not isinstance(stop_spec,dict):missing.append('initial_stop_selection')
         else:
             anchors=stop_spec.get('anchors',[])
-            if stop_spec.get('mode') not in ('selected_structural_anchor','below_all_selected_supports'):
+            if stop_spec.get('mode') not in ('selected_structural_anchor','above_all_selected_resistances' if short else 'below_all_selected_supports'):
                 missing.append('initial_stop_mode')
             elif not anchors or (stop_spec['mode']=='selected_structural_anchor' and len(anchors)!=1):
                 missing.append('initial_stop_anchors')
@@ -137,7 +142,7 @@ def compile_entry(packet, selection, observations, *, now):
                 pts=[point(x) for x in anchors]
                 # min is the consequence of the explicitly chosen 'below all'
                 # contract, not an automatic choice of the trader's supports.
-                invalidation=min(pts,key=lambda x:x['price'])
+                invalidation=min(pts,key=lambda x:sign*x['price'])
                 m['invalidation_sources']=[p['source'] for p in pts]
             buffer=stop_spec.get('buffer_ticks')
             if buffer is None:missing.append('initial_stop_buffer_ticks')
@@ -149,7 +154,7 @@ def compile_entry(packet, selection, observations, *, now):
             target=dict(kind='level',anchor=point(target_spec['anchor']))
         elif target_spec.get('kind') in ('extension_minus_half','extension_minus_one'):
             origin=point(target_spec['anchor']);extreme=point(target_spec['extreme'])
-            if origin['available_at']>extreme['available_at'] or origin['price']<=extreme['price']:
+            if origin['available_at']>extreme['available_at'] or sign*(origin['price']-extreme['price'])<=0:
                 raise ValueError('INVALID_FALSE_MOVE_SEQUENCE')
             ratio=.5 if target_spec['kind']=='extension_minus_half' else 1
             raw=origin['price']+ratio*(origin['price']-extreme['price'])
@@ -160,7 +165,7 @@ def compile_entry(packet, selection, observations, *, now):
         else:missing.append('target_kind')
         if target_spec and not target_spec.get('reason'):missing.append('target_reason')
         entry=point(selection['entry_reference']) if selection.get('entry_reference') else None
-        plan=dict(plan_id=selection.get('id'),packet_id=packet['packet_id'],symbol='MNQ',direction='long',selected_at=selected,
+        plan=dict(plan_id=selection.get('id'),packet_id=packet['packet_id'],symbol='MNQ',direction=direction,selected_at=selected,
                   context_valid_until=selection.get('context_valid_until'),context_supported=context['state']=='REVIEW_CANDIDATE',
                   trigger_available_at=trigger['available_at'],entry_mode=mode,entry_reference=entry,invalidation=invalidation,
                   stop_buffer_ticks=buffer,target=target,initial_quantity=selection.get('initial_quantity'),risk_budget_usd=selection.get('risk_budget_usd'))
