@@ -22,7 +22,7 @@ class App:
             raise ValueError('Set TANJA_FEED_TOKEN to a random 32–128 character URL-safe value')
         if len(self.password) < 16 or self.password == self.token:
             raise ValueError('Set a separate TANJA_DASHBOARD_PASSWORD of at least 16 characters')
-        self.tickers = {s:config.get('TANJA_'+s+'_TICKER', 'CME_MINI:'+s+'1!') for s in ('ES','MNQ')}
+        self.tickers = {s:config.get('TANJA_'+s+'_TICKER', 'CME_MINI:'+s+'1!') for s in ('ES','MNQ','NQ')}
         self.store = Store(config.get('DATA_DIR','/data'))
         self.store.bind_tickers(self.tickers)
         self.origin = config.get('TANJA_PARENT_ORIGIN','').rstrip('/')
@@ -56,7 +56,7 @@ class App:
             return [raw]
 
         if path == '/health' and method == 'GET':
-            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.2-plan-observe'})
+            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.3-nq-collection'})
         if path.startswith('/feed/'):
             supplied = path[len('/feed/'):]
             if not hmac.compare_digest(supplied.encode(), self.token.encode()):
@@ -126,7 +126,7 @@ class App:
             return send('200 OK', (ROOT/'EXECUTION_SETUP.html').read_text(), 'text/html; charset=utf-8')
         if path in ('/ai-guide','/API_SETUP.html'):
             return send('200 OK', (ROOT/'API_SETUP.html').read_text(), 'text/html; charset=utf-8')
-        if path in ('/api/bars/ES.csv','/api/bars/MNQ.csv'):
+        if path in ('/api/bars/ES.csv','/api/bars/MNQ.csv','/api/bars/NQ.csv'):
             symbol=path.split('/')[-1][:-4]
             return send('200 OK',self.store.export_csv(symbol),'text/csv',
                         [('Content-Disposition',f'attachment; filename="tanja_{symbol}_1m.csv"')])
