@@ -1,16 +1,17 @@
 //@version=6
-indicator("Tanja • closed 1m feed v1", overlay = true)
+indicator("Tanja • closed 1m feed v1.1", overlay = true)
 
-// Install independently on ES1! and MNQ1!, standard 1-minute candles, ETH.
-// Create TWO alerts, each using "Any alert() function call".
+// Install independently on ES1!, MNQ1! and NQ1!, standard 1-minute candles, ETH.
+// Create THREE alerts, each using "Any alert() function call".
 // The private webhook URL belongs in the alert dialog, never in this script.
 // This is a candle exporter, not a strategy or order-execution script.
+// NQ is collection-only in service 2.3; the existing AI still uses ES/MNQ.
 if not timeframe.isminutes or timeframe.multiplier != 1
     runtime.error("Tanja feed requires a 1-minute chart.")
 if not chart.is_standard
     runtime.error("Use standard candles, not Heikin Ashi, Renko or other synthetic bars.")
-if syminfo.root != "ES" and syminfo.root != "MNQ"
-    runtime.error("Use ES or MNQ. NQ and MES are not interchangeable in this feed.")
+if syminfo.root != "ES" and syminfo.root != "MNQ" and syminfo.root != "NQ"
+    runtime.error("Use ES, NQ or MNQ. Each is stored separately; MES is unsupported.")
 
 // CME futures use "regular" for ETH and "us_regular" for RTH.
 if syminfo.session != "regular" and syminfo.session != "extended"
