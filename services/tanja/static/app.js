@@ -1,13 +1,15 @@
 'use strict';
-const titles={overview:'A clear view of every decision.',candidates:'Trade candidates',context:'AI context',automatic:'Automatic plans',plans:'AI plan readiness',executions:'50K Builder executions',feed:'Market data'};
+const titles={overview:'Trading overview',candidates:'Trade candidates',context:'AI context',automatic:'Automatic plans',plans:'AI plan readiness',executions:'50K Builder executions',feed:'Market data'};
 if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');
 function route(){const key=location.hash.slice(1) in titles?location.hash.slice(1):'overview';document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!==key);document.querySelectorAll('nav a').forEach(e=>e.classList.toggle('active',e.hash==='#'+key));document.getElementById('title').textContent=titles[key];document.getElementById('section-label').textContent=key.toUpperCase();}
 window.addEventListener('hashchange',route);route();
-const text=(id,value)=>{document.getElementById(id).textContent=value;};
+const text=(id,value)=>{const node=document.getElementById(id);if(node)node.textContent=value;};
 const at=t=>t?new Date(t*1000).toLocaleString('en-GB',{timeZone:'America/New_York',hour12:false}):'—';
 function rows(id,items){const target=document.getElementById(id);target.replaceChildren();for(const cells of items){const tr=document.createElement('tr');for(const value of cells){const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td);}target.appendChild(tr);}}
 function show(d){
- for(const s of ['ES','MNQ','NQ']){const f=d.feeds[s]||{state:'NO_DATA',count:0,latest_close:null},p=s.toLowerCase();text(p+'-state',f.state==='NO_DATA'?'No data':f.state==='CURRENT'?'Receiving':'Stale / closed');text(p+'-info',f.count+' bars · '+(f.latest_close?at(f.latest_close)+' NY':'Waiting for TradingView'));}
+ showDataHealth(d.data_health);
+ showAccount(d.account_snapshot);
+ for(const s of ['ES','MNQ','NQ']){const f=d.feeds[s]||{state:'NO_DATA',count:0,latest_close:null},p=s.toLowerCase();text(p+'-state',f.state==='NO_DATA'?'No data':f.state==='CURRENT'?'Receiving':d.data_health?.scheduled_pause?'Scheduled pause':'Data delayed');text(p+'-info',f.count+' bars · '+(f.latest_close?at(f.latest_close)+' NY':'Waiting for TradingView'));}
  text('market-roles','AI reviews still use ES/MNQ. Automatic plans use ES/NQ with independent MNQ pricing; they appear in Automatic plans.');
  const paired=d.feeds.ES.count>0&&d.feeds.MNQ.count>0;text('progress-feed',paired?'Both markets have stored candles':'Waiting for both one-minute feeds');
  rows('candidate-rows',d.candidates.map(c=>[at(c.as_of),c.direction.toUpperCase(),c.timeframe+'m',c.lower+' – '+c.upper,'Needs context']));document.getElementById('candidate-empty').hidden=d.candidates.length>0;
@@ -20,7 +22,7 @@ function show(d){
  rows('job-rows',d.jobs.map(j=>[at(j.cutoff),j.status+(j.error?' · '+j.error:''),j.processed_at?Math.round(j.processed_at-j.cutoff)+'s':'—']));
  const ul=document.getElementById('diagnostics');ul.replaceChildren();for(const item of d.diagnostics){const li=document.createElement('li');li.textContent=at(item.at)+' · '+item.kind+' · '+item.message;ul.appendChild(li);}if(!d.diagnostics.length){const li=document.createElement('li');li.textContent='No recent intake errors recorded.';ul.appendChild(li);}
 }
-async function refresh(){try{const r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);show(await r.json());text('connection','Service connected · refreshed '+new Date().toLocaleTimeString()+' · market times shown in New York');document.getElementById('connection').className='';}catch(e){text('connection','Cannot refresh the service. Displayed data may be old. '+e.message);document.getElementById('connection').className='error';}finally{setTimeout(refresh,10000);}}
+async function refresh(){try{const r=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(8000)});if(!r.ok)throw new Error('HTTP '+r.status);show(await r.json());text('connection','Service connected · refreshed '+new Date().toLocaleTimeString()+' · market times shown in New York');document.getElementById('connection').className='';}catch(e){showDataHealth({level:'error',messages:['Cannot reach the service. Displayed prices and decisions may be stale.']});text('connection','Cannot refresh the service. Displayed data may be old. '+e.message);document.getElementById('connection').className='error';}finally{setTimeout(refresh,10000);}}
 refresh();
 
 function showAI(a){
@@ -29,7 +31,7 @@ function showAI(a){
  const label=labels[a.status]||a.status;
  text('ai-state',label);text('ai-context-state',label);text('ai-info',(a.model||'No model configured')+' · '+a.calls_today+'/'+a.daily_limit+' calls today');text('progress-ai',label+' · observation only');
  text('ai-budget',a.review_window+' · at least '+a.min_interval_minutes+' minutes between reviews · '+a.calls_today+'/'+a.daily_limit+' daily attempts · maximum '+a.max_output_tokens+' output tokens per call.');
- text('ai-help',a.status==='PAUSED_AFTER_ERROR'?'Inspect the latest audit and fix the cause. Then increase TANJA_AI_REVISION in Railway to resume. Failed attempts still count toward the daily limit.':a.status==='WAITING_FOR_HISTORY'?'Collect at least three complete 4h bars and three 1h bars for BOTH markets. This normally requires overnight collection; missing earlier history remains a limitation.':'The API key stays on Railway. Review times are a sampling schedule for this pilot, not Tanja entry rules.');
+ text('ai-help',a.status==='PAUSED_AFTER_ERROR'?'Inspect the latest audit and fix the cause. Then increase TANJA_AI_REVISION in Railway to resume. Failed attempts still count toward the daily limit.':a.status==='WAITING_FOR_HISTORY'?'Collect at least three complete 4h bars and three 1h bars for BOTH markets. This normally requires overnight collection; missing earlier history remains a limitation.':'Scheduled context reviews · no broker orders.');
  const target=document.getElementById('ai-rows');target.replaceChildren();
  for(const r of a.records){const tr=document.createElement('tr');for(const v of [at(r.cutoff),at(r.finished),r.status+(r.error?' · '+r.error:''),r.usage?((r.usage.input_tokens??'?')+' in / '+(r.usage.output_tokens??'?')+' out'):'—']){const td=document.createElement('td');td.textContent=v;tr.appendChild(td);}const td=document.createElement('td'),link=document.createElement('a');link.href='/api/ai/audit/'+encodeURIComponent(r.id);link.target='_blank';link.rel='noopener';link.textContent='Open JSON';td.appendChild(link);tr.appendChild(td);target.appendChild(tr);}
  document.getElementById('ai-empty').hidden=!!a.records.length;
@@ -89,4 +91,17 @@ function showAutomatic(a){
  const target=document.getElementById('auto-rows');target.replaceChildren();
  for(const r of a.records){const tr=document.createElement('tr');for(const val of [at(r.cutoff),labels[r.state]||r.state,explain(r)||r.selected?.audit?.target?.reason||'Inspect audit']){const td=document.createElement('td');td.textContent=val;tr.appendChild(td);}const td=document.createElement('td'),link=document.createElement('a');link.href='/api/automatic-selection/audit/'+encodeURIComponent(r.revision)+'/'+r.cutoff;link.target='_blank';link.rel='noopener';link.textContent='Open audit';td.append(link);tr.append(td);target.append(tr);}
  document.getElementById('auto-empty').hidden=!!a.records.length;
+}
+
+function showDataHealth(h){
+ const node=document.getElementById('data-alert');
+ if(!h){node.hidden=false;node.className='data-alert warning';node.textContent='Data health unavailable.';return;}
+ node.hidden=h.level==='ok';node.className='data-alert '+h.level;
+ const message=(h.messages||[]).join(' ');if(node.textContent!==message)node.textContent=message;
+}
+
+function showAccount(a){
+ const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n);
+ text('account-asof',a?'MANUAL SNAPSHOT · '+a.as_of:'No account snapshot supplied');
+ for(const [id,val] of [['account-balance',a?.balance],['account-floor',a?.minimum_balance],['account-buffer',a?a.balance-a.minimum_balance:null],['account-target',a?Math.max(0,a.target_balance-a.balance):null]])text(id,val==null?'—':money(val));
 }
