@@ -12,6 +12,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent/'vendor'))
 from context_v3 import validate_decision
 
 STRATEGY_GAPS = [
+    'Analysis uses MNQ instead of Tanja’s NQ. Separate NQ collection does not yet drive this model.',
     'Strong-confirmation and follow-through definitions are not independently validated.',
     'Automatic context, POI and entry-mode selection are not verified against Tanja.',
     'Initial-stop anchor/buffer and target-selection policies remain unresolved.',
