@@ -1,3 +1,23 @@
+SIZING UPDATE — 9 October 2026
+
+User-selected rule: maximum planned price risk = 0.5% of current account
+balance. Contracts = floor(budget / (absolute entry-stop distance * $2)),
+subject to the configured Builder MNQ contract cap (default 40). Round budget
+down to cents. Skip when one contract exceeds the budget. Both directions use
+the same formula. Costs/slippage are not included in planned price risk and
+realized loss is not guaranteed to equal this budget.
+
+The running observation service uses the private, manually reported account
+snapshot for research sizing. It freezes the balance/source with each decision.
+A changed balance affects future decisions, never rewrites old ones. No valid
+snapshot means no sized plan. This snapshot is not a synchronized broker balance
+and cannot authorize live sizing. Legacy fixed-dollar/one-contract research
+variables are superseded. TANJA_ACCOUNT_MAX_MNQ may lower the cap.
+
+Contract references:
+https://www.cmegroup.com/markets/equities/nasdaq/micro-e-mini-nasdaq-100.html
+https://help.myfundedfutures.com/en/articles/14290805-builder-plan-50k-a-comprehensive-guide
+
 UPDATE — 9 October 2026: directional research v2
 
 Both long and short variants now run on original ES/NQ/MNQ prices. A short
