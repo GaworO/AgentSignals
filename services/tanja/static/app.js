@@ -7,7 +7,8 @@ const text=(id,value)=>{document.getElementById(id).textContent=value;};
 const at=t=>t?new Date(t*1000).toLocaleString('en-GB',{timeZone:'America/New_York',hour12:false}):'—';
 function rows(id,items){const target=document.getElementById(id);target.replaceChildren();for(const cells of items){const tr=document.createElement('tr');for(const value of cells){const td=document.createElement('td');td.textContent=String(value);tr.appendChild(td);}target.appendChild(tr);}}
 function show(d){
- for(const s of ['ES','MNQ']){const f=d.feeds[s],p=s.toLowerCase();text(p+'-state',f.state==='NO_DATA'?'No data':f.state==='CURRENT'?'Receiving':'Stale / closed');text(p+'-info',f.count+' bars · '+(f.latest_close?at(f.latest_close)+' NY':'Waiting for TradingView'));}
+ for(const s of ['ES','MNQ','NQ']){const f=d.feeds[s]||{state:'NO_DATA',count:0,latest_close:null},p=s.toLowerCase();text(p+'-state',f.state==='NO_DATA'?'No data':f.state==='CURRENT'?'Receiving':'Stale / closed');text(p+'-info',f.count+' bars · '+(f.latest_close?at(f.latest_close)+' NY':'Waiting for TradingView'));}
+ text('market-roles',d.market_roles?.note||'Current AI uses ES/MNQ; NQ integration is pending.');
  const paired=d.feeds.ES.count>0&&d.feeds.MNQ.count>0;text('progress-feed',paired?'Both markets have stored candles':'Waiting for both one-minute feeds');
  rows('candidate-rows',d.candidates.map(c=>[at(c.as_of),c.direction.toUpperCase(),c.timeframe+'m',c.lower+' – '+c.upper,'Needs context']));document.getElementById('candidate-empty').hidden=d.candidates.length>0;
  showAI(d.ai);
