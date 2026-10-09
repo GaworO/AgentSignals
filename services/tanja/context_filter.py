@@ -1,4 +1,4 @@
-"""Offline audit of explicitly annotated momentum-long context, not a bar classifier.
+"""Offline audit of explicitly annotated directional momentum context, not a bar classifier.
 
 All times use one caller-declared clock. Transcript elapsed seconds are NOT market
 execution times. A REVIEW_CANDIDATE still needs a complete price/risk plan and is
@@ -20,12 +20,18 @@ def review_context(recipe, observations, *, as_of, clock_id):
     errors = []
     if type(as_of) is not int or as_of < 0 or not isinstance(clock_id, str) or not clock_id:
         raise ValueError('Explicit nonnegative cutoff and clock identity required')
-    if recipe.get('kind') != 'momentum_long':
+    if recipe.get('kind') not in ('momentum_long','momentum_short'):
         errors.append('UNSUPPORTED_RECIPE')
     if type(recipe.get('timeframe_minutes')) is not int or recipe['timeframe_minutes'] not in (1, 2, 3, 5):
         errors.append('EXPLICIT_TIMEFRAME_REQUIRED')
-    required = list(BASE_REQUIREMENTS)
-    for flag, field in CONDITIONAL_REQUIREMENTS.items():
+    short = recipe.get('kind') == 'momentum_short'
+    remap = {'bullish_thesis_supported':'bearish_thesis_supported', 'sellside_event_observed':'buyside_event_observed',
+             'nasdaq_bullish_confirmation':'nasdaq_bearish_confirmation', 'selected_swing_high_broken':'selected_swing_low_broken',
+             'bullish_followthrough':'bearish_followthrough'} if short else {}
+    base = tuple(remap.get(f,f) for f in BASE_REQUIREMENTS)
+    conditional = {k:remap.get(v,v) for k,v in CONDITIONAL_REQUIREMENTS.items()}
+    required = list(base)
+    for flag, field in conditional.items():
         if type(recipe.get(flag)) is not bool:
             errors.append('EXPLICIT_' + flag.upper() + '_REQUIRED')
         elif recipe[flag]:
@@ -50,7 +56,7 @@ def review_context(recipe, observations, *, as_of, clock_id):
             errors.append('INVALID_OBSERVATION_VALUE')
             continue
         field = item.get('field')
-        if field not in set(BASE_REQUIREMENTS) | set(CONDITIONAL_REQUIREMENTS.values()) | set(WARNINGS):
+        if field not in set(base) | set(conditional.values()) | set(WARNINGS):
             errors.append('UNKNOWN_OBSERVATION_FIELD')
             continue
         if field == 'selected_inversion_closed' and item.get('timeframe_minutes') != recipe.get('timeframe_minutes'):
