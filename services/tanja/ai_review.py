@@ -170,6 +170,14 @@ class AIReview:
             status = 'validated'
         except APIError as exc:
             error = str(exc) if re.fullmatch(r'[A-Z_0-9]+', str(exc)) else 'API_ERROR'
+        except ValueError as exc:
+            # Only an exact, known validator message is exposed. Never forward
+            # arbitrary upstream response text or credentials into diagnostics.
+            error = ('TRIGGER_BIAS_MISMATCH' if raw is not None and
+                str(exc) == 'Trigger does not support the selected MNQ inversion direction'
+                else 'RESPONSE_FAILED_EVIDENCE_VALIDATION' if raw is not None
+                else 'REQUEST_OUTCOME_UNKNOWN')
+            status = 'rejected' if raw is not None else 'failed'
         except Exception:
             error = 'RESPONSE_FAILED_EVIDENCE_VALIDATION' if raw is not None else 'REQUEST_OUTCOME_UNKNOWN'
             status = 'rejected' if raw is not None else 'failed'
