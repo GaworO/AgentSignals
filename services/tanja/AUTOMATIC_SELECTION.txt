@@ -1,3 +1,32 @@
+UPDATE — 9 October 2026: directional research v2
+
+Both long and short variants now run on original ES/NQ/MNQ prices. A short
+candidate closes below a bullish FVG, breaks a confirmed swing low, uses a
+selected MNQ structural high plus tick buffer, and targets lower MNQ liquidity
+or a downside projection. Conflicting completed directions abstain. The chosen
+direction is visible in the dashboard and visual Pine export.
+
+May 19 source checkpoints: 00:54:04 bearish bias/SMT and below 8:30/9:30 opens;
+00:55:03 M5 displacement/inversion; 01:01:31 further swing-low break;
+00:57:28 / 01:02:26 open-price and rejection-wick invalidation;
+00:59:14 / 01:03:24 prior weekly lows, projection and ATR affecting exits.
+
+The same transcript describes a continuation/rejection entry, not proof that
+all shorts must occur at a range high or an immediate first inversion. The
+current liquidity-reclaim/HTF-gap recipes are a supported research subset;
+open-price rejection, weekly targets, ATR partials and discretionary sizing
+are NOT fully reconstructed by this change. Numerical strength thresholds,
+ranking and structural buffer remain unvalidated hypotheses.
+
+management_review.py provides offline stop proposals for both directions:
+latest confirmed M1 low/high with one-tick buffer; pre-news entry minus/plus
+1.5 points; never loosen. It requires supplied position, news and fresh-quote
+inputs and does not run a broker position loop. No automatic partial percentage
+was inferred. The short news offset extends the user's long rule and is not
+claimed as an observed Tanja rule.
+
+The original long implementation notes below are historical background.
+
 TANJA AUTOMATIC LONG RESEARCH v1 — 9 October 2026
 
 Status
