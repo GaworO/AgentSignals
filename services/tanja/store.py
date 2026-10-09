@@ -12,6 +12,12 @@ FIELDS = {'schema_version', 'feed_version', 'symbol', 'ticker', 'timeframe',
           'sent_at_ms', 'open', 'high', 'low', 'close', 'volume'}
 
 
+def bar_table(symbol):
+    # Keep collection-only NQ out of the legacy two-market job scheduler,
+    # including if the previous application version is restored.
+    return 'collection_bars' if symbol == 'NQ' else 'bars'
+
+
 class InvalidBar(ValueError):
     pass
 
@@ -46,7 +52,7 @@ def validate_bar(b, tickers, now):
         if b[k] < 0 or (k != 'volume' and b[k] == 0):
             raise InvalidBar('Invalid price or volume')
         if k != 'volume' and abs(b[k] * 4 - round(b[k] * 4)) > 1e-6:
-            raise InvalidBar('ES/MNQ prices must be on a 0.25 tick')
+            raise InvalidBar('ES/NQ/MNQ prices must be on a 0.25 tick')
     if b['low'] > min(b['open'], b['close']) or b['high'] < max(b['open'], b['close']) or b['low'] > b['high']:
         raise InvalidBar('Impossible OHLC candle')
     return b
@@ -63,6 +69,9 @@ class Store:
               CREATE TABLE IF NOT EXISTS bars (
                 symbol TEXT, start INTEGER, end INTEGER, received REAL, payload TEXT,
                 PRIMARY KEY(symbol,start));
+              CREATE TABLE IF NOT EXISTS collection_bars (
+                symbol TEXT, start INTEGER, end INTEGER, received REAL, payload TEXT,
+                PRIMARY KEY(symbol,start));
               CREATE TABLE IF NOT EXISTS jobs (
                 cutoff INTEGER PRIMARY KEY, frozen_at REAL, status TEXT, error TEXT,
                 packet TEXT, processed_at REAL);
@@ -73,12 +82,21 @@ class Store:
             ''')
 
     def bind_tickers(self, tickers):
-        value = json.dumps(tickers, sort_keys=True)
+        if set(tickers) not in ({'ES', 'MNQ'}, {'ES', 'MNQ', 'NQ'}):
+            raise ValueError('Expected ES/MNQ with optional separate NQ collection')
+        # Preserve the old metadata key byte-for-byte so 2.2 can be restored.
+        # The new series has its own immutable binding and separate bar keys.
+        bindings = {'tickers': {s:tickers[s] for s in ('ES', 'MNQ')}}
+        if 'NQ' in tickers:
+            bindings['collection_tickers'] = {'NQ':tickers['NQ']}
         with self.connect() as db:
-            existing = db.execute("SELECT value FROM metadata WHERE key='tickers'").fetchone()
-            if existing and existing[0] != value:
-                raise ValueError('Ticker configuration differs from stored series. Use a new volume for a new series.')
-            db.execute("INSERT OR IGNORE INTO metadata VALUES('tickers',?)", (value,))
+            db.execute('BEGIN IMMEDIATE')
+            for key, mapping in bindings.items():
+                value = json.dumps(mapping, sort_keys=True)
+                existing = db.execute('SELECT value FROM metadata WHERE key=?', (key,)).fetchone()
+                if existing and existing[0] != value:
+                    raise ValueError('Ticker configuration differs from stored series. Use a new volume for a new series.')
+                db.execute('INSERT OR IGNORE INTO metadata VALUES(?,?)', (key, value))
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=1.0)
@@ -92,19 +110,21 @@ class Store:
 
     def ingest(self, b, received):
         start, end = b['bar_open_ms'] // 1000, b['bar_close_ms'] // 1000
+        table = bar_table(b['symbol'])
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            prior = db.execute('SELECT payload FROM bars WHERE symbol=? AND start=?', (b['symbol'], start)).fetchone()
+            prior = db.execute(f'SELECT payload FROM {table} WHERE symbol=? AND start=?', (b['symbol'], start)).fetchone()
             if prior:
                 old = json.loads(prior[0])
                 # Transport send time may change on retries; candle content may not.
                 if {k:v for k,v in old.items() if k != 'sent_at_ms'} != {k:v for k,v in b.items() if k != 'sent_at_ms'}:
                     raise Conflict('Conflicting duplicate; existing candle retained')
                 return {'status': 'duplicate', 'queued': False}
-            db.execute('INSERT INTO bars VALUES(?,?,?,?,?)', (b['symbol'], start, end, received, json.dumps(b)))
+            db.execute(f'INSERT INTO {table} VALUES(?,?,?,?,?)', (b['symbol'], start, end, received, json.dumps(b)))
             latest = db.execute('SELECT MAX(cutoff) FROM jobs').fetchone()[0] or 0
-            paired = db.execute('SELECT COUNT(*) FROM bars WHERE start=?', (start,)).fetchone()[0] == 2
-            queued = paired and end > latest
+            paired = db.execute("SELECT COUNT(*) FROM bars WHERE start=? AND symbol IN ('ES','MNQ')", (start,)).fetchone()[0] == 2
+            # NQ is collection-only: it must not substitute for MNQ or queue reviews.
+            queued = b['symbol'] in ('ES', 'MNQ') and paired and end > latest
             if queued:
                 db.execute('INSERT INTO jobs(cutoff,frozen_at,status) VALUES(?,?,?)', (end, received, 'queued'))
             return {'status': 'stored', 'queued': queued, 'paired': paired,
@@ -126,7 +146,7 @@ class Store:
         with self.connect() as db:
             # Arrival cutoff is independent from the market cutoff. Late arrivals
             # can never rewrite an earlier decision's input snapshot.
-            rows = db.execute('SELECT payload FROM bars WHERE symbol=? AND end<=? AND received<=? ORDER BY start DESC LIMIT 12000',
+            rows = db.execute(f'SELECT payload FROM {bar_table(symbol)} WHERE symbol=? AND end<=? AND received<=? ORDER BY start DESC LIMIT 12000',
                               (symbol, cutoff, frozen_at)).fetchall()
         return [json.loads(r[0]) for r in reversed(rows)]
 
@@ -146,9 +166,9 @@ class Store:
     def state(self, now):
         with self.connect() as db:
             feeds = {}
-            for symbol in ('ES', 'MNQ'):
-                n = db.execute('SELECT COUNT(*) FROM bars WHERE symbol=?', (symbol,)).fetchone()[0]
-                last = db.execute('SELECT * FROM bars WHERE symbol=? ORDER BY start DESC LIMIT 1', (symbol,)).fetchone()
+            for symbol in ('ES', 'MNQ', 'NQ'):
+                n = db.execute(f'SELECT COUNT(*) FROM {bar_table(symbol)} WHERE symbol=?', (symbol,)).fetchone()[0]
+                last = db.execute(f'SELECT * FROM {bar_table(symbol)} WHERE symbol=? ORDER BY start DESC LIMIT 1', (symbol,)).fetchone()
                 feeds[symbol] = dict(count=n, latest_close=last['end'] if last else None,
                                      age_seconds=round(now-last['end'], 1) if last else None,
                                      state='NO_DATA' if not last else 'CURRENT' if now-last['end'] <= 120 else 'STALE_OR_MARKET_CLOSED')
@@ -157,14 +177,18 @@ class Store:
             diag = [dict(r) for r in db.execute('SELECT at,kind,message FROM diagnostics ORDER BY id DESC LIMIT 20')]
             latest = db.execute('SELECT packet FROM jobs WHERE packet IS NOT NULL ORDER BY cutoff DESC LIMIT 1').fetchone()
         p = json.loads(latest[0]) if latest else None
-        return dict(feeds=feeds, jobs=jobs, candidates=candidates, diagnostics=diag,
+        return dict(market_roles=dict(analysis_inputs=['ES','MNQ'], collected_only=['NQ'],
+                    intended_analysis_inputs=['ES','NQ'], intended_execution_symbol='MNQ',
+                    fidelity_status='ANALYSIS_SOURCE_MISMATCH',
+                    note='Current AI still analyses ES/MNQ. NQ is collected separately for the upcoming analysis migration; it does not yet drive candidates or plans.'),
+                    feeds=feeds, jobs=jobs, candidates=candidates, diagnostics=diag,
                     latest_context=p, executions=[], execution_status='NOT_CONNECTED', ai_status='NOT_CONNECTED',
                     mode='OBSERVE_ONLY', account='My Funded Futures · 50K Builder',
                     account_verified=False, broker_connected=False, executable=False)
 
     def export_csv(self, symbol):
         with self.connect() as db:
-            rows = db.execute('SELECT payload,received FROM bars WHERE symbol=? ORDER BY start', (symbol,)).fetchall()
+            rows = db.execute(f'SELECT payload,received FROM {bar_table(symbol)} WHERE symbol=? ORDER BY start', (symbol,)).fetchall()
         out = io.StringIO()
         w = csv.writer(out)
         w.writerow(['symbol','ticker','bar_open_ms','bar_close_ms','open','high','low','close','volume','received_at_utc_seconds'])

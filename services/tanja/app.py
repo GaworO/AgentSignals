@@ -22,14 +22,19 @@ class App:
             raise ValueError('Set TANJA_FEED_TOKEN to a random 32–128 character URL-safe value')
         if len(self.password) < 16 or self.password == self.token:
             raise ValueError('Set a separate TANJA_DASHBOARD_PASSWORD of at least 16 characters')
-        self.tickers = {s:config.get('TANJA_'+s+'_TICKER', 'CME_MINI:'+s+'1!') for s in ('ES','MNQ')}
-        self.store = Store(config.get('DATA_DIR','/data'))
+        self.tickers = {s:config.get('TANJA_'+s+'_TICKER', 'CME_MINI:'+s+'1!') for s in ('ES','MNQ','NQ')}
+        self.data_dir = Path(config.get('DATA_DIR','/data'))
+        self.store = Store(self.data_dir)
         self.store.bind_tickers(self.tickers)
         self.origin = config.get('TANJA_PARENT_ORIGIN','').rstrip('/')
         if self.origin and (not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?', self.origin)):
             raise ValueError('TANJA_PARENT_ORIGIN must be an HTTPS origin without a path')
         from ai_review import AIReview
         self.ai = AIReview(self.store, config)
+        from plan_observer import PlanObserver
+        self.plan_observer = PlanObserver(self.store)
+        from selection_observer import SelectionObserver
+        self.selection_observer = SelectionObserver(self.store, config)
         from connection_test import ConnectionTest
         self.connection_test = ConnectionTest(self.store, config)
         self.csrf = secrets.token_urlsafe(32)
@@ -39,6 +44,8 @@ class App:
             from worker import run_worker
             threading.Thread(target=run_worker, args=(self.store,self.stop), daemon=True).start()
             threading.Thread(target=self.ai.run, args=(self.stop,), daemon=True).start()
+            threading.Thread(target=self.plan_observer.run, args=(self.stop,), daemon=True).start()
+            threading.Thread(target=self.selection_observer.run, args=(self.stop,), daemon=True).start()
 
     def __call__(self, env, respond):
         path = env.get('PATH_INFO','/')
@@ -53,7 +60,7 @@ class App:
             return [raw]
 
         if path == '/health' and method == 'GET':
-            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.1-test-only'})
+            return send('200 OK', {'ok':True,'service':'tanja','mode':'OBSERVE_ONLY','orders_enabled':False,'version':'2.4-auto-selection-observe'})
         if path.startswith('/feed/'):
             supplied = path[len('/feed/'):]
             if not hmac.compare_digest(supplied.encode(), self.token.encode()):
@@ -107,11 +114,37 @@ class App:
         if path == '/api/state':
             now = time.time()
             state = self.store.state(now)
+            from data_health import data_health
+            state['data_health'] = data_health(state, now)
+            from data_health import account_snapshot
+            state['account_snapshot'] = account_snapshot(self.data_dir)
             state['ai'] = self.ai.state(now, state['latest_context'])
             state['ai_status'] = state['ai']['status']
             state['connection_test'] = self.connection_test.state()
             state['test_csrf'] = self.csrf
+            state['plan_observer'] = self.plan_observer.state()
+            state['automatic_selection'] = self.selection_observer.state()
             return send('200 OK', state)
+        if path == '/api/automatic-selection':
+            return send('200 OK', self.selection_observer.state())
+        if path.startswith('/api/automatic-selection/pine/'):
+            match = re.fullmatch(r'/api/automatic-selection/pine/([a-f0-9]{64})/([0-9]{1,12})', path)
+            audit = self.selection_observer.audit(match[1], int(match[2])) if match else None
+            if not audit:
+                return send('404 Not Found', {'error':'Research plan not found'})
+            from pine_export import export_plan
+            try:
+                script = export_plan(audit, self.tickers['MNQ'])
+            except (ValueError, TypeError, KeyError):
+                return send('409 Conflict', {'error':'A complete valid research plan is required; no trade fills are inferred'})
+            return send('200 OK', script, 'text/plain; charset=utf-8',
+                        [('Content-Disposition', f'attachment; filename="tanja-plan-{match[2]}.pine"')])
+        if path.startswith('/api/automatic-selection/audit/'):
+            match = re.fullmatch(r'/api/automatic-selection/audit/([a-f0-9]{64})/([0-9]{1,12})', path)
+            audit = self.selection_observer.audit(match[1], int(match[2])) if match else None
+            return send('200 OK', audit) if audit else send('404 Not Found', {'error':'not found'})
+        if path == '/api/plans':
+            return send('200 OK', self.plan_observer.state())
         if path.startswith('/api/ai/audit/'):
             ident = path.rsplit('/',1)[-1]
             audit = self.ai.audit(ident) if re.fullmatch(r'[a-f0-9]{32}', ident) else None
@@ -120,7 +153,7 @@ class App:
             return send('200 OK', (ROOT/'EXECUTION_SETUP.html').read_text(), 'text/html; charset=utf-8')
         if path in ('/ai-guide','/API_SETUP.html'):
             return send('200 OK', (ROOT/'API_SETUP.html').read_text(), 'text/html; charset=utf-8')
-        if path in ('/api/bars/ES.csv','/api/bars/MNQ.csv'):
+        if path in ('/api/bars/ES.csv','/api/bars/MNQ.csv','/api/bars/NQ.csv'):
             symbol=path.split('/')[-1][:-4]
             return send('200 OK',self.store.export_csv(symbol),'text/csv',
                         [('Content-Disposition',f'attachment; filename="tanja_{symbol}_1m.csv"')])

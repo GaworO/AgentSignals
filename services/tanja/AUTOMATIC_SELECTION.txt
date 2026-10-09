@@ -1,0 +1,177 @@
+SIZING UPDATE — 9 October 2026
+
+User-selected rule: maximum planned price risk = 0.5% of current account
+balance. Contracts = floor(budget / (absolute entry-stop distance * $2)),
+subject to the configured Builder MNQ contract cap (default 40). Round budget
+down to cents. Skip when one contract exceeds the budget. Both directions use
+the same formula. Costs/slippage are not included in planned price risk and
+realized loss is not guaranteed to equal this budget.
+
+The running observation service uses the private, manually reported account
+snapshot for research sizing. It freezes the balance/source with each decision.
+A changed balance affects future decisions, never rewrites old ones. No valid
+snapshot means no sized plan. This snapshot is not a synchronized broker balance
+and cannot authorize live sizing. Legacy fixed-dollar/one-contract research
+variables are superseded. TANJA_ACCOUNT_MAX_MNQ may lower the cap.
+
+Contract references:
+https://www.cmegroup.com/markets/equities/nasdaq/micro-e-mini-nasdaq-100.html
+https://help.myfundedfutures.com/en/articles/14290805-builder-plan-50k-a-comprehensive-guide
+
+UPDATE — 9 October 2026: directional research v2
+
+Both long and short variants now run on original ES/NQ/MNQ prices. A short
+candidate closes below a bullish FVG, breaks a confirmed swing low, uses a
+selected MNQ structural high plus tick buffer, and targets lower MNQ liquidity
+or a downside projection. Conflicting completed directions abstain. The chosen
+direction is visible in the dashboard and visual Pine export.
+
+May 19 source checkpoints: 00:54:04 bearish bias/SMT and below 8:30/9:30 opens;
+00:55:03 M5 displacement/inversion; 01:01:31 further swing-low break;
+00:57:28 / 01:02:26 open-price and rejection-wick invalidation;
+00:59:14 / 01:03:24 prior weekly lows, projection and ATR affecting exits.
+
+The same transcript describes a continuation/rejection entry, not proof that
+all shorts must occur at a range high or an immediate first inversion. The
+current liquidity-reclaim/HTF-gap recipes are a supported research subset;
+open-price rejection, weekly targets, ATR partials and discretionary sizing
+are NOT fully reconstructed by this change. Numerical strength thresholds,
+ranking and structural buffer remain unvalidated hypotheses.
+
+management_review.py provides offline stop proposals for both directions:
+latest confirmed M1 low/high with one-tick buffer; pre-news entry minus/plus
+1.5 points; never loosen. It requires supplied position, news and fresh-quote
+inputs and does not run a broker position loop. No automatic partial percentage
+was inferred. The short news offset extends the user's long rule and is not
+claimed as an observed Tanja rule.
+
+The original long implementation notes below are historical background.
+
+TANJA AUTOMATIC LONG RESEARCH v1 — 9 October 2026
+
+Status
+Automatic selection is implemented for two long momentum research recipes. No
+manual setup, candle-strength, stop-anchor or target annotation is required.
+This is a testable interpretation, NOT verified 1:1 replication or a validated
+profitable strategy. No new AI requests or broker-order transport are present.
+
+Hypothesis and source evidence
+A liquidity excursion followed by a strong closing inversion and high break may
+support immediate continuation toward opposing liquidity. Tanja discusses a
+selected M5 inversion/high break/strong candle and no retracement on May 22,
+video 01:19:30–01:25:47. Initial structural invalidation there differs from later
+swing trailing. May 26, 00:49:04–00:50:04, describes a negative-one false-move
+projection. July 17, 00:34:39–00:37:29, describes reclaim after monthly sellside
+and an intended new high-of-day target. Original excerpts/hashes are retained in
+../research_tanja_entry_rules_20261009/evidence.json.
+
+These examples motivate conditional recipes, not the numeric defaults below.
+The current automatic liquidity catalogue has completed overnight/prior-RTH
+extremes, not a verified prior-month/week/ATH catalogue. The July case therefore
+motivates the family but is NOT claimed reproduced by the current catalogue.
+
+Inputs and clocks
+Closed standard M1 ES, NQ and MNQ OHLC, UTC seconds; optional received_at.
+Missing minutes are never filled. All three markets must reach the cutoff.
+Decision receipt time is frozen; late arrivals cannot rewrite stored decisions.
+Only 09:30–11:00 NY weekday research decisions; first cutoff is after 09:30.
+This window and 15-second freshness cap are engineering limits, not Tanja rules.
+Historical files without receipt times assume availability at candle close.
+Continuous-contract adjustment/roll consistency remains to be independently
+verified. NQ levels are never copied as MNQ prices.
+
+Automatic setup selection
+1. Reclaimed overnight/prior-RTH low after a strict sweep in the current RTH,
+   with the deepest sweep no more than 30 minutes old; OR
+2. Return to a bullish H1/H4 gap formed before RTH, close back above the zone,
+   and paired ES/NQ divergence against the same completed reference window.
+   A subsequent M1 close below the lower boundary invalidates the zone.
+SMT is conditional for recipe 2; it is not mandatory for every reclaim.
+Equal ES reference/current lows do not establish positive divergence.
+The bullish-thesis classification is a measured recipe proxy, not independent
+AI understanding of every higher-timeframe narrative.
+
+Confirmation proxy
+Three-candle bearish wick gap from the same excursion, first close above it,
+plus close above the latest already-confirmed pre-sweep high. Candidate TFs:
+5, 3, 2, 1 minute. Strict one-left/one-right swing convention; the right candle
+must already have closed. Missing bars invalidate an interval.
+Strong bullish candle: body/range >= 0.60, close in upper 25%, total range >=
+median of previous 5 same-TF ranges. The gap's final-candle low must be in the
+lower 35% of the available pre-trigger RTH range (up to 30 minutes).
+All these numbers and conventions are provisional, versioned hypotheses.
+No threshold optimization or claim of trader validation has occurred.
+
+Automatic stop and target
+Initial stop: lowest actual MNQ low in the paired reaction-to-trigger interval,
+minus one tick. The reaction and one-tick buffer are explicit initial-invalidation
+proxies; not every original Tanja initial stop used this exact anchor.
+Target: nearest still-untouched candidate above entry among a completed-session
+high, confirmed swing high or opposing HTF gap boundary. Selection uses NQ
+context and independently calculated MNQ levels on matching intervals. The
+nearest-obstacle preference is a research choice, not a proven target hierarchy.
+If no such target is available, use a negative-one false-move projection from
+the matched MNQ pre-sweep swing candle to the reaction low. Negative-half is
+configurable. Off-tick projections are rejected rather than silently rounded.
+No universal fixed-R target, ATH fabrication or front-running offset.
+
+Ranking and abstention
+Rank H4 POI, H1 POI, prior-RTH reclaim, overnight reclaim; then TF order above;
+then latest gap. Log alternatives and measurements. Missing context, invalid
+geometry, weak proxy confirmation or insufficient budget cause abstention.
+Ranking is not optimized on outcome labels and is not verified Tanja ranking.
+
+Sizing and risk
+Explicit hypothetical price-risk budget and contract cap. Size is the integer
+floor of budget / (MNQ point distance x $2), capped by the configured maximum.
+Railway observer defaults: $100 price risk, maximum 1 MNQ. These are comparison
+settings, NOT approved Builder risk limits. Local paper simulator rechecks
+actual modeled fill risk including costs. The observer emits plans only.
+No daily/weekly account drawdown checks or broker reconciliation exist here;
+therefore executable orders are always disabled. One active position is enforced
+only by the separate local paper simulator.
+
+Exits and management
+Compiler connects to the existing local long-only paper lifecycle. Existing
+protection is checked before management on each supplied quote. Target/stop
+fills, partials and bracket resizing are modeled, not broker acknowledgements.
+User-selected news stop at entry minus 1.5 points and confirmed M1 swing trailing
+remain separate management rules. No automatic universal partial quantity.
+No new time-stop, discretionary early-exit rule, short mirror or 30-second
+execution is invented. Retracement execution remains unsupported.
+
+Service operation
+selection_observer.py independently reads bars/collection_bars, not legacy AI
+jobs. It runs every two seconds, processes the latest synchronized closed minute
+once per policy revision, records frozen audits, and bounds retention to 100
+research decisions (latest 30 shown). Missed minutes after restart do not become
+fresh entries. Old ES/MNQ AI reviews and their API budget remain unchanged.
+Endpoints /api/automatic-selection and /api/automatic-selection/audit/<revision>/<cutoff>
+use the existing dashboard authentication and accept GET only.
+TANJA_AUTO_SELECTION_ENABLED=true by default, false disables this observer.
+TANJA_AUTO_PAPER_RISK_USD=100; TANJA_AUTO_PAPER_MAX_CONTRACTS=1.
+No production environment variables need changing for observation-only use.
+
+Validation and remaining scope
+78 local engine/lifecycle checks and 78 service checks passed. New selector
+checks cover automatic choices, complete intervals, future invariance, late
+receipts, independent MNQ pricing, conditional SMT, HTF ranking, projections,
+and no-plan cases. One synthetic end-to-end test reaches the paper target from
+raw bars without manual choices. Desktop/mobile dashboard checks passed.
+These are correctness checks, NOT 156 independent trades, a historical strategy
+backtest or an out-of-sample validation. May examples are development evidence.
+No win rate, profit factor, fidelity percentage or live-readiness claim exists.
+
+Next evaluation: freeze policy before collecting forward decisions; compare
+matched Tanja entries AND no-trade days, chosen TF/POI, initial stops and targets.
+Evaluate disagreements without tuning on the same held-out cases. Numerical
+performance/retirement criteria are not set because representative aligned
+NQ/MNQ/ES evaluation data and outcome labels are not yet available. Withhold
+live routing until selection quality and the broker lifecycle are verified.
+
+Reproduce
+python3.11 -m unittest discover -v  (research folder)
+python3.11 -m unittest discover -s tests -v  (service folder)
+python3.11 replay_selection.py --input markets.json --output decisions.json \
+  --risk-budget 100 --max-contracts 1
+The replay records decisions only; M1 close sampling cannot prove intrabar fills.
