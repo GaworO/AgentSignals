@@ -58,3 +58,14 @@ Use schema_version3 and spec_version=tanya-evidence-baseline-2026-10-08-v1.
 The nested context uses schema_version2 and copies the packet_id/as_of exactly.
 Choose wait/abstain whenever context does not support a candidate. A candidate
 only means a supported contextual idea, never an executable or faithful1:1 trade.
+
+Selection contract: selected_trigger_id means a directionally selected setup,
+not merely an interesting observed event. If bias is neutral or unknown, set
+selected_trigger_id=null, smt_selection=null and selected_swing=null. You may
+still discuss bullish/bearish IFVG observations in rationale and cite their IDs
+in claims.evidence_ids without selecting them. Do not change a genuinely neutral
+bias to long/short just to satisfy the schema. For any selected trigger, including
+a wait decision, its direction must equal bias. Neutral/unknown decisions must
+leave initial_stop=null, initial_quantity=null and management.targets=[] because
+no directional order plan is selected. Never convert wait into candidate merely
+to complete fields. Check these invariants before returning the response.
