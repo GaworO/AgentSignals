@@ -41,7 +41,7 @@ def data_health(state, now):
 
 
 def account_snapshot(directory):
-    """Manual, private display-only data. Never used as live account authority."""
+    """Manual private snapshot for display/research sizing, never live authority."""
     import json, math
     try:
         value=json.loads((directory/'account_snapshot.json').read_text())
