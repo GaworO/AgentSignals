@@ -71,7 +71,7 @@ class SelectionObserver:
             records.append(result)
         return dict(enabled=self.enabled,configuration=self.configuration,revision=self.revision,records=records,
           mode='AUTOMATIC_RESEARCH_ONLY',orders_enabled=False,extra_ai_calls=0,automatic_paper_fills=False,
-          note='Deterministic long-only research policies select from ES/NQ and price on MNQ. Numerical choices are unvalidated proxies, not proven Tanja rules. Risk/quantity are hypothetical settings, not a Builder-account authorization.')
+          note='Deterministic long/short research policies select from ES/NQ and price on MNQ. Numerical choices are unvalidated proxies, not proven Tanja rules. Risk/quantity are hypothetical settings, not a Builder-account authorization.')
 
     def audit(self,revision,cutoff):
         with self.store.connect() as db:
