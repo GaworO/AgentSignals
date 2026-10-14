@@ -1,0 +1,299 @@
+{
+  "version": "tanja-decision-library-v1",
+  "examples": [
+    {
+      "id": "5_19-context",
+      "session_date": "2026-05-19",
+      "topic": "context",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+        "sha256": "86700f9a96c0729af7ae66da6515274e3c3c8471e5d7bb119e23ca0e341e495a",
+        "video_timestamp": "01:02:03"
+      },
+      "context": "Intraday price looks low, but weekly context allows further downside; price has broken 08:30 and 09:30 opens.",
+      "decision": "Evaluate the higher-timeframe downside objective before rejecting the short as too low on the intraday chart.",
+      "uncertainty": "A weekly contextual judgment is not a general instruction to short below the opens.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_19-initial-stop",
+      "session_date": "2026-05-19",
+      "topic": "initial-stop",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+        "sha256": "86700f9a96c0729af7ae66da6515274e3c3c8471e5d7bb119e23ca0e341e495a",
+        "video_timestamp": "01:02:26"
+      },
+      "context": "Short after offering both sides; selected opens and wick midpoint define the area price should not regain.",
+      "decision": "Use the selected invalidation area above price, rather than automatically choosing the outermost recent reaction.",
+      "uncertainty": "Exact buffer and which of several reference prices governed the initial order need independent alignment.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_19-es-partial",
+      "session_date": "2026-05-19",
+      "topic": "es-partial",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+        "sha256": "86700f9a96c0729af7ae66da6515274e3c3c8471e5d7bb119e23ca0e341e495a",
+        "video_timestamp": "01:03:24–01:04:04"
+      },
+      "context": "Existing short; ES reaches its previous weekly low and Nasdaq has reached the discussed daily average range.",
+      "decision": "Buy back two contracts and move the rest to break-even in this example.",
+      "uncertainty": "The later explanation mentions five daily ranges. The exact ATR calculation and universal trigger conjunction are not established; two contracts is case-specific.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_22-m5-momentum",
+      "session_date": "2026-05-22",
+      "topic": "m5-momentum",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+        "sha256": "30714303d257462cc1fda8b07f5afbae32b211d3833d0d232b84a041788313b4",
+        "video_timestamp": "01:18:49–01:22:36"
+      },
+      "context": "After substantial manipulation and chop, looking for a strong M5 inversion and break of the selected high.",
+      "decision": "Wait for the selected M5 confirmation; enter immediately when accepted, without requiring a retracement.",
+      "uncertainty": "No measured universal body/range threshold for strong confirmation is stated.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_22-initial-stop",
+      "session_date": "2026-05-22",
+      "topic": "initial-stop",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+        "sha256": "30714303d257462cc1fda8b07f5afbae32b211d3833d0d232b84a041788313b4",
+        "video_timestamp": "01:22:36–01:23:32"
+      },
+      "context": "Multiple selected PD arrays and an RTH-gap area under the long setup.",
+      "decision": "Place invalidation beneath the selected support area; size from the resulting stop distance.",
+      "uncertainty": "Order labels and the risk/reward drawing differ. Do not copy the drawing as an actual fill.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_26-inversion-news",
+      "session_date": "2026-05-26",
+      "topic": "inversion-news",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_W LONGS TO ALL TIME HIGHS _  DAY TRADING ICT CONCEPTS_ 5_26_2026.txt",
+        "sha256": "2f9d3cc168dcfc9a4074c1bcba6ca065010db69a157d86385f3370fb6bd767c5",
+        "video_timestamp": "00:37:43–00:40:34"
+      },
+      "context": "Displayed NQ M1 inversion, bullish expectation toward ATH, approaching 10:00 news; screenshots show five then four MNQ.",
+      "decision": "An inversion long is followed by a small reduction and tighter protection around news in this case.",
+      "uncertainty": "The precise partial trigger and fill are not visible. Displayed M1 alone does not prove it was the sole confirmation.",
+      "confidence": "narration_and_screenshot_partial_reconstruction",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_26-projection-target",
+      "session_date": "2026-05-26",
+      "topic": "projection-target",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_W LONGS TO ALL TIME HIGHS _  DAY TRADING ICT CONCEPTS_ 5_26_2026.txt",
+        "sha256": "2f9d3cc168dcfc9a4074c1bcba6ca065010db69a157d86385f3370fb6bd767c5",
+        "video_timestamp": "00:49:04–00:50:04"
+      },
+      "context": "Selected false move and expected upside; watching the ES hourly area and swing high.",
+      "decision": "Use the selected minus-one false-move projection as the objective rather than always the closest level.",
+      "uncertainty": "Anchor choice is discretionary. Later working-limit adjustment cannot be backdated to entry.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "5_27-wait",
+      "session_date": "2026-05-27",
+      "topic": "wait",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_How to Recognize Poor Trading Conditions and Stay Safe _ DAY TRADING ICT CONCEPTS_ 5_27_2026.txt",
+        "sha256": "0e9947a72bc43985b61806839d86fa8bde1be3cbd3492d3398ba1b6d11d46508",
+        "video_timestamp": "00:46:34–00:49:31"
+      },
+      "context": "Choppy action, Nasdaq already travelled its discussed daily range, weak displacement through an M1 level, mixed ES/NQ context.",
+      "decision": "Do not treat inversion geometry alone as convincing confirmation; waiting is a valid decision.",
+      "uncertainty": "This labels a narrated rejection moment, not a verified all-day no-trade account ledger.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "7_17-liquidity-reclaim",
+      "session_date": "2026-07-17",
+      "topic": "liquidity-reclaim",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_HUGE 200 PT NQ TRADE AFTER TAKING A LOSS _ DAY TRADING ICT CONCEPTS _ 7_17_2026.txt",
+        "sha256": "258c650051325b3aa22c185e76fef59d14a5bbe4a6a7587f89080deadb06c6e8",
+        "video_timestamp": "00:34:39–00:36:41; 00:56:54–00:58:05"
+      },
+      "context": "Prior-month liquidity is taken and reclaimed with an accepted inversion; selected upside objective remains.",
+      "decision": "An immediate long can be preferred; a retracement is not compulsory after every inversion.",
+      "uncertainty": "The later explanation is a label for learning, never an input to the earlier historical prediction. Other conditions may favour waiting for an FVG retracement.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "7_17-structural-trail",
+      "session_date": "2026-07-17",
+      "topic": "structural-trail",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_HUGE 200 PT NQ TRADE AFTER TAKING A LOSS _ DAY TRADING ICT CONCEPTS _ 7_17_2026.txt",
+        "sha256": "258c650051325b3aa22c185e76fef59d14a5bbe4a6a7587f89080deadb06c6e8",
+        "video_timestamp": "00:39:05–00:39:59"
+      },
+      "context": "An M1 dip into a bullish FVG is followed by a new high / accepted recovery.",
+      "decision": "Protect the selected dip with a stop beneath its low after confirmation.",
+      "uncertainty": "No universal one-left/one-right pivot width or one-tick buffer is established.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "7_17-liquidity-hierarchy",
+      "session_date": "2026-07-17",
+      "topic": "liquidity-hierarchy",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_HUGE 200 PT NQ TRADE AFTER TAKING A LOSS _ DAY TRADING ICT CONCEPTS _ 7_17_2026.txt",
+        "sha256": "258c650051325b3aa22c185e76fef59d14a5bbe4a6a7587f89080deadb06c6e8",
+        "video_timestamp": "00:58:05–00:59:18"
+      },
+      "context": "Weekly/monthly liquidity and a higher-timeframe reversal may outweigh a smaller opposing gap.",
+      "decision": "Judge which liquidity pool matters and whether opposing H1 structure merely suggests a pullback.",
+      "uncertainty": "This is conditional context, not a fixed rule that every H4 gap outranks every H1 gap.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "10_2-reentry",
+      "session_date": "2026-10-02",
+      "topic": "reentry",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+        "sha256": "c2c9eab3c6d2a9468c9cedceb055cbf25e1aab0c53e7d9e763524647ad2189c6",
+        "video_timestamp": "00:30:22–00:33:47"
+      },
+      "context": "Earlier attempt ended; original SMT low still holds and NQ has not made the invalidating new low.",
+      "decision": "Reconsider entry near the original area with the still-valid SMT low as invalidation.",
+      "uncertainty": "A prior stop-out alone does not authorize re-entry; exact acceptance timing remains to be aligned.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "10_2-equal-high-target",
+      "session_date": "2026-10-02",
+      "topic": "equal-high-target",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+        "sha256": "c2c9eab3c6d2a9468c9cedceb055cbf25e1aab0c53e7d9e763524647ad2189c6",
+        "video_timestamp": "00:38:21"
+      },
+      "context": "Two nearby equal-high objectives are being considered.",
+      "decision": "Select the lower of these highs for the main reduction and retain a runner in this example.",
+      "uncertainty": "This is priority within the selected liquidity pool, not a universal nearest-price target.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "10_2-headline-adds",
+      "session_date": "2026-10-02",
+      "topic": "headline-adds",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+        "sha256": "c2c9eab3c6d2a9468c9cedceb055cbf25e1aab0c53e7d9e763524647ad2189c6",
+        "video_timestamp": "00:41:54–00:49:04"
+      },
+      "context": "A new headline changes context; a 50–62% retracement holds the headline-origin low, followed by renewed strength.",
+      "decision": "Add in stages under that context and later sell the added portion near the objective.",
+      "uncertainty": "No universal one-add/20%/fresh-M5 rule follows. Added lots need separate tracking; exact per-add size and trigger are unresolved.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    },
+    {
+      "id": "10_2-discretionary-exit",
+      "session_date": "2026-10-02",
+      "topic": "discretionary-exit",
+      "source": {
+        "path": "/Users/aleksandra/Downloads/NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+        "sha256": "c2c9eab3c6d2a9468c9cedceb055cbf25e1aab0c53e7d9e763524647ad2189c6",
+        "video_timestamp": "00:50:22–00:51:21"
+      },
+      "context": "Price gets close to the target, wicks a high and rejects in the discussed NFP context.",
+      "decision": "Reduce or exit early in this particular context.",
+      "uncertainty": "The historical user core excluded this choice. No general rejection threshold is established; do not automatically exit on every wick.",
+      "confidence": "stated_in_recording",
+      "dataset_role": "development_annotation",
+      "market_cutoff_utc": null,
+      "market_packet": null,
+      "historical_prediction_ready": false,
+      "decision_label_only": true
+    }
+  ],
+  "unseen_holdout_sessions": [],
+  "warning": "All six sessions have already influenced development. None is an untouched holdout. Source annotations are not aligned market-input/answer training pairs.",
+  "next_required": [
+    "Align each decision with an as-of ES/NQ/MNQ packet and position state",
+    "Have the user resolve only uncertain labels",
+    "Freeze a later unseen-session holdout before evaluating the prompt",
+    "Score setup/no-trade choice, confirmation, stop, objective, quantity and action separately; compare against baseline",
+    "Run repeated model trials to measure consistency; count abstentions and invalid references"
+  ]
+}

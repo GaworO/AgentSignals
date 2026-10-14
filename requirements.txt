@@ -1,14 +1,3 @@
-flask
-pandas<3
-numpy
-Pillow
-requests
-gunicorn
-pyyaml
-tzdata
-ctrader-open-api
-twisted
-protobuf
-
-# Frozen Win/Loss/Boundary artifacts were serialized with this version.
-scikit-learn==1.7.2
+gunicorn>=23.0,<24
+tzdata>=2025.1,<2027
+websocket-client>=1.8,<2

@@ -1,0 +1,75 @@
+STATUS UPDATE — 10 October 2026: This document describes the legacy user-custom core.
+See SOURCE_RULES.txt for the revised local default, supported source selections,
+teaching library and remaining gaps. No deployment is implied.
+
+TANJA CORE V1 — frozen implementation, 10 October 2026
+
+This is a versioned research implementation of the user's selected rules.
+It is not a verified reproduction of every Tanja trade or a live execution system.
+
+CONFIRMED CORE
+- Completed M5 close strictly beyond the selected inversion boundary and swing.
+  A wick, unfinished M5, M1/M2/M3 trigger, or equality at the level cannot enter.
+  Entire candle body beyond the level is NOT required.
+- No numerical body/range, close-location, range-expansion or range-position veto.
+  Measurements remain in the audit for diagnosis, not as entry requirements.
+- Long and short directions; quantity floors from 0.5% reported current balance
+  and stop distance, reduced by the separate reported account limits.
+- First local partial: reached selected objective, floor(original contracts/5),
+  skip below one, preserve a runner. News alone does not trigger this partial.
+- Remaining position: confirmed M1 swing stop and final target; no independent
+  wick-rejection exit. Stop only tightens. Pre-news: one minute before, adverse
+  entry offset 1.5 points. Entry blackout: five minutes before/after.
+
+IMPLEMENTATION CONVENTIONS — NOT VERIFIED TANJA RULES
+- M1/M5 swing confirmation uses one strict neighbour on each side; right bar closed.
+- H4/H1 gap + conditional SMT, prior-RTH reclaim, then overnight reclaim ranking.
+- Initial stop outside paired MNQ reaction extreme by one tick.
+- Final target nearest qualifying untouched objective, then false-move projection.
+- Session 09:30–11:00 NY, 30-minute excursion/gap ages and freshness timeouts.
+- Mechanical ES/NQ selection filtered by ES/MNQ AI context, not direct NQ AI analysis.
+
+ADDITIONAL USER DECISIONS — 10 October 2026
+- Separate ES partial: once per position, floor(20% of original contracts),
+  preserving a runner. ES must set a new current New York RTH session high for
+  longs, mirrored new session low for shorts. ATR alternative is explicitly OFF.
+- ES detection uses a completely closed post-entry M1 bar against every earlier
+  RTH M1 bar (09:30 NY start). Missing session history, delayed/unfinished bars,
+  equal extremes and a partly pre-entry trigger bar do not qualify. This is a
+  causal implementation with bar-close latency, not intrabar execution fidelity.
+- Add-on: at most one per trade, floor(20% of original contracts), capped further
+  by available shared risk and account contract capacity. Requires a fresh,
+  same-direction gated M5 plan after original entry. An original entry cannot
+  trigger its own add. News, AI and account checks must still pass.
+- The add shares the existing stop and original risk budget; no second 0.5%
+  budget and no credit for unrealized profits. A fill must be reconciled before
+  adjusting bracket quantities or accepting another management action.
+- Partial pending/done and add pending/done flags are required inputs. Each
+  action has a stable per-position intent ID. The caller must serialize events:
+  existing stop/final target first, pending requests reconciled, local partial,
+  ES partial, then add. Two partials must not be sent concurrently.
+
+STILL REQUIRES VALIDATION
+The local partial function requires an explicit sourced objective. General
+preferred-objective and initial-stop selection are still documented assumptions,
+not a verified reconstruction of Tanja's discretion.
+
+WHAT RUNS
+Railway saves research entry decisions plus the management policy version.
+management_policy local/ES partial and add-on functions, and management_review.propose_stop
+are tested offline functions requiring supplied position and fresh quote state.
+They do not run a broker position loop. No broker fill, cancellation, bracket
+resize, synchronized balance or automatic order management is added here.
+
+VALIDATION
+Tests demonstrate software rules, causal bars and quote checks, not profitable
+trades or Tanja fidelity. Original lower-timeframe fixtures remain rejection
+regressions. Positive M5 fixtures are synthetic, not relabelled historical trades.
+Compare this frozen policy on additional labelled entries AND no-trade sessions
+before changing the conventions or claiming a 1:1 match.
+
+LOCAL SIMULATOR UPDATE — 10 October 2026
+paper_lifecycle.py now connects these rules into one durable simulated lifecycle
+for long and short positions. See PAPER_LIFECYCLE.txt and the new local visual
+report in research_tanja_paper_lifecycle_20261010. This simulator is not attached
+to the Railway feed or broker. It does not change production execution status.

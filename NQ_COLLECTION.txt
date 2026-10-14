@@ -1,0 +1,13 @@
+Tanja 2.3 — separate NQ collection, 9 October 2026
+
+Purpose: Tanja explicitly charts NQ and executes MNQ (July 21 transcript 19:59–22:21). Preserve distinct instruments.
+
+NQ collection has its own table and immutable ticker binding. Existing ES/MNQ snapshots, AI calls, candidates and the no-order TradersPost diagnostic are unchanged. A third feed cannot complete a pair or schedule AI work.
+
+Default: CME_MINI:NQ1!. Set TANJA_NQ_TICKER before first application startup with a different chosen ticker; after binding it cannot change on this volume. Other roll/adjustment settings are not captured by feed v1 and remain a fidelity limitation.
+
+UI explains that NQ does not yet drive analysis. The next step is a versioned ES/NQ analysis contract with separate MNQ execution pricing, not relabelling MNQ data.
+
+Validation: 51 service tests pass, including seven NQ isolation/upgrade/causality/HTTP tests. Desktop and mobile browser fixture checks pass. Updated Pine not yet compiled in TradingView.
+
+Rollback: the previous two-market metadata and bars table are preserved. Restoring 2.2 ignores the separate NQ table; disable the new NQ alert first because the older HTTP validator rejects NQ payloads. No stored ES/MNQ data is deleted.

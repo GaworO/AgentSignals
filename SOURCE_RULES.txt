@@ -1,0 +1,118 @@
+TANJA SOURCE-SELECTION REVISION — 14 OCTOBER 2026
+
+Current local default: TANJA_STRATEGY_POLICY=source_selections.
+Railway has not been updated by this revision.
+
+ENTRY UPDATE — USER APPROVED OCTOBER 13
+Both new families work in either direction:
+1. Manipulation / liquidity event -> selected swing break -> selected-zone
+   retracement -> strict M1 inversion close. The swing break has an explicit
+   role: directional break OR liquidity sweep. In particular, a low sweep can
+   precede a long; its bullish M1 inversion supplies the entry confirmation.
+2. Existing H1/H4 objective touched -> directional M15 displacement / FVG ->
+   retracement into that gap -> strict M1 inversion close. This also supports
+   shorts. No universal M5 confirmation is added to either family.
+
+All profiles, including selected_inversion and m5_momentum, support immediate
+confirmation entry or optional further retracement at a selected MNQ price.
+Retracement must improve on the MNQ confirmation close. Pending entries expire
+and cancel on invalidation, final target or news blackout. They never acquire a
+historical fill from the trigger candle or an inferred OHLC path. Quote-touch
+fills, acknowledgement and slippage remain explicit paper assumptions.
+
+The AI schema now includes nullable entry_setup, explicit family/sequence,
+assessment evidence, timing, entry anchor and optional local objective. Existing
+v3 audits remain readable. The same scheduled call produces these selections;
+no additional calls or spending cadence were introduced. entry_watch provides reusable context for each NEW inversion. Older complete
+entry_setup selections can narrowly reuse their fixed choices within expiry.
+Direction-only reviews cannot manufacture missing entry rules.
+
+USER MANAGEMENT POLICY
+An explicitly selected local objective uses floor(original FILLED quantity/3),
+including any reduction for modeled costs. Skip when zero; preserve the runner.
+Added lots do not change the original-position quantity. New source-mode paper
+entries stop after two NET losing trades on the New York calendar date; net
+break-even trades do not count. Broker/account-wide realized trade history is
+not connected to this local simulator.
+
+ATR exhaustion blocks NEW continuation entries only, including pending entries
+before a fill. Open positions continue their selected management. The ATR guard
+requires a fresh, complete, dated MNQ measurement with a stated convention.
+daily_atr.py now calculates the measurement from stored closed MNQ candles,
+using five completed full-session true ranges and today’s session range. Missing
+history blocks continuations with an explicit reason; reversal setups retain
+their usual checks. See CONTEXT_ATR_UPDATE.md for boundaries and overrides.
+
+The previous user-custom M5/20% core is preserved for reproducibility with
+TANJA_STRATEGY_POLICY=legacy_user_core, and PaperLifecycle(strategy_mode=
+'legacy_user_core'). It is not a verified copy of Tanja. Existing saved events
+cannot be silently reopened with a different policy: configuration mismatch
+rejects the simulation. Use a new database for the new policy.
+
+CHANGES
+- Candidate discovery includes M1/M2/M3/M5 instead of universally enforcing M5.
+  It still uses a limited geometry catalogue and engineering windows. Discovery
+  is not complete coverage of all her discretionary setup families.
+- M5 momentum is a separate profile requiring the selected swing close.
+- Source plans require referenced context, confirmation-strength, timing,
+  invalidation and target-priority assessments. Missing judgments do not inherit
+  the proxy's nearest target or outermost reaction stop as her preferred choice.
+- Partial quantities are explicit contracts per selected objective. There is no
+  universal 20% default. ES must reach the selected objective; merely printing a
+  new session extreme does not trigger the extra reduction.
+- Trailing requires a selected swing, explicit buffer and confirmed recovery or
+  break of a selected earlier extreme. Strict one-left/one-right plus one tick is
+  confined to legacy mode, not presented as her universal rule.
+- A source-mode simulator consumes recompiled source plans and records exact
+  selected partials, stop requests, acknowledgements and bracket resizing.
+  Filled/rejected/held acknowledgements remain supplied simulation assumptions.
+
+ACCOUNT OVERLAY (user instructions, NOT reconstructed Tanja rules)
+0.5% of current reported balance, cost-aware simulated sizing, shared risk,
+account limits and no risk increase by crediting unrealized gains. The ±5-minute
+news entry blackout and T-minus-60-second entry offset of 1.5 points remain.
+These overlays intentionally can prevent trades or change exits shown in her
+recordings. They therefore preclude literal account-behaviour equivalence.
+
+TEACHING LIBRARY
+decision_examples.json maps 15 choices from six previously studied recordings.
+decision_library.py adds earlier-session examples to AIReview.make_payload;
+library contents enter the API configuration fingerprint. Current-session and
+later examples are excluded. Source paths remain local; prompt examples identify
+the recording filename and video timestamp. No API request is made by building
+the prompt. Existing daily limits and order separation remain in force.
+
+These are curated qualitative annotations, NOT 15 aligned raw-market training
+pairs. All six sessions influenced development, so none is an untouched holdout.
+The underlying general prompt has also evolved from these sources; excluding
+same-day examples alone does not establish clean out-of-sample performance.
+No fine-tuning, paid model evaluation, or broker trading was performed here.
+
+SOURCE REVIEW INTEGRATION
+entry_review.py bridges saved, evidence-checked AI entry_setup to entry_rules.py;
+SelectionObserver's normal background loop consumes it. Current account data
+supplies sizing rather than the model. Response availability and current plan
+selection are recorded separately; no fill predates the response. The explicit
+source_review interface remains available for offline human-review fixtures.
+Saved cutoff/revision records remain immutable. Dashboard candidates link to
+the specific review/entry selection and show price, stop, target or the blocking
+reason. Unreviewed snapshots are labelled as awaiting review.
+
+STILL UNRESOLVED
+Fidelity of model-selected setup, confirmation strength, invalidation and target;
+exact catalyst/re-entry acceptance; staged add quantities
+and separate added-lot exits; validation of the ATR convention; discretionary early
+exits; and runner treatment beyond a selected target. Source mode does not call
+the old one-add/20% function. Final target still closes the simulator's remainder;
+it cannot reproduce the July 17 runner beyond target without another explicit
+management variant. Short structural symmetry is tested mechanically, not proved
+for every discretionary short example.
+
+NEXT VALIDATION
+Align each mapped choice to a frozen ES/NQ/MNQ packet and contemporaneous position
+state. Separate the label from model input. Record unknown clocks rather than
+infer them from filename/download order. Reserve new untouched sessions before
+prompt evaluation. Score choice/wait, timeframe, stop, objective, partial and
+quantity separately; include unsupported/abstain rates and repeated-run
+consistency. Evaluate the existing prompt against the example-augmented prompt
+on identical packets. A passing schema or profitable result is not fidelity.

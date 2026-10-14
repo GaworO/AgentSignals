@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-14",
+  "entry_revision": "tanja-entry-sequences-20261013-v1",
+  "scope": "Local implementation; not deployed to Railway",
+  "unit_and_integration_suite": {
+    "command": "PYTHONPATH=vendor:tests live_transcription/.venv/bin/python -m unittest discover -s tests -q",
+    "tests_run": 246,
+    "result": "PASS",
+    "duration_seconds": 58.880,
+    "includes_local_audio_recognition": true
+  },
+  "browser": {
+    "script": "tests/browser_entry_sequences.cjs",
+    "fixtures": "tests/build_entry_ui_fixtures.py",
+    "new_family_direction_entry_mode_combinations": 8,
+    "entry_stop_target_visible": true,
+    "optional_retracement_visible": true,
+    "unreviewed_snapshot_explained": true,
+    "compulsory_m5_or_directional_swing_not_added": true,
+    "browser_errors": 0,
+    "result": "PASS"
+  },
+  "mocked_review_to_plan_to_paper": "PASS for long and short",
+  "paid_api_calls": 0,
+  "broker_orders_sent": 0,
+  "remaining_integrations": [
+    "Daily ATR measurement source and calculation convention",
+    "NQ analysis migration",
+    "Live broker fills, account-wide realized trade history and execution"
+  ],
+  "trading_performance_and_tanja_fidelity": "Not established by mechanics tests"
+}
