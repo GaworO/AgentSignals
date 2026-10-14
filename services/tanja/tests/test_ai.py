@@ -69,7 +69,7 @@ class TestAI(unittest.TestCase):
         self.assertEqual(self.ai.gate(self.now,self.context),'WAITING_FOR_CONTIGUOUS_DATA')
 
     def test_success_is_frozen_and_available_only_after_response(self):
-        ticks=iter([self.now,self.now+30])
+        ticks=iter([self.now,self.now,self.now+30])
         self.assertTrue(self.ai.process_one(self.response,lambda:next(ticks)))
         r=self.ai.state(self.now+31,self.context)['records'][0]
         self.assertEqual(r['status'],'validated');self.assertEqual(r['available_at'],self.now+30)
@@ -127,6 +127,36 @@ class TestAI(unittest.TestCase):
         with self.store.connect() as db:
             db.execute("UPDATE ai_runs SET status='validated'")
             self.assertEqual(self.ai.limits(db,self.now+86400),'READY')
+
+    def test_weekend_holiday_and_unknown_year_block_manual_and_scheduled_calls(self):
+        from manual_ai_review import ManualObservationReview
+        for cls in (AIReview, ManualObservationReview):
+            reviewer=cls(self.store,self.config)
+            for date,expected in [('2026-10-10','WEEKEND_NO_AI'),
+                                  ('2026-10-11','WEEKEND_NO_AI'),
+                                  ('2026-10-12','HOLIDAY_NO_AI'),
+                                  ('2026-04-03','HOLIDAY_NO_AI'),
+                                  ('2028-01-04','CALENDAR_UPDATE_REQUIRED')]:
+                now=datetime.fromisoformat(date+'T10:00:00').replace(tzinfo=__import__('zoneinfo').ZoneInfo('America/New_York')).timestamp()
+                with self.subTest(cls=cls.__name__,date=date):
+                    self.assertEqual(reviewer.gate(now,self.context),expected)
+                    self.assertFalse(reviewer.process_one(lambda *a:self.fail('Paid request on excluded day'),lambda:now))
+                    self.assertIsNone(reviewer.reserve(self.context,{},now))
+                    self.assertFalse(reviewer.state(now,self.context)['calendar']['new_reviews_allowed'])
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM ai_runs').fetchone()[0],0)
+
+    def test_calendar_rechecked_at_dispatch(self):
+        from manual_ai_review import ManualObservationReview
+        from zoneinfo import ZoneInfo
+        reviewer=ManualObservationReview(self.store,self.config)
+        cutoff=int(datetime(2026,10,9,23,59,tzinfo=ZoneInfo('America/New_York')).timestamp())
+        ctx=copy.deepcopy(self.context)
+        ctx['packet']['as_of']=cutoff;ctx['frozen_at']=cutoff;ctx['processed_at']=cutoff
+        bars=[dict(bar_close_ms=t*1000) for t in range(cutoff-14*60,cutoff+1,60)]
+        ticks=iter([cutoff+59,cutoff+60])
+        with patch.object(reviewer,'latest_context',return_value=ctx), patch.object(self.store,'history',return_value=bars), patch('ai_review.check_packet'):
+            self.assertFalse(reviewer.process_one(lambda *a:self.fail('Crossed into weekend'),lambda:next(ticks)))
 
     def test_input_limit_and_authenticated_audit(self):
         with patch('ai_review.MAX_REQUEST_BYTES',10):
