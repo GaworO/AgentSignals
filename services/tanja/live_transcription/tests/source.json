@@ -1,0 +1,8 @@
+{
+  "permission": "Original test script authored for this task; rendered locally by the installed macOS Samantha voice.",
+  "source_kind": "synthetic_local_speech_recording_NOT_Tanja_NOT_YouTube",
+  "script": "synthetic_speech.txt",
+  "audio": "synthetic_speech.wav",
+  "audio_sha256": "be52e59daa7f3fb2e653df4d677486b5c608e40a19275014541056e70430c7e1",
+  "paid_api_calls": 0
+}

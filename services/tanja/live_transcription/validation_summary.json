@@ -1,0 +1,22 @@
+{
+  "focused_test_runs": 2,
+  "local_test_passed": true,
+  "live_test_passed": false,
+  "live_application_exit": "completed successfully; harness failed boundary-word deduplication check",
+  "live_audio_received_s": 37.918,
+  "live_records": 8,
+  "updates_before_source_eof": 7,
+  "mean_processing_latency_s": 1.6815,
+  "max_processing_latency_s": 2.151,
+  "mean_audio_to_output_latency_s": 2.0736,
+  "maximum_audio_to_output_latency_s": 2.4444,
+  "youtube_live_tested": false,
+  "browser_loopback_tested": false,
+  "browser_capture_blocker": "BlackHole is not installed; one-time audio routing and macOS microphone permission are required.",
+  "final_dedup_patch_tested": false,
+  "definition_of_done_fully_met": false,
+  "remaining": "Validate the final boundary deduplication correction; configure BlackHole before browser use.",
+  "paid_api_calls": 0,
+  "broker_or_traderspost_requests": 0,
+  "script_sha256": "6c72af7771464db08fb083913be1bd2143d0d561432c139b807cb238ef901629"
+}

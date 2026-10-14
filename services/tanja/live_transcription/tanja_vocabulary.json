@@ -1,0 +1,993 @@
+{
+  "purpose": "Small spelling/terminology prompt only; no trading logic, prices or historical number correction.",
+  "sources": [
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+      "sha256": "86700f9a96c0729af7ae66da6515274e3c3c8471e5d7bb119e23ca0e341e495a"
+    },
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+      "sha256": "30714303d257462cc1fda8b07f5afbae32b211d3833d0d232b84a041788313b4"
+    },
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+      "sha256": "c2c9eab3c6d2a9468c9cedceb055cbf25e1aab0c53e7d9e763524647ad2189c6"
+    },
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+      "sha256": "f69cc21780a883661049c32152ebcbcedc2ea51e23cde035f8162740ec585b1e"
+    },
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+      "sha256": "dc8b6f3b3defd25ddb2de0c5239db90e57f0658c8f49ac8540a8099e114af70a"
+    },
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+      "sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f"
+    },
+    {
+      "path": "/Users/aleksandra/Downloads/NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+      "sha256": "9e726156e0768ef0f436b3a61f846797712c3c0729860bf5c75f65bc4cd1ca2e"
+    }
+  ],
+  "categories": {
+    "entry_confirmation": [
+      {
+        "term": "entry",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+            "matched_text": "entry",
+            "excerpt": "ing finding rather than using it for like an entry if that makes sense because I can't just be front runn"
+          }
+        ]
+      },
+      {
+        "term": "entered",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "entered",
+            "excerpt": "d really cleanly from there and that's why I entered right. So, let me go put up that previous weekly low l"
+          }
+        ]
+      },
+      {
+        "term": "fill",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+            "source_sha256": "dc8b6f3b3defd25ddb2de0c5239db90e57f0658c8f49ac8540a8099e114af70a",
+            "matched_text": "It missed my fill",
+            "excerpt": "It missed my fill",
+            "line": 111,
+            "character_start": 9082,
+            "character_end": 9099,
+            "transcript_block_timestamp": "00:28:41",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "filled",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+            "source_sha256": "f69cc21780a883661049c32152ebcbcedc2ea51e23cde035f8162740ec585b1e",
+            "matched_text": "Okay, I just got filled.",
+            "excerpt": "Okay, I just got filled.",
+            "line": 139,
+            "character_start": 10388,
+            "character_end": 10412,
+            "transcript_block_timestamp": "00:35:29",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "re-enter",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+            "matched_text": "re-enter",
+            "excerpt": "back for re-entering and not being afraid to re-enter. That's good. I'm paying attention. That's good. How a"
+          }
+        ]
+      },
+      {
+        "term": "confirmation",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+            "matched_text": "confirmation",
+            "excerpt": "can't just be front running things need that confirmation. Someone said 00:58:47 that they're entering the long."
+          }
+        ]
+      },
+      {
+        "term": "longs",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "longs",
+            "excerpt": " trail their stops, too. See, I'm not in the longs. Um, just cuz I'm I don't know. I feel like Yeah, I go"
+          }
+        ]
+      },
+      {
+        "term": "shorts",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "shorts",
+            "excerpt": "stuff I'll put on like Instagram and YouTube shorts. You guys are insane though. Who's insane? [snorts] I'"
+          }
+        ]
+      }
+    ],
+    "partials": [
+      {
+        "term": "partial",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+            "matched_text": "partial",
+            "excerpt": "hat's nice. 01:35:40 Anyway, I probably take partial here. We'll see. Especially since ES if it continues t"
+          }
+        ]
+      },
+      {
+        "term": "take off",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "take off",
+            "excerpt": "displacement back above the high, maybe I'll take off the rest. You're reading it right originally. Caprice."
+          }
+        ]
+      },
+      {
+        "term": "took off",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "took off",
+            "excerpt": "r. Nice banger trade earlier. Forgot where I took off some at like 700s. Yeah, I took some off of previous w"
+          }
+        ]
+      },
+      {
+        "term": "took some profits",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "took some profits",
+            "excerpt": "y much like was a stressfree trade, I think. took some profits. So now where three PDAs fail is if this comes back up"
+          }
+        ]
+      },
+      {
+        "term": "pay the trader",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+            "matched_text": "pay the trader",
+            "excerpt": "we're pushing up during this nice candle. So pay the trader because we're very close to that TP and it is still a "
+          }
+        ]
+      }
+    ],
+    "stop_and_breakeven": [
+      {
+        "term": "stop",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "stop",
+            "excerpt": "AQ is just that type of girl. She's going to stop you out if you short too early. 00:32:34 So it's true."
+          }
+        ]
+      },
+      {
+        "term": "stop loss",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "break even",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "break even",
+            "excerpt": "es that mean? So, now I'm putting my stop at break even for the rest cuz, you know, just want to let those run"
+          }
+        ]
+      },
+      {
+        "term": "breakeven",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "move my stop",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "move my stop",
+            "excerpt": "d swing high. So I can definitely, you know, move my stop down. Um so that's what I did. Pretty clean um pretty "
+          }
+        ]
+      },
+      {
+        "term": "moving the stop",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+            "matched_text": "moving the stop",
+            "excerpt": "h of displacements to the upside, right? So, moving the stop up. 00:36:34 So far, really nice bullish action there."
+          }
+        ]
+      },
+      {
+        "term": "trail",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "trail",
+            "excerpt": "but they're literally wild sheep just on the trail. So, I'm like a first waiting and like a couple people"
+          }
+        ]
+      }
+    ],
+    "holding_and_exit": [
+      {
+        "term": "hold",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "hold",
+            "excerpt": "le because you know that SMT is not going to hold that divergence. Yes, if NASDAQ makes another new high"
+          }
+        ]
+      },
+      {
+        "term": "holding",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "holding",
+            "excerpt": "en some more at like 700s or so. And now I'm holding runners to see if we can actually pick out more sell s"
+          }
+        ]
+      },
+      {
+        "term": "runners",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "runners",
+            "excerpt": "e rest cuz, you know, just want to let those runners run if they're going to run. Um, and the reason why, r"
+          }
+        ]
+      },
+      {
+        "term": "close out",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+            "matched_text": "close out",
+            "excerpt": "t cancel this order. We'll see. I might just close out. This is kind of wild new low day here for ES. Close t"
+          }
+        ]
+      },
+      {
+        "term": "close this",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+            "matched_text": "close this",
+            "excerpt": " finding any more. 00:28:37 No, I'm going to close this. I'm going to close this before it gets lower. All rig"
+          }
+        ]
+      },
+      {
+        "term": "get out",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "get out",
+            "excerpt": "8:30 open, I'm thinking that's why when I'll get out, I think, or halfway here. I think that's decent. [cle"
+          }
+        ]
+      },
+      {
+        "term": "stopped out",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "stopped out",
+            "excerpt": "essentially, right? It's at the open. NASDAQ stopped out anybody that was too early on the shorts. And then, we"
+          }
+        ]
+      }
+    ],
+    "ict": [
+      {
+        "term": "fair value gap",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "fair value gap",
+            "excerpt": "minute, I guess. Yeah, this is the low was a fair value gap that broke the low and this push at the open took out "
+          }
+        ]
+      },
+      {
+        "term": "FVG",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "IFVG",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "inversion",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "inversion",
+            "excerpt": " is a fivem minute displacement, five minute inversion going on here. NASDAQ five minute bearish breaker to b"
+          }
+        ]
+      },
+      {
+        "term": "liquidity",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "displacement",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "displacement",
+            "excerpt": "ly. Um, so let's see if we break this with a displacement or something. 00:33:43 I'm going to stay on like two m"
+          }
+        ]
+      },
+      {
+        "term": "market structure shift",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "MSS",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "SMT",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "SMT",
+            "excerpt": "We definitely broke some structure that day. SMT NASDAQ over there with ES Yes. 00:11:36 What are you g"
+          }
+        ]
+      },
+      {
+        "term": "order block",
+        "provenance": "user_requested_term_not_found_verbatim",
+        "evidence": []
+      },
+      {
+        "term": "breaker",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "breaker",
+            "excerpt": "on going on here. NASDAQ five minute bearish breaker to be honest also probably let's see in the next 5 min"
+          }
+        ]
+      },
+      {
+        "term": "retracement",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "retracement",
+            "excerpt": ", it's we're in trouble. So, let's see. This retracement here is still pretty normal. I'm still I'm pretty bear"
+          }
+        ]
+      },
+      {
+        "term": "buy side",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "buy side",
+            "excerpt": "in discount. But I mean we did re we offered buy side and sell side here already. So to BH it should be if w"
+          }
+        ]
+      },
+      {
+        "term": "sell side",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "sell side",
+            "excerpt": "But I mean we did re we offered buy side and sell side here already. So to BH it should be if we're going to "
+          }
+        ]
+      },
+      {
+        "term": "RTH",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "RTH",
+            "excerpt": "here we started today. 00:49:07 Me check the RTH hours real quick. We gap down. Okay. Nasic essentially"
+          }
+        ]
+      },
+      {
+        "term": "NWOG",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+            "matched_text": "NWOG",
+            "excerpt": "ecent leg up cuz it 00:13:19 bounced on that NWOG for the NASDAQ. You think we could potentially take th"
+          }
+        ]
+      },
+      {
+        "term": "ATR",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "ATR",
+            "excerpt": "eviation lower. Um, let me think. What's the ATR? Also, I didn't check that out. What's tomorrow? We ha"
+          }
+        ]
+      },
+      {
+        "term": "MNQ",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "MNQ",
+            "excerpt": "ere right now. So essentially I'm short uh 8 MNQ. 00:58:14 Let me think about this on a higher time fra"
+          }
+        ]
+      },
+      {
+        "term": "NQ",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON LONGS _ SPECIAL ANNOUNCEMENT....DAY TRADING ICT CONCEPTS _ 5_22_2026.txt",
+            "matched_text": "NQ",
+            "excerpt": "ey feel the same way every day. Someone said NQ is gay. That's funny. NQ is violent. Gold is a grandpa"
+          }
+        ]
+      },
+      {
+        "term": "ES",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "ES",
+            "excerpt": "ructure that day. SMT NASDAQ over there with ES Yes. 00:11:36 What are you guys thinking? Let's see. L"
+          }
+        ]
+      },
+      {
+        "term": "NASDAQ",
+        "provenance": "observed_in_selected_transcripts",
+        "evidence": [
+          {
+            "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+            "matched_text": "NASDAQ",
+            "excerpt": "efinitely broke some structure that day. SMT NASDAQ over there with ES Yes. 00:11:36 What are you guys thi"
+          }
+        ]
+      }
+    ],
+    "order_types": [
+      {
+        "term": "buy limit",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f",
+            "matched_text": "buy limit",
+            "excerpt": "buy limit",
+            "line": 299,
+            "character_start": 24953,
+            "character_end": 24962,
+            "transcript_block_timestamp": "01:08:19",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "sell limit",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f",
+            "matched_text": "sell  limit",
+            "excerpt": "sell  limit",
+            "line": 299,
+            "character_start": 24980,
+            "character_end": 24991,
+            "transcript_block_timestamp": "01:08:19",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "sell stop",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f",
+            "matched_text": "sell stop",
+            "excerpt": "sell stop",
+            "line": 299,
+            "character_start": 24963,
+            "character_end": 24972,
+            "transcript_block_timestamp": "01:08:19",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "market",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+            "source_sha256": "9e726156e0768ef0f436b3a61f846797712c3c0729860bf5c75f65bc4cd1ca2e",
+            "matched_text": "I clicked market",
+            "excerpt": "I clicked market",
+            "line": 92,
+            "character_start": 13465,
+            "character_end": 13481,
+            "transcript_block_timestamp": "UNKNOWN",
+            "timestamp_precision": "not_supplied_by_export",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "limit",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+            "source_sha256": "f69cc21780a883661049c32152ebcbcedc2ea51e23cde035f8162740ec585b1e",
+            "matched_text": "I have my limit in",
+            "excerpt": "I have my limit in",
+            "line": 135,
+            "character_start": 9959,
+            "character_end": 9977,
+            "transcript_block_timestamp": "00:33:59",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "cancel",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+            "source_sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f",
+            "matched_text": "I just canceled one",
+            "excerpt": "I just canceled one",
+            "line": 303,
+            "character_start": 25354,
+            "character_end": 25373,
+            "transcript_block_timestamp": "01:08:46",
+            "timestamp_precision": "transcript_block_start",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      },
+      {
+        "term": "partial filled",
+        "provenance": "observed_order_language",
+        "evidence": [
+          {
+            "source": "NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+            "source_path": "/Users/aleksandra/Downloads/NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+            "source_sha256": "9e726156e0768ef0f436b3a61f846797712c3c0729860bf5c75f65bc4cd1ca2e",
+            "matched_text": "partial filled there",
+            "excerpt": "partial filled there",
+            "line": 106,
+            "character_start": 15261,
+            "character_end": 15281,
+            "transcript_block_timestamp": "UNKNOWN",
+            "timestamp_precision": "not_supplied_by_export",
+            "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+          }
+        ]
+      }
+    ]
+  },
+  "number_policy": "Preserve model output exactly. Never repair, infer or expand prices from vocabulary or historical assumptions.",
+  "order_expressions": {
+    "market_entries": [
+      {
+        "expression": "I clicked market",
+        "language_state": "ORDER_PLACED",
+        "order_type": "MARKET",
+        "price": "UNKNOWN",
+        "interpretation": "SUBMISSION_NOT_FILL",
+        "evidence": {
+          "source": "NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+          "source_sha256": "9e726156e0768ef0f436b3a61f846797712c3c0729860bf5c75f65bc4cd1ca2e",
+          "matched_text": "I clicked market",
+          "excerpt": "I clicked market",
+          "line": 92,
+          "character_start": 13465,
+          "character_end": 13481,
+          "transcript_block_timestamp": "UNKNOWN",
+          "timestamp_precision": "not_supplied_by_export",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "limit_order_placement": [
+      {
+        "expression": "I have my limit in",
+        "language_state": "ORDER_PLACED",
+        "order_type": "LIMIT",
+        "price": "UNKNOWN",
+        "interpretation": "PENDING_NOT_POSITION",
+        "evidence": {
+          "source": "NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+          "source_sha256": "f69cc21780a883661049c32152ebcbcedc2ea51e23cde035f8162740ec585b1e",
+          "matched_text": "I have my limit in",
+          "excerpt": "I have my limit in",
+          "line": 135,
+          "character_start": 9959,
+          "character_end": 9977,
+          "transcript_block_timestamp": "00:33:59",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "limit_price_changes": [
+      {
+        "expression": "Let me just drag one of them.",
+        "language_state": "UNKNOWN",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "SIM_DEMONSTRATION_PRICE_AND_ORDER_UNKNOWN",
+        "evidence": {
+          "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+          "source_sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f",
+          "matched_text": "Let me just drag one of them.",
+          "excerpt": "Let me just drag one of them.",
+          "line": 311,
+          "character_start": 26048,
+          "character_end": 26077,
+          "transcript_block_timestamp": "01:09:55",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "pending_limit_orders": [
+      {
+        "expression": "See if I get filled here.",
+        "language_state": "UNKNOWN",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "AWAITING_FILL_NEEDS_PRIOR_ORDER_LINK",
+        "evidence": {
+          "source": "NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+          "source_sha256": "f69cc21780a883661049c32152ebcbcedc2ea51e23cde035f8162740ec585b1e",
+          "matched_text": "See if I get filled here.",
+          "excerpt": "See if I get filled here.",
+          "line": 139,
+          "character_start": 10361,
+          "character_end": 10386,
+          "transcript_block_timestamp": "00:35:29",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      },
+      {
+        "expression": "Look like I'm not going to get filled.",
+        "language_state": "UNKNOWN",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "NEGATED_FILL",
+        "evidence": {
+          "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+          "source_sha256": "dc8b6f3b3defd25ddb2de0c5239db90e57f0658c8f49ac8540a8099e114af70a",
+          "matched_text": "Look like I'm not going to get filled.",
+          "excerpt": "Look like I'm not going to get filled.",
+          "line": 115,
+          "character_start": 9374,
+          "character_end": 9412,
+          "transcript_block_timestamp": "00:29:43",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "filled_limit_orders": [
+      {
+        "expression": "Okay, I just got filled.",
+        "language_state": "ORDER_FILLED",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "REPORTED_FILL_TYPE_NEEDS_PRIOR_ORDER_LINK",
+        "evidence": {
+          "source": "NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_3 BREAKEVENS AGAIN....DAY TRADING ICT CONCEPTS _ 7_23_2026.txt",
+          "source_sha256": "f69cc21780a883661049c32152ebcbcedc2ea51e23cde035f8162740ec585b1e",
+          "matched_text": "Okay, I just got filled.",
+          "excerpt": "Okay, I just got filled.",
+          "line": 139,
+          "character_start": 10388,
+          "character_end": 10412,
+          "transcript_block_timestamp": "00:35:29",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "cancelled_limit_orders": [
+      {
+        "expression": "I essentially took out my limit fill",
+        "language_state": "UNKNOWN",
+        "order_type": "LIMIT",
+        "price": "UNKNOWN",
+        "interpretation": "AMBIGUOUS_LIKELY_CANCELLATION_NOT_CONFIRMED",
+        "evidence": {
+          "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 7_28_2026.txt",
+          "source_sha256": "dc8b6f3b3defd25ddb2de0c5239db90e57f0658c8f49ac8540a8099e114af70a",
+          "matched_text": "I essentially took out my limit fill",
+          "excerpt": "I essentially took out my limit fill",
+          "line": 119,
+          "character_start": 9569,
+          "character_end": 9605,
+          "transcript_block_timestamp": "00:30:51",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      },
+      {
+        "expression": "You see, I just canceled one.",
+        "language_state": "ORDER_CANCELLED",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "SIM_DEMONSTRATION_NOT_LIVE_ORDER",
+        "evidence": {
+          "source": "NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_DAY TRADING ICT CONCEPTS _ 8_4_2026.txt",
+          "source_sha256": "368232ec93038afeed0c9de78c6c66ddabead92597a596c8e8f4835ff31ea84f",
+          "matched_text": "You see, I just canceled one.",
+          "excerpt": "You see, I just canceled one.",
+          "line": 303,
+          "character_start": 25345,
+          "character_end": 25374,
+          "transcript_block_timestamp": "01:08:46",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "stop_loss_placement": [
+      {
+        "expression": "I'm going to  put my stop at that high.",
+        "language_state": "ORDER_PLANNED",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "STOP_INTENTION_PRICE_UNKNOWN",
+        "evidence": {
+          "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+          "source_sha256": "86700f9a96c0729af7ae66da6515274e3c3c8471e5d7bb119e23ca0e341e495a",
+          "matched_text": "I'm going to  put my stop at that high.",
+          "excerpt": "I'm going to  put my stop at that high.",
+          "line": 451,
+          "character_start": 39292,
+          "character_end": 39331,
+          "transcript_block_timestamp": "01:25:01",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "partial_exits": [
+      {
+        "expression": "I took some partials.",
+        "language_state": "PARTIAL_EXIT",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "REPORTED_PAST_EXIT_SIZE_UNKNOWN",
+        "evidence": {
+          "source": "NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+          "source_sha256": "9e726156e0768ef0f436b3a61f846797712c3c0729860bf5c75f65bc4cd1ca2e",
+          "matched_text": "I took some partials.",
+          "excerpt": "I took some partials.",
+          "line": 102,
+          "character_start": 14625,
+          "character_end": 14646,
+          "transcript_block_timestamp": "UNKNOWN",
+          "timestamp_precision": "not_supplied_by_export",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      },
+      {
+        "expression": "Okay, partial filled there.",
+        "language_state": "PARTIAL_EXIT",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "EXIT_FILL_NOT_ENTRY",
+        "evidence": {
+          "source": "NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_2 WINS ON SHORTS _ GIVEAWAYS ! _ DAY TRADING ICT CONCEPTS _ 8_19_2026.txt",
+          "source_sha256": "9e726156e0768ef0f436b3a61f846797712c3c0729860bf5c75f65bc4cd1ca2e",
+          "matched_text": "Okay, partial filled there.",
+          "excerpt": "Okay, partial filled there.",
+          "line": 106,
+          "character_start": 15255,
+          "character_end": 15282,
+          "transcript_block_timestamp": "UNKNOWN",
+          "timestamp_precision": "not_supplied_by_export",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ],
+    "full_exits": [
+      {
+        "expression": "I'm going  to close this before it gets lower.",
+        "language_state": "ORDER_PLANNED",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "EXIT_INTENTION_NOT_EXECUTION",
+        "evidence": {
+          "source": "NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_MASTERCLASS ON KNOWING WHEN TO RE-ENTER TRADES _ WIN ON $NQ LONGS _ TRADING ICT CONCEPTS _ 10_2_2026.txt",
+          "source_sha256": "c2c9eab3c6d2a9468c9cedceb055cbf25e1aab0c53e7d9e763524647ad2189c6",
+          "matched_text": "I'm going  to close this before it gets lower.",
+          "excerpt": "I'm going  to close this before it gets lower.",
+          "line": 131,
+          "character_start": 11398,
+          "character_end": 11444,
+          "transcript_block_timestamp": "00:28:37",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      },
+      {
+        "expression": "I got stopped out there in  profit.",
+        "language_state": "FULL_EXIT",
+        "order_type": "UNKNOWN",
+        "price": "UNKNOWN",
+        "interpretation": "REPORTED_STOP_OUT_REMAINING_QUANTITY_UNVERIFIED",
+        "evidence": {
+          "source": "NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+          "source_path": "/Users/aleksandra/Downloads/NoteGPT_WIN ON SHORTS 🔴 DAY TRADING ICT CONCEPTS _ 5_19_2026.txt",
+          "source_sha256": "86700f9a96c0729af7ae66da6515274e3c3c8471e5d7bb119e23ca0e341e495a",
+          "matched_text": "I got stopped out there in  profit.",
+          "excerpt": "I got stopped out there in  profit.",
+          "line": 455,
+          "character_start": 39704,
+          "character_end": 39739,
+          "transcript_block_timestamp": "01:25:21",
+          "timestamp_precision": "transcript_block_start",
+          "evidence_status": "HISTORICAL_TRANSCRIPT_ONLY_NOT_CURRENT_EXECUTION"
+        },
+        "actionable": false
+      }
+    ]
+  },
+  "order_language_policy": {
+    "scope": "Historical vocabulary and interpretation examples only. Historical excerpts never become current orders or numeric corrections.",
+    "order_types": [
+      "MARKET",
+      "LIMIT",
+      "UNKNOWN"
+    ],
+    "order_states": [
+      "ORDER_PLANNED",
+      "ORDER_PLACED",
+      "ORDER_FILLED",
+      "ORDER_CANCELLED",
+      "UNKNOWN"
+    ],
+    "pending_limit_position_state": "UNKNOWN_NOT_CONFIRMED",
+    "fill_requires": "Explicit current first-person fill statement linked to the same order. Speech is self-reported, not broker verification. Never infer a fill from a touched level, gap fill, price movement, demo or historical example.",
+    "prices": "Preserve raw numbers; missing, ambiguous, abbreviated or low-confidence prices are UNKNOWN. Never expand historical shorthand.",
+    "prompt_policy": "Only terminology from categories enters ASR; historical order_expressions and prices do not.",
+    "coverage_limits": [
+      "No explicit numerical limit-price change found in selected order excerpts; drag example is a SIM demonstration with unknown order/price.",
+      "Exports without timestamps retain UNKNOWN timestamps and exact file/line/character references."
+    ]
+  }
+}
