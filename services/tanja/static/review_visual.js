@@ -44,7 +44,8 @@ const reviewVisual=(()=>{
   box.append(el('h3','Review at '+when(a.cutoff)+' NY'),el('p',summary(a),'review-summary'),el('p','Market evidence ends at '+when(a.cutoff)+' NY. Answer received: '+when(a.finished)+' NY. No later candles are shown.'));
   if(!p||p.as_of!==a.cutoff){box.append(el('p','Saved evidence is missing or its cutoff does not match; chart unavailable.'));return;}
   const controls=el('div',null,'actions');
-  for(const [name,values,value,change] of [['Market',['MNQ','ES'],symbol,v=>symbol=v],['Timeframe',[1,2,3,5,15,60,240],tf,v=>tf=Number(v)]]){
+  const markets=['NQ','MNQ','ES'].filter(s=>Object.values(p.evidence||{}).some(e=>e.symbol===s));
+  for(const [name,values,value,change] of [['Market',markets,symbol,v=>symbol=v],['Timeframe',[1,2,3,5,15,60,240],tf,v=>tf=Number(v)]]){
    const label=el('label',name+' '),select=el('select');select.setAttribute('aria-label',name);
    for(const v of values){const o=el('option',name==='Market'?v:v+'m');o.value=v;o.selected=String(v)===String(value);select.append(o);}
    select.addEventListener('change',()=>{change(select.value);render();});label.append(select);controls.append(label);
@@ -68,7 +69,7 @@ const reviewVisual=(()=>{
  function chart(bars,features,d,cutoff){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 1000 360');svg.setAttribute('role','img');svg.setAttribute('aria-label',symbol+' '+tf+' minute frozen candlestick chart ending '+when(cutoff));svg.classList.add('review-chart');
   const add=(tag,attrs,text)=>{const n=document.createElementNS(svg.namespaceURI,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);if(text!=null)n.textContent=text;svg.append(n);return n;};
-  const sameSymbol=d?.analysis_symbol===symbol;
+  const sameSymbol=d?.execution_symbol===symbol;
   const lines=sameSymbol?[{value:d.initial_stop?.price,label:'Proposed stop',color:'#ffb09f'},...(d.management?.targets||[]).map((t,i)=>({value:t.price,label:'Target '+(i+1),color:'#83d7b4'}))].filter(l=>Number.isFinite(l.value)):[];
   const values=bars.flatMap(b=>[b.low,b.high]).concat(lines.map(l=>l.value));
   features.forEach(([,e])=>['lower','upper','price'].forEach(k=>{if(Number.isFinite(e[k]))values.push(e[k]);}));

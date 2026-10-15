@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-14",
+  "requested_items": [
+    "Evaluate new inversions using saved context",
+    "Calculate and connect daily ATR"
+  ],
+  "context_version": "saved-context-new-inversions-v1",
+  "atr_version": "mnq-daily-atr-sma-v1",
+  "confirmed_atr_policy": {
+    "period": 5,
+    "session": "futures",
+    "method": "SMA of completed-session true ranges",
+    "session_hours_new_york": "18:00\u201317:00",
+    "partial_current_session_in_baseline": false
+  },
+  "standard_python_suite": {
+    "tests_run": 262,
+    "result": "PASS",
+    "optional_local_asr_skipped": 1
+  },
+  "focused_new_tests": {
+    "tests_run": 16,
+    "result": "PASS"
+  },
+  "browser": {
+    "script": "tests/browser_context_atr.cjs",
+    "saved_context_family_direction_entry_mode_combinations": 8,
+    "new_candidate_entry_stop_target_visible": true,
+    "atr_value_and_range_visible": true,
+    "continuation_restriction_explained": true,
+    "browser_errors": 0,
+    "result": "PASS"
+  },
+  "paid_api_calls": 0,
+  "broker_orders_sent": 0,
+  "deployed": false,
+  "remaining_scope": [
+    "NQ AI analysis migration",
+    "Broker execution/fills/account-wide history",
+    "Strategy fidelity and performance validation"
+  ],
+  "full_local_suite": {
+    "tests_run": 262,
+    "result": "PASS",
+    "skipped": 0,
+    "duration_seconds": 60.694,
+    "includes_cached_local_asr_test": true
+  },
+  "repository_extraction_suite": {
+    "tests_run": 262,
+    "result": "PASS",
+    "optional_local_asr_skipped": 1,
+    "duration_seconds": 15.199
+  }
+}

@@ -1,0 +1,51 @@
+NEWS AND REPORTED ACCOUNT CHECKS — 10 October 2026
+
+Observation-only integration. No paid reviews, orders or broker settings changed.
+
+News: Forex Factory weekly export from
+https://nfs.faireconomy.media/ff_calendar_thisweek.json
+Official export link: https://www.forexfactory.com/calendar
+Fetch hourly; missing, failed, older-than-two-hours, wrong-week or uncertain-time
+calendar blocks new research plans. Only high-impact USD/All events apply.
+Titles, schedule and impact are retained, not reported economic results.
+Schedule publication is not guaranteed complete: revisions and unscheduled
+headlines remain possible. Historical calendar imports must not be treated as
+known in the past. Each snapshot records when this service received it.
+
+USER RULE: no new entries from release minus 5 minutes (inclusive) through
+release plus 5 minutes (exclusive). A plan expires when the window starts.
+After the window, AI context must have a market cutoff at or after its end.
+This adds no AI calls and does not change the six-call daily spending limit.
+
+Existing stop proposal: one minute before release, entry minus 1.5 points for
+long / plus 1.5 for short, only tightening. The calendar adapter feeds this
+existing function when a caller supplies a position and fresh quote. It does
+NOT run automatic stop modifications: the service has no confirmed broker
+position, fills or order-amendment integration. M1 swing proposals are unchanged.
+
+Account: Overview now asks for remaining daily-loss allowance, committed dollar
+risk to stops, and open/pending micro-equivalent contracts across ALL strategies.
+One mini counts as ten micros. Report zero only after checking the account.
+Legacy snapshots may still display nominal sizing but cannot authorize a plan.
+Snapshots expire at midnight New York. Intraday changes require another update;
+these values are not broker-synchronized. Do not infer current values from an
+old screenshot or assume a full daily allowance.
+
+Nominal risk is 0.5% of current REPORTED balance. Available additional planned-
+price risk is the least of nominal budget minus committed risk, reported balance
+minus threshold minus committed risk minus $0.01, and remaining daily allowance
+minus committed risk minus $0.01. Quantity floors against stop distance and the
+remaining micro-equivalent contract cap. Commissions, gaps and slippage are NOT
+included, so actual losses may exceed this planned-price amount. This is not a
+broker loss-limit guarantee. Reached threshold/target, zero allowance, full
+contract cap, or missing risk fields block plans. Reached target requires review;
+it is not a claim that an evaluation has passed.
+
+MFF Builder evaluation reference (check terms attached to actual account):
+https://help.myfundedfutures.com/en/articles/14290805-builder-plan-50k-a-comprehensive-guide
+$1,000 daily soft pause, 40 micro-equivalent cap; supplied actual trailing floor.
+The 5/5 news blackout is the user's strategy rule, not an MFF prohibition.
+
+Saved decisions freeze news and account checks; current dashboard status is
+separate. Existing historical decisions are not rewritten after schedule/account
+changes. No strategy 1:1 fidelity or profitability claim follows from these checks.

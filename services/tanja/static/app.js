@@ -10,15 +10,31 @@ function show(d){
  showDataHealth(d.data_health);
  showAccount(d.account_snapshot,d.account_snapshot_current);
  for(const s of ['ES','MNQ','NQ']){const f=d.feeds[s]||{state:'NO_DATA',count:0,latest_close:null},p=s.toLowerCase();text(p+'-state',f.state==='NO_DATA'?'No data':f.state==='CURRENT'?'Receiving':d.data_health?.scheduled_pause?'Scheduled pause':'Data delayed');text(p+'-info',f.count+' bars · '+(f.latest_close?at(f.latest_close)+' NY':'Waiting for TradingView'));}
- text('market-roles','ES/MNQ AI reviews select entry sequences and MNQ prices for research plans. NQ is collected separately; it does not yet drive the AI analysis. Inspect Automatic plans for the selected evidence.');
- const paired=d.feeds.ES.count>0&&d.feeds.MNQ.count>0;text('progress-feed',paired?'Both markets have stored candles':'Waiting for both one-minute feeds');
+ const analysis=d.market_roles?.analysis_inputs?.[1]||'MNQ';
+ text('market-roles','ES/'+analysis+' AI reviews select the setup and confirmation. MNQ evidence supplies execution entry, stop and target prices. Inspect Automatic plans for the selected evidence.');
+ const readiness=d.market_readiness;
+ text('market-readiness-state',readiness?.bars_ready?'Three analysis/execution feeds pass the candle checks':'Market history needs attention');
+ text('market-readiness-reasons',readiness?(readiness.entry_reasons.length?readiness.entry_reasons.map(s=>s.toLowerCase().replaceAll('_',' ')).join('; '):'Feeds and dated contract mapping pass. Fresh broker quotes and account feedback are still required.'):'Readiness check unavailable on this service version.');
+ text('market-readiness-atr',readiness?.daily_atr?'Five-session MNQ ATR: '+readiness.daily_atr.state.toLowerCase().replaceAll('_',' ')+(readiness.daily_atr.complete?' · '+readiness.daily_atr.atr.toFixed(2)+' points':' · '+(readiness.daily_atr.missing_sessions||[]).map(s=>s.trade_date+': '+s.missing_minutes+' missing minutes').join('; ')):'Five-session MNQ ATR awaits matching feeds.');
+ text('market-readiness-contract',readiness?.execution_prices_attested?'Dated, unadjusted chart/contract mapping supplied by the operator.':'Execution contract alignment has not been established. Continuous chart symbols alone do not prove it.');
+ text('candidate-lead','Latest 100 '+analysis+' inversion observations from ES/'+analysis+' analysis, with separate MNQ execution prices. Each observation still needs its context and plan checks.');
+ const paired=['ES',analysis,'MNQ'].every(s=>d.feeds[s]?.count>0);text('progress-feed',paired?'Analysis and execution feeds have stored candles':'Waiting for analysis and execution feeds');
  rows('candidate-rows',d.candidates.map(c=>[at(c.as_of),c.direction.toUpperCase(),c.timeframe+'m',c.lower+' – '+c.upper,candidateStatus(c,d)]));document.getElementById('candidate-empty').hidden=d.candidates.length>0;
  showAI(d.ai);
  showPlans(d.plan_observer);
  showAutomatic(d.automatic_selection);
  showConnectionTest(d.connection_test,d.test_csrf);
+ const loop=d.trading_loop;
+ text('loop-state',loop?loop.status.toLowerCase().replaceAll('_',' '):'Loop not supplied by this service version');
+ text('loop-reason',loop?.reason||'');
+ text('loop-feedback',loop?.feedback?.account_verified?'Broker account feedback is current.':'Actual broker account feedback is missing or stale; a signal receipt is not a fill.');
+ text('loop-losses',loop?.feedback?.loss_count!=null?'Today: '+loop.feedback.loss_count+' net losing completed trades across the account. Two block new entries; break-even trades do not count.':'Account-wide loss count unavailable until complete broker history arrives.');
+ const q=loop?.feedback?.quote_feed,a=loop?.feedback?.accounting;
+ text('loop-quotes',q?(q.quotes_current?'Separate live quotes are current for ES, NQ and MNQ.':'Separate quote source selected; fresh ES, NQ and MNQ component prices are required.'):'Separate live quotes are not configured. CrossTrade’s direct Tradovate API supplies no market data.');
+ text('loop-accounting',a?(a.accounting_ready?'Account-wide fill coverage and costs reconciled for the current window.':a.fill_count+' locally recorded fills · '+a.provisional_loss_count+' provisional losing completed trades today. New entries blocked: '+a.reasons.map(s=>s.toLowerCase().replaceAll('_',' ')).join('; ')):'CrossTrade accounting capture is not configured. A complete account-wide history and confirmed fees are required.');
+ text('loop-audit',loop?JSON.stringify(loop,null,2):'No loop audit.');
  const c=d.latest_context;document.getElementById('context-empty').hidden=!!c;const dl=document.getElementById('context-summary');dl.replaceChildren();
- if(c){const p=c.packet;for(const [k,v] of [['Market cutoff',at(p.as_of)+' NY'],['Inputs frozen',at(c.frozen_at)+' NY'],['Packet ID',p.packet_id],['Evidence items',Object.keys(p.evidence).length],['Processing lag',c.processing_delay_seconds+' seconds']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;dl.append(dt,dd);}rows('coverage',['ES','MNQ'].map(s=>[s,c.coverage[s]['1'],c.coverage[s]['5'],c.coverage[s]['60'],c.coverage[s]['240']]));text('packet',JSON.stringify(c,null,2));text('warmup',c.warmup==='PARTIAL_HISTORY'?'Partial history: fewer than three complete 4h bars in at least one market. No context approval.':'Higher-timeframe bars are present. News, contract alignment and strategy judgment still need validation.');text('progress-context','Latest snapshot: '+at(p.as_of)+' NY');}
+ if(c){const p=c.packet;for(const [k,v] of [['Market cutoff',at(p.as_of)+' NY'],['Inputs frozen',at(c.frozen_at)+' NY'],['Packet ID',p.packet_id],['Evidence items',Object.keys(p.evidence).length],['Processing lag',c.processing_delay_seconds+' seconds']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=k;dd.textContent=v;dl.append(dt,dd);}rows('coverage',['ES',analysis].map(s=>[s,c.coverage[s]['1'],c.coverage[s]['5'],c.coverage[s]['60'],c.coverage[s]['240']]));text('packet',JSON.stringify(c,null,2));text('warmup',c.warmup==='PARTIAL_HISTORY'?'Partial history: fewer than three complete 4h bars in at least one analysis market. No context approval.':'Higher-timeframe bars are present. News, contract alignment and strategy judgment still need validation.');text('progress-context','Latest snapshot: '+at(p.as_of)+' NY');}
  rows('job-rows',d.jobs.map(j=>[at(j.cutoff),j.status+(j.error?' · '+j.error:''),j.processed_at?Math.round(j.processed_at-j.cutoff)+'s':'—']));
  const ul=document.getElementById('diagnostics');ul.replaceChildren();for(const item of d.diagnostics){const li=document.createElement('li');li.textContent=at(item.at)+' · '+item.kind+' · '+item.message;ul.appendChild(li);}if(!d.diagnostics.length){const li=document.createElement('li');li.textContent='No recent intake errors recorded.';ul.appendChild(li);}
 }
@@ -42,7 +58,13 @@ function candidateStatus(candidate,state){
   return 'Blocked · '+(linked.reasons||[]).map(s=>s.toLowerCase().replaceAll('_',' ')).join('; ');
  }
  const review=state.ai?.records?.find(r=>r.packet_id===candidate.packet_id&&r.status==='validated');
- if(!review)return 'Awaiting review of this snapshot';
+ if(!review){
+  const sequences=candidate.setup_sequences||[];
+  const found=sequences.filter(s=>s.state==='SEQUENCE_MEASURED_NEEDS_AI_CONTEXT');
+  if(found.length)return found.map(s=>s.explanation).join(' / ')+' · awaiting AI context';
+  if(sequences.length)return 'No complete agreed sequence · '+[...new Set(sequences.flatMap(s=>s.reasons||[]))].map(s=>s.toLowerCase().replaceAll('_',' ')).join('; ');
+  return 'Awaiting review of this snapshot';
+ }
  const decision=review.decision;
  if(decision.context.selected_trigger_id!==candidate.id)return 'Not selected by this review';
  if(decision.context.decision!=='candidate')return 'Review: '+decision.context.decision+' · '+decision.rationale;
@@ -125,7 +147,7 @@ function showAutomatic(a){
  const reasons=latest?.state==='AI_CONTEXT_BLOCKED'?latest.reasons:gate?.reasons||[];
  text('auto-context-status',gate?reasons.length?reasons.map(x=>gateReasons[x]||x.toLowerCase().replaceAll('_',' ')).join(' '):'At this recorded check, the AI thesis permitted '+gate.direction+' research entries; the mechanical setup must also pass.':'This older record predates the AI entry connection.');
  const contextDetail=document.getElementById('auto-context-detail');contextDetail.replaceChildren();
- if(gate){for(const [label,value] of [['AI review',gate.ai_run_id||'None'],['Evidence cutoff',at(gate.source_cutoff)+' NY'],['Answer available',at(gate.available_at)+' NY'],['Expires',at(gate.expires_at)+' NY'],['MNQ invalidation',gate.invalidation_price??'Not available'],['AI explanation',gate.explanation||'No usable interpretation']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;contextDetail.append(dt,dd);}}
+ if(gate){for(const [label,value] of [['AI review',gate.ai_run_id||'None'],['Evidence cutoff',at(gate.source_cutoff)+' NY'],['Answer available',at(gate.available_at)+' NY'],['Expires',at(gate.expires_at)+' NY'],[(gate.invalidation_symbol||'MNQ')+' thesis invalidation',gate.invalidation_price??'Not available'],['AI explanation',gate.explanation||'No usable interpretation']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;contextDetail.append(dt,dd);}}
  const sizing=a.sizing;
  text('auto-risk',sizing?.budget_usd!=null?'Risk rule: 0.5% of today’s reported balance. Nominal budget before account limits: $'+sizing.budget_usd.toFixed(2)+' from last reported balance $'+sizing.balance.toFixed(2)+' ('+sizing.balance_as_of+'). Quantity is rounded down from stop distance; maximum '+a.configuration.paper_max_contracts+' MNQ. Balance is manually reported, not synchronized. Commission and slippage are extra.':'Risk rule: 0.5% of today’s reported balance. Save a fresh daily account snapshot under Overview before sizing a plan.');
  const choice=document.getElementById('auto-choice');choice.replaceChildren();

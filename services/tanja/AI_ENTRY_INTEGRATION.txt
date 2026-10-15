@@ -1,0 +1,36 @@
+AI-TO-ENTRY INTEGRATION — 10 October 2026
+
+Observation-only. No model calls or broker transport are added.
+
+The ES/MNQ AI interpretation is a directional thesis gate on the independent
+ES/NQ mechanical selector. It does not replace that selector's POI, confirmation,
+stop or target selection. MNQ anchors remain MNQ prices. This cross-market
+research arrangement and its numerical policies are not verified Tanja fidelity.
+
+Latest attempt is read in the same database snapshot as the candles. A running,
+failed, rejected, waiting or abstaining latest review cannot revive older approval.
+A candidate must pass the original evidence validator, have complete context and
+plan fields, and supply an immediate-confirmation entry and invalidation anchor.
+
+The answer must already exist when the evaluated minute closes. No retrospective
+approval of an earlier candle. Context expires 900 seconds after its SOURCE market
+cutoff, not answer receipt; no previous-session or excluded-calendar-day reuse.
+
+Every MNQ minute since source cutoff must be present and received by the decision
+freeze. Any wick touching the tighter of the explicit invalidation and proposed
+stop revokes context; any proposed target being touched also ends its usefulness
+for new entries. Recovery does not resurrect that review: its entire monitoring
+interval is checked again. A new validated review is required.
+
+Only a same-direction mechanical PLAN_READY can remain PLAN_READY. Otherwise the
+record is AI_CONTEXT_BLOCKED and its compiled plan is removed. Evidence and
+mechanical candidate measurements remain available for review. Allowed plan
+expiry is capped at the earlier mechanical-plan or AI-context expiry.
+
+Every record freezes AI run ID, source time, answer time, expiry, direction,
+invalidation witness and reasons. Late AI responses cannot rewrite existing rows.
+Older rows retain their original policy revision and do not become AI approvals.
+
+No open-position management, fills, drawdown controls or actual trading is added.
+The six-call limit and holiday/weekend API guards remain unchanged. Fifteen-minute
+context lifetime is a conservative engineering default, not empirically optimized.

@@ -12,11 +12,15 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'vendor'))
-from context_v3 import output_schema, validate_decision, check_packet
+from context_v3 import check_packet
+from entry_review import output_schema, validate_decision, PROMPT as ENTRY_PROMPT
+from context_watch import PROMPT as WATCH_PROMPT
 from context_api import extract_response
+from review_calendar import review_day
+from decision_library import teaching_context, library_hash
 
 NY = ZoneInfo('America/New_York')
-PROMPT = (Path(__file__).resolve().parent/'vendor'/'prompt_v3.txt').read_text()
+PROMPT = (Path(__file__).resolve().parent/'vendor'/'prompt_v3.txt').read_text()+ENTRY_PROMPT+WATCH_PROMPT
 MAX_REQUEST_BYTES = 500_000
 
 
@@ -62,6 +66,7 @@ class AIReview:
         self.key = config.get('OPENAI_API_KEY', '').strip()
         self.model = config.get('OPENAI_MODEL', '').strip()
         self.enabled = config.get('TANJA_AI_ENABLED', 'false').lower() == 'true'
+        self.selection_mode=config.get('TANJA_ENTRY_SELECTION_MODE','context_rules')
         self.config_error = False
         try:
             self.daily = int(config.get('TANJA_AI_MAX_CALLS_PER_DAY', '6'))
@@ -78,7 +83,7 @@ class AIReview:
             self.config_error = True
             self.daily, self.interval, self.tokens, self.revision = 6, 900, 8000, 'invalid'
         self.fingerprint = digest(dict(model=self.model, revision=self.revision,
-            prompt=PROMPT, schema=output_schema(), tokens=self.tokens))
+            prompt=PROMPT, teaching_library=library_hash(), schema=output_schema(), tokens=self.tokens,analysis_symbol=store.analysis_symbol,entry_selection_mode=self.selection_mode))
         with store.connect() as db:
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS ai_runs (
@@ -98,20 +103,23 @@ class AIReview:
         if self.config_error: return 'CONFIG_ERROR'
         if not self.key: return 'MISSING_API_KEY'
         if not self.model: return 'MISSING_MODEL'
+        day_status = review_day(now)['status']
+        if day_status != 'READY': return day_status
         if not context: return 'WAITING_FOR_PAIRED_DATA'
         p = context['packet']
         if not (0 <= now-p['as_of'] <= 120) or context['frozen_at'] > now or context['processed_at'] > now:
             return 'WAITING_FOR_FRESH_DATA'
-        if any(context['coverage'][s]['240'] < 3 or context['coverage'][s]['60'] < 3 for s in ('ES','MNQ')):
+        if p.get('market_roles',{}).get('analysis_inputs',['ES','MNQ'])[1]!=self.store.analysis_symbol:return 'WAITING_FOR_ANALYSIS_SOURCE'
+        if any(context['coverage'].get(s,{}).get('240',0) < 3 or context['coverage'].get(s,{}).get('60',0) < 3 for s in ('ES',self.store.analysis_symbol)):
             return 'WAITING_FOR_HISTORY'
-        for s in ('ES', 'MNQ'):
+        for s in ('ES',self.store.analysis_symbol,'MNQ') if self.store.analysis_symbol=='NQ' else ('ES','MNQ'):
             recent = self.store.history(s, p['as_of'], context['frozen_at'])[-15:]
             ends = [b['bar_close_ms']//1000 for b in recent]
             if ends != list(range(p['as_of']-14*60, p['as_of']+1, 60)):
                 return 'WAITING_FOR_CONTIGUOUS_DATA'
         local = datetime.fromtimestamp(now, NY)
         # Sampling window for this observation pilot, not a reconstructed entry rule.
-        if local.weekday() >= 5 or not (570 <= local.hour*60+local.minute < 660):
+        if not (570 <= local.hour*60+local.minute < 660):
             return 'OUTSIDE_REVIEW_WINDOW'
         if len(encoded(self.make_payload(p)).encode()) > MAX_REQUEST_BYTES:
             return 'INPUT_TOO_LARGE'
@@ -119,7 +127,7 @@ class AIReview:
 
     def latest_context(self):
         with self.store.connect() as db:
-            row = db.execute('SELECT packet FROM jobs WHERE packet IS NOT NULL AND status=\'done\' ORDER BY cutoff DESC LIMIT 1').fetchone()
+            row = db.execute(f'SELECT packet FROM {self.store.jobs_table} WHERE packet IS NOT NULL AND status=\'done\' ORDER BY cutoff DESC LIMIT 1').fetchone()
         return json.loads(row[0]) if row else None
 
     def limits(self, db, now, packet_id=None):
@@ -135,6 +143,8 @@ class AIReview:
         return 'READY'
 
     def reserve(self, context, payload, now):
+        # A manual caller cannot bypass the weekend/holiday spending rule.
+        if review_day(now)['status'] != 'READY': return None
         with self.store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             if self.limits(db, now, context['packet']['packet_id']) != 'READY': return None
@@ -145,9 +155,12 @@ class AIReview:
             return ident
 
     def make_payload(self, packet):
+        selection=('\nProduction policy: individual_trades. entry_watch MUST be null. Select an already-observed entry_setup with complete evidence, or wait/abstain.\n'
+            if self.selection_mode=='individual_trades' else '\nProduction policy: context_rules. You may explicitly approve a bounded entry_watch, including two_family_v1, after accepting directional context and rules; otherwise leave it unarmed. No watch is required and uncertainty still means wait/abstain.\n')
+        instruments=('\nInstrument contract for this packet: analyze ES and NQ. Select NQ inversion, sequence, POI, swing and thesis invalidation evidence. MNQ is execution pricing only. initial_stop, entry_anchor, final targets and MNQ local objectives MUST cite MNQ evidence; never copy an NQ price or invent an NQ/MNQ offset. SMT fields reference_mnq/current_mnq retain legacy wire names but MUST reference NQ windows in this contract. Watch confirmation_open and dynamic stop rules resolve the matching MNQ candle by exact time/timeframe. inverted_gap_edge is unsupported for NQ retracement entries; choose a selected MNQ anchor or confirmation_open. Leave missing execution anchors unresolved.\n' if self.store.analysis_symbol=='NQ' else '')
         return dict(model=self.model, store=False, max_output_tokens=self.tokens,
             reasoning={'effort':'low'},
-            input=[dict(role='system',content=PROMPT), dict(role='user',content=encoded(packet))],
+            input=[dict(role='system',content=PROMPT+teaching_context(packet['as_of'])+instruments+selection), dict(role='user',content=encoded(packet))],
             text={'format':dict(type='json_schema', name='tanja_context_v3', strict=True, schema=output_schema())})
 
     def process_one(self, transport=call_openai, clock=time.time):
@@ -158,6 +171,10 @@ class AIReview:
         check_packet(p)
         payload = self.make_payload(p)
         if len(encoded(payload).encode()) > MAX_REQUEST_BYTES: return False
+        # Recheck at dispatch: validation may have crossed the time boundary.
+        dispatch_now = clock()
+        if self.gate(dispatch_now, context) != 'READY': return False
+        now = dispatch_now
         ident = self.reserve(context, payload, now)
         if not ident: return False
         raw = decision = review = None
@@ -170,6 +187,14 @@ class AIReview:
             status = 'validated'
         except APIError as exc:
             error = str(exc) if re.fullmatch(r'[A-Z_0-9]+', str(exc)) else 'API_ERROR'
+        except ValueError as exc:
+            # Only an exact, known validator message is exposed. Never forward
+            # arbitrary upstream response text or credentials into diagnostics.
+            error = ('TRIGGER_BIAS_MISMATCH' if raw is not None and
+                str(exc) == 'Trigger does not support the selected MNQ inversion direction'
+                else 'RESPONSE_FAILED_EVIDENCE_VALIDATION' if raw is not None
+                else 'REQUEST_OUTCOME_UNKNOWN')
+            status = 'rejected' if raw is not None else 'failed'
         except Exception:
             error = 'RESPONSE_FAILED_EVIDENCE_VALIDATION' if raw is not None else 'REQUEST_OUTCOME_UNKNOWN'
             status = 'rejected' if raw is not None else 'failed'
@@ -197,7 +222,8 @@ class AIReview:
         return dict(status=status, model=self.model or None, key_configured=bool(self.key),
             connected=any(r['status']=='validated' for r in records),
             calls_today=used, daily_limit=self.daily, min_interval_minutes=self.interval//60,
-            review_window='09:30–11:00 New York, weekdays', records=records,
+            review_window='09:30–11:00 New York, weekdays excluding observed US holidays and Good Friday', records=records,
+            calendar=review_day(now),
             max_output_tokens=self.tokens, executable=False,
             fidelity='Research interpretation; Tanja 1:1 fidelity is not established')
 
