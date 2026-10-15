@@ -8,7 +8,7 @@ import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
 ROOT_EXT={'.py','.txt','.md','.html','.json','.pine'}
-ROOT_JSON={'railway.json','decision_examples.json','entry-validation.json','context-atr-validation.json','ui-validation.json','pine-validation.json'}
+ROOT_JSON={'railway.json','decision_examples.json','entry-validation.json','context-atr-validation.json','nq-loop-validation.json','ui-validation.json','pine-validation.json'}
 DIRECTORIES={'vendor','static','integration','tests','tools'}
 FORBIDDEN={'.env','.venv','node_modules','__pycache__','models','output','examples','data','.git'}
 PRIVATE_NAMES={'account_snapshot.json','manifest.json','test-results.txt','ui-validation.json','pine-validation.json'}
@@ -40,19 +40,28 @@ def source_files():
 def build(destination):
     destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True)
     files=source_files();manifest={}
-    guide='''# Tanja repository update — 2026-10-14
+    guide='''# Tanja 3.2 source update — 2026-10-15
 
 Extract this ZIP into your repository root. It contains the complete current
 services/tanja source tree, tests and documentation; it does not contain a .git
 directory or commit history. Review existing local changes before replacing files.
 
-Start with services/tanja/CONTEXT_ATR_UPDATE.md and ENTRY_IMPLEMENTATION.md.
+Start with services/tanja/CROSSTRADE_QUOTES_ACCOUNTING.md. This update adds separate
+quote intake, GET-only CrossTrade capture and a revisable account-wide execution
+ledger. It does not provide a data subscription or automatically prove fee finality.
+The existing 3.1 live deployment has not been replaced by producing this package.
+Strategy background: NQ_EXECUTION_LOOP_UPDATE.md, CONTEXT_ATR_UPDATE.md and ENTRY_IMPLEMENTATION.md.
 Deploy services/tanja as the Railway service root, preserving the existing /data
 volume, private environment variables, one worker and one replica. No deployment
 or live broker order is performed by unpacking or starting this source package.
 
-Defaults: TANJA_STRATEGY_POLICY=source_selections; TANJA_DAILY_ATR_PERIOD=5;
-TANJA_DAILY_ATR_SESSION=futures; TANJA_ATR_SESSION_OVERRIDES={}. Do not copy a
+Defaults: TANJA_ANALYSIS_SYMBOL=NQ; TANJA_TRADING_LOOP_MODE=off;
+TANJA_STRATEGY_POLICY=source_selections; TANJA_DAILY_ATR_PERIOD=5;
+TANJA_DAILY_ATR_SESSION=futures; TANJA_ATR_SESSION_OVERRIDES={};
+TANJA_CROSSTRADE_CAPTURE_ENABLED=false. Quote/accounting providers are opt-in.
+An uncertain account-wide loss count blocks new entries when CrossTrade accounting
+is selected. Current broker protection/order management remains unconnected.
+Do not copy a
 runtime account snapshot into Git. No API keys, .env files, SQLite databases,
 models, virtual environments or captured transcripts are included.
 
@@ -65,6 +74,9 @@ ENTRY_UI_FIXTURES=/tmp/tanja-entry-fixtures.json node services/tanja/tests/brows
 Run browser scripts from the repository root; set PLAYWRIGHT_MODULE / CHROME_PATH
 to installed runtime paths if necessary. Saved-context browser fixtures are built
 with tests/build_context_atr_ui_fixtures.py and browser_context_atr.cjs.
+NQ chart/loop checks use tests/build_nq_ui_fixtures.py and browser_nq_analysis.cjs.
+New quote/accounting dashboard checks use the same NQ_UI_FIXTURES with
+tests/browser_quotes_accounting.cjs. They mock every service request and send no orders.
 
 PACKAGE_MANIFEST.json records SHA-256 for every included source file. The .wav
 fixture is original synthetic local test speech; it is not a Tanja recording.
@@ -74,7 +86,7 @@ fixture is original synthetic local test speech; it is not a Tanja recording.
         for p in files:
             name='services/tanja/'+p.relative_to(ROOT).as_posix();data=p.read_bytes()
             manifest[name]=hashlib.sha256(data).hexdigest();z.writestr(name,data)
-        z.writestr('PACKAGE_MANIFEST.json',json.dumps(dict(version='tanja-context-atr-20261014',files=manifest),indent=2)+'\n')
+        z.writestr('PACKAGE_MANIFEST.json',json.dumps(dict(version='tanja-3.2-quotes-accounting-20261015',files=manifest),indent=2)+'\n')
     with zipfile.ZipFile(destination) as z:
         if z.testzip() is not None:raise ValueError('ZIP integrity failure')
         for name,digest in manifest.items():

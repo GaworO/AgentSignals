@@ -18,7 +18,7 @@ class TestDataHealth(unittest.TestCase):
     def test_missing_feed(self):
         now,s=self.state();s['feeds'].pop('ES');self.assertEqual(data_health(s,now)['level'],'error')
     def test_pause_and_reopen(self):
-        for date,level in [('2026-10-09T17:10:00','info'),('2026-10-10T12:00:00','info'),('2026-10-11T18:05:00','error'),('2026-10-12T17:30:00','info')]:
+        for date,level in [('2026-10-09T17:10:00','info'),('2026-10-10T12:00:00','info'),('2026-10-11T18:05:00','error'),('2026-10-12T17:30:00','info'),('2026-10-14T16:20:00','info'),('2026-10-14T16:35:00','error')]:
             now,s=self.state(date);s['feeds']={k:dict(age_seconds=400,state='STALE_OR_MARKET_CLOSED') for k in s['feeds']}
             self.assertEqual(data_health(s,now)['level'],level)
     def test_processing_failure(self):

@@ -9,5 +9,17 @@
     "setup_recipes.py": "4ca3fd376eb42a1287dfde6a122e541af3c857fda902284952f339c259478ab9",
     "tanya_replay.py": "9466eeec6b6bd4ef592ae63f9ce10ce3d55fe404f0dbdadcac54a61e6b0ac140",
     "prompt_v3.txt": "cef9a066c5d1c784051415dd4ed307015df1421f3ae869bd3b8c9c20b3e62bdb"
+  },
+  "installed_revision": "ES/NQ analysis and separate MNQ execution, 2026-10-14",
+  "upstream_hashes_preserved": true,
+  "installed_files": {
+    "context_v3.py": "06a17dac8a5e201e5b3e98baf260c022c0883cfb1e32a758e9b40fdaad58c7d6",
+    "context_layer.py": "f54d31bb92c717ccdaa1f5787a1acff7a43ac06afba5098b3a2aa2263cc32c6c",
+    "context_api.py": "984eedad90a91d8d88a9fcf0f08e45d70fe6aabda99e704a8ef9eeaafd1d0dcf",
+    "context_geometry.py": "b22dd2a5a8b40e54573408eed5f68e72d16dc3b3c82a845cfbcca0297a97c789",
+    "decision_engine.py": "943dda67f234986b03ff1dd1f3117ef6a6efbb0578fd71a47ca49cae3b602871",
+    "setup_recipes.py": "4ca3fd376eb42a1287dfde6a122e541af3c857fda902284952f339c259478ab9",
+    "tanya_replay.py": "9466eeec6b6bd4ef592ae63f9ce10ce3d55fe404f0dbdadcac54a61e6b0ac140",
+    "prompt_v3.txt": "71431c73e2864dc34f36fd20d2f5544c377970fd1e794e1128a4dce3e8b5a2bd"
   }
 }

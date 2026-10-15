@@ -32,7 +32,7 @@ class TestService(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.config=dict(DATA_DIR=self.tmp.name,TANJA_FEED_TOKEN='test_'+'a'*40,
-                         TANJA_DASHBOARD_PASSWORD='test_dashboard_password')
+                         TANJA_DASHBOARD_PASSWORD='test_dashboard_password',TANJA_ANALYSIS_SYMBOL='MNQ')
         self.app=App(self.config)
         self.end=int(time.time()//60)*60
 

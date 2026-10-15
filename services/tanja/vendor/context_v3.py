@@ -28,7 +28,7 @@ def output_schema():
     swing=object_schema(dict(evidence_id=STR,break_mode=enum(['wick','close']),reason=STR))
     return object_schema(dict(schema_version={'type':'integer','enum':[3]},spec_version={'type':'string','enum':[SPEC]},
         context=v2_schema(),variant_id=nullable(enum(['V01','V02','V03','V04','V05','V06'])),
-        analysis_symbol=nullable(enum(['ES','MNQ'])),execution_symbol=nullable(enum(['ES','MES','NQ','MNQ'])),
+        analysis_symbol=nullable(enum(['ES','MNQ','NQ'])),execution_symbol=nullable(enum(['ES','MES','NQ','MNQ'])),
         timeframe_minutes=NINT,poi_evidence_ids=array(STR),selected_swing=nullable(swing),
         require_swing_break=NBOOL,entry_mode=enum(['immediate_after_confirmation','retracement','unknown']),
         invalidation=nullable(point),initial_stop=nullable(stop),initial_quantity=NINT,
@@ -61,7 +61,8 @@ def build_v3_packet(markets,as_of,max_bars=80):
     p=build_packet(markets,as_of,max_bars)
     p.pop('packet_id')
     ev=p['evidence'];addition={}
-    for symbol in ('ES','MNQ'):
+    for symbol in markets:
+        if 'NQ' in markets and symbol=='MNQ':continue
         for tf in (1,2,3,5,15,60,240):
             bars=sorted([(k,e) for k,e in ev.items() if e['kind']=='bar' and e['symbol']==symbol and e['timeframe']==tf],key=lambda x:x[1]['time'])
             for i in range(2,len(bars)-2):
@@ -128,7 +129,7 @@ def validate_decision(p,d):
         if ref not in p['evidence']:raise ValueError('Unknown POI reference')
     candidate=c['decision']=='candidate';direction=c['bias'];symbol=d['analysis_symbol']
     if candidate:
-        if d['variant_id']!='V01' or symbol!='MNQ' or d['execution_symbol']!='MNQ':
+        if d['variant_id']!='V01' or symbol!=p.get('market_roles',{}).get('analysis_inputs',['ES','MNQ'])[1] or d['execution_symbol']!='MNQ':
             raise ValueError('This release measures MNQ inversion candidates only; abstain for unsupported variants')
         event=p['evidence'][c['selected_trigger_id']]
         if d['timeframe_minutes']!=event['timeframe']:raise ValueError('Timeframe differs from selected trigger')
@@ -151,7 +152,8 @@ def validate_decision(p,d):
             measured['swing_broken']=(v>e['price'] if direction=='long' else v<e['price'])
     if candidate and d['require_swing_break'] is None:missing.append('require_swing_break')
     if candidate and d['require_swing_break'] is True and not measured.get('swing_broken'):missing.append('selected_swing_break')
-    latest=sorted([e for e in p['evidence'].values() if e['kind']=='bar' and e['symbol']==symbol and e['timeframe']==1],key=lambda e:e['available_at'])
+    execution=d['execution_symbol'] or symbol
+    latest=sorted([e for e in p['evidence'].values() if e['kind']=='bar' and e['symbol']==execution and e['timeframe']==1],key=lambda e:e['available_at'])
     reference=latest[-1]['close'] if latest else None
     if d['invalidation'] is not None:measured['invalidation']=point_price(p,d['invalidation'],symbol)
     elif candidate:missing.append('invalidation')
@@ -159,7 +161,7 @@ def validate_decision(p,d):
     if stop is not None:
         if direction not in ('long','short') or reference is None:raise ValueError('Stop requires direction and current reference')
         if stop['buffer_ticks']<0:raise ValueError('Stop buffer must be nonnegative')
-        anchor=point_price(p,stop['anchor'],symbol)
+        anchor=point_price(p,stop['anchor'],execution)
         price=anchor+(-1 if direction=='long' else 1)*stop['buffer_ticks']*0.25
         if not math.isclose(price,stop['price'],abs_tol=1e-8,rel_tol=0):raise ValueError('Stop does not match cited anchor and buffer')
         if not math.isclose(price*4,round(price*4),abs_tol=1e-8,rel_tol=0):raise ValueError('Stop off tick grid')
@@ -173,10 +175,10 @@ def validate_decision(p,d):
     total=0
     for t in d['management']['targets']:
         if direction not in ('long','short') or reference is None:raise ValueError('Target needs direction and reference')
-        price=point_price(p,t['anchor'],symbol)
+        price=point_price(p,t['anchor'],execution)
         if t['kind']=='extension_minus_one':
             if t['extreme'] is None:raise ValueError('Projection requires two anchors')
-            extreme=point_price(p,t['extreme'],symbol)
+            extreme=point_price(p,t['extreme'],execution)
             if price==extreme:raise ValueError('Projection anchors must differ')
             price=2*price-extreme
         elif t['extreme'] is not None:raise ValueError('Simple level target has no second anchor')

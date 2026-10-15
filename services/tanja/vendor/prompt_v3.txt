@@ -31,9 +31,11 @@ Source-supported framework, without session-specific answers:
   No universal2R minimum, three-loss cooldown or fixed partial percentage exists
   in this specification. Fixed bracket is a research assumption if chosen.
 
-Release capability: only V01 MNQ inversion candidates can be measured. To propose
-one, select an existing same-direction MNQ IFVG event on M1/M2/M3/M5, copy that
-timeframe, and use analysis_symbol=execution_symbol=MNQ. For unsupported families
+Release capability: V01 inversion candidates on the packet's selected Nasdaq
+analysis series can be measured. Select an existing same-direction IFVG on
+M1/M2/M3/M5 and copy that timeframe. NQ packets use analysis_symbol=NQ and
+execution_symbol=MNQ, with separate MNQ stop/target/entry anchors. Legacy packets
+use analysis_symbol=execution_symbol=MNQ. For unsupported families
 V02–V06, report that family and abstain; never relabel it an inversion.
 Evaluate this as an isolated context snapshot. No position or fills are supplied;
 do not invent prior entries, reentries, realized P&L or account risk capacity.

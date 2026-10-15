@@ -53,11 +53,13 @@ def session_aggregate(bars, minutes, as_of):
     return out
 
 
-def build_packet(markets, as_of, max_bars=80):
+def build_packet(markets, as_of, max_bars=80, execution_max_bars=32):
     if type(as_of) is not int or type(max_bars) is not int or max_bars < 3:
         raise ValueError('Integer cutoff and at least three bars required')
-    if set(markets) != {'ES', 'MNQ'}:
-        raise ValueError('Both ES and MNQ required')
+    if set(markets) not in ({'ES','MNQ'},{'ES','NQ'},{'ES','NQ','MNQ'}):
+        raise ValueError('ES and the selected Nasdaq series required; MNQ execution is separate')
+    analysis='NQ' if 'NQ' in markets else 'MNQ'
+    if type(execution_max_bars) is not int or execution_max_bars<3:raise ValueError('At least three retained execution bars required')
     evidence, coverage = {}, {}
     for symbol, all_bars in sorted(markets.items()):
         # Filter before validating or deriving any feature: future records must
@@ -69,13 +71,16 @@ def build_packet(markets, as_of, max_bars=80):
                                 closed_minutes=len(bars), omitted_aggregate_policy='require_every_minute',
                                 retained_bars_per_timeframe={})
         for m in TIMEFRAMES:
-            series = (aggregate(bars, m, as_of) if m < 60 else session_aggregate(bars, m, as_of))[-max_bars:]
+            limit=min(max_bars,execution_max_bars) if analysis=='NQ' and symbol=='MNQ' else max_bars
+            series = (aggregate(bars, m, as_of) if m < 60 else session_aggregate(bars, m, as_of))[-limit:]
             coverage[symbol]['retained_bars_per_timeframe'][str(m)] = len(series)
             for b in series:
                 key = f'{symbol}:M{m}:{b.time}'
                 evidence[key] = dict(kind='bar', symbol=symbol, timeframe=m,
                                      available_at=b.time + m * 60, **asdict(b))
-        for m in (1, 2, 3, 5, 15):
+        # NQ mode retains MNQ candles for explicitly priced execution anchors,
+        # not a second Nasdaq setup catalogue competing with NQ analysis.
+        for m in (() if analysis=='NQ' and symbol=='MNQ' else (1,2,3,5,15)):
             for event in fvg_events(bars, m, as_of):
                 formation = int(event['zone_id'].split(':')[1])
                 refs = [f'{symbol}:M{m}:{formation - n*m*60}' for n in (3, 2, 1)]
@@ -91,11 +96,12 @@ def build_packet(markets, as_of, max_bars=80):
                   input_mode='market_only', coverage=coverage, evidence=evidence,
                   conventions=dict(higher_timeframes='18:00 ET session anchor; unverified against trader chart',
                                    fvg='three-candle wick gap; strict close inversion; local ET day reset',
-                                   price_series='ES continuous and MNQ continuous; not interchangeable with NQ chart'),
+                                   price_series='Separate instrument prices; no NQ/MNQ substitution'),
                   missing_context=['timestamped news/calendar feed', 'verified trader HTF alignment',
                                    'verified contract-roll adjustments', 'full history for ATH and earlier weekly levels',
                                    'automatic SMT anchor selection', 'confirmed trader range/POI selection'],
                   labels_included=False, executable=False)
+    if analysis=='NQ':packet['market_roles']=dict(analysis_inputs=['ES','NQ'],execution_symbol='MNQ',execution_prices_present='MNQ' in markets,execution_retained_bars_per_timeframe=min(max_bars,execution_max_bars))
     packet['packet_id'] = canonical_hash(packet)
     return packet
 
@@ -136,7 +142,7 @@ def validate_response(packet, response):
         if event['available_at'] > packet['as_of']:
             raise ValueError('Future trigger')
         if (response['setup'] != 'inversion' or event['kind'] != 'IFVG' or
-            event['symbol'] != 'MNQ' or event['timeframe'] not in (1,2,3,5) or
+            event['symbol'] != packet.get('market_roles',{}).get('analysis_inputs',['ES','MNQ'])[1] or event['timeframe'] not in (1,2,3,5) or
             event['direction'] != response['bias']):
             raise ValueError('Trigger does not support the selected MNQ inversion direction')
         verified['gap_inverted'] = dict(value=True, known_at=event['available_at'], source=selected)

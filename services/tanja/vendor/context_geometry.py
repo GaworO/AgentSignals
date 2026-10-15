@@ -43,6 +43,7 @@ def _window(packet,key):
 
 
 def measure_smt(packet, selection, direction):
+    nasdaq=packet.get('market_roles',{}).get('analysis_inputs',['ES','MNQ'])[1]
     expected={'reference_es','reference_mnq','current_es','current_mnq','side'}
     if not isinstance(selection,dict) or set(selection)!=expected:
         raise ValueError('SMT selection needs four window IDs and side')
@@ -54,7 +55,7 @@ def measure_smt(packet, selection, direction):
     windows={key:_window(packet,selection[key]) for key in expected-{'side'}}
     for phase in ('reference','current'):
         a,b=windows[phase+'_es'],windows[phase+'_mnq']
-        if a['symbol']!='ES' or b['symbol']!='MNQ' or (a['start'],a['end'])!=(b['start'],b['end']):
+        if a['symbol']!='ES' or b['symbol']!=nasdaq or (a['start'],a['end'])!=(b['start'],b['end']):
             raise ValueError('SMT requires matching ES/MNQ intervals')
     ref,cur=windows['reference_es'],windows['current_es']
     if not ref['start']<ref['end']<=cur['start']<cur['end']:
@@ -66,12 +67,12 @@ def measure_smt(packet, selection, direction):
     if any(not w['complete'] for w in windows.values()):
         return dict(result,status='missing_paired_data',intact=None,extrema={})
     extrema={}
-    for symbol,suffix in [('ES','es'),('MNQ','mnq')]:
+    for symbol,suffix in [('ES','es'),(nasdaq,'mnq')]:
         r,c=windows['reference_'+suffix],windows['current_'+suffix]
         swept=c[side]<r[side] if side=='low' else c[side]>r[side]
         extrema[symbol]=dict(reference=r[side],current=c[side],swept=swept,equal=c[side]==r[side],
           reference_times=r[side+'_times'],current_times=c[side+'_times'])
-    a,b=extrema['ES']['swept'],extrema['MNQ']['swept']
+    a,b=extrema['ES']['swept'],extrema[nasdaq]['swept']
     status='divergence' if a!=b else 'both_swept' if a else 'neither_swept'
     # Whether Tanya treats an equal touch as a sweep is unresolved. Don't turn
     # that unresolved convention into a positive/negative engine fact.
