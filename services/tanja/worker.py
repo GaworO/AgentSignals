@@ -6,18 +6,26 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'vendor'))
 from context_v3 import build_v3_packet
 from tanya_replay import Bar
+from daily_atr import calculate,attach,Policy as ATRPolicy
 
 
-def process_one(store, now=None):
+def process_one(store, now=None,atr_policy=None):
     job = store.claim_job()
     if not job:
         return False
     now = time.time() if now is None else now
     try:
-        histories = {s:store.history(s, job['cutoff'], job['frozen_at']) for s in ('ES','MNQ')}
+        analysis=store.analysis_symbol
+        symbols=('ES','NQ','MNQ') if analysis=='NQ' else ('ES','MNQ')
+        histories = {s:store.history(s, job['cutoff'], job['frozen_at']) for s in symbols}
         markets = {s:[Bar(b['bar_open_ms']//1000, b['open'], b['high'], b['low'], b['close']) for b in rows]
                    for s,rows in histories.items()}
-        packet = build_v3_packet(markets, job['cutoff'])
+        packet = build_v3_packet(markets, job['cutoff'],max_bars=64 if analysis=='NQ' else 80)
+        if analysis=='NQ':
+            from setup_scanner import attach as attach_scanner
+            raw={s:[dict(time=b['bar_open_ms']//1000,**{k:b[k] for k in ('open','high','low','close')}) for b in rows] for s,rows in histories.items()}
+            attach_scanner(packet,raw,cutoff=job['cutoff'],now=job['frozen_at'])
+        attach(packet,calculate(histories['MNQ'],cutoff=job['cutoff'],now=job['frozen_at'],policy=atr_policy))
         gaps = {}
         for s,rows in histories.items():
             gaps[s] = [{'after':a['bar_close_ms']//1000,'before':b['bar_open_ms']//1000}
@@ -26,18 +34,20 @@ def process_one(store, now=None):
         context = dict(packet=packet, frozen_at=job['frozen_at'], processed_at=now,
                        processing_delay_seconds=round(now-job['cutoff'],1),
                        gaps=gaps, coverage=readiness, ai_status='NOT_CONNECTED',
-                       warmup='PARTIAL_HISTORY' if any(readiness[s]['240']<3 for s in markets) else 'HTF_BARS_PRESENT_NOT_STRATEGY_APPROVAL',
+                       analysis_inputs=['ES',analysis],execution_symbol='MNQ',
+                       warmup='PARTIAL_HISTORY' if any(readiness[s]['240']<3 for s in ('ES',analysis)) else 'HTF_BARS_PRESENT_NOT_STRATEGY_APPROVAL',
                        history_limit_per_market=12000,
                        note='Gaps include exchange closures. No candles are filled or interpolated. No automatic SMT anchor selection.')
         # Observations only: IFVG formations are NOT context-approved trades.
         candidates=[]
         for key,e in packet['evidence'].items():
-            if e['kind']=='IFVG' and e['available_at']==job['cutoff'] and e['symbol']=='MNQ':
+            if e['kind']=='IFVG' and e['available_at']==job['cutoff'] and e['symbol']==analysis:
                 candidates.append(dict(id=key, observed_at=job['frozen_at'], as_of=job['cutoff'],
                     direction=e['direction'], timeframe=e['timeframe'], lower=e['lower'], upper=e['upper'],
-                    trigger_close=e['close'], packet_id=packet['packet_id'],
+                    trigger_close=e['close'], packet_id=packet['packet_id'],analysis_symbol=analysis,execution_symbol='MNQ',
                     status='FEATURE_ONLY_NEEDS_CONTEXT', executable=False,
-                    reason='Closed-bar inversion detected. Bias, POI, SMT selection, stop and management remain unapproved.'))
+                    reason='Closed-bar inversion detected. Bias, POI, SMT selection, stop and management remain unapproved.',
+                    setup_sequences=[r for r in packet.get('setup_scanner',{}).get('candidates',[]) if r['candidate_id']==key]))
         store.finish(job, context, candidates, now)
     except Exception as e:
         # Error class only: never leak configuration or request contents to UI/logs.
@@ -45,11 +55,12 @@ def process_one(store, now=None):
     return True
 
 
-def run_worker(store, stop):
+def run_worker(store, stop,config=None):
+    atr_policy=ATRPolicy.from_config(config or {})
     store.recover()
     while not stop.is_set():
         try:
-            if not process_one(store):
+            if not process_one(store,atr_policy=atr_policy):
                 stop.wait(1)
         except Exception:
             stop.wait(2)

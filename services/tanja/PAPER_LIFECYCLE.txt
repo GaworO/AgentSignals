@@ -1,0 +1,90 @@
+STATUS UPDATE — 10 October 2026: This document describes the legacy user-custom core.
+See SOURCE_RULES.txt for the revised local default, supported source selections,
+teaching library and remaining gaps. No deployment is implied.
+
+TANJA COMPLETE SIMULATED LIFECYCLE — 10 October 2026
+
+IMPLEMENTED LOCALLY
+paper_lifecycle.PaperLifecycle integrates the existing observer plan schema,
+management_policy local/ES partial and add rules, and management_review stop
+rules into a durable SQLite event-driven simulator. It has no network client,
+API credential access, broker adapter, production worker or order route.
+Railway remains unchanged: 2.10-core-management-observe, observation-only.
+
+INPUTS AND CAUSALITY
+- Supply a current frozen PLAN_READY observer decision with AI, news and account
+  gates passed, plus an explicitly sourced, already-known local objective.
+- Entry is restricted to the confirmed M5 immediate entry policy in either direction.
+- Supply chronological tick-aligned quote events, not inferred OHLC paths.
+- A request and its acknowledgement/fill require different, later quote events.
+- Future/unreceived candles cannot confirm swings or ES session extremes.
+- SQLite transactions save state and event results together. Identical event IDs
+  replay their saved result; conflicting retries and backward time are rejected.
+- Restart reloads pending requests, lots, stop, target, quantity and partial/add flags.
+
+LIFECYCLE
+1. Reserve a simulated entry using the selected stop/target and cost-inclusive size.
+2. A later quote models fill plus protective bracket confirmation atomically.
+3. Existing stop or final target takes precedence over all later requests. A stop
+   uses adverse slippage from the supplied quote; target limit fills at its price.
+4. Pending management must be acknowledged, rejected or explicitly held. While
+   held, no additional management request is generated and existing protection stays.
+5. Stop tightening has the first available slot (including pre-news protection).
+   Then local partial, ES partial and add-on serialize, one request at a time.
+6. Partial/add fills resize simulated protection to the confirmed remaining size.
+7. An exit cancels pending requests and remaining simulated protection. No reversal.
+
+SIZE AND ACCOUNTING
+- Per-trade budget is the lesser of the supplied plan and reported account allowance.
+- Initial contract floor includes both fees plus configured entry/stop slippage.
+  Fill-price deterioration causing a budget overrun rejects the entry.
+- Original simulated entry quantity is the immutable 20% base, rounded down.
+- Add fills may reduce further or reject for risk, capacity, expiry or geometry.
+  All lots share the existing stop and the initial dollar budget. Realized/unrealized
+  profits provide no extra risk allowance. FIFO accounts for lot exits and fees.
+- Add capacity reserves the simulated position in addition to reported exposure;
+  uncertain overlap can conservatively under-size it.
+- News protection uses original base-entry fill minus/plus 1.5 points after an add,
+  not a weighted average. This is an explicit simulation convention, not evidence
+  of Tanja's add-on behaviour. Stop never loosens.
+- Pending risk-increasing entry/add requests cancel on a supplied known news
+  blackout. The upstream news/calendar guard must still validate new decisions.
+
+MODEL LIMITS
+The 'fill' acknowledgement means a full synthetic fill at the next supplied quote.
+The 'hold' and 'reject' options exercise unresolved/rejected requests. Bracket
+replacement and cancellation are atomic simulator assumptions. Partial broker
+fills, exchange order queues, lost connections, cancellation/fill races and actual
+broker position reconciliation are not represented. Never use this simulator's
+position state as confirmation of a real position.
+
+The simulator is not a historical M1 backtester. Sparse quote events miss intrabar
+stops/targets. The example charts connect supplied quotes only for illustration.
+No outcome measures from these synthetic examples establish profitability or 1:1
+fidelity. Local-objective choice, setup preference and initial-stop/target choices
+still need comparison with additional Tanja recordings and no-trade sessions.
+
+REPRODUCIBLE ARTIFACTS
+research_tanja_paper_lifecycle_20261010/report.html — visual long/short event logs.
+long_events.json / short_events.json — full explicit synthetic input fixtures.
+long_result.json / short_result.json — saved lifecycle, fills, protection and costs.
+The entry uses the real observer with synthetic data and a locally supplied AI
+response fixture. The later add decision is explicitly a synthetic gated-schema
+fixture. No paid AI calls are made.
+
+From the repository root, use a NEW SQLite path per experiment:
+/Users/aleksandra/anaconda3/bin/python3.11 \
+  research_tanja_paper_lifecycle_20261010/replay.py \
+  research_tanja_paper_lifecycle_20261010/long_events.json \
+  /private/tmp/tanja-long-replay.sqlite3 /private/tmp/tanja-long-output.json
+
+TESTS
+PYTHONPATH=services/tanja:services/tanja/vendor:services/tanja/tests \
+  /Users/aleksandra/anaconda3/bin/python3.11 -m unittest discover \
+  -s services/tanja/tests -p 'test_*.py'
+
+14 new lifecycle tests; 182 total passing at this update. Covers real observer
+schema entry, mirrored long/short lifecycles, original-base quantities, shared
+risk, costs, add rejection, stop/target precedence, simultaneous partial ordering,
+news protection/blackout, future/unclosed information, expiry, pending/rejected
+requests, restart deduplication and conflicting/out-of-order events.

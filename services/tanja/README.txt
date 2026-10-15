@@ -1,4 +1,19 @@
-TANJA — RAILWAY OBSERVATION SERVICE v2.1 — AI OBSERVATION + NO-ORDER CONNECTION TEST
+TANJA — AI CONTEXT + ENTRY RESEARCH + NO-ORDER CONNECTION TEST
+
+LATEST UPDATE — October 14, 2026: NQ_EXECUTION_LOOP_UPDATE.md supersedes the
+instrument/loop descriptions below. Application default: ES/NQ analysis,
+MNQ execution-price evidence. New NQ jobs and old audits stay separate.
+The continuous paper loop consumes authenticated fresh quotes. A real broker
+feedback/protection-management adapter is still missing with the user's
+TradersPost-only connection; broker mode cannot submit orders in this build.
+
+Local update, October 14, 2026: see CONTEXT_ATR_UPDATE.md, SOURCE_RULES.txt
+and ENTRY_IMPLEMENTATION.md. Saved context now checks each new inversion, and
+daily_atr.py calculates the five-session full-futures ATR chosen by the user.
+Both approved families support long/short and immediate/optional-retracement
+entries. Saved structured AI selections now reach the normal plan observer;
+quote-event paper execution supports pending limits and cancellation. This
+revision is local and has not been uploaded to Railway.
 
 Existing users: start with API_SETUP.html for the API update.
 New users: start with SETUP.html for the Railway and TradingView feeds.
@@ -17,8 +32,8 @@ Scope implemented:
 
 Not implemented in this service:
   - autonomous full-strategy / 1:1 discretionary decisions;
-  - broker connection, order submission, fills, P&L or account guard;
-  - automatic history download/import, news feed or exchange calendar;
+  - live broker connection, order submission or synchronized fills/P&L;
+  - automatic history download/import or verified contract-roll alignment;
   - attribution of existing Agent 50k trades to Tanja.
 No configuration flag or credentials can turn this build into a live executor.
 

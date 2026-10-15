@@ -1,0 +1,35 @@
+{
+  "version": "nq-analysis-continuous-loop-20261014-v1",
+  "scope": [
+    "ES/NQ analysis",
+    "separate MNQ execution prices",
+    "continuous quote-driven paper loop",
+    "authenticated broker feedback intake",
+    "account-wide net loss count"
+  ],
+  "unit_tests": {
+    "total": 281,
+    "passed": 280,
+    "skipped": 1,
+    "exit_code": 0,
+    "full_packaged_suite": "passed",
+    "elapsed_seconds": 16.451,
+    "optional_skip": "Separate local-ASR dependencies/model are not installed in the plain Python test environment."
+  },
+  "browser": {
+    "combinations": 8,
+    "nqAnalysisLabel": true,
+    "mnqOrderLevelsOnlyOnMnq": true,
+    "brokerFeedbackBlockerVisible": true,
+    "browserErrors": []
+  },
+  "live_broker_loop_complete": false,
+  "blockers": [
+    "TradersPost public integration has no account-data API",
+    "TradersPost partial exits require verified protection resizing"
+  ],
+  "broker_orders_sent": 0,
+  "paid_ai_calls": 0,
+  "deployed": false,
+  "bounded_nq_payload_test": "ES/NQ 80 bars per timeframe; MNQ 32 priced bars; original 500000-byte limit"
+}

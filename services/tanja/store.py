@@ -13,7 +13,7 @@ FIELDS = {'schema_version', 'feed_version', 'symbol', 'ticker', 'timeframe',
 
 
 def bar_table(symbol):
-    # NQ has its own immutable history; legacy ES/MNQ jobs stay unchanged.
+    # Preserve the separately keyed NQ series and compatibility with rollback.
     return 'collection_bars' if symbol == 'NQ' else 'bars'
 
 
@@ -58,7 +58,10 @@ def validate_bar(b, tickers, now):
 
 
 class Store:
-    def __init__(self, directory):
+    def __init__(self, directory, analysis_symbol='MNQ'):
+        if analysis_symbol not in ('MNQ','NQ'):raise ValueError('NQ or legacy MNQ analysis required')
+        self.analysis_symbol=analysis_symbol
+        self.jobs_table='nq_jobs' if analysis_symbol=='NQ' else 'jobs'
         Path(directory).mkdir(parents=True, exist_ok=True)
         self.path = str(Path(directory) / 'tanja.sqlite3')
         with self.connect() as db:
@@ -79,11 +82,16 @@ class Store:
               CREATE TABLE IF NOT EXISTS diagnostics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL, kind TEXT, message TEXT);
             ''')
+            db.execute('''CREATE TABLE IF NOT EXISTS nq_jobs (
+                cutoff INTEGER PRIMARY KEY, frozen_at REAL, status TEXT, error TEXT,
+                packet TEXT, processed_at REAL)''')
 
     def bind_tickers(self, tickers):
         if set(tickers) not in ({'ES', 'MNQ'}, {'ES', 'MNQ', 'NQ'}):
             raise ValueError('Expected ES/MNQ with optional separate NQ collection')
-        bindings = {'tickers': {symbol:tickers[symbol] for symbol in ('ES', 'MNQ')}}
+        # Preserve the old metadata key byte-for-byte so 2.2 can be restored.
+        # The new series has its own immutable binding and separate bar keys.
+        bindings = {'tickers': {s:tickers[s] for s in ('ES', 'MNQ')}}
         if 'NQ' in tickers:
             bindings['collection_tickers'] = {'NQ':tickers['NQ']}
         with self.connect() as db:
@@ -118,25 +126,27 @@ class Store:
                     raise Conflict('Conflicting duplicate; existing candle retained')
                 return {'status': 'duplicate', 'queued': False}
             db.execute(f'INSERT INTO {table} VALUES(?,?,?,?,?)', (b['symbol'], start, end, received, json.dumps(b)))
-            latest = db.execute('SELECT MAX(cutoff) FROM jobs').fetchone()[0] or 0
-            paired = db.execute("SELECT COUNT(*) FROM bars WHERE start=? AND symbol IN ('ES','MNQ')", (start,)).fetchone()[0] == 2
-            queued = b['symbol'] in ('ES','MNQ') and paired and end > latest
+            latest = db.execute(f'SELECT MAX(cutoff) FROM {self.jobs_table}').fetchone()[0] or 0
+            required=('ES','MNQ','NQ') if self.analysis_symbol=='NQ' else ('ES','MNQ')
+            paired=all(db.execute(f'SELECT 1 FROM {bar_table(s)} WHERE start=? AND symbol=?',(start,s)).fetchone() for s in required)
+            # New NQ mode requires all three series; legacy scheduling stays isolated.
+            queued = b['symbol'] in required and paired and end > latest
             if queued:
-                db.execute('INSERT INTO jobs(cutoff,frozen_at,status) VALUES(?,?,?)', (end, received, 'queued'))
+                db.execute(f'INSERT INTO {self.jobs_table}(cutoff,frozen_at,status) VALUES(?,?,?)', (end, received, 'queued'))
             return {'status': 'stored', 'queued': queued, 'paired': paired,
                     'late_for_analysis': end <= latest}
 
     def claim_job(self):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            r = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY cutoff LIMIT 1").fetchone()
+            r = db.execute(f"SELECT * FROM {self.jobs_table} WHERE status='queued' ORDER BY cutoff LIMIT 1").fetchone()
             if r:
-                db.execute("UPDATE jobs SET status='processing' WHERE cutoff=?", (r['cutoff'],))
+                db.execute(f"UPDATE {self.jobs_table} SET status='processing' WHERE cutoff=?", (r['cutoff'],))
                 return dict(r)
 
     def recover(self):
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='queued' WHERE status='processing'")
+            db.execute(f"UPDATE {self.jobs_table} SET status='queued' WHERE status='processing'")
 
     def history(self, symbol, cutoff, frozen_at):
         with self.connect() as db:
@@ -150,14 +160,14 @@ class Store:
         with self.connect() as db:
             for c in candidates:
                 db.execute('INSERT OR IGNORE INTO candidates VALUES(?,?,?)', (c['id'], job['cutoff'], json.dumps(c)))
-            db.execute("UPDATE jobs SET status='done',packet=?,processed_at=? WHERE cutoff=?",
+            db.execute(f"UPDATE {self.jobs_table} SET status='done',packet=?,processed_at=? WHERE cutoff=?",
                        (json.dumps(packet, separators=(',', ':')), now, job['cutoff']))
             # Keep the most recent 500 full snapshots; keep job audit + candidates.
-            db.execute('UPDATE jobs SET packet=NULL WHERE cutoff < (SELECT cutoff FROM jobs ORDER BY cutoff DESC LIMIT 1 OFFSET 499)')
+            db.execute(f'UPDATE {self.jobs_table} SET packet=NULL WHERE cutoff < (SELECT cutoff FROM {self.jobs_table} ORDER BY cutoff DESC LIMIT 1 OFFSET 499)')
 
     def fail(self, cutoff, kind):
         with self.connect() as db:
-            db.execute("UPDATE jobs SET status='failed',error=? WHERE cutoff=?", (kind, cutoff))
+            db.execute(f"UPDATE {self.jobs_table} SET status='failed',error=? WHERE cutoff=?", (kind, cutoff))
 
     def state(self, now):
         with self.connect() as db:
@@ -168,12 +178,15 @@ class Store:
                 feeds[symbol] = dict(count=n, latest_close=last['end'] if last else None,
                                      age_seconds=round(now-last['end'], 1) if last else None,
                                      state='NO_DATA' if not last else 'CURRENT' if now-last['end'] <= 120 else 'STALE_OR_MARKET_CLOSED')
-            jobs = [dict(r) for r in db.execute('SELECT cutoff,frozen_at,status,error,processed_at FROM jobs ORDER BY cutoff DESC LIMIT 60')]
-            candidates = [json.loads(r[0]) for r in db.execute('SELECT payload FROM candidates ORDER BY cutoff DESC,id LIMIT 100')]
+            jobs = [dict(r) for r in db.execute(f'SELECT cutoff,frozen_at,status,error,processed_at FROM {self.jobs_table} ORDER BY cutoff DESC LIMIT 60')]
+            candidates = [json.loads(r[0]) for r in db.execute('SELECT payload FROM candidates WHERE id LIKE ? ORDER BY cutoff DESC,id LIMIT 100',(self.analysis_symbol+':%',))]
             diag = [dict(r) for r in db.execute('SELECT at,kind,message FROM diagnostics ORDER BY id DESC LIMIT 20')]
-            latest = db.execute('SELECT packet FROM jobs WHERE packet IS NOT NULL ORDER BY cutoff DESC LIMIT 1').fetchone()
+            latest = db.execute(f'SELECT packet FROM {self.jobs_table} WHERE packet IS NOT NULL ORDER BY cutoff DESC LIMIT 1').fetchone()
         p = json.loads(latest[0]) if latest else None
-        return dict(market_roles=dict(analysis_inputs=['ES','MNQ'],collected_only=['NQ'],execution_symbol='MNQ'),
+        return dict(market_roles=dict(analysis_inputs=['ES',self.analysis_symbol], execution_prices=['MNQ'], collected_only=['NQ'] if self.analysis_symbol=='MNQ' else [],
+                    intended_analysis_inputs=['ES','NQ'], intended_execution_symbol='MNQ',
+                    fidelity_status='NQ_ANALYSIS_MNQ_EXECUTION' if self.analysis_symbol=='NQ' else 'ANALYSIS_SOURCE_MISMATCH',
+                    note='Analysis and execution series retain their own evidence and prices.'),
                     feeds=feeds, jobs=jobs, candidates=candidates, diagnostics=diag,
                     latest_context=p, executions=[], execution_status='NOT_CONNECTED', ai_status='NOT_CONNECTED',
                     mode='OBSERVE_ONLY', account='My Funded Futures · 50K Builder',
