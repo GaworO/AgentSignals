@@ -1150,8 +1150,8 @@ def inactivity_status(rows=None, now=None):
     """Conservative 7-calendar-day activity tracker based on confirmed fills.
 
     A submitted resting order is not counted as a trade.  Broker-reconciled rows
-    are preferred; otherwise a resolved shadow fill is labelled as model-confirmed.
-    ACCOUNT_STARTED_ON supplies the anchor before the first confirmed fill.
+    are preferred on legacy routes. AB_ONLY uses broker-confirmed outcomes and
+    never treats incomplete local history as proof of account inactivity.
     """
     profile = account_profile()
     limit = max(0, _envi('INACTIVITY_DAYS', profile['rules'].get('inactivity_days') or 0))
@@ -1164,6 +1164,12 @@ def inactivity_status(rows=None, now=None):
     rows = list(rows or [])
     confirmed = [r for r in rows if r.get('decision') == 'sent'
                  and r.get('outcome') in ('win', 'loss', 'timeout')]
+    native_ab = execution_policy.mode() == 'AB_ONLY'
+    if native_ab:
+        # A shadow/model outcome is not account activity. This local ledger
+        # also cannot prove the absence of trades made elsewhere on the account.
+        confirmed = [r for r in confirmed if r.get('reconciled') or
+                     (r.get('broker_reconciled') and r.get('outcome_source') == 'crosstrade_owned_fills')]
     dated = []
     for row in confirmed:
         raw = str(row.get('date') or str(row.get('et') or '')[:10])
@@ -1171,8 +1177,13 @@ def inactivity_status(rows=None, now=None):
         except Exception: pass
     if dated:
         anchor, last = max(dated, key=lambda item: item[0])
-        source = 'broker' if last.get('reconciled') else 'model-confirmed fill'
+        source = 'broker' if native_ab or last.get('reconciled') else 'model-confirmed fill'
     else:
+        if native_ab:
+            return dict(enabled=True, status='unverified', limit_days=limit,
+                        days_without_trade=None, days_left=None, last_trade_date=None,
+                        deadline=None, source='incomplete_broker_history',
+                        message='Brak pełnej historii aktywności brokerskiej. Lokalny dziennik nie potwierdza przekroczenia terminu.')
         raw = _env('ACCOUNT_STARTED_ON', '').strip()
         try: anchor = dt.date.fromisoformat(raw); last = None; source = 'account start'
         except Exception:
@@ -1183,6 +1194,11 @@ def inactivity_status(rows=None, now=None):
     days = max(0, (today - anchor).days)
     left = max(0, limit - days)
     deadline = anchor + dt.timedelta(days=limit)
+    if native_ab and days >= limit:
+        return dict(enabled=True, status='unverified', limit_days=limit,
+                    days_without_trade=None, days_left=None, last_trade_date=anchor.isoformat(),
+                    deadline=None, source='incomplete_broker_history',
+                    message='Ostatnie lokalne wykonanie jest starsze niż limit; niepełna historia nie potwierdza nieaktywności konta.')
     status = 'due' if days >= limit else ('critical' if days >= limit - 1
                                           else ('warn' if days >= limit - 2 else 'ok'))
     msg = ('activity deadline reached — verify the MFF account now' if status == 'due'
@@ -1554,7 +1570,7 @@ def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
         glog = _load(GLOG, [])
-        continuation_order_id = x.get('_continuation_order_id')
+        continuation_order_id = x.get('_ab_native_order_id') or x.get('_continuation_order_id')
         k = ('CONT_ORDER|' + str(continuation_order_id)) if continuation_order_id else _skey(x)
         gid = x.get('_setup_group_id')
         if decision == 'shadow':
@@ -1676,11 +1692,14 @@ def _state_writable():
     except Exception:
         return False
 
-def news_calendar_check(cal_age_h=None, market_open=None):
+def news_calendar_check(cal_age_h=None, market_open=None, calendar_info=None):
     """Persist calendar freshness and alert before the first blocked setup."""
     try:
         s = _state(); s['news_cal_checked_ms'] = _now_ms()
         s['news_cal_age_h'] = None if cal_age_h is None else round(float(cal_age_h), 2)
+        if calendar_info is not None:
+            s['news_cal_source'] = calendar_info.get('source')
+            s['news_cal_error'] = calendar_info.get('error')
         strict = _env('NEWS_GUARD', '1') == '1' and _env('NEWS_STRICT', '1') == '1'
         stale = strict and (cal_age_h is None or float(cal_age_h) > _envf('NEWS_MAX_AGE_H', 24))
         was = bool(s.get('news_cal_alerted'))
@@ -1743,7 +1762,7 @@ def health(feed_age_min=None, market_open=None):
             rows0 = [_actualize(g, sm0.get(g.get('key'), {})) for g in _load(GLOG, [])]
             ia = inactivity_status(rows0)
             if ia.get('enabled'):
-                lvl = 'warn' if ia.get('status') in ('critical', 'due', 'unknown') else 'ok'
+                lvl = 'info' if ia.get('status') == 'unverified' else 'warn' if ia.get('status') in ('critical', 'due', 'unknown') else 'ok'
                 add('inactivity', lvl, ia.get('message') or ia.get('status'))
             ls = _loss_streak_stats(rows0)
             if ls.get('limit'):
@@ -1786,11 +1805,13 @@ def health(feed_age_min=None, market_open=None):
         if _env('NEWS_GUARD', '1') == '1' and _env('NEWS_STRICT', '1') == '1':
             ca = s.get('news_cal_age_h')
             if ca is None:
-                add('news_cal', 'warn', 'calendar never verified — AUTO blocks until fetched')
+                add('news_cal', 'warn', 'calendar unavailable/unverified — AUTO blocks' +
+                    (' (' + str(s['news_cal_error']) + ')' if s.get('news_cal_error') else ''))
             elif float(ca) > _envf('NEWS_MAX_AGE_H', 24):
                 add('news_cal', 'warn', 'calendar %.1fh old — AUTO blocks' % float(ca))
             else:
-                add('news_cal', 'ok', 'fresh (%.1fh)' % float(ca))
+                add('news_cal', 'ok', 'fresh (%.1fh)' % float(ca) +
+                    (' · ' + str(s['news_cal_source']) if s.get('news_cal_source') else ''))
         else:
             add('news_cal', 'info', 'strict calendar guard disabled')
         # 5 equity sync honesty — the DD guard rides on this number

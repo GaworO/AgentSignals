@@ -176,6 +176,18 @@ class Transport:
             r=c.execute('SELECT * FROM orders WHERE order_id=?',(oid,)).fetchone()
         if not r or r['state']!='PREPARED':raise TransportError('PREPARED_V3_ENTRY_REQUIRED')
         order=json.loads(r['order_json'])
+        import execution_policy
+        if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
+            raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
+        if order.get('strategy') == 'A/B':
+            check = dict(_strat='A/B',dir=order['direction'],entry=order['entry_price'],SL=order['stop_price'],TP=order['target_price'])
+            if execution_policy.mode() != 'AB_ONLY' or execution_policy.entry_blocker(check):
+                raise TransportError('AB_NATIVE_ROUTE_NOT_ARMED')
+            import ab_position_manager
+            check['_ab_manager'] = order.get('manager_plan')
+            manager_error = ab_position_manager.validate_plan(check, now / 1000)
+            if manager_error:
+                raise TransportError(manager_error)
         if (order['route_id']!=self.api.route() or order['contract']!=self.api.contract()
                 or order['account_label']!=os.environ.get('ACCOUNT_LABEL','account')
                 or not order['activation_ms']<=now<order['expiry_ms']):
@@ -585,8 +597,9 @@ class Transport:
         if not 0<=self.clock()-snapshot['observed_at']<=3:raise TransportError('FRESH_BROKER_READ_REQUIRED')
         row=self.row(oid)
         previous=json.loads(row['observation_json'] or '{}')
-        if row['error'] or previous.get('observed_at')!=snapshot['observed_at']:
-            self.reconcile_one(row,snapshot)
+        # A new read can share a clock timestamp with the previous snapshot.
+        # Re-prove exact owned quantity immediately before every mutation.
+        self.reconcile_one(row,snapshot)
         row=self.row(oid);observation=json.loads(row['observation_json'] or '{}')
         receipt=json.loads(row['receipt_json']);command=json.loads(row['command_json'])
         if operation=='cancel':
@@ -710,6 +723,13 @@ def relay(action,reason='guard'):
                 results.append(bool(result.get('success')))
         except Exception:results.append(False)
     return dict(ok=all(results),action=action,status=200 if all(results) else None)
+
+
+def close_owned_position(oid, action_id):
+    """Protective close of one attributed native position, with a fresh read."""
+    if not _TRANSPORT:
+        raise TransportError('NATIVE_TRANSPORT_NOT_CONFIGURED')
+    return _TRANSPORT.action(oid, 'close', action_id)
 
 
 def exit_payload(payload):

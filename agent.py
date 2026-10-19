@@ -36,6 +36,10 @@ import builder_crosstrade
 import ab_v3_live  # V3 broker-confirmed monitor; LIVE blocked until integration validated
 import ab_v3_tv
 import execution_policy
+import ab_native_entry
+import ab_position_manager
+import ab_ai_context
+import news_calendar
 import tv_seconds_feed
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
@@ -191,7 +195,8 @@ def _exec_order(x, text=None):
     if builder_crosstrade.provider() == 'invalid':
         return dict(sent=False,status=400,reason='invalid_order_provider',qty=0)
     native = builder_crosstrade.selected()
-    if native and (not x.get('_v3_directional') or not x.get('_continuation_order_id') or x.get('_test_signal')):
+    native_ab = native and execution_policy.mode() == 'AB_ONLY' and execution_policy.signal_family(x) == 'A/B'
+    if native and not native_ab and (not x.get('_v3_directional') or not x.get('_continuation_order_id') or x.get('_test_signal')):
         return dict(sent=False,status=400,reason='native_route_requires_prepared_v3_entry',qty=0)
     url = os.environ.get('EXEC_WEBHOOK', '')
     if not native and (not url or requests is None): return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
@@ -345,8 +350,19 @@ def _exec_order(x, text=None):
                 if len(legs) != 1:
                     return dict(sent=False,status=400,reason='native_split_entry_not_supported',qty=0)
                 try:
+                    if native_ab:
+                        if x.get('_test_signal'):
+                            return dict(sent=False,status=400,reason='ab_no_test_orders',qty=0)
+                        oid = ab_native_entry.prepare(x,payload,live_emit.key(x),ab_v3_live)
+                        try:
+                            result = builder_crosstrade.submit(payload,oid)
+                        except Exception:
+                            ab_native_entry.record_result(ab_v3_live,oid,dict(submission_unknown=True))
+                            raise
+                        ab_native_entry.record_result(ab_v3_live,oid,result)
+                        return result
                     return builder_crosstrade.submit(payload,x['_continuation_order_id'])
-                except builder_crosstrade.TransportError as exc:
+                except (builder_crosstrade.TransportError, ValueError) as exc:
                     return dict(sent=False,status=400,reason=str(exc),qty=qty,provider='crosstrade')
             try:
                 r = requests.post(url, json=payload, timeout=10)
@@ -433,6 +449,8 @@ def _prepare_ab_siblings(repx):
     setups, not the second leg of this same A/B signal.
     """
     repx['_strat'] = repx.get('_strat', 'A/B')
+    if execution_policy.mode() == 'AB_ONLY' and builder_crosstrade.selected():
+        return ab_native_entry.configure_signal(repx) if repx['_strat'] == 'A/B' else [repx]
     acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
     deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
     repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
@@ -656,33 +674,18 @@ def _detect():
 
 # ====== KALENDARZ NEWSOW (ForexFactory weekly) + FLAGI NO-TRADE ======
 HIGH = {'CPI','Core CPI','Non-Farm','NFP','PPI','GDP','Core PCE','PCE','ISM','FOMC','Federal Funds','Powell'}
-_cal = {'at': None, 'events': [], 'raw_events': []}   # execution tuples + richer Monitor-only metadata
+_calendar = news_calendar.Calendar(os.path.join(DATA_DIR, 'news_calendar.json'))
+_cal = _calendar.view()
 def _load_calendar():
-    if requests is None: return
-    if _cal['at'] and (dt.datetime.utcnow()-_cal['at']).total_seconds() < 6*3600: return
-    try:
-        r=requests.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json', timeout=15)
-        evs=[]; raw=[]
-        for e in r.json():
-            if str(e.get('impact','')).lower()!='high': continue
-            t=dt.datetime.fromisoformat(e['date']).timestamp()
-            title=e.get('title','event')
-            evs.append((t, title))
-            raw.append(dict(epoch=t, title=title, country=e.get('country') or e.get('currency') or '',
-                            impact='high', source='ForexFactory'))
-        _cal['events']=evs; _cal['raw_events']=raw; _cal['at']=dt.datetime.utcnow()
-    except Exception as ex:
-        print('[cal] blad pobierania:', ex, flush=True)   # guard side: NEWS_STRICT=1 blokuje sendy gdy kalendarz nieosiagalny >24h
+    global _cal
+    if requests is not None:
+        _calendar.refresh(requests)
+    _cal = _calendar.view()
 
 def _cal_age_h():
-    """Hours since the last SUCCESSFUL ForexFactory calendar fetch (None = never). Feeds the
-    fail-closed news gate: can't verify news => guard blocks unattended sends (NEWS_STRICT)."""
-    try:
-        _load_calendar()
-        if not _cal['at']: return None
-        return (dt.datetime.utcnow() - _cal['at']).total_seconds() / 3600.0
-    except Exception:
-        return None
+    """Age of validated current-week data; failures never reset its receipt time."""
+    _load_calendar()
+    return _calendar.age_hours()
 
 
 def _market_context_news():
@@ -1032,6 +1035,9 @@ def _process_new(now_ms=None, gap_min=None):
                 ab_quality.attach(repx)
         except Exception as _aqe:
             print('[ab-quality] classification error', _aqe, flush=True)
+        if execution_policy.signal_family(repx) == 'A/B':
+            repx['_ab_ai_context'] = ab_ai_context.annotate(repx, live_emit.key(repx))
+            ab_position_manager.plan_signal(repx, repx['_ab_ai_context'], _time.time())
         # The human-facing alert is built before the floor-aware group is
         # prepared. Stamp the maximum equal sibling allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
@@ -1082,7 +1088,7 @@ def _process_new(now_ms=None, gap_min=None):
             for item in _book_items:
                 guardrails.note(item, 'shadow', 'shadow_strategy:' + execution_policy.mode())
             code = 'shadow'
-        elif os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':
+        elif builder_crosstrade.selected() or os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')
             _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
             repx['_alert_txt'] = txt
@@ -1899,7 +1905,7 @@ def _heartbeat_loop():
                 except Exception: pass
             try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health
             except Exception: pass
-            try: guardrails.news_calendar_check(_cal_age_h(), _market_open_now())
+            try: guardrails.news_calendar_check(_cal_age_h(), _market_open_now(), calendar_info=_cal)
             except Exception as e: print('[heartbeat] news calendar check err', e, flush=True)
             try:                                                        # holiday early-close -> move flatten + entry cutoff up
                 import cme_calendar as _cmec
@@ -1985,6 +1991,9 @@ if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
 
+# Advisory context owns its own bounded worker, independent of order dispatch.
+ab_ai_context.register(app)
+ab_ai_context.start()
+
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))
-

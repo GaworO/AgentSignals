@@ -11,12 +11,13 @@ import re
 
 def mode():
     value = os.environ.get('EXEC_STRATEGY_POLICY', 'LEGACY').strip().upper()
-    return value if value in {'LEGACY', 'V3_ONLY', 'SHADOW_ALL'} else 'INVALID'
+    return value if value in {'LEGACY', 'V3_ONLY', 'AB_ONLY', 'SHADOW_ALL'} else 'INVALID'
 
 
 def shadow_family(strategy):
     value = mode()
-    return value == 'SHADOW_ALL' or (value == 'V3_ONLY' and strategy != 'AB_DIRECTIONAL')
+    return (value == 'SHADOW_ALL' or (value == 'V3_ONLY' and strategy != 'AB_DIRECTIONAL')
+            or (value == 'AB_ONLY' and strategy != 'A/B'))
 
 
 def signal_family(signal):
@@ -25,6 +26,8 @@ def signal_family(signal):
             and signal.get('_strat') == 'A/B Directional ' + str(signal.get('dir'))
             and signal.get('_continuation_order_id')):
         return 'AB_DIRECTIONAL'
+    if signal.get('_v3_directional') or signal.get('model') == 'A/B Directional' or signal.get('strategy') == 'AB_DIRECTIONAL':
+        return 'AB_DIRECTIONAL_INVALID'
     return str(signal.get('_strat') or 'A/B')
 
 
@@ -36,6 +39,8 @@ def entry_blocker(signal):
         return 'execution_policy_invalid'
     if shadow_family(signal_family(signal)):
         return 'shadow_strategy:' + value
+    if value == 'AB_ONLY':
+        return ab_entry_blocker(signal)
     if os.environ.get('V3_ENTRY_ARMED', '0') != '1':
         return 'v3_entry_not_armed'
     if len(os.environ.get('GUARD_TOKEN', '')) < 32:
@@ -82,9 +87,41 @@ def entry_blocker(signal):
     return None
 
 
+def ab_entry_blocker(signal):
+    if os.environ.get('AB_ENTRY_ARMED', '0') != '1':
+        return 'ab_entry_not_armed'
+    if os.environ.get('BUILDER_ORDER_PROVIDER') != 'crosstrade':
+        return 'ab_crosstrade_required'
+    if os.environ.get('EXEC_FX', '0') == '1':
+        return 'ab_futures_required'
+    if os.environ.get('AB_V3_MODE', 'SHADOW').upper() != 'SHADOW':
+        return 'ab_directional_must_be_shadow'
+    if len(os.environ.get('GUARD_TOKEN', '')) < 32:
+        return 'ab_guard_admin_token_required'
+    if os.environ.get('AB_V3_DETECTOR_CONTRACT_VERIFIED') != '1':
+        return 'ab_detector_contract_unverified'
+    ticker = os.environ.get('EXEC_TICKER', '')
+    if not re.fullmatch(r'MNQ[HMUZ]20\d{2}', ticker) or os.environ.get('AB_V3_CONTRACT') != ticker:
+        return 'ab_explicit_matching_contract_required'
+    try:
+        e, sl, tp = (float(signal[k]) for k in ('entry', 'SL', 'TP'))
+        z = 1 if signal['dir'] == 'LONG' else -1
+        if (signal['dir'] not in ('LONG', 'SHORT') or z*(e-sl) <= 0 or z*(tp-e) <= 0
+                or any(not math.isfinite(v) or v <= 0 for v in (e, sl, tp))):
+            return 'ab_invalid_bracket'
+        # ENTRY_OFFSET_PTS is already applied to the canonical signal before
+        # alerts, Guard and this adapter; preserve that existing strategy input.
+        if (float(os.environ.get('PRICE_OFFSET','0')) != 0
+                or float(os.environ.get('POINT_VALUE','2')) != 2 or float(os.environ.get('EXEC_TICK','0.25')) != .25):
+            return 'ab_execution_geometry_config_mismatch'
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return 'ab_invalid_bracket'
+    return None
+
+
 def status():
-    return dict(policy=mode(), entry_armed=os.environ.get('V3_ENTRY_ARMED', '0') == '1',
-                entry_variant=('DIRECTIONAL_MODEL0_RUNNER_2R_3R' if os.environ.get('V3_RUNNER_ENABLED','false').lower()=='true' and os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' else 'DIRECTIONAL_FIXED_SL_TP_2R'),
-                active_manager_live=os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real',
+    return dict(policy=mode(), entry_armed=os.environ.get('AB_ENTRY_ARMED' if mode() == 'AB_ONLY' else 'V3_ENTRY_ARMED', '0') == '1',
+                entry_variant=('CANONICAL_AB_NATIVE_BRACKET' if mode() == 'AB_ONLY' else 'DIRECTIONAL_MODEL0_RUNNER_2R_3R' if os.environ.get('V3_RUNNER_ENABLED','false').lower()=='true' and os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' else 'DIRECTIONAL_FIXED_SL_TP_2R'),
+                active_manager_live=(os.environ.get('AB_MANAGER_MODE','off').lower()=='real' if mode()=='AB_ONLY' else os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real'),
                 broker_fill_proven_by_http=False,
                 note='Entry permission; Guard, broker ownership and active exit readiness are checked separately.')

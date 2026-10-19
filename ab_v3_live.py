@@ -348,10 +348,15 @@ def broker_event(body, current=None):
                 if not previous.get("assumed") and previous.get("fill_ms") and (previous["fill_ms"] != fill or previous["entry_price"] != avg):
                     raise ValueError("fill changed")
                 other = c.execute("SELECT COUNT(*) FROM orders WHERE order_id<>? AND state IN ('ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','OWNERSHIP_MISMATCH')", (oid,)).fetchone()[0]
+                fill_sign = 1 if order['direction'] == 'LONG' else -1
+                fill_compatible = (avg == order['entry_price'] or
+                    (order.get('lifecycle') == 'AB_NATIVE_MANAGED_V1'
+                     and fill_sign * (avg - order['entry_price']) <= 0
+                     and fill_sign * (avg - order['stop_price']) > 0))
                 compatible = (body.get("exclusive") is True and not other and qty == order.get("quantity")
-                    and avg == order["entry_price"] and body.get("stop_price") == order["stop_price"]
+                    and fill_compatible and body.get("stop_price") == order["stop_price"]
                     and body.get("target_price") == order["target_price"])
-                state = row["state"] if row["state"] in {"EXIT_PENDING", "EXIT_UNKNOWN", "EXIT_REJECTED", "GUARD_EXIT_PENDING"} else ("BROKER_CONFIRMED_OPEN" if order.get("lifecycle")==position_manager.LIFECYCLE else "OPEN") if compatible else "OWNERSHIP_MISMATCH"
+                state = row["state"] if row["state"] in {"EXIT_PENDING", "EXIT_UNKNOWN", "EXIT_REJECTED", "GUARD_EXIT_PENDING"} else ("BROKER_CONFIRMED_OPEN" if order.get("lifecycle") in (position_manager.LIFECYCLE, "AB_NATIVE_MANAGED_V1") else "OPEN") if compatible else "OWNERSHIP_MISMATCH"
             else:
                 if int(body.get("quantity", -1)) != 0: raise ValueError("terminal event needs quantity zero")
                 if kind == "CANCELLED" and previous.get("position_id"): raise ValueError("filled order cannot be cancelled")
@@ -530,6 +535,8 @@ def monitor_frozen():
     with connect() as c:
         rows = c.execute("SELECT o.*,e.status AS exit_status FROM orders o LEFT JOIN exit_trades e ON e.trade_id=o.order_id WHERE o.state='OPEN'").fetchall()
         for row in rows:
+            if json.loads(row["order_json"]).get("strategy") == "A/B":
+                continue  # A/B native brackets are never managed by the Directional model.
             oid = row["order_id"]
             if row["exit_status"] is None:
                 c.execute("INSERT OR IGNORE INTO exit_trades(trade_id,exit_mode,status,updated_ms) VALUES(?,?,?,?)",
@@ -838,6 +845,8 @@ def _tick():
         while _TICK_PENDING.is_set():
             _TICK_PENDING.clear()
             try:
+                import ab_position_manager
+                ab_position_manager.monitor()
                 position_manager.monitor()
                 monitor()
                 monitor_runner()
