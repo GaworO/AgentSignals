@@ -335,7 +335,10 @@ def register(app):
         execution = execution_policy.status()
         execution.update(mode=guardrails.exec_mode(), auto_submit=os.environ.get('AUTO_SUBMIT','0') == '1',
                          provider=os.environ.get('BUILDER_ORDER_PROVIDER',''))
-        activity = guardrails.inactivity_status(guardrails._load())
+        shadow_rows = guardrails._shadow_by_key()
+        activity = guardrails.inactivity_status([
+            guardrails._actualize(row, shadow_rows.get(row.get('key'), {}))
+            for row in guardrails._load(guardrails.GLOG, [])])
         execution['activity_status'] = activity.get('status')
         schedule = dict(timezone='America/New_York', windows=[dict(name=n,start=f'{s//60:02d}:{s%60:02d}',end=f'{e//60:02d}:{e%60:02d}') for n,s,e in SESSIONS])
         if INSTANCE is None:

@@ -151,6 +151,18 @@ class ContextTests(unittest.TestCase):
         self.support.reader=lambda:(_ for _ in ()).throw(AssertionError('source read'))
         self.assertFalse(self.support.process_one());self.assertEqual(self.calls,[])
 
+    def test_status_endpoint_includes_sessions_and_real_guard_activity_api(self):
+        from flask import Flask
+        app=Flask(__name__);ai.register(app)
+        with patch.object(ai,'INSTANCE',self.support):
+            response=app.test_client().get('/ab/ai-context')
+        self.assertEqual(response.status_code,200)
+        data=response.get_json()
+        self.assertEqual(data['schedule']['windows'][1]['start'],'13:30')
+        self.assertIn('activity_status',data['execution'])
+        self.assertEqual(data['active_session']['name'],'NYAM')
+        self.assertEqual(self.calls,[])
+
     def test_migrated_budget_counts_tanja_calls_and_persists_after_restart(self):
         self.used=11
         self.assertTrue(self.support.process_one())
