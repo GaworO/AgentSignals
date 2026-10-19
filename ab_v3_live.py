@@ -190,11 +190,11 @@ def setting_blockers():
 
 
 def _bar(raw, tf, current):
-    if tf not in {"1s", "M1"}: raise ValueError("tf must be 1s or M1")
+    if tf != "M1": raise ValueError("V3 accepts completed M1 bars only; one-second input is disabled")
     stamp = pd.Timestamp(raw["ts_event"])
     if stamp.tzinfo is None: raise ValueError("UTC timezone required")
     at = int(stamp.timestamp()*1000)
-    duration = 1000 if tf == "1s" else 60000
+    duration = 60000
     if at % duration or at+duration > current: raise ValueError("unaligned or unclosed bar")
     vals = {k: float(raw[k]) for k in ("open", "high", "low", "close", "volume")}
     if not all(math.isfinite(v) for v in vals.values()) or vals["volume"] < 0:
@@ -439,9 +439,7 @@ def entry_blocker(order):
     with connect() as c:
         if c.execute("SELECT COUNT(*) FROM orders WHERE state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH')").fetchone()[0]:
             return "v3:broker_order_unresolved"
-        # The local unresolved-order ledger is authoritative in assumed mode.
-        s = c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?", (contract(),)).fetchone()[0]
-        if s is None or not 0 <= current-(s+1000) <= 5000: return "v3:1s_feed_not_fresh"
+        if not m1_fresh(c,contract(),current): return "v3:m1_feed_not_fresh"
     return None
 
 
@@ -469,54 +467,19 @@ def prepared_entry_blocker(signal):
             return 'v3:runner_parity_or_year_failed'
         if c.execute("SELECT 1 FROM orders WHERE order_id<>? AND state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','EXIT_REJECTED','OWNERSHIP_MISMATCH') LIMIT 1",(oid,)).fetchone():
             return 'v3:other_order_unresolved'
-        # No broker FLAT dependency for assumed entries.
-        sec=c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?",(o['contract'],)).fetchone()[0]
-        if sec is None or not 0 <= current-sec-1000 <= 5000: return 'v3:1s_feed_not_fresh'
+        if not m1_fresh(c,o['contract'],current): return 'v3:m1_feed_not_fresh'
     return None
 
 
-def _verified_seconds(seconds, minutes):
-    """Require dense seconds and matching full M1 OHLCV for each full minute."""
-    if seconds.empty: return False
-    groups = seconds.resample("min")
-    aggregate = groups.agg(dict(open="first",high="max",low="min",close="last",volume="sum"))
-    full = aggregate.loc[groups.close.count().eq(60)]
-    expected = pd.date_range(seconds.index[0].ceil("min"), seconds.index[-1].floor("min"),freq="min")
-    if not expected.isin(full.index).all() or not full.index.isin(minutes.index).all(): return False
-    for column in ("open","high","low","close","volume"):
-        if not (full[column]-minutes.reindex(full.index)[column]).abs().le(1e-7).all(): return False
-    return True
+def m1_fresh(c,contract_name,current):
+    latest=c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='M1' AND contract=? AND ts_ms+60000<=?",
+                     (contract_name,current)).fetchone()[0]
+    return latest is not None and 0<=current-(int(latest)+60000)<=75000
 
 
 def monitor():
-    if mode() in {"OFF", "INVALID"}: return
-    current = now_ms()
-    decision_ms = current//60000*60000
-    decision = pd.Timestamp(decision_ms,unit="ms",tz="UTC")
-    with connect() as c:
-        rows = c.execute("SELECT * FROM orders WHERE state='OPEN'").fetchall()
-        for row in rows:
-            oid = row["order_id"]
-            saved = c.execute("SELECT payload_json FROM decisions WHERE order_id=? AND decision_ms=?", (oid,decision_ms)).fetchone()
-            if saved and json.loads(saved[0]).get('cause') != 'HOLD_DATA_GAP': continue
-            o = json.loads(row["order_json"])
-            if o.get('runner_enabled'): continue
-            if o['route_id'] != route() or o['contract'] != contract() or o['account_label'] != os.environ.get('ACCOUNT_LABEL','account'): continue
-            p = json.loads(row["position_json"])
-            if decision_ms <= p["fill_ms"]: continue
-            o["fill_ms"] = p["fill_ms"]
-            s = frame(c,"1s",o["contract"],p["fill_ms"]//1000*1000,decision_ms)
-            m1 = frame(c,"M1",o["contract"],min(o["activation_ms"]-48*3600000,p["fill_ms"]-48*3600000),decision_ms)
-            verdict = dict(exit=False,cause="HOLD_DATA_GAP",decision_ms=decision_ms,policy=policy.POLICY)
-            if _verified_seconds(s,m1) and o.get("snapshot") and all(policy.finite(o["snapshot"].get(k)) for k in ("source_level","fvg_edge")):
-                verdict = policy.evaluate(o,s,m1,decision)
-            # Late feed/broker data never sends a catch-up exit. Re-evaluate next
-            # completed minute instead. No guessed broker prices or real PNL.
-            verdict["mode"] = mode()
-            verdict["action_state"] = "WOULD_EXIT" if verdict["exit"] else "HOLD"
-            if verdict["exit"] and mode() == "LIVE": verdict["action_state"] = "AWAIT_FRESH_BROKER_SNAPSHOT"
-            c.execute("INSERT INTO decisions VALUES(?,?,?) ON CONFLICT(order_id,decision_ms) DO UPDATE SET payload_json=excluded.payload_json WHERE decisions.payload_json LIKE '%HOLD_DATA_GAP%'", (oid,decision_ms,dump(verdict)))
-    return decision_ms
+    """The old intrasecond MTF observer is retired; Boundary/M3 uses real M1."""
+    return None
 
 
 def frozen_parity_ok():
@@ -620,11 +583,12 @@ def monitor_frozen():
             _exit_transition(c,oid,"EXIT_SIGNALLED",current)
 
 
-def _runner_first_touch(c, order, position, current):
+def _runner_first_touch(c,order,position,current):
+    # The fill minute can contain pre-fill prices. Start with the next full M1.
     z=1 if order['direction']=='LONG' else -1
     start=int(position['fill_ms'])//60000*60000+60000
     field,comparison=('high','>=') if z==1 else ('low','<=')
-    return c.execute("SELECT ts_ms,bar_json FROM bars WHERE tf='1s' AND contract=? AND ts_ms>=? AND ts_ms+1000<=? "
+    return c.execute("SELECT ts_ms,bar_json FROM bars WHERE tf='M1' AND contract=? AND ts_ms>=? AND ts_ms+60000<=? "
                      +"AND CAST(json_extract(bar_json,'$."+field+"') AS REAL)"+comparison+"? ORDER BY ts_ms LIMIT 1",
                      (order['contract'],start,current,order['baseline_target_price'])).fetchone()
 
@@ -645,22 +609,17 @@ def monitor_runner():
             target=order['baseline_target_price']
             hit=_runner_first_touch(c,order,position,current)
             if not hit: continue
-            touch=int(hit['ts_ms'])+1000;touch_bar=int(hit['ts_ms'])//60000*60000
+            touch_bar=int(hit['ts_ms']);touch=touch_bar+60000
             minutes=frame(c,'M1',order['contract'],start,touch_bar)
             try:
-                # Require all seconds from this minute's open to the detected touch.
-                seconds=frame(c,'1s',order['contract'],touch_bar,touch)
-                expected=pd.date_range(pd.Timestamp(touch_bar,unit='ms',tz='UTC'),
-                                       pd.Timestamp(touch-1000,unit='ms',tz='UTC'),freq='s')
-                if not seconds.index.equals(expected): raise ValueError('runner_touch_seconds_gap')
                 result=runner.decide(order,position,minutes,touch_bar)
             except (ValueError,KeyError,TypeError,OSError) as exc:
-                if str(exc) in ('runner_prebar_m1_gap','runner_touch_seconds_gap') and current-touch < 3000:
+                if str(exc)=='runner_prebar_m1_gap' and current-touch < 3000:
                     continue  # Allow the just-completed M1/feed batch to arrive.
                 # Missing model inputs never select an extension. A fresh 2R touch
                 # instead requests a market close, through the same guarded adapter.
                 result=dict(selected=False,probability=None,error=str(exc),threshold=.75)
-            result.update(touch_ms=touch,touch_bar_ms=touch_bar,price_2r=target,
+            result.update(touch_ms=touch,touch_bar_ms=touch_bar,touch_basis='COMPLETED_M1',price_2r=target,
                           broker_target=order['target_price'],decision_kind='HOLD_3R' if result['selected'] else 'EXIT_2R')
             c.execute("INSERT OR IGNORE INTO runner_decisions VALUES(?,?,?,?,?,?)",
                       (oid,touch,touch_bar,int(result['selected']),dump(result),current))
@@ -676,7 +635,7 @@ def signal_runner_exits():
             if row['exit_status'] not in ('OPEN','MONITORING','STALE_DATA','EXIT_BLOCKED','BROKER_MISMATCH'): continue
             if row['signal_time'] is not None: continue
             oid=row['order_id'];data=json.loads(row['payload_json']);signal=int(row['touch_ms'])
-            if not 0 <= current-signal <= 5000:
+            if not 0 <= current-signal <= 15000:
                 _exit_transition(c,oid,'EXIT_BLOCKED',current,'runner_missed_2r_touch_no_catchup')
                 continue
             reason='RUNNER_2R_DATA_FALLBACK' if data.get('error') else 'RUNNER_2R_EXIT'
@@ -720,9 +679,8 @@ def dispatch_frozen_exits():
             elif order.get("lifecycle") != position_manager.LIFECYCLE and (not row["signal_time"]+1000 <= int(position.get("event_ms",0)) <= current or current-int(position.get("event_ms",0)) > 2000):
                 continue  # Wait inside the 10-second window for a fresh broker snapshot.
             else:
-                s=c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?",(order["contract"],)).fetchone()[0]
-                if s is None or not 0 <= current-(s+1000) <= 5000:
-                    continue  # The feed can arrive after the M1 decision.
+                if not m1_fresh(c,order["contract"],current):
+                    continue
             if reason:
                 _exit_transition(c,oid,"EXIT_BLOCKED",current,reason)
                 continue
@@ -746,61 +704,18 @@ def dispatch_frozen_exits():
 
 
 def dispatch_exits():
-    """Only after >=1s and a newer matching exclusive broker snapshot.
-
-    One durable action per order. A crash/timeout is UNKNOWN, never retried.
-    TradersPost action exit cannot open a reverse position. SENT != CLOSED.
-    """
-    # The previous MTF manager is retained for audit only.  A deployment must
-    # opt in explicitly to its old executor; the frozen engine has its own gate.
-    if "V3_EXIT_MODE" in os.environ or os.environ.get("AB_V3_LEGACY_EXIT_ENABLED", "false").lower() != "true": return
-    if setting_blockers(): return
-    current = now_ms()
-    tasks = []
-    with connect() as c:
-        c.execute("BEGIN IMMEDIATE")
-        rows = c.execute("SELECT o.*,d.decision_ms,d.payload_json FROM orders o JOIN decisions d USING(order_id) WHERE o.state='OPEN' AND d.decision_ms=?", (current//60000*60000,)).fetchall()
-        for row in rows:
-            v = json.loads(row["payload_json"])
-            p = json.loads(row["position_json"])
-            o = json.loads(row["order_json"])
-            if o.get('runner_enabled'): continue
-            if o['route_id'] != route() or o['contract'] != contract() or o['account_label'] != os.environ.get('ACCOUNT_LABEL','account'): continue
-            if not v.get("exit") or not 1000 <= current-row["decision_ms"] <= 10000: continue
-            if not row["decision_ms"]+1000 <= p["event_ms"] <= current or current-p["event_ms"] > 2000: continue
-            if not p.get("exclusive") or p["quantity"] != o.get("quantity"): continue
-            s = c.execute("SELECT MAX(ts_ms) FROM bars WHERE tf='1s' AND contract=?", (o["contract"],)).fetchone()[0]
-            if s is None or current-s > 6000: continue
-            aid = hashlib.sha256((row["order_id"]+"|"+str(row["decision_ms"])).encode()).hexdigest()[:24]
-            payload = dict(ticker=o["contract"],action="exit",orderType="market",quantity=p["quantity"],
-                time=pd.Timestamp(current,unit="ms",tz="UTC").isoformat(),rejectAfter=3,
-                extras=dict(v3ActionId=aid,v3OrderId=row["order_id"],v3Policy=policy.POLICY))
-            inserted = c.execute("INSERT OR IGNORE INTO actions VALUES(?,?,?,?,?,?)", (aid,row["order_id"],row["decision_ms"],"EXIT_UNKNOWN",dump(payload),current)).rowcount
-            if inserted:
-                c.execute("UPDATE orders SET state='EXIT_UNKNOWN',updated_ms=? WHERE order_id=?", (current,row["order_id"]))
-                tasks.append((aid,row["order_id"],payload))
-    for aid,oid,payload in tasks:
-        state = "EXIT_UNKNOWN"
-        try:
-            r = _send_broker_exit(payload)
-            body = r.json()
-            if 200 <= r.status_code < 300 and body.get("success") is True: state = "EXIT_PENDING"
-            elif 400 <= r.status_code < 500: state = "EXIT_REJECTED"
-        except Exception:
-            pass  # No URL, token or external response body in public diagnostics.
-        with connect() as c:
-            c.execute("UPDATE actions SET state=?,updated_ms=? WHERE action_id=?", (state,now_ms(),aid))
-            c.execute("UPDATE orders SET state=? WHERE order_id=? AND state='EXIT_UNKNOWN'", (state,oid))
+    """The retired intrasecond executor cannot be re-enabled by legacy flags."""
+    return None
 
 
 def status():
     current = now_ms()
     with connect() as c:
         feeds = []
-        for tf,duration in (("1s",1000),("M1",60000)):
+        for tf,duration in (("M1",60000),):
             r = c.execute("SELECT MAX(ts_ms),COUNT(*) FROM bars WHERE tf=? AND contract=?", (tf,contract())).fetchone()
             age = None if r[0] is None else (current-r[0]-duration)/1000
-            feeds.append(dict(tf=tf,rows=r[1],last_start_ms=r[0],age_seconds=age,state="MISSING" if age is None else "FRESH" if age <= (5 if tf=="1s" else 15) else "STALE"))
+            feeds.append(dict(tf=tf,rows=r[1],last_start_ms=r[0],age_seconds=age,state="MISSING" if age is None else "FRESH" if 0 <= age <= 75 else "STALE"))
         orders = []
         for r in c.execute("SELECT * FROM orders ORDER BY updated_ms DESC LIMIT 200"):
             o = json.loads(r["order_json"])
@@ -813,6 +728,8 @@ def status():
     if not orders: blockers.append("no_broker_confirmed_V3_positions")
     blockers += [f["tf"]+":"+f["state"] for f in feeds if f["state"] != "FRESH"]
     return dict(policy=policy.POLICY,mode=mode(),contract=contract() or None,route_id=route(),
+                market_data_mode="M1_ONLY",one_second_enabled=False,
+                management_timing="Completed M1 candles; fill minute excluded from runner touches. Broker fills determine actual closure.",
                 broker_account=builder_broker_sync.state(),
                 order_transport=builder_crosstrade.status(),
                 account_label=os.environ.get("ACCOUNT_LABEL","account"),blockers=blockers,
@@ -914,7 +831,7 @@ def exit_status():
 
 
 def _tick():
-    # A 1s batch arriving during Boundary inference must not be dropped.
+    # An M1 batch arriving during Boundary inference must not be dropped.
     _TICK_PENDING.set()
     if not _LOCK.acquire(blocking=False): return
     try:
@@ -999,4 +916,5 @@ def register(app, m1_callback=None, route_callback=None):
     app.add_url_rule("/ab/v3/data","ab_v3_data",data)
     app.add_url_rule("/ab/v3/feed","ab_v3_feed",feed,methods=["POST"])
     app.add_url_rule("/ab/v3/broker","ab_v3_broker",broker,methods=["POST"])
+
 

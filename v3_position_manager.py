@@ -103,7 +103,13 @@ def hydrate(order):
 def on_m1(bar):
     api=live()
     if api.mode() not in ('SHADOW','LIVE') or os.environ.get('AB_V3_DETECTOR_CONTRACT_VERIFIED')!='1': return
-    api.ingest(dict(contract=api.contract(),tf='M1',bars=[bar]),notify_m1=False)
+    # /bars already treats timestamps without an offset as UTC. Keep that
+    # established intake convention while retaining strict timezone checks on
+    # the public V3 feed. Never shift the candle's opening time.
+    stamp=pd.Timestamp(bar['ts_event'])
+    if stamp.tzinfo is None: stamp=stamp.tz_localize('UTC')
+    completed=dict(bar,ts_event=stamp.isoformat(),volume=bar.get('volume',0))
+    api.ingest(dict(contract=api.contract(),tf='M1',bars=[completed]),notify_m1=False)
     threading.Thread(target=api._tick,daemon=True).start()
 
 
@@ -129,15 +135,15 @@ def _request(c,oid,manager,reason,event_ms,price,at):
 
 
 def _touches(c,order,position,at):
-    """First completed 1s observations after assumed/confirmed fill, not entry expiry."""
-    api=live();start=(int(position['fill_ms'])+999)//1000*1000
-    seconds=api.frame(c,'1s',order['contract'],start,at//1000*1000)
+    """Completed full M1 ranges; timestamps mean evidence at candle close."""
+    api=live();start=int(position['fill_ms'])//60000*60000+60000
+    minutes=api.frame(c,'M1',order['contract'],start,at//60000*60000)
     z=1 if order['direction']=='LONG' else -1
     out={}
     for name,level,favourable in [('SL',order['stop_price'],False),('2R',order['baseline_target_price'],True),('3R',order['target_price'],True)]:
         col=('high' if z==1 else 'low') if favourable else ('low' if z==1 else 'high')
-        hit=seconds[z*(seconds[col]-level)>=0] if favourable else seconds[z*(seconds[col]-level)<=0]
-        if len(hit): out[name]=int(hit.index[0].value//1000000)+1000
+        hit=minutes[z*(minutes[col]-level)>=0] if favourable else minutes[z*(minutes[col]-level)<=0]
+        if len(hit):out[name]=int(hit.index[0].value//1000000)+60000
     return out
 
 
@@ -177,26 +183,20 @@ def _monitor_one(row):
             current=dict(known_ms=known,classification='NO_BOUNDARY_YET',win_score=None,loss_score=None,
                          boundary_score=None,error=error or 'boundary_no_state')
             scores.append(current)
-        if not existing and (first2 is None or known <= (first2-1000)//60000*60000):
+        if not existing and (first2 is None or known <= first2-60000):
             try:
                 frozen_state=frozen.evaluate(order,position,minutes,known,M3)
                 decision=boundary.manager(current,frozen_state)
             except ValueError as exc:error=str(exc)
     runner_result=None
     if first2 and not existing and order.get('runner_enabled'):
-        touchbar=(first2-1000)//60000*60000
+        touchbar=first2-60000
         pre=minutes[minutes.index<pd.Timestamp(touchbar,unit='ms',tz='UTC')] if not minutes.empty else minutes
         try:
-            with api.connect() as seconds_db:
-                first_second=max(touchbar,(int(position['fill_ms'])+999)//1000*1000)
-                seconds=api.frame(seconds_db,'1s',order['contract'],first_second,first2)
-                expected=pd.date_range(pd.Timestamp(first_second,unit='ms',tz='UTC'),
-                                       pd.Timestamp(first2-1000,unit='ms',tz='UTC'),freq='s')
-                if not seconds.index.equals(expected): raise ValueError('runner_touch_seconds_gap')
             runner_result=runner.decide(order,position,pre,touchbar)
         except (ValueError,KeyError,TypeError,OSError) as exc:
             runner_result=dict(selected=False,probability=None,threshold=.75,error=str(exc))
-        runner_result.update(touch_ms=first2,touch_bar_ms=touchbar,decision_kind='HOLD_3R' if runner_result['selected'] else 'EXIT_2R')
+        runner_result.update(touch_ms=first2,touch_bar_ms=touchbar,touch_basis='COMPLETED_M1',decision_kind='HOLD_3R' if runner_result['selected'] else 'EXIT_2R')
     at=api.now_ms()
     with api.connect() as c:
         c.execute('BEGIN IMMEDIATE')
@@ -224,6 +224,9 @@ def _monitor_one(row):
         if touches.get('SL'): terminal=('SL',touches['SL'])
         if touches.get('3R') and (terminal is None or touches['3R']<terminal[1]): terminal=('TARGET',touches['3R'])
         if terminal:
+            if position.get('assumed') and touches.get('SL')==touches.get('3R'):
+                api._exit_transition(c,oid,'EXIT_BLOCKED',at,'m1_bracket_order_ambiguous_wait_broker')
+                return
             if position.get('assumed'):
                 _close(c,oid,terminal[1],'ASSUMED_BRACKET_'+terminal[0])
             else:
@@ -238,7 +241,7 @@ def _monitor_one(row):
             c.execute('INSERT OR IGNORE INTO runner_decisions VALUES(?,?,?,?,?,?)',
                       (oid,first2,runner_result['touch_bar_ms'],int(runner_result['selected']),api.dump(runner_result),at))
             if not runner_result['selected']:
-                if 0<=at-first2<=75000 and fresh_data:
+                if 0<=at-first2<=15000 and fresh_data:
                     _request(c,oid,'RUNNER','RUNNER_2R_DATA_FALLBACK' if runner_result.get('error') else 'RUNNER_2R_EXIT',first2,order['baseline_target_price'],at)
                 else: api._exit_transition(c,oid,'EXIT_BLOCKED',at,'runner_stale_touch')
 
@@ -323,3 +326,4 @@ def _native_exit(aid,oid,payload):
         row=c.execute('SELECT state FROM orders WHERE order_id=?',(oid,)).fetchone()
         if row and row[0] not in TERMINAL:
             api._exit_transition(c,oid,'EXIT_ACKNOWLEDGED' if error is None else 'EXIT_BLOCKED',at,error)
+

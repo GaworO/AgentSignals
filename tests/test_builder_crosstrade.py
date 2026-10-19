@@ -304,14 +304,14 @@ class NativeTests(unittest.TestCase):
         self.assertAlmostEqual(self.t.resolution('order-one')['net'],net)
         self.assertNotIn('MNQ1!',native.contract_aliases('MNQZ2026'))
 
-    def test_native_routing_does_not_bypass_the_one_second_feed_gate(self):
+    def test_native_routing_requires_fresh_completed_m1(self):
         namespace=dict(os=os,json=json,mode=lambda:'LIVE',exit_blockers=lambda:[],
             frozen_parity_ok=lambda:True,builder_broker_sync=self.sync,
             now_ms=lambda:int(self.now*1000),connect=self.api.connect,contract=self.api.contract,route=self.api.route)
-        functions(ROOT/'ab_v3_live.py',{'prepared_entry_blocker'},namespace)
+        functions(ROOT/'ab_v3_live.py',{'prepared_entry_blocker','m1_fresh'},namespace)
         signal=dict(_v3_directional=True,_continuation_order_id='order-one',
             entry=30000.,SL=29990.,TP=30030.,dir='LONG')
-        self.assertEqual(namespace['prepared_entry_blocker'](signal),'v3:1s_feed_not_fresh')
+        self.assertEqual(namespace['prepared_entry_blocker'](signal),'v3:m1_feed_not_fresh')
         self.assertEqual(self.posts,[])
 
     def test_changed_price_or_quantity_is_rejected_before_any_post(self):
@@ -325,3 +325,4 @@ class NativeTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
