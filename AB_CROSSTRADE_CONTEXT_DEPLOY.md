@@ -23,7 +23,7 @@ AB_AI_MAX_CALLS_PER_DAY=12
 AB_AI_INTERVAL_MINUTES=60
 ```
 
-Keep the existing verified Builder broker credentials and dated contract. The A/B route requires zero PRICE_OFFSET and ENTRY_OFFSET_PTS and the existing $2 MNQ multiplier / 0.25 tick. Its per-trade budget is bounded by the configured RISK_PCT and $250 Builder ceiling, with one native bracket and existing sizing costs. Shallow configuration is not used to create sibling orders in AB_ONLY. Do not enable partials, adopt an existing foreign position, or treat demo account metadata as proof of an account's financial terms.
+Keep the existing verified Builder broker credentials and dated contract. The A/B route requires zero PRICE_OFFSET and the existing $2 MNQ multiplier / 0.25 tick. Preserve the existing ENTRY_OFFSET_PTS=1: the detector pipeline applies it before alerts, Guard and the native adapter, which retains those exact tick-rounded signal levels. Its per-trade budget is bounded by the configured RISK_PCT and $250 Builder ceiling, with one native bracket and existing sizing costs. Shallow configuration is not used to create sibling orders in AB_ONLY. Do not enable partials, adopt an existing foreign position, or treat demo account metadata as proof of an account's financial terms.
 
 Use Railway reference variables (never paste credentials into source):
 

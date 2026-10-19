@@ -33,6 +33,8 @@ class RoutingTests(unittest.TestCase):
             self.assertIsNotNone(policy.entry_blocker(dict(base,model='A/B Directional')))
             self.assertIsNotNone(policy.entry_blocker(dict(base,_v3_directional=True)))
             self.assertEqual(policy.status()['entry_variant'],'CANONICAL_AB_NATIVE_BRACKET')
+            with patch.dict(os.environ, ENTRY_OFFSET_PTS='1'):
+                self.assertIsNone(policy.entry_blocker(base))
             for key,value in [('AB_ENTRY_ARMED','0'),('AB_V3_MODE','LIVE'),('BUILDER_ORDER_PROVIDER','traderspost'),('EXEC_FX','1'),('PRICE_OFFSET','1')]:
                 with patch.dict(os.environ,{key:value}):self.assertIsNotNone(policy.entry_blocker(base))
 
@@ -93,7 +95,7 @@ class RoutingTests(unittest.TestCase):
                 guardrails=types.SimpleNamespace(_exec_route_id=lambda:'test-route'),
                 _entry_cancel_after_sec=lambda:600,_signal_reject_after_sec=lambda:60)
             functions(ROOT/'agent.py',{'_exec_order'},namespace)
-            with patch.dict(os.environ,dict(ab_env(),EXEC_WEBHOOK='',SESSION_SIZE_MULT='')):
+            with patch.dict(os.environ,dict(ab_env(),EXEC_WEBHOOK='',SESSION_SIZE_MULT='',ENTRY_OFFSET_PTS='1')):
                 signal=dict(_strat='A/B',dir='LONG',entry=30000.03,SL=29990.07,TP=30030.13,
                             bos_ms=int(fixture.now*1000)-60000,_exec_qty_override=2)
                 ab.configure_signal(signal)

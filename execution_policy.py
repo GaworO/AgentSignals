@@ -109,7 +109,9 @@ def ab_entry_blocker(signal):
         if (signal['dir'] not in ('LONG', 'SHORT') or z*(e-sl) <= 0 or z*(tp-e) <= 0
                 or any(not math.isfinite(v) or v <= 0 for v in (e, sl, tp))):
             return 'ab_invalid_bracket'
-        if (float(os.environ.get('PRICE_OFFSET','0')) != 0 or float(os.environ.get('ENTRY_OFFSET_PTS','0')) != 0
+        # ENTRY_OFFSET_PTS is already applied to the canonical signal before
+        # alerts, Guard and this adapter; preserve that existing strategy input.
+        if (float(os.environ.get('PRICE_OFFSET','0')) != 0
                 or float(os.environ.get('POINT_VALUE','2')) != 2 or float(os.environ.get('EXEC_TICK','0.25')) != .25):
             return 'ab_execution_geometry_config_mismatch'
     except (ValueError, KeyError, TypeError, OverflowError):
