@@ -58,6 +58,7 @@ Hardening (2026-07-19 review):
 """
 import os, json, time, datetime as dt, hashlib, threading, sqlite3, math, tempfile
 import portfolio_guard
+import builder_broker_sync
 import trade_classification
 import execution_policy
 try:
@@ -361,7 +362,7 @@ def _state():
         except Exception:
             pass
     if s.get('equity') is None: s['equity'] = _envf('START_EQUITY', 99887.0)
-    return s
+    return builder_broker_sync.overlay_equity(s)
 def _set_state(s): _save(GSTATE, s)
 
 
@@ -836,6 +837,8 @@ def _modeled_equity(s=None, d=None):
     """
     s = s or _state()
     d = d or _day_stats()
+    if builder_broker_sync.instance().enabled and s.get('equity_source') == 'crosstrade':
+        return float(s['equity'])  # Broker cash/equity already includes actual account P&L.
     base = float(s.get('equity', _envf('START_EQUITY', 99887.0)))
     sync_day = str(s.get('equity_sync_day') or '')
     if sync_day and sync_day == _today():
@@ -1389,6 +1392,8 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
         s = _state()
         if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
+        broker_reason = builder_broker_sync.entry_blocker()
+        if broker_reason: return (False, broker_reason)
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
         if _env('NEWS_GUARD', '1') == '1':
@@ -1708,6 +1713,12 @@ def health(feed_age_min=None, market_open=None):
         add('account', 'ok' if profile.get('config_ok') else ('critical' if mode == 'auto' else 'warn'),
             ('%s configuration matches the selected profile' % profile.get('label')
              if profile.get('config_ok') else '; '.join(profile.get('config_warnings') or [])))
+        broker = builder_broker_sync.state()
+        if broker.get('enabled'):
+            add('broker_account', 'ok' if broker.get('current') else 'critical',
+                ('CrossTrade current: %s positions, %s working orders' %
+                 (broker.get('open_positions'), broker.get('working_orders')))
+                if broker.get('current') else 'CrossTrade unavailable/stale; entries blocked')
         try:
             sm0 = _shadow_by_key()
             rows0 = [_actualize(g, sm0.get(g.get('key'), {})) for g in _load(GLOG, [])]
@@ -1911,6 +1922,7 @@ def register(app):
                        loss_streak=loss_streak,
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        equity_synced=round(float(s.get('equity') or 0), 2),
+                       broker_account=builder_broker_sync.state(),
                        equity_sync_day=s.get('equity_sync_day', ''),
                        equity_day_net_at_sync=round(float(s.get('equity_day_net_at_sync') or 0), 2),
                        kill_until_ms=int(s.get('kill_until_ms') or 0),

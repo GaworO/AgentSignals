@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import sqlite3
 import threading
+import builder_broker_sync
 import time
 
 import pandas as pd
@@ -446,6 +447,8 @@ def prepared_entry_blocker(signal):
     blockers=exit_blockers()
     if blockers: return 'v3:'+blockers[0]
     if not frozen_parity_ok(): return 'v3:historical_parity_failed'
+    broker_reason=builder_broker_sync.entry_blocker(refresh=True)
+    if broker_reason: return broker_reason
     oid=signal['_continuation_order_id'];current=now_ms()
     with connect() as c:
         row=c.execute("SELECT * FROM orders WHERE order_id=?",(oid,)).fetchone()
@@ -802,6 +805,7 @@ def status():
     if not orders: blockers.append("no_broker_confirmed_V3_positions")
     blockers += [f["tf"]+":"+f["state"] for f in feeds if f["state"] != "FRESH"]
     return dict(policy=policy.POLICY,mode=mode(),contract=contract() or None,route_id=route(),
+                broker_account=builder_broker_sync.state(),
                 account_label=os.environ.get("ACCOUNT_LABEL","account"),blockers=blockers,
                 feeds=feeds,orders=orders,actions=actions,decisions=logs,
                 exits=exit_status(),
@@ -937,6 +941,7 @@ def register(app, m1_callback=None, route_callback=None):
     from flask import Response, jsonify, request
     global _M1_CALLBACK, _ROUTE_CALLBACK
     _M1_CALLBACK, _ROUTE_CALLBACK = m1_callback, route_callback
+    builder_broker_sync.start()
 
     def authenticated(variable, header, body, allow_body=False):
         wanted = os.environ.get(variable, "")
