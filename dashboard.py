@@ -257,7 +257,7 @@ buildNav(); window.addEventListener('hashchange',render); render();
       '<div class=kv><span>Eval &rarr; $'+Number(e.target||0).toLocaleString()+'</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
       '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
       '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
-      '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
+      '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).status==='unverified'?'unverified':(d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
     checkRoutes();
   }).catch(function(){});}
   function accountCard(el,d,fallback){
@@ -271,7 +271,7 @@ buildNav(); window.addEventListener('hashchange',render); render();
       '<div class=kv><span>Eval &rarr; $'+Number(e.target||0).toLocaleString()+'</span><b>'+(e.pct||0)+'% &middot; '+st+'</b></div>'+
       '<div class=kv><span>P&amp;L</span><b>'+((e.pnl||0)>=0?'+$':'-$')+Math.abs(e.pnl||0).toLocaleString()+'</b></div>'+
       '<div class=kv><span>Today</span><b>'+(d.trades||0)+'/'+(d.max_trades||3)+' &middot; '+(d.losses||0)+'L</b></div>'+
-      '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
+      '<div class=kv><span>Inactivity</span><b>'+((d.inactivity||{}).status==='unverified'?'unverified':(d.inactivity||{}).enabled?(((d.inactivity||{}).days_left==null?'?':(d.inactivity||{}).days_left)+'d left'):'off')+'</b></div>';
   }
   function loadBuilder(){var bc=document.getElementById('buildercard');if(!bc)return;
     if(!BUILDER50){bc.innerHTML='<div class=ah><span class=dot style="background:#828a99"></span>Builder 50K<span class=mode style="background:#82879922;color:#a8afc0">SETUP</span></div><div class=kv><span>Separate service</span><b>set BUILDER50_URL</b></div>';return;}

@@ -14,6 +14,7 @@ async function load(){try{const r=await fetch('/ab/ai-context',{cache:'no-store'
 document.getElementById('schedule').textContent=(d.schedule?.windows||[]).map(w=>`${w.name} ${w.start}–${w.end}`).join(' · ')+' · czas Nowego Jorku. Poza sesjami AI nie wysyła zapytań.';
 const e=d.execution||{};const armed=e.policy==='AB_ONLY'&&e.entry_armed&&e.mode==='auto'&&e.auto_submit&&e.provider==='crosstrade';
 document.getElementById('execution').textContent=armed?'Wysyłanie zleceń A/B włączone; każde wejście nadal przechodzi kontrole Guard.':'Wysyłanie zleceń A/B wyłączone. Trasa CrossTrade przygotowana; wymagane ręczne włączenie handlu. Directional pozostaje shadow.';
+if(e.activity_status==='unverified')document.getElementById('execution').textContent+=' Historia lokalna nie wystarcza do oceny nieaktywności konta; nie oznacza to przekroczenia terminu.';
 if(e.activity_status==='due')document.getElementById('execution').textContent+=' Guard zgłasza przekroczenie terminu nieaktywności. Sprawdź status konta u dostawcy przed włączeniem handlu; licznik Guard nie potwierdza statusu konta.';
 document.getElementById('status').textContent=`${d.status} · Wywołania A/B dziś: ${d.calls_today||0} / ${d.daily_cap||12} · Wcześniej wykorzystane przez Tanję: ${d.source_calls_today??'sprawdzanie'} · Pozostało: ${d.remaining_calls??'sprawdzanie'} · Odświeżanie kontekstu: ${d.interval_minutes||60} min`;
 const review=(d.reviews||[]).find(x=>x.status==='validated');const v=review?.decision;

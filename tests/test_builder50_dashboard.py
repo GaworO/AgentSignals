@@ -251,6 +251,21 @@ class Builder50DashboardTests(unittest.TestCase):
         self.assertEqual(status['days_left'], 3)
         self.assertEqual(status['source'], 'broker')
 
+    def test_native_ab_does_not_infer_inactivity_from_model_or_partial_history(self):
+        now = dt.datetime(2026, 10, 19, 16, 0, tzinfo=dt.timezone.utc)
+        old = dict(decision='sent', date='2026-09-28', outcome='win')
+        with mock.patch.dict(os.environ, dict(BUILDER_ENV, EXEC_STRATEGY_POLICY='AB_ONLY'), clear=False):
+            for rows in ([old], [dict(old, reconciled=True)], []):
+                status = guardrails.inactivity_status(rows, now=now)
+                self.assertEqual(status['status'], 'unverified')
+                self.assertIsNone(status['deadline'])
+                self.assertIsNone(status['days_without_trade'])
+            recent = dict(old, date='2026-10-18', broker_reconciled=True, outcome_source='crosstrade_owned_fills')
+            status = guardrails.inactivity_status([old, recent], now=now)
+            self.assertEqual(status['status'], 'ok')
+            self.assertEqual(status['last_trade_date'], '2026-10-18')
+            self.assertEqual(status['source'], 'broker')
+
     def test_trade_summary_deduplicates_ab_siblings_as_one_setup(self):
         rows = [
             {'decision': 'sent', 'setup_group_id': 'g1', 'key': 'deep',

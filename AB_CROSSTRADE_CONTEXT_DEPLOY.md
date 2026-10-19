@@ -61,6 +61,10 @@ The running Tanja 3.6.10 package is newer than `services/tanja` on the repositor
 
 A/B order submission is currently disabled. Only the account operator performs the final activation. In the Builder 50K Railway service, the relevant switches are `AB_ENTRY_ARMED=1`, `AUTO_SUBMIT=1`, and `EXEC_MODE=auto`; the persisted Guard mode must also be `auto`. Keep `EXEC_STRATEGY_POLICY=AB_ONLY`, Directional shadow and Tanja execution disabled. The AI panel reports the actual execution switches separately from advisory recommendations.
 
-The October 19 runtime check reported `activity_status=due`. This is the Guard activity tracker, not confirmation of the broker account's eligibility. Verify the account status with the provider before activation. No test order or actual A/B broker round trip has been performed.
+The original October 19 activity warning came from a September 28 modeled trade. AB_ONLY now excludes modeled outcomes and reports incomplete broker history as unverified, never as proof of account inactivity. No test order or actual A/B broker round trip has been performed.
 
 The main Trading desk received only the dashboard menu update on its verified `df9172f` runtime base; it links to the Builder's existing AI endpoint and starts no additional AI worker.
+
+## Persistent deployment source
+
+Builder must track `GaworO/AgentSignals` branch `codex/ab-crosstrade-context-20261019` until the reviewed change is merged and the source is deliberately migrated. A CLI upload alone does not change Railway’s connected GitHub branch: changing variables previously rebuilt old `main`, which rejected `AB_ONLY` and removed the AI endpoint. Pin the service source and use `/ab/ai-context` as deployment health check so an older image missing the route cannot replace it. Verify the effective source branch, commit, policy and endpoint after deployment.

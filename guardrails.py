@@ -1150,8 +1150,8 @@ def inactivity_status(rows=None, now=None):
     """Conservative 7-calendar-day activity tracker based on confirmed fills.
 
     A submitted resting order is not counted as a trade.  Broker-reconciled rows
-    are preferred; otherwise a resolved shadow fill is labelled as model-confirmed.
-    ACCOUNT_STARTED_ON supplies the anchor before the first confirmed fill.
+    are preferred on legacy routes. AB_ONLY uses broker-confirmed outcomes and
+    never treats incomplete local history as proof of account inactivity.
     """
     profile = account_profile()
     limit = max(0, _envi('INACTIVITY_DAYS', profile['rules'].get('inactivity_days') or 0))
@@ -1164,6 +1164,12 @@ def inactivity_status(rows=None, now=None):
     rows = list(rows or [])
     confirmed = [r for r in rows if r.get('decision') == 'sent'
                  and r.get('outcome') in ('win', 'loss', 'timeout')]
+    native_ab = execution_policy.mode() == 'AB_ONLY'
+    if native_ab:
+        # A shadow/model outcome is not account activity. This local ledger
+        # also cannot prove the absence of trades made elsewhere on the account.
+        confirmed = [r for r in confirmed if r.get('reconciled') or
+                     (r.get('broker_reconciled') and r.get('outcome_source') == 'crosstrade_owned_fills')]
     dated = []
     for row in confirmed:
         raw = str(row.get('date') or str(row.get('et') or '')[:10])
@@ -1171,8 +1177,13 @@ def inactivity_status(rows=None, now=None):
         except Exception: pass
     if dated:
         anchor, last = max(dated, key=lambda item: item[0])
-        source = 'broker' if last.get('reconciled') else 'model-confirmed fill'
+        source = 'broker' if native_ab or last.get('reconciled') else 'model-confirmed fill'
     else:
+        if native_ab:
+            return dict(enabled=True, status='unverified', limit_days=limit,
+                        days_without_trade=None, days_left=None, last_trade_date=None,
+                        deadline=None, source='incomplete_broker_history',
+                        message='Brak pełnej historii aktywności brokerskiej. Lokalny dziennik nie potwierdza przekroczenia terminu.')
         raw = _env('ACCOUNT_STARTED_ON', '').strip()
         try: anchor = dt.date.fromisoformat(raw); last = None; source = 'account start'
         except Exception:
@@ -1183,6 +1194,11 @@ def inactivity_status(rows=None, now=None):
     days = max(0, (today - anchor).days)
     left = max(0, limit - days)
     deadline = anchor + dt.timedelta(days=limit)
+    if native_ab and days >= limit:
+        return dict(enabled=True, status='unverified', limit_days=limit,
+                    days_without_trade=None, days_left=None, last_trade_date=anchor.isoformat(),
+                    deadline=None, source='incomplete_broker_history',
+                    message='Ostatnie lokalne wykonanie jest starsze niż limit; niepełna historia nie potwierdza nieaktywności konta.')
     status = 'due' if days >= limit else ('critical' if days >= limit - 1
                                           else ('warn' if days >= limit - 2 else 'ok'))
     msg = ('activity deadline reached — verify the MFF account now' if status == 'due'
@@ -1743,7 +1759,7 @@ def health(feed_age_min=None, market_open=None):
             rows0 = [_actualize(g, sm0.get(g.get('key'), {})) for g in _load(GLOG, [])]
             ia = inactivity_status(rows0)
             if ia.get('enabled'):
-                lvl = 'warn' if ia.get('status') in ('critical', 'due', 'unknown') else 'ok'
+                lvl = 'info' if ia.get('status') == 'unverified' else 'warn' if ia.get('status') in ('critical', 'due', 'unknown') else 'ok'
                 add('inactivity', lvl, ia.get('message') or ia.get('status'))
             ls = _loss_streak_stats(rows0)
             if ls.get('limit'):
