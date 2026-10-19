@@ -109,6 +109,9 @@ class Transport:
                 CREATE TABLE IF NOT EXISTS native_audit(
                     id INTEGER PRIMARY KEY,binding TEXT,order_id TEXT,at_ms INTEGER,
                     kind TEXT,payload_json TEXT);
+                CREATE TABLE IF NOT EXISTS native_lifecycles(
+                    binding TEXT,broker_id INTEGER,observed_ms INTEGER,payload_json TEXT,
+                    PRIMARY KEY(binding,broker_id));
                 CREATE TABLE IF NOT EXISTS native_exit_requests(
                     binding TEXT,order_id TEXT,reason TEXT,created_ms INTEGER,
                     PRIMARY KEY(binding,order_id));
@@ -117,7 +120,7 @@ class Transport:
     def _request(self, method, path, body=None):
         allowed_read = (path == '/orders' or path.startswith('/fills/history?') or
                         path.startswith('/contracts/find?') or
-                        re.fullmatch(re.escape(self.prefix)+r'/orders/[1-9][0-9]*/lifecycle',path))
+                        re.fullmatch(re.escape(self.prefix)+r'/orders/[1-9][0-9]*(?:/lifecycle)?',path))
         allowed_write = (path == self.prefix+'/orders/place' or path == self.prefix+'/positions/close'
                          or re.fullmatch(re.escape(self.prefix)+r'/orders/[1-9][0-9]*/cancel',path))
         if not ((method=='GET' and allowed_read) or (method=='POST' and allowed_write)):
@@ -127,7 +130,7 @@ class Transport:
             data=None if body is None else encode(body).encode(),
             headers={'Authorization':'Bearer '+self.sync.token,'Accept':'application/json','Content-Type':'application/json'})
         try:
-            with build_opener(account_sync.NoRedirect()).open(request,timeout=10) as response:
+            with build_opener(account_sync.NoRedirect()).open(request,timeout=20 if method=='GET' else 10) as response:
                 raw=response.read(8_000_001)
                 if len(raw)>8_000_000:raise TransportError('BROKER_RESPONSE_TOO_LARGE')
                 result=json.loads(raw)
@@ -233,6 +236,16 @@ class Transport:
 
     def lifecycle(self,oid):
         if not numeric(oid):raise TransportError('NUMERIC_BROKER_ORDER_ID_REQUIRED')
+        self.resolve_contract()
+        with self.api.connect() as c:
+            cached=c.execute('SELECT payload_json FROM native_lifecycles WHERE binding=? AND broker_id=?',(self.binding,oid)).fetchone()
+        if cached:
+            prior=json.loads(cached[0]);current=self.read(self.prefix+'/orders/'+str(oid))
+            keys=('id','accountId','contractId','action','ordStatus','parentId','ocoId','linkedId')
+            if isinstance(current,dict) and current.get('contractId')==self.contract_id and all(current.get(k)==prior['order'].get(k) for k in keys):
+                return prior
+            with self.api.connect() as c:
+                c.execute('DELETE FROM native_lifecycles WHERE binding=? AND broker_id=?',(self.binding,oid))
         data=self.read(self.prefix+'/orders/'+str(oid)+'/lifecycle')
         if (not isinstance(data,dict) or any(not isinstance(data.get(k),dict) for k in ('order','version'))
                 or any(not isinstance(data.get(k),list) for k in ('commands','reports'))):
@@ -244,6 +257,10 @@ class Transport:
         if (any(not isinstance(c,dict) for c in data['commands']) or any(not isinstance(r,dict) for r in data['reports'])
                 or any(c.get('commandType') not in ('New','Cancel','Modify') for c in data['commands'])):
             raise TransportError('INVALID_NATIVE_COMMAND_TRAIL')
+        if order.get('ordStatus') in TERMINAL:
+            with self.api.connect() as c:
+                c.execute('INSERT OR REPLACE INTO native_lifecycles VALUES(?,?,?,?)',
+                          (self.binding,oid,int(self.clock()*1000),encode(data)))
         return data
 
     def recover_receipt(self,row):
@@ -263,7 +280,9 @@ class Transport:
             if any(c.get('commandType')=='New' and c.get('clOrdId')==row['client_id'] for c in life['commands']):
                 matches.append(order)
         if len(matches)!=1:raise TransportError('UNKNOWN_SUBMISSION_REQUIRES_EXACT_CLIENT_ID')
-        entry=matches[0];children=[r for r in candidates if r.get('parentId')==entry['id']]
+        entry=matches[0];anchors=[r for r in candidates if r.get('parentId')==entry['id']]
+        anchor_ids={r['id'] for r in anchors};peer_ids={r.get('ocoId') for r in anchors}
+        children=[r for r in candidates if r['id'] in anchor_ids or r['id'] in peer_ids or r.get('ocoId') in anchor_ids or (numeric(r.get('ocoId')) and r.get('ocoId') in peer_ids)]
         legs={}
         for child in children:
             life=self.lifecycle(child['id']);kind=str(life['version'].get('orderType','')).lower()
@@ -307,10 +326,12 @@ class Transport:
                 and str(entry['version'].get('orderType','')).lower()=='limit'
                 and entry['version'].get('price')==order['entry_price'])
         legs=[lives[receipt[k]] for k in ('oso1Id','oso2Id')]
+        parents=[leg['order'].get('parentId') for leg in legs]
+        if receipt['orderId'] not in parents or any(parent not in (None,receipt['orderId']) for parent in parents):
+            raise TransportError('NATIVE_BRACKET_PARENT_CHAIN_MISMATCH')
         bracket_geometry=True
         for life,kind,price in [(legs[0],'limit',order['target_price']),(legs[1],'stop',order['stop_price'])]:
-            if (life['order'].get('parentId')!=receipt['orderId']
-                    or not oco_linked(legs[0]['order'],legs[1]['order'])
+            if (not oco_linked(legs[0]['order'],legs[1]['order'])
                     or str(life['order'].get('action','')).lower() not in ('buy','sell')
                     or str(life['order'].get('action','')).lower()==command['body']['action']):
                 raise TransportError('NATIVE_BRACKET_OWNERSHIP_MISMATCH')
@@ -431,6 +452,12 @@ class Transport:
                     exit_price=float(exit_average),exit_fill_ms=observation['exit_fill_ms'],broker_order_id=str(close_ids[-1]) if close_ids else None,
                     event_id='ct-close-'+row['client_id']+'-'+str(at)))
         self.store_resolution(row,'CLOSED_PENDING_COSTS',observation,receipt)
+
+    def schedule_reconcile(self,snapshot):
+        # Slow broker audit trails must not stall the independent 15s account
+        # reader. The reconciliation lock skips overlapping background passes.
+        threading.Thread(target=self.reconcile,args=(snapshot,),daemon=True,
+                         name='builder-native-reconciliation').start()
 
     def reconcile(self,snapshot):
         if not self.poll_lock.acquire(blocking=False):return
@@ -646,7 +673,7 @@ def configure(api):
         sync=account_sync.instance()
         if not sync.enabled:raise TransportError('BROKER_ACCOUNT_SYNC_REQUIRED')
         _TRANSPORT=Transport(api,sync)
-        sync.after_poll=_TRANSPORT.reconcile
+        sync.after_poll=_TRANSPORT.schedule_reconcile
 
 
 def route_id():
@@ -712,3 +739,4 @@ def request_flatten(reason):
     # A durable intent is not a broker closure. The next complete poll cancels
     # the owned entry, waits for terminal status, then closes owned fills.
     return result.get('ok',False)
+

@@ -63,7 +63,9 @@ class NativeTests(unittest.TestCase):
             if path.startswith('/contracts/find?'):return dict(success=True,data=dict(id=100,name='MNQZ6'))
             if path.startswith('/fills/history?'):return dict(success=True,data=copy.deepcopy(self.history),nextCursor=None)
             if path=='/orders':return dict(success=True,data=[dict(environment='demo',data=[copy.deepcopy(v['order']) for v in self.life.values()])])
-            oid=int(path.split('/')[-2]);return dict(success=True,data=copy.deepcopy(self.life[oid]))
+            if path.endswith('/lifecycle'):
+                oid=int(path.split('/')[-2]);return dict(success=True,data=copy.deepcopy(self.life[oid]))
+            oid=int(path.split('/')[-1]);return dict(success=True,data=copy.deepcopy(self.life[oid]['order']))
         self.posts.append((path,copy.deepcopy(body)))
         if self.timeout:raise TimeoutError('fixture')
         if path.endswith('/orders/place'):
@@ -90,6 +92,9 @@ class NativeTests(unittest.TestCase):
                 **(dict(parentId=11,ocoId=99) if oid!=11 else {})),
                 version=dict(orderId=oid,orderQty=2,orderType=kind,**{('stopPrice' if kind=='Stop' else 'price'):price}),
                 commands=[dict(commandType='New',clOrdId=self.client)] if oid==11 else [],reports=[])
+
+        # Native OSO: only the target has parentId; the stop is linked by OCO.
+        self.life[13]['order'].pop('parentId',None)
 
     def fill(self,identity,oid,qty,price,action,offset=1):
         return dict(id=identity,orderId=oid,accountId=2214,contractId=100,qty=qty,price=price,action=action,
@@ -323,6 +328,27 @@ class NativeTests(unittest.TestCase):
             self.t.submit(payload,'order-one')
         self.assertEqual(self.posts,[])
 
+    def test_oco_stop_without_parent_is_owned_but_foreign_or_missing_anchor_is_rejected(self):
+        self.submit();self.open()
+        self.assertEqual(self.local()['state'],'BROKER_CONFIRMED_OPEN')
+        self.life[12]['order']['parentId']=999
+        self.now+=1
+        with self.assertRaisesRegex(native.TransportError,'PARENT_CHAIN'):
+            self.t.reconcile_one(self.t.row('order-one'),self.snapshot([self.entry],2))
+
+    def test_terminal_lifecycle_cache_verifies_current_raw_order_and_survives_restart(self):
+        self.submit();self.life[11]['order']['ordStatus']='Canceled'
+        requests=[];original=self.request
+        def record(method,path,body=None):
+            requests.append(path);return original(method,path,body)
+        self.t.request=record;self.t.lifecycle(11)
+        self.assertTrue(requests[-1].endswith('/lifecycle'))
+        restarted=native.Transport(self.api,self.sync,request=record,clock=lambda:self.now)
+        restarted.lifecycle(11);self.assertTrue(requests[-1].endswith('/orders/11'))
+        self.life[11]['order']['ordStatus']='Working'
+        restarted.lifecycle(11);self.assertTrue(requests[-1].endswith('/lifecycle'))
+
 
 if __name__=='__main__':unittest.main()
+
 
