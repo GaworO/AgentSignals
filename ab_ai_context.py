@@ -178,6 +178,8 @@ class ContextSupport:
         # Dedicated A/B payload: broad market evidence, no Tanja entry selections.
         selected = dict(owner='A/B', as_of=p['as_of'], evidence=p['evidence'],
                         coverage=p.get('coverage'), market_roles=p.get('market_roles'),
+                        conventions=p.get('conventions'), daily_atr=p.get('daily_atr'),
+                        atr_review_context=p.get('atr_review_context'),
                         missing_context=p.get('missing_context',[]), source_packet_id=p['packet_id'])
         selected['packet_id'] = digest(selected)
         if len(encode(selected).encode()) > 505000:

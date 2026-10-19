@@ -12,6 +12,8 @@ def configure_signal(signal):
     ceiling = 250 if os.environ.get('ACCOUNT_PLAN') in ('builder50', 'rapid_eod50') else 500
     account = float(os.environ.get('ACCOUNT', '50000'))
     requested = account * float(os.environ.get('RISK_PCT', '0.5')) / 100
+    if not math.isfinite(account) or account <= 0 or not math.isfinite(requested):
+        raise ValueError('ab_invalid_risk_budget')
     budget = min(ceiling, requested)
     if not math.isfinite(budget) or budget <= 0:
         raise ValueError('ab_invalid_risk_budget')
