@@ -73,6 +73,7 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 .autocard .fill{height:100%;border-radius:4px}
 .autocard .kv{display:flex;justify-content:space-between;font-size:11px;color:#9aa3b5;margin:2px 0}
 .autocard .kv b{color:#e6e9ef;font-variant-numeric:tabular-nums}
+@media(max-width:700px){.app{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}aside{max-height:30vh;border-bottom:1px solid #1b2230}main{min-height:0}.hrow{flex-wrap:wrap}.hrow .sub{width:100%}body.nomenu .app{grid-template-rows:minmax(0,1fr)}}
 </style></head><body>
 <div class="app">
   <aside>
@@ -95,7 +96,8 @@ ol{line-height:1.7;padding-left:20px} ol li{margin:6px 0} b{color:#fff}
 if(window.self!==window.top){document.documentElement.setAttribute('data-framed','1');}
 function toggleMenu(){document.body.classList.toggle('nomenu');try{localStorage.setItem('deskmenu',document.body.classList.contains('nomenu')?'0':'1');}catch(e){}}
 try{if(localStorage.getItem('deskmenu')==='0')document.body.classList.add('nomenu');}catch(e){}
-var F="__F__", EUR="__EUR__", JPY="__JPY__", ACCOUNT_LABEL="__ACCOUNT_LABEL__", BUILDER50="__BUILDER50__";
+var F="__F__", EUR="__EUR__", JPY="__JPY__", ACCOUNT_LABEL="__ACCOUNT_LABEL__", BUILDER50="__BUILDER50__", AB_NATIVE=__AB_NATIVE__;
+var AI_CONTEXT=(AB_NATIVE?'':BUILDER50)+'/ab/ai-context/view';
 var S='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS={
  pnl:'<svg '+S+'><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
@@ -152,6 +154,7 @@ var FX_NOTE='<h2>Forex - observe only</h2>'+
  '<div class="card mut"><b>Summary = would-be results.</b> Every setup the detector confirms is modeled to its outcome (win +2R / breakeven 0 / loss -1R): <b>n</b> = how many trades would have been taken, <b>total_R</b> = would-be P&L in R (&times; your risk-per-trade = money), <b>exp_R</b> = per-trade edge, <b>win_pct</b> = hit rate. Backtest reference: EUR/USD +0.23R, USD/JPY +0.18R net.</div>'+
  '<div class="card mut"><b>Candidates &amp; setups</b> = the live funnel right now (which levels armed, which displaced, which confirmed). In-sample backtest; live fills are the open question.</div>';
 var STRAT={
+ aicontext:{name:'A/B · AI Context',sub:'NYAM 09:30–11:00 · NYPM 13:30–16:00 · America/New_York',tabs:[['context','AI Context',AI_CONTEXT,'monitor']]},
  abv3:{name:'A/B V3',sub:'Directional LIMIT · fixed 2R · DOL + BSL/SSL + 1s/M1/M5/M15/H1 · broker-confirmed manager',tabs:[['desk','Detector + DOL + manager','/ab/v3','grid'],['candidates','Candidates','/ab/v3?tab=candidates','list'],['exits','Exits','/ab/v3?tab=exits','book'],['builder','50K V3',BUILDER50?BUILDER50+'/ab/v3':{html:'<div class="card mut">50K service URL is not configured.</div>'},'grid'],['builder-candidates','50K Candidates',BUILDER50?BUILDER50+'/ab/v3?tab=candidates':{html:'<div class="card mut">50K service URL is not configured.</div>'},'list'],['builder-exits','50K Exits',BUILDER50?BUILDER50+'/ab/v3?tab=exits':{html:'<div class="card mut">50K service URL is not configured.</div>'},'book']]},
  portfolio:{name:'Portfolio Guard',sub:'Persisted account Guard decisions · factual A/B audit only',
    tabs:[['decisions','100K decisions','/portfolio-guard','grid'],
@@ -169,7 +172,7 @@ var STRAT={
          ['pnl','P&L',BUILDER50?BUILDER50+'/pnl':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'pnl'],
          ['health','Health',BUILDER50?BUILDER50+'/guard/health?format=txt':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'help'],
          ['pine','Pine for trades',BUILDER50?BUILDER50+'/guard/pine':{html:'<div class="card mut">Builder service URL is not configured.</div>'},'file']]},
- ab:{name:'A/B + Shallow',sub:'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['ai','AI Context','/ab/ai-context/view','help'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
+ ab:{name:AB_NATIVE?'A/B · CrossTrade':'A/B + Shallow',sub:AB_NATIVE?'Original A/B · native CrossTrade bracket · execution status in AI Context':'One A/B setup · normal and shallow sibling entries',tabs:[['candidates','Candidates','/ab/candidates','list'],['ai','AI Context',AI_CONTEXT,'monitor'],['trades','Trades','/outcomes','book'],['pine','Pine for TV','/pine','file'],['journal','Journal','/journal','book'],['how','How it works','/how','help'],['settings','Settings',{html:SETTINGS_AB},'cog']]},
  dol:{name:'Draw on Liquidity',sub:'Ranked A/B DOL narrative · diagnostics only · no execution effect',tabs:[['live','Live DOL','/dol','target'],['raw','Raw data','/dol/data','file']]},
  ab15:{name:'A/B + Shallow M15 → M5',sub:'M15 setup · closed-candle M5 BOS · forward shadow only · zero orders',tabs:[['candidates','Candidates','/m15/candidates','list'],['shadow','Shadow trades','/m15/shadow','book'],['examples','Graphical examples','/m15/examples','chart'],['pine','Pine · current shadow','/m15/shadow/pine','file'],['how','Rules & settings','/m15/how','help'],['health','Health','/m15/status','grid']]},
  c:{name:'C',sub:'Staircase displacement → rejection → BOS',tabs:[['dash','Dashboard','/c','grid'],['how','How it works','/c/how','help']]},
@@ -184,10 +187,10 @@ var STRAT={
  fx:{name:'Forex - joined P&L',sub:'EUR/USD + USD/JPY combined · observe only · separate from MNQ',tabs:[['pnl','Joined P&L','/forexpnl','chart'],['eurp','EUR/USD perf',EUR+'/performance','chart'],['jpyp','USD/JPY perf',JPY+'/performance','chart']]},
  fxg:{name:'Forex - Auto-Executor',sub:'EUR/USD + USD/JPY joined guard · each pair has its own counters & kill-latch',tabs:[['joined','Joined','/fxguard','grid'],['eurg','EUR/USD guard',EUR+'/guard','grid'],['jpyg','USD/JPY guard',JPY+'/guard','grid'],['eurh','EUR health',EUR+'/guard/health?format=txt','help'],['jpyh','JPY health',JPY+'/guard/health?format=txt','help']]}
 };
-var NAV=[['General',[['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
+var NAV=[['General',[['aicontext','AI Context · A/B','monitor'],['gen/regime','Regime','regime'],['gen/monitor','Monitor','monitor']]],
          ['Portfolio',[['portfolio','Portfolio Guard','grid']]],
          ['Auto-Executors',[["account100",ACCOUNT_LABEL,'grid'],['builder50','Builder 50K','grid']]],
-         ['Strategies',[['abv3','A/B V3','ab'],['dolrev','DOL Delivery Reversal · LIVE','target'],['continuation','Continuation','target'],['c','C','c'],['acba','A Continuation — Both Aligned','target'],['ab','A/B + Shallow · Legacy benchmark','ab']]],
+         ['Strategies',[['ab',AB_NATIVE?'A/B · CrossTrade':'A/B + Shallow','ab'],['abv3',AB_NATIVE?'A/B Directional · Shadow':'A/B V3','ab'],['dolrev','DOL Delivery Reversal · LIVE','target'],['continuation','Continuation','target'],['c','C','c'],['acba','A Continuation — Both Aligned','target']]],
          ['Context & Management',[['dol','Draw on Liquidity · Diagnostics','target'],['dolrevmgr','DOL Reversal Manager · LIVE','grid'],['dmshadow','Downside Manager Shadow','grid']]],
          ['Archived Research',[['ab15','A/B + Shallow M15→M5 · Shadow','ab'],['f','F','f']]],
          ['Forex (observe)',[['fx','P&L (joined)','pnl'],['fxg','Auto-Executor','grid'],['eur','EUR/USD','chart'],['jpy','USD/JPY','chart']]]];
@@ -458,6 +461,7 @@ def render_home():
     return (PAGE.replace('__F__', _F)
                 .replace('__EUR__', _EUR).replace('__JPY__', _JPY)
                 .replace('__ACCOUNT_LABEL__', _ACCOUNT_LABEL.replace('"', '\\"'))
+                .replace('__AB_NATIVE__', 'true' if os.environ.get('EXEC_STRATEGY_POLICY') == 'AB_ONLY' else 'false')
                 .replace('__BUILDER50__', _BUILDER50.replace('"', '\\"')))
 
 

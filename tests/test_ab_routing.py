@@ -154,7 +154,7 @@ class ContextTests(unittest.TestCase):
     def test_migrated_budget_counts_tanja_calls_and_persists_after_restart(self):
         self.used=11
         self.assertTrue(self.support.process_one())
-        self.now+=3600
+        self.now+=3.5*3600  # Next active session, NYPM.
         restarted=ai.ContextSupport(self.config,reader=self.source,transport=self.transport,clock=lambda:self.now)
         self.assertFalse(restarted.process_one());self.assertEqual(len(self.calls),1)
         self.assertEqual(restarted.status,'DAILY_LIMIT_REACHED')
@@ -207,6 +207,38 @@ class ContextTests(unittest.TestCase):
         for t in threads:t.start()
         for t in threads:t.join()
         self.assertEqual(sorted(answers),[False,True]);self.assertEqual(len(self.calls),1)
+
+    def test_session_boundaries_lunch_and_dst(self):
+        from datetime import datetime
+        for day in ('2026-10-19','2026-11-02'):
+            for hhmm,expected in [('09:29',None),('09:30','NYAM'),('10:59','NYAM'),('11:00',None),
+                                  ('12:30',None),('13:29',None),('13:30','NYPM'),('15:59','NYPM'),('16:00',None),('18:00',None)]:
+                stamp=datetime.fromisoformat(day+'T'+hhmm).replace(tzinfo=ai.NY).timestamp()
+                session=ai.session_at(stamp)
+                self.assertEqual(session['name'] if session else None, expected,(day,hhmm))
+        self.now=datetime.fromisoformat('2026-10-19T12:30').replace(tzinfo=ai.NY).timestamp()
+        self.support.reader=lambda:(_ for _ in ()).throw(AssertionError('source read during lunch'))
+        self.assertFalse(self.support.process_one());self.assertEqual(self.calls,[])
+
+    def test_context_expires_at_session_end_and_afternoon_gets_fresh_review(self):
+        self.now+=30*60  # 10:30 NY.
+        self.assertTrue(self.support.process_one())
+        result=self.support.annotate(dict(dir='LONG'),'morning')
+        self.assertEqual(result['expires_at'],self.now+30*60)
+        self.now+=30*60
+        self.assertFalse(self.support.process_one())
+        self.assertEqual(self.support.annotate(dict(dir='LONG'),'lunch')['state'],'UNAVAILABLE')
+        self.now+=2.5*3600
+        self.assertTrue(self.support.process_one())
+        self.assertEqual(len(self.calls),2)
+        self.assertEqual(self.support.annotate(dict(dir='LONG'),'afternoon')['state'],'ALLOW')
+
+    def test_slow_source_does_not_dispatch_after_session_close(self):
+        self.now+=59*60  # 10:59 NY.
+        def slow_read():
+            result=self.source();self.now+=61;return result
+        self.support.reader=slow_read
+        self.assertFalse(self.support.process_one());self.assertEqual(self.calls,[])
 
 
 if __name__=='__main__':unittest.main()
