@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import threading
 
+import builder_crosstrade
 import pandas as pd
 import v3_boundary as boundary
 import v3_frozen_exit as frozen
@@ -40,6 +41,12 @@ def accept_entry(source,result):
         if row['state'] not in ('PREPARED','WAITING_BROKER_FILL'): return
         order=json.loads(row['order_json']);order['dispatch_reason']=result.get('reason')
         state=str(result.get('state','ERROR'));position=None
+        native = (result.get('broker') or {}).get('provider') == 'crosstrade'
+        if native:
+            order['broker_provider']='crosstrade'
+            order['broker_ids']=(result.get('broker') or {}).get('broker_ids')
+            order['broker_client_id']=(result.get('broker') or {}).get('client_id')
+            if state=='SENT': state='WAITING_BROKER_FILL'
         if state=='SENT':
             qty=result.get('quantity') or order.get('quantity')
             if not isinstance(qty,(int,float)) or not math.isfinite(qty) or int(qty)!=qty or qty<=0:
@@ -55,6 +62,10 @@ def accept_entry(source,result):
         if position:
             c.execute('INSERT OR IGNORE INTO exit_trades(trade_id,exit_mode,status,updated_ms) VALUES(?,?,?,?)',
                       (oid,api.exit_mode(),'OPEN',at))
+    if native and state=='WAITING_BROKER_FILL':
+        # Native entries still need the same pre-entry market warmup for M3.
+        try: hydrate(order)
+        except (OSError,ValueError,KeyError,TypeError): pass
     if position:
         # Warmup is market data only. Accepted trade exists before any slow IO/inference.
         try: hydrate(order)
@@ -233,6 +244,9 @@ def _monitor_one(row):
 
 
 def send_exit(aid,oid,payload):
+    if builder_crosstrade.selected():
+        return _native_exit(aid,oid,payload)
+    if builder_crosstrade.provider() == 'invalid': return
     api=live()
     with api.connect() as c:
         c.execute('BEGIN IMMEDIATE')
@@ -281,3 +295,31 @@ def guard_exit_accepted():
         for row in c.execute("SELECT * FROM orders WHERE state='GUARD_EXIT_PENDING'").fetchall():
             if json.loads(row['position_json'] or '{}').get('assumed'):
                 _close(c,row['order_id'],api.now_ms(),'ASSUMED_GUARD_EXIT_ACCEPTED')
+
+
+
+def _native_exit(aid,oid,payload):
+    # The native journal reserves the mutation durably. Do not hold a second
+    # SQLite write transaction during broker reads, reconciliation or HTTP.
+    api=live()
+    with api.connect() as c:
+        row=c.execute('SELECT state FROM orders WHERE order_id=?',(oid,)).fetchone()
+        action=c.execute('SELECT state FROM actions WHERE action_id=?',(aid,)).fetchone()
+        if not row or row[0]!='EXIT_UNKNOWN' or not action or action[0]!='EXIT_UNKNOWN': return
+    state='EXIT_UNKNOWN';reply=None;error='native_close_not_confirmed_no_retry'
+    try:
+        response=api._send_broker_exit(payload);reply=response.json()
+        if reply.get('success') is True:
+            state='EXIT_PENDING';error=None
+    except Exception: pass
+    at=api.now_ms()
+    broker_id=(reply or {}).get('response',{}).get('orderId')
+    with api.connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        c.execute("UPDATE actions SET state=?,updated_ms=? WHERE action_id=? AND state='EXIT_UNKNOWN'",(state,at,aid))
+        c.execute("UPDATE orders SET state=?,updated_ms=? WHERE order_id=? AND state='EXIT_UNKNOWN'",(state,at,oid))
+        c.execute('UPDATE exit_trades SET broker_order_id=?,broker_response_json=?,broker_ack_time=?,updated_ms=? WHERE trade_id=?',
+                  (str(broker_id) if broker_id else None,api.dump(reply) if reply else None,at if error is None else None,at,oid))
+        row=c.execute('SELECT state FROM orders WHERE order_id=?',(oid,)).fetchone()
+        if row and row[0] not in TERMINAL:
+            api._exit_transition(c,oid,'EXIT_ACKNOWLEDGED' if error is None else 'EXIT_BLOCKED',at,error)

@@ -14,6 +14,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import builder_broker_sync
+import builder_crosstrade
 import time
 
 import pandas as pd
@@ -181,7 +182,10 @@ def setting_blockers():
         offset = float('nan')
     if offset != 0: reasons.append("price_offset_not_supported")
     if not route(): reasons.append("route_unknown")
-    if not os.environ.get("EXEC_WEBHOOK"): reasons.append("exec_webhook_missing")
+    if builder_crosstrade.provider() == "invalid": reasons.append("invalid_order_provider")
+    elif builder_crosstrade.selected():
+        if not builder_crosstrade.status().get("enabled"): reasons.append("native_transport_not_configured")
+    elif not os.environ.get("EXEC_WEBHOOK"): reasons.append("exec_webhook_missing")
     return reasons
 
 
@@ -408,6 +412,8 @@ def entry_blocker(order):
     """Guarded exclusive route; assumed fills do not require broker snapshots."""
     if mode() != "LIVE": return None
     if order.get("strategy") != "AB_DIRECTIONAL": return "v3_exclusive_route_other_strategy"
+    native_reason = builder_crosstrade.entry_blocker()
+    if native_reason: return native_reason
     blockers = setting_blockers()
     if blockers: return "v3:"+blockers[0]
     if os.environ.get("V3_RUNNER_ENABLED","false").strip().lower() not in ("true","false"):
@@ -680,6 +686,8 @@ def signal_runner_exits():
 
 
 def _send_broker_exit(payload):
+    if builder_crosstrade.selected(): return builder_crosstrade.exit_payload(payload)
+    if builder_crosstrade.provider() == "invalid": raise ValueError("invalid_order_provider")
     import requests
     return requests.post(os.environ["EXEC_WEBHOOK"],json=payload,timeout=3)
 
@@ -806,10 +814,11 @@ def status():
     blockers += [f["tf"]+":"+f["state"] for f in feeds if f["state"] != "FRESH"]
     return dict(policy=policy.POLICY,mode=mode(),contract=contract() or None,route_id=route(),
                 broker_account=builder_broker_sync.state(),
+                order_transport=builder_crosstrade.status(),
                 account_label=os.environ.get("ACCOUNT_LABEL","account"),blockers=blockers,
                 feeds=feeds,orders=orders,actions=actions,decisions=logs,
                 exits=exit_status(),
-                execution_note="ASSUMED_OPEN uses accepted entry price/time, not broker fill. Assumed CLOSED has no broker P&L; confirmation remains explicit.")
+                execution_note=("CrossTrade entries wait for owned broker fills; closures and net P&L require reconciliation." if builder_crosstrade.selected() else "ASSUMED_OPEN uses accepted entry price/time, not broker fill. Assumed CLOSED has no broker P&L; confirmation remains explicit."))
 
 
 def _session(ms):
@@ -941,6 +950,8 @@ def register(app, m1_callback=None, route_callback=None):
     from flask import Response, jsonify, request
     global _M1_CALLBACK, _ROUTE_CALLBACK
     _M1_CALLBACK, _ROUTE_CALLBACK = m1_callback, route_callback
+    import sys
+    builder_crosstrade.configure(sys.modules[__name__])
     builder_broker_sync.start()
 
     def authenticated(variable, header, body, allow_body=False):
@@ -988,3 +999,4 @@ def register(app, m1_callback=None, route_callback=None):
     app.add_url_rule("/ab/v3/data","ab_v3_data",data)
     app.add_url_rule("/ab/v3/feed","ab_v3_feed",feed,methods=["POST"])
     app.add_url_rule("/ab/v3/broker","ab_v3_broker",broker,methods=["POST"])
+

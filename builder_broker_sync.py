@@ -165,6 +165,15 @@ class AccountSync:
                 c.execute('INSERT OR REPLACE INTO account_snapshots VALUES(?,?,?)', (self.binding,finished,encode(snapshot)))
                 c.execute('INSERT OR IGNORE INTO account_changes VALUES(?,?,?,?)', (self.binding,fingerprint,finished,encode(values)))
                 c.execute('INSERT OR REPLACE INTO sync_attempts VALUES(?,?,NULL)', (self.binding,finished))
+            # The complete account snapshot is committed before order reconciliation.
+            # A failed order-specific read must not erase a valid account balance.
+            callback = getattr(self, 'after_poll', None)
+            if callback:
+                try:
+                    callback(snapshot)
+                    self.reconciliation_error = None
+                except Exception:
+                    self.reconciliation_error = 'NATIVE_RECONCILIATION_FAILED'
             return True
         except Exception as exc:
             error = str(exc) if isinstance(exc, SyncError) else 'BROKER_SYNC_FAILED'
@@ -201,7 +210,8 @@ class AccountSync:
             working_orders=len(snapshot['orders']) if snapshot else None,
             session_fills=len(snapshot['fills']) if snapshot else None, stored_fills=fills,
             poll_interval_seconds=self.interval,
-            reconciliation='Broker account inventory and equity; order-specific outcomes require exact broker order attribution.')
+            reconciliation_error=getattr(self,'reconciliation_error',None),
+            reconciliation='Broker account inventory and equity; native order IDs reconcile individual outcomes when selected.')
 
     def entry_blocker(self, *, refresh=False):
         if not self.enabled:
@@ -213,7 +223,9 @@ class AccountSync:
             return 'broker:account_snapshot_not_current'
         if state['open_positions'] or state['working_orders']:
             return 'broker:account_has_positions_or_orders'
-        return None
+        import builder_crosstrade
+        if getattr(self,'reconciliation_error',None): return 'broker:native_reconciliation_failed'
+        return builder_crosstrade.entry_blocker()
 
     def start(self):
         if not self.enabled or self.thread is not None:
@@ -262,3 +274,4 @@ def overlay_equity(saved_state):
 
 def start():
     instance().start()
+

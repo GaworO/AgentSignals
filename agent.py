@@ -32,6 +32,7 @@ import dol_reversal_control  # fail-closed activation gate + immutable DOL ident
 import dol_reversal_live  # DOL fixed-bracket entry lifecycle via the account-specific TradersPost webhook
 import continuation_shadow  # independent canonical HTF Continuation Policy-B shadow; broker-inert
 import continuation_live  # opt-in, Guard-routed LONG/SHORT execution adapter
+import builder_crosstrade
 import ab_v3_live  # V3 broker-confirmed monitor; LIVE blocked until integration validated
 import ab_v3_tv
 import execution_policy
@@ -187,8 +188,13 @@ def _exec_order(x, text=None):
         except Exception as _fe:
             print('EXEC_FX import/place err', _fe, flush=True)
             return {"sent": False, "error": str(_fe)}
+    if builder_crosstrade.provider() == 'invalid':
+        return dict(sent=False,status=400,reason='invalid_order_provider',qty=0)
+    native = builder_crosstrade.selected()
+    if native and (not x.get('_v3_directional') or not x.get('_continuation_order_id') or x.get('_test_signal')):
+        return dict(sent=False,status=400,reason='native_route_requires_prepared_v3_entry',qty=0)
     url = os.environ.get('EXEC_WEBHOOK', '')
-    if not url or requests is None: return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
+    if not native and (not url or requests is None): return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
     try:
         off = float(os.environ.get('PRICE_OFFSET', '0'))
         bull = x['dir'] == 'LONG'; e = float(x['entry']); sl = float(x['SL']); R = abs(e - sl)
@@ -335,6 +341,13 @@ def _exec_order(x, text=None):
                     "routeId": guardrails._exec_route_id(),
                 })
             if text and _i == 0: payload["text"] = text
+            if native:
+                if len(legs) != 1:
+                    return dict(sent=False,status=400,reason='native_split_entry_not_supported',qty=0)
+                try:
+                    return builder_crosstrade.submit(payload,x['_continuation_order_id'])
+                except builder_crosstrade.TransportError as exc:
+                    return dict(sent=False,status=400,reason=str(exc),qty=qty,provider='crosstrade')
             try:
                 r = requests.post(url, json=payload, timeout=10)
                 st = getattr(r, 'status_code', None)
@@ -901,8 +914,15 @@ def _dispatch_continuation_live(order):
     unknown = result.get('submission_unknown') or result.get('accepted_any') or result.get('status') is None
     if unknown:
         guardrails.touch_sibling_batch(gid, x['_strat'], result.get('status'))
-        rollback = guardrails.rollback_sibling_batch(gid, 'continuation_submission_unknown')
-        reason = 'submission_unknown_rolled_back' if rollback.get('ok') else 'submission_unknown'
+        if builder_crosstrade.selected():
+            # Unknown native submissions retain their client ID and account lock.
+            # A transport timeout is never authority for a blanket close/retry.
+            guardrails.finish_sibling_batch(gid, 'native_reconciliation_pending')
+            rollback = None
+            reason = 'native_submission_unknown_no_retry'
+        else:
+            rollback = guardrails.rollback_sibling_batch(gid, 'continuation_submission_unknown')
+            reason = 'submission_unknown_rolled_back' if rollback.get('ok') else 'submission_unknown'
     else:
         guardrails.finish_sibling_batch(gid, 'failed_before_accept')
         rollback = None
@@ -1967,3 +1987,4 @@ if HEARTBEAT:
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))
+

@@ -59,6 +59,7 @@ Hardening (2026-07-19 review):
 import os, json, time, datetime as dt, hashlib, threading, sqlite3, math, tempfile
 import portfolio_guard
 import builder_broker_sync
+import builder_crosstrade
 import trade_classification
 import execution_policy
 try:
@@ -91,6 +92,8 @@ def _envi(k, d):       return int(float(os.environ.get(k, str(d))))
 
 def _exec_route_id():
     """Non-secret fingerprint used to detect two account services sharing one route."""
+    if builder_crosstrade.selected(): return builder_crosstrade.route_id()
+    if builder_crosstrade.provider() == 'invalid': return ''
     url = os.environ.get('EXEC_WEBHOOK', '').strip()
     return hashlib.sha256(url.encode('utf-8')).hexdigest()[:16] if url else ''
 
@@ -493,6 +496,9 @@ def flatten_all(reason):
     Off with GUARD_FLATTEN=0."""
     try:
         if _env('GUARD_FLATTEN', '1') != '1': return False
+        if builder_crosstrade.selected():
+            return builder_crosstrade.request_flatten(str(reason))
+        if builder_crosstrade.provider() == 'invalid': return False
         if os.environ.get('EXEC_FX') == '1':               # FX services: MetaApi close-symbol instead of TradersPost
             try:
                 import exec_fx
@@ -593,6 +599,8 @@ def finish_sibling_batch(group_id, status='sent'):
 
 
 def _relay_action(action):
+    if builder_crosstrade.selected(): return builder_crosstrade.relay(action)
+    if builder_crosstrade.provider() == 'invalid': return dict(ok=False,error='invalid_order_provider')
     url = os.environ.get('EXEC_WEBHOOK', '')
     if not url or requests is None:
         return dict(action=action, ok=False, status=None, error='exec webhook unavailable')
@@ -645,6 +653,7 @@ def sweep_orphans():
     Only sweeps when the modeled book shows NO open position ('cancel' cancels ALL open orders for the
     ticker — must not strip the bracket off a live trade). Called from agent.py after shadow.refresh."""
     try:
+        if builder_crosstrade.provider() != 'traderspost': return 0
         d = _day_stats()
         if d['openpos']: return 0                     # never cancel while a bracket protects a position
         import ab_v3_live
@@ -677,6 +686,8 @@ def sweep_orphans():
 def flatten_cancel_only():
     """Cancel resting orders only (no exit) — used by the orphan sweep."""
     try:
+        if builder_crosstrade.selected(): return builder_crosstrade.relay('cancel').get('ok',False)
+        if builder_crosstrade.provider() == 'invalid': return False
         if os.environ.get('EXEC_FX') == '1': return False   # MT5 entry orders self-expire (FX_ENTRY_TTL_MIN) — no sweep needed
         url = os.environ.get('EXEC_WEBHOOK', '')
         if not url or requests is None or _env('GUARD_FLATTEN', '1') != '1': return False
@@ -788,6 +799,8 @@ def set_mode(m):
 
 def _exec_ready():
     """True when an execution path is configured: TradersPost webhook OR the MetaApi FX adapter."""
+    if builder_crosstrade.selected(): return builder_crosstrade.status().get('enabled',False)
+    if builder_crosstrade.provider() == 'invalid': return False
     if os.environ.get('EXEC_WEBHOOK'): return True
     if os.environ.get('EXEC_FX') != '1': return False
     if os.environ.get('FX_BRIDGE_URL'): return True                    # cTrader bridge route (free)
@@ -1032,6 +1045,8 @@ def _actualize(g, sh):
     The shadow model prices outcomes at risk-model size (~$500/R); during the ramp the real
     order is 1 contract — a real -$17 loss displayed (and counted!) as -$569 skews the day-loss
     counter and the modeled equity. qty x stop x POINT_VALUE is the real risk. Found by Aleks."""
+    native = builder_crosstrade.resolution(g.get('continuation_order_id'))
+    if native is not None: return {**g,**native,'outcome_source':'crosstrade_owned_fills'}
     if g.get('ext_outcome'):                      # external (C, ...) rows carry their OWN resolution —
         return {**g, 'outcome': g['ext_outcome'],  # the A/B shadow knows nothing about them
                 'net': g.get('ext_net'), 'R': g.get('R')}
@@ -1714,6 +1729,10 @@ def health(feed_age_min=None, market_open=None):
             ('%s configuration matches the selected profile' % profile.get('label')
              if profile.get('config_ok') else '; '.join(profile.get('config_warnings') or [])))
         broker = builder_broker_sync.state()
+        if builder_crosstrade.selected():
+            transport=builder_crosstrade.status()
+            add('broker_order_transport','warn' if transport.get('entry_blocker') else 'ok',
+                transport.get('entry_blocker') or 'CrossTrade native IDs; broker fills and closure reconciliation')
         if broker.get('enabled'):
             add('broker_account', 'ok' if broker.get('current') else 'critical',
                 ('CrossTrade current: %s positions, %s working orders' %
@@ -1923,6 +1942,7 @@ def register(app):
                        day_net=round(d['net']), day_target=_envf('DAY_TARGET_USD', 1500),
                        equity_synced=round(float(s.get('equity') or 0), 2),
                        broker_account=builder_broker_sync.state(),
+                       order_transport=builder_crosstrade.status(),
                        equity_sync_day=s.get('equity_sync_day', ''),
                        equity_day_net_at_sync=round(float(s.get('equity_day_net_at_sync') or 0), 2),
                        kill_until_ms=int(s.get('kill_until_ms') or 0),
@@ -2401,3 +2421,4 @@ function copyPine(btn){let b=document.getElementById('pinebox');b.select();navig
  btn.textContent='Copied ✓';setTimeout(()=>{btn.textContent='Copy script';},1200);}
 load();setInterval(load,30000);
 </script></body></html>"""
+
