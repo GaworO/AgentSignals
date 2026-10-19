@@ -181,9 +181,10 @@ class ContextTests(unittest.TestCase):
 
     def test_unknown_paid_call_is_not_retried_after_restart(self):
         def timeout(payload):self.calls.append(payload);raise TimeoutError()
-        self.support.transport=timeout;self.assertTrue(self.support.process_one());self.now+=3600
+        self.support.transport=timeout;self.assertTrue(self.support.process_one());self.now+=3.5*3600
         restarted=ai.ContextSupport(self.config,reader=self.source,transport=self.transport,clock=lambda:self.now)
         self.assertFalse(restarted.process_one());self.assertEqual(len(self.calls),1)
+        self.assertEqual(restarted.status,'PENDING_OR_UNKNOWN_NO_RETRY')
 
     def test_invalid_evidence_is_rejected_and_consumes_budget(self):
         def bad(payload):
