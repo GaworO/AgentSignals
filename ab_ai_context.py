@@ -287,7 +287,7 @@ class ContextSupport:
         self.status = status
         return True
 
-    def annotate(self, signal, candidate_id):
+    def annotate(self, signal, candidate_id, record=True):
         now = self.clock();side = 'long_scenario' if signal.get('dir')=='LONG' else 'short_scenario'
         result = dict(owner='A/B', mode='ADVISORY', state='UNAVAILABLE', executable=False)
         with self.connect() as db:
@@ -300,7 +300,8 @@ class ContextSupport:
                     expires_at=expires_at(row['cutoff'], self.minutes),
                     state='INVALIDATED' if side in json.loads(row['invalidated']) else decision[side]['permission'],
                     scenario=decision[side],target_2r_3r_pl=decision['target_2r_3r_pl'])
-            db.execute('INSERT OR IGNORE INTO annotations VALUES(?,?,?)',(candidate_id,now,encode(result)))
+            if record:
+                db.execute('INSERT OR IGNORE INTO annotations VALUES(?,?,?)',(candidate_id,now,encode(result)))
         return result
 
     def run(self):
@@ -327,6 +328,14 @@ def annotate(signal, candidate_id):
         return dict(owner='A/B',mode='ADVISORY',state='UNAVAILABLE',executable=False)
 
 
+def current(signal):
+    """Read the same validated/invalidation-aware cache without paid calls."""
+    try:
+        return INSTANCE.annotate(signal, '', record=False) if INSTANCE else dict(state='DISABLED')
+    except Exception:
+        return dict(state='UNAVAILABLE')
+
+
 def register(app):
     from flask import jsonify, Response
     def status():
@@ -340,9 +349,13 @@ def register(app):
             guardrails._actualize(row, shadow_rows.get(row.get('key'), {}))
             for row in guardrails._load(guardrails.GLOG, [])])
         execution['activity_status'] = activity.get('status')
+        import ab_position_manager
+        execution['manager'] = ab_position_manager.status()
+        execution['news_calendar'] = next((c for c in guardrails.health().get('checks',[]) if c['name']=='news_cal'), None)
+        context_mode = 'RUNNER_FILTER' if execution['manager']['mode']=='real' else 'ADVISORY'
         schedule = dict(timezone='America/New_York', windows=[dict(name=n,start=f'{s//60:02d}:{s%60:02d}',end=f'{e//60:02d}:{e%60:02d}') for n,s,e in SESSIONS])
         if INSTANCE is None:
-            return jsonify(owner='A/B',mode='ADVISORY',status='DISABLED',executable=False,execution=execution,schedule=schedule)
+            return jsonify(owner='A/B',mode=context_mode,status='DISABLED',executable=False,execution=execution,schedule=schedule)
         now = INSTANCE.clock()
         day = datetime.fromtimestamp(now,NY).date().isoformat()
         with INSTANCE.connect() as db:
@@ -356,7 +369,7 @@ def register(app):
         for row in annotations:
             row['payload'] = json.loads(row['payload'])
         source_calls = INSTANCE.source_usage['calls'] if INSTANCE.source_usage and INSTANCE.source_usage['day']==day else None
-        return jsonify(owner='A/B',mode='ADVISORY',status=INSTANCE.status,executable=False,execution=execution,schedule=schedule,
+        return jsonify(owner='A/B',mode=context_mode,status=INSTANCE.status,executable=False,execution=execution,schedule=schedule,
                        active_session=session_at(now),source_calls_today=source_calls,
                        remaining_calls=max(0,INSTANCE.cap-calls-source_calls) if source_calls is not None else None,
                        calls_today=calls,daily_cap=INSTANCE.cap,interval_minutes=INSTANCE.minutes,

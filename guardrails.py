@@ -1692,11 +1692,14 @@ def _state_writable():
     except Exception:
         return False
 
-def news_calendar_check(cal_age_h=None, market_open=None):
+def news_calendar_check(cal_age_h=None, market_open=None, calendar_info=None):
     """Persist calendar freshness and alert before the first blocked setup."""
     try:
         s = _state(); s['news_cal_checked_ms'] = _now_ms()
         s['news_cal_age_h'] = None if cal_age_h is None else round(float(cal_age_h), 2)
+        if calendar_info is not None:
+            s['news_cal_source'] = calendar_info.get('source')
+            s['news_cal_error'] = calendar_info.get('error')
         strict = _env('NEWS_GUARD', '1') == '1' and _env('NEWS_STRICT', '1') == '1'
         stale = strict and (cal_age_h is None or float(cal_age_h) > _envf('NEWS_MAX_AGE_H', 24))
         was = bool(s.get('news_cal_alerted'))
@@ -1802,11 +1805,13 @@ def health(feed_age_min=None, market_open=None):
         if _env('NEWS_GUARD', '1') == '1' and _env('NEWS_STRICT', '1') == '1':
             ca = s.get('news_cal_age_h')
             if ca is None:
-                add('news_cal', 'warn', 'calendar never verified — AUTO blocks until fetched')
+                add('news_cal', 'warn', 'calendar unavailable/unverified — AUTO blocks' +
+                    (' (' + str(s['news_cal_error']) + ')' if s.get('news_cal_error') else ''))
             elif float(ca) > _envf('NEWS_MAX_AGE_H', 24):
                 add('news_cal', 'warn', 'calendar %.1fh old — AUTO blocks' % float(ca))
             else:
-                add('news_cal', 'ok', 'fresh (%.1fh)' % float(ca))
+                add('news_cal', 'ok', 'fresh (%.1fh)' % float(ca) +
+                    (' · ' + str(s['news_cal_source']) if s.get('news_cal_source') else ''))
         else:
             add('news_cal', 'info', 'strict calendar guard disabled')
         # 5 equity sync honesty — the DD guard rides on this number

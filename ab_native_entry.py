@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import os
+import ab_position_manager as manager
 
 LIFECYCLE = 'AB_NATIVE_FIXED_BRACKET_V1'
 
@@ -28,6 +29,9 @@ def prepare(signal, payload, candidate_id, api):
     if error or signal_family(signal) != 'A/B':
         raise ValueError(error or 'ab_canonical_signal_required')
     now = api.now_ms()
+    error = manager.validate_plan(signal, now / 1000)
+    if error:
+        raise ValueError(error)
     origin = int(signal['bos_ms'])
     expiry = origin + int(os.environ.get('EXEC_CANCEL_AFTER_SEC', '600')) * 1000
     if not origin <= now < expiry:
@@ -51,6 +55,10 @@ def prepare(signal, payload, candidate_id, api):
                  entry_price=e, stop_price=sl, target_price=tp, baseline_target_price=tp,
                  risk_points=abs(e-sl), quantity=quantity, runner_enabled=False,
                  contract=api.contract(), route_id=api.route(), account_label=os.environ.get('ACCOUNT_LABEL', 'account'))
+    if signal.get('_ab_manager'):
+        plan = signal['_ab_manager']
+        order.update(lifecycle=manager.LIFECYCLE, manager_plan=plan, runner_enabled=plan['runner_enabled'],
+                     baseline_target_price=plan['baseline_target_price'])
     with api.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         if db.execute('SELECT 1 FROM orders WHERE order_id=?', (oid,)).fetchone():

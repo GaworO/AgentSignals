@@ -37,7 +37,9 @@ import ab_v3_live  # V3 broker-confirmed monitor; LIVE blocked until integration
 import ab_v3_tv
 import execution_policy
 import ab_native_entry
+import ab_position_manager
 import ab_ai_context
+import news_calendar
 import tv_seconds_feed
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
@@ -672,33 +674,18 @@ def _detect():
 
 # ====== KALENDARZ NEWSOW (ForexFactory weekly) + FLAGI NO-TRADE ======
 HIGH = {'CPI','Core CPI','Non-Farm','NFP','PPI','GDP','Core PCE','PCE','ISM','FOMC','Federal Funds','Powell'}
-_cal = {'at': None, 'events': [], 'raw_events': []}   # execution tuples + richer Monitor-only metadata
+_calendar = news_calendar.Calendar(os.path.join(DATA_DIR, 'news_calendar.json'))
+_cal = _calendar.view()
 def _load_calendar():
-    if requests is None: return
-    if _cal['at'] and (dt.datetime.utcnow()-_cal['at']).total_seconds() < 6*3600: return
-    try:
-        r=requests.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json', timeout=15)
-        evs=[]; raw=[]
-        for e in r.json():
-            if str(e.get('impact','')).lower()!='high': continue
-            t=dt.datetime.fromisoformat(e['date']).timestamp()
-            title=e.get('title','event')
-            evs.append((t, title))
-            raw.append(dict(epoch=t, title=title, country=e.get('country') or e.get('currency') or '',
-                            impact='high', source='ForexFactory'))
-        _cal['events']=evs; _cal['raw_events']=raw; _cal['at']=dt.datetime.utcnow()
-    except Exception as ex:
-        print('[cal] blad pobierania:', ex, flush=True)   # guard side: NEWS_STRICT=1 blokuje sendy gdy kalendarz nieosiagalny >24h
+    global _cal
+    if requests is not None:
+        _calendar.refresh(requests)
+    _cal = _calendar.view()
 
 def _cal_age_h():
-    """Hours since the last SUCCESSFUL ForexFactory calendar fetch (None = never). Feeds the
-    fail-closed news gate: can't verify news => guard blocks unattended sends (NEWS_STRICT)."""
-    try:
-        _load_calendar()
-        if not _cal['at']: return None
-        return (dt.datetime.utcnow() - _cal['at']).total_seconds() / 3600.0
-    except Exception:
-        return None
+    """Age of validated current-week data; failures never reset its receipt time."""
+    _load_calendar()
+    return _calendar.age_hours()
 
 
 def _market_context_news():
@@ -1048,6 +1035,9 @@ def _process_new(now_ms=None, gap_min=None):
                 ab_quality.attach(repx)
         except Exception as _aqe:
             print('[ab-quality] classification error', _aqe, flush=True)
+        if execution_policy.signal_family(repx) == 'A/B':
+            repx['_ab_ai_context'] = ab_ai_context.annotate(repx, live_emit.key(repx))
+            ab_position_manager.plan_signal(repx, repx['_ab_ai_context'], _time.time())
         # The human-facing alert is built before the floor-aware group is
         # prepared. Stamp the maximum equal sibling allocation now so it never
         # displays the obsolete $500/0.5% deep-leg sizing. The executor may
@@ -1081,8 +1071,6 @@ def _process_new(now_ms=None, gap_min=None):
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
         if fl: txt += '  ⚠ ' + ', '.join(fl)
-        if execution_policy.signal_family(repx) == 'A/B':
-            repx['_ab_ai_context'] = ab_ai_context.annotate(repx, live_emit.key(repx))
         _policy_shadow = execution_policy.shadow_family(execution_policy.signal_family(repx))
         if not _policy_shadow and _rskip and _rcolor=='red':  # live regime gate; retain shadow observations
             print('CHOP-SKIP', txt, flush=True); _save_db(repx, txt+' [CHOP-SKIP]', 'chop-skip')
@@ -1917,7 +1905,7 @@ def _heartbeat_loop():
                 except Exception: pass
             try: guardrails.beat(_feed_age_min(), _market_open_now())   # v26: per-cycle liveness for /guard/health
             except Exception: pass
-            try: guardrails.news_calendar_check(_cal_age_h(), _market_open_now())
+            try: guardrails.news_calendar_check(_cal_age_h(), _market_open_now(), calendar_info=_cal)
             except Exception as e: print('[heartbeat] news calendar check err', e, flush=True)
             try:                                                        # holiday early-close -> move flatten + entry cutoff up
                 import cme_calendar as _cmec

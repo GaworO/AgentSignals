@@ -122,6 +122,6 @@ def ab_entry_blocker(signal):
 def status():
     return dict(policy=mode(), entry_armed=os.environ.get('AB_ENTRY_ARMED' if mode() == 'AB_ONLY' else 'V3_ENTRY_ARMED', '0') == '1',
                 entry_variant=('CANONICAL_AB_NATIVE_BRACKET' if mode() == 'AB_ONLY' else 'DIRECTIONAL_MODEL0_RUNNER_2R_3R' if os.environ.get('V3_RUNNER_ENABLED','false').lower()=='true' and os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' else 'DIRECTIONAL_FIXED_SL_TP_2R'),
-                active_manager_live=os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real',
+                active_manager_live=(os.environ.get('AB_MANAGER_MODE','off').lower()=='real' if mode()=='AB_ONLY' else os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real'),
                 broker_fill_proven_by_http=False,
                 note='Entry permission; Guard, broker ownership and active exit readiness are checked separately.')
