@@ -1,0 +1,21 @@
+<!doctype html><html lang="pl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A/B · AI Context</title><style>
+body{font:15px system-ui;background:#0d1521;color:#e5edf8;margin:0;padding:28px;max-width:1100px}h1{font-size:26px}h2{font-size:18px}p{line-height:1.6}.muted{color:#a7b9ce}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}article{border:1px solid #304359;border-radius:12px;padding:20px;margin:16px 0;background:#142133}strong{color:#86dcc4}table{width:100%;border-collapse:collapse}td,th{text-align:left;border-bottom:1px solid #304359;padding:10px;overflow-wrap:anywhere}button{padding:8px 16px;border-radius:6px;border:1px solid #829ab5;background:transparent;color:inherit}@media(max-width:700px){body{padding:16px}.grid{grid-template-columns:1fr}table{font-size:12px}}</style>
+<h1>A/B · AI Context</h1><p class="muted">Kontekst wspiera ocenę sygnałów A/B. Rekomendacja jest zapisywana przy sygnale; Entry, SL i TP pozostają zgodne ze strategią.</p>
+<button id="refresh">Odśwież podgląd</button><p id="status">Ładowanie…</p><p id="validity" class="muted"></p>
+<div class="grid"><article id="long"><h2>LONG</h2></article><article id="short"><h2>SHORT</h2></article></div>
+<article><h2>Płynność i cele</h2><p id="liquidity"></p><p id="targets"></p><p id="missing" class="muted"></p></article>
+<article><h2>Oceny przy sygnałach</h2><table><thead><tr><th>Czas</th><th>Sygnał</th><th>Ocena</th></tr></thead><tbody id="rows"></tbody></table></article>
+<script>
+const node=(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n};
+const date=s=>s?new Date(s*1000).toLocaleString('pl-PL'):'—';
+async function load(){try{const r=await fetch('/ab/ai-context',{cache:'no-store'});if(!r.ok)throw Error('Brak odpowiedzi');const d=await r.json();
+document.getElementById('status').textContent=`${d.status} · Wywołania A/B dziś: ${d.calls_today||0} / ${d.daily_cap||12} · Odświeżanie kontekstu: ${d.interval_minutes||60} min`;
+const review=(d.reviews||[]).find(x=>x.status==='validated');const v=review?.decision;
+document.getElementById('validity').textContent=review?`Dane do ${date(review.cutoff)}. Odpowiedź dostępna od ${date(review.finished)}. Kontekst wygasa najpóźniej ${date(review.cutoff+(d.interval_minutes||60)*60)}; zamknięcie M1 może unieważnić go wcześniej.`:'Brak zatwierdzonej odpowiedzi AI.';
+for(const side of ['long','short']){const box=document.getElementById(side);box.replaceChildren(node('h2',side.toUpperCase()));const s=v?.[side+'_scenario'];if(s){const invalid=(review.invalidated||[]).includes(side+'_scenario');const stale=Date.now()/1000>=review.cutoff+(d.interval_minutes||60)*60;box.append(node('strong',stale?'WYGASŁY':invalid?'UNIEWAŻNIONY':s.permission),node('p',s.reason_pl),node('p','Argument przeciwny: '+s.contrary_evidence_pl));if(s.invalidation)box.append(node('p',`Unieważnienie: M1 ${s.invalidation.relation} ${s.invalidation.price} (${s.invalidation.evidence_id})`));}}
+document.getElementById('liquidity').textContent=v?.liquidity_reading_pl||'—';document.getElementById('targets').textContent=v?.target_2r_3r_pl||'—';document.getElementById('missing').textContent=(v?.missing_context_pl||[]).join(' · ');
+const rows=document.getElementById('rows');rows.replaceChildren();for(const a of d.annotations||[]){const tr=document.createElement('tr');tr.append(node('td',date(a.at)),node('td',a.candidate_id),node('td',a.payload.state));rows.append(tr);}
+}catch(e){document.getElementById('status').textContent='Kontekst niedostępny. Spróbuj odświeżyć podgląd.'}}
+document.getElementById('refresh').addEventListener('click',load);load();setInterval(load,60000);
+</script></html>

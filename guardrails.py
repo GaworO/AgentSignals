@@ -1554,7 +1554,7 @@ def note(x, decision, reason=''):
     """Record the gate decision into the /guard book. Call AFTER staging (decision='sent') or on block."""
     try:
         glog = _load(GLOG, [])
-        continuation_order_id = x.get('_continuation_order_id')
+        continuation_order_id = x.get('_ab_native_order_id') or x.get('_continuation_order_id')
         k = ('CONT_ORDER|' + str(continuation_order_id)) if continuation_order_id else _skey(x)
         gid = x.get('_setup_group_id')
         if decision == 'shadow':

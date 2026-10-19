@@ -530,6 +530,8 @@ def monitor_frozen():
     with connect() as c:
         rows = c.execute("SELECT o.*,e.status AS exit_status FROM orders o LEFT JOIN exit_trades e ON e.trade_id=o.order_id WHERE o.state='OPEN'").fetchall()
         for row in rows:
+            if json.loads(row["order_json"]).get("strategy") == "A/B":
+                continue  # A/B native brackets are never managed by the Directional model.
             oid = row["order_id"]
             if row["exit_status"] is None:
                 c.execute("INSERT OR IGNORE INTO exit_trades(trade_id,exit_mode,status,updated_ms) VALUES(?,?,?,?)",

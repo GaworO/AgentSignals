@@ -36,6 +36,8 @@ import builder_crosstrade
 import ab_v3_live  # V3 broker-confirmed monitor; LIVE blocked until integration validated
 import ab_v3_tv
 import execution_policy
+import ab_native_entry
+import ab_ai_context
 import tv_seconds_feed
 import forex_pnl   # forexpnl - joined forex-only P&L (isolated add-on)
 import fxguard     # /fxguard - joined forex Auto-Executor view (isolated add-on)
@@ -191,7 +193,8 @@ def _exec_order(x, text=None):
     if builder_crosstrade.provider() == 'invalid':
         return dict(sent=False,status=400,reason='invalid_order_provider',qty=0)
     native = builder_crosstrade.selected()
-    if native and (not x.get('_v3_directional') or not x.get('_continuation_order_id') or x.get('_test_signal')):
+    native_ab = native and execution_policy.mode() == 'AB_ONLY' and execution_policy.signal_family(x) == 'A/B'
+    if native and not native_ab and (not x.get('_v3_directional') or not x.get('_continuation_order_id') or x.get('_test_signal')):
         return dict(sent=False,status=400,reason='native_route_requires_prepared_v3_entry',qty=0)
     url = os.environ.get('EXEC_WEBHOOK', '')
     if not native and (not url or requests is None): return {"sent": False, "reason": ("EXEC_WEBHOOK not set" if not url else "requests missing")}
@@ -345,8 +348,19 @@ def _exec_order(x, text=None):
                 if len(legs) != 1:
                     return dict(sent=False,status=400,reason='native_split_entry_not_supported',qty=0)
                 try:
+                    if native_ab:
+                        if x.get('_test_signal'):
+                            return dict(sent=False,status=400,reason='ab_no_test_orders',qty=0)
+                        oid = ab_native_entry.prepare(x,payload,live_emit.key(x),ab_v3_live)
+                        try:
+                            result = builder_crosstrade.submit(payload,oid)
+                        except Exception:
+                            ab_native_entry.record_result(ab_v3_live,oid,dict(submission_unknown=True))
+                            raise
+                        ab_native_entry.record_result(ab_v3_live,oid,result)
+                        return result
                     return builder_crosstrade.submit(payload,x['_continuation_order_id'])
-                except builder_crosstrade.TransportError as exc:
+                except (builder_crosstrade.TransportError, ValueError) as exc:
                     return dict(sent=False,status=400,reason=str(exc),qty=qty,provider='crosstrade')
             try:
                 r = requests.post(url, json=payload, timeout=10)
@@ -433,6 +447,8 @@ def _prepare_ab_siblings(repx):
     setups, not the second leg of this same A/B signal.
     """
     repx['_strat'] = repx.get('_strat', 'A/B')
+    if execution_policy.mode() == 'AB_ONLY' and builder_crosstrade.selected():
+        return ab_native_entry.configure_signal(repx) if repx['_strat'] == 'A/B' else [repx]
     acct = float(os.environ.get('ACCOUNT', '100000') or 100000)
     deep_pct = float(os.environ.get('RISK_PCT', '0.5') or 0.5)
     repx['_planned_group_risk_usd'] = max(0.0, acct * deep_pct / 100.0)
@@ -1065,6 +1081,8 @@ def _process_new(now_ms=None, gap_min=None):
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
         if fl: txt += '  ⚠ ' + ', '.join(fl)
+        if execution_policy.signal_family(repx) == 'A/B':
+            repx['_ab_ai_context'] = ab_ai_context.annotate(repx, live_emit.key(repx))
         _policy_shadow = execution_policy.shadow_family(execution_policy.signal_family(repx))
         if not _policy_shadow and _rskip and _rcolor=='red':  # live regime gate; retain shadow observations
             print('CHOP-SKIP', txt, flush=True); _save_db(repx, txt+' [CHOP-SKIP]', 'chop-skip')
@@ -1082,7 +1100,7 @@ def _process_new(now_ms=None, gap_min=None):
             for item in _book_items:
                 guardrails.note(item, 'shadow', 'shadow_strategy:' + execution_policy.mode())
             code = 'shadow'
-        elif os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':
+        elif builder_crosstrade.selected() or os.environ.get('EXEC_WEBHOOK') or os.environ.get('EXEC_FX') == '1':
             _QUIET = ('duplicate', 'monday_skip', 'monday_prem')
             _TG_BLOCKED = os.environ.get('TG_BLOCKED', '0') == '1'
             repx['_alert_txt'] = txt
@@ -1985,6 +2003,9 @@ if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
 
+# Advisory context owns its own bounded worker, independent of order dispatch.
+ab_ai_context.register(app)
+ab_ai_context.start()
+
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))
-

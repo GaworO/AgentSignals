@@ -268,7 +268,7 @@ class NativeTests(unittest.TestCase):
         api=types.SimpleNamespace(mode=lambda:'LIVE',prepared_entry_blocker=lambda x:None,
             now_ms=lambda:int(self.now*1000),record_quantity=lambda oid,qty:None)
         namespace=dict(os=os,dt=dt,builder_crosstrade=native,ab_v3_live=api,requests=requests,
-            execution_policy=types.SimpleNamespace(entry_blocker=lambda x:None),
+            execution_policy=types.SimpleNamespace(entry_blocker=lambda x:None,mode=lambda:'V3_ONLY'),
             guardrails=types.SimpleNamespace(_exec_route_id=lambda:'test-route'),
             _entry_cancel_after_sec=lambda:60,_signal_reject_after_sec=lambda:60)
         functions(ROOT/'agent.py',{'_exec_order'},namespace)

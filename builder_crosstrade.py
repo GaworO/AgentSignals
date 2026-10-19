@@ -176,6 +176,13 @@ class Transport:
             r=c.execute('SELECT * FROM orders WHERE order_id=?',(oid,)).fetchone()
         if not r or r['state']!='PREPARED':raise TransportError('PREPARED_V3_ENTRY_REQUIRED')
         order=json.loads(r['order_json'])
+        import execution_policy
+        if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
+            raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
+        if order.get('strategy') == 'A/B':
+            check = dict(_strat='A/B',dir=order['direction'],entry=order['entry_price'],SL=order['stop_price'],TP=order['target_price'])
+            if execution_policy.mode() != 'AB_ONLY' or execution_policy.entry_blocker(check):
+                raise TransportError('AB_NATIVE_ROUTE_NOT_ARMED')
         if (order['route_id']!=self.api.route() or order['contract']!=self.api.contract()
                 or order['account_label']!=os.environ.get('ACCOUNT_LABEL','account')
                 or not order['activation_ms']<=now<order['expiry_ms']):
