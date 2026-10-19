@@ -56,3 +56,11 @@ Runtime review must confirm the effective policy, disabled order arm, correct bo
 ## Source discrepancy found during migration
 
 The running Tanja 3.6.10 package is newer than `services/tanja` on the repository's starting commit. An environment-variable deployment can rebuild that older GitHub source. Preserve the verified 3.6.10 package and its disabled flags; do not roll back an old deployment with its formerly enabled execution variables. This PR deliberately does not replace Tanja's implementation.
+
+## Operator handoff for brokerage activation
+
+A/B order submission is currently disabled. Only the account operator performs the final activation. In the Builder 50K Railway service, the relevant switches are `AB_ENTRY_ARMED=1`, `AUTO_SUBMIT=1`, and `EXEC_MODE=auto`; the persisted Guard mode must also be `auto`. Keep `EXEC_STRATEGY_POLICY=AB_ONLY`, Directional shadow and Tanja execution disabled. The AI panel reports the actual execution switches separately from advisory recommendations.
+
+The October 19 runtime check reported `activity_status=due`. This is the Guard activity tracker, not confirmation of the broker account's eligibility. Verify the account status with the provider before activation. No test order or actual A/B broker round trip has been performed.
+
+The main Trading desk received only the dashboard menu update on its verified `df9172f` runtime base; it links to the Builder's existing AI endpoint and starts no additional AI worker.
