@@ -167,6 +167,20 @@ class NativeIntegrationTests(unittest.TestCase):
         self.assertEqual(f.local()['state'],'BROKER_CONFIRMED_OPEN')
         self.assertEqual(json.loads(f.local()['position_json'])['entry_price'],29999.)
 
+    def test_bracket_closing_during_dispatch_keeps_terminal_status(self):
+        f=self.fixture;f.submit();f.open();self.feed()
+        def concurrent_close(oid,aid):
+            with f.api.connect() as c:
+                c.execute("UPDATE orders SET state='CLOSED' WHERE order_id=?",(oid,))
+                f.api._exit_transition(c,oid,'CLOSED',int(f.now*1000),'broker_target_fill')
+            return dict(success=True,already_flat=True)
+        self.close=concurrent_close
+        with patch.object(manager.frozen,'evaluate',return_value=dict(signals=dict(primary_manager='M3',primary_reason='F2'))):
+            self.run_manager()
+        with f.api.connect() as c:
+            self.assertEqual(c.execute('SELECT status FROM exit_trades').fetchone()[0],'CLOSED')
+        self.assertEqual(len(f.posts),1)
+
     def test_partial_fill_and_directional_are_never_managed(self):
         f=self.fixture;f.submit();f.open(qty=1);self.run_manager();self.assertEqual(len(f.posts),1)
         with f.api.connect() as c:

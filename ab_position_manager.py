@@ -214,6 +214,9 @@ def monitor(api=None, context_reader=None, closer=None):
                 pass
             with api.connect() as c:
                 c.execute('UPDATE ab_manager_closes SET state=?,updated_ms=? WHERE order_id=?', (state, api.now_ms(), row['order_id']))
+                terminal = c.execute('SELECT state FROM orders WHERE order_id=?', (row['order_id'],)).fetchone()
+                if terminal and terminal[0] in ('CLOSED', 'NO_FILL', 'CANCELLED', 'EXPIRED'):
+                    continue  # A concurrent native SL/TP fill is final, never overwrite it with an ACK.
                 c.execute('UPDATE exit_trades SET broker_order_id=?,broker_response_json=? WHERE trade_id=?',
                           (str(reply.get('response', {}).get('orderId') or ''), api.dump(reply), row['order_id']))
                 api._exit_transition(c, row['order_id'], 'EXIT_ACKNOWLEDGED' if state == 'ACKNOWLEDGED' else 'EXIT_BLOCKED', api.now_ms(),
