@@ -15,6 +15,8 @@ import builder_crosstrade
 import continuation_live
 import execution_safety
 import guardrails
+import directional_account_limits
+import execution_validation
 
 
 class RiskValidator:
@@ -79,6 +81,10 @@ class RiskValidator:
             snapshot = sync.snapshot()
             proof.update(account_binding=sync.binding,
                          checked_ms=int(snapshot['read_started_at']*1000))
+            costs=execution_validation.costs(execution_validation.policy())
+            reason=directional_account_limits.check(snapshot,sync.binding,order,
+                int(self.clock()*1000),costs['round_trip_usd']+costs['stop_slippage_ticks']*.5)
+            if reason:return dict(proof,reason=reason)
             _, news_hard = self.news_flags(signal)
             allowed, reason = guardrails.guard_ok(
                 signal, feed_age_min=self.feed_age(), market_open=self.market_open(),

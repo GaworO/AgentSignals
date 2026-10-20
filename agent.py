@@ -2015,6 +2015,10 @@ ab_ai_context.register(app)
 ab_ai_context.SETUP_COMPLETE_CALLBACK = continuation_live.resume_reviews
 import execution_validation
 from directional_risk_revalidation import RiskValidator
+from directional_market_data import MarketSource
+from directional_thesis import ThesisValidator
+execution_validation.register_source('market', MarketSource())
+execution_validation.register_source('thesis', ThesisValidator())
 execution_validation.register_source('risk', RiskValidator(
     signal_builder=_continuation_live_signal, budget_builder=_directional_live_budget,
     feed_age=_feed_age_min, market_open=_market_open_now,

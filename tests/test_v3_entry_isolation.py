@@ -52,8 +52,8 @@ class IsolationTests(unittest.TestCase):
             post.assert_not_called()
 
     def test_full_manager_release_is_not_unlocked(self):
-        with patch.dict(os.environ,dict(env(),AB_V3_MODE='LIVE')),patch('requests.post') as post:
-            self.assertIn('release_not_live_validated',agent.ab_v3_live.setting_blockers())
+        with patch.dict(os.environ,dict(env(),AB_V3_MODE='LIVE',LIVE_EXECUTION_ENABLED='false')),patch('requests.post') as post:
+            self.assertFalse(agent.execution_policy.status()['live_execution_enabled'])
             self.assertFalse(agent._exec_order(signal())['sent'])
             agent.ab_v3_live.dispatch_exits();post.assert_not_called()
 

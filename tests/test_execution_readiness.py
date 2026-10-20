@@ -21,6 +21,8 @@ def evidence():
                   max_signal_age_ms=30000, max_quote_age_ms=1000, entry_zone_points=.5,
                   max_spread_ticks=2, max_slippage_ticks=1, max_volatility_points=10,
                   volatility_definition='fixture_range', min_rr=2)
+    limits['costs']=dict(contract='MNQZ2026',validation_reference='ZERO_COST_SYNTHETIC_ONLY',
+                         round_trip_usd=0,stop_slippage_ticks=0)
     quote = dict(contract='MNQZ2026', source='fixture', market_open=True,
                  as_of_ms=now, bid=99.75, ask=100., volatility_points=4,
                  volatility_definition='fixture_range')
@@ -93,7 +95,7 @@ def test_production_without_approved_parameters_and_sources_is_blocked(monkeypat
     path = tmp_path/'policy.json'
     path.write_text(json.dumps(args[5]))
     monkeypatch.setenv('DIRECTIONAL_EXECUTION_POLICY_FILE', str(path))
-    assert validation.check(args[0], args[4]) == 'market_validator_unavailable'
+    assert validation.check(args[0], args[4]) == 'risk_validator_unavailable'
     args[5]['min_rr'] = 1.5
     path.write_text(json.dumps(args[5]))
     assert validation.check(args[0], args[4]) == 'directional_minimum_2r_required'

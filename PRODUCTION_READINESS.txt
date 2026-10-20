@@ -1,5 +1,8 @@
 AgentSignals — disabled production release, 2026-10-20
 
+Historical a161321 audit below. See DIRECTIONAL_LIVE_ACCEPTANCE.txt and the
+deployment receipt for the subsequent adapter, account-limit and net-R changes.
+
 VERDICT: NOT READY FOR EXPLICIT LIVE ACTIVATION.
 This release is for observation and engineering verification. No test order was
 submitted to the Builder evaluation account. SIMULATOR is not provider paper.

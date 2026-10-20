@@ -1,8 +1,9 @@
 """Final Directional gate, using separately supplied server-side evidence.
 
 There is deliberately no candle-to-quote fallback. CrossTrade Tradovate has no
-bid/ask API. Production stays blocked until a verified market adapter, a fresh
-thesis validator and an account/risk validator are registered by the application.
+bid/ask API. The separate NT8 adapter rejects indicative collective pricing.
+Registered adapters still require verified quote access, account allowances,
+complete current thesis evidence and approved execution parameters.
 Policy values must come from an explicitly documented and approved strategy
 validation; none are inferred from observed trades or the AI response.
 """
@@ -47,6 +48,19 @@ def policy():
             raise ValueError('execution_parameter_missing:' + key)
     if value['min_rr'] < 2:
         raise ValueError('directional_minimum_2r_required')
+    costs(value)
+    return value
+
+
+def costs(parameters):
+    """Per-contract round-trip costs; never infer commission from cash changes."""
+    value = parameters.get('costs', {})
+    if not value.get('validation_reference') or value.get('contract') != parameters.get('contract'):
+        raise ValueError('verified_transaction_costs_required')
+    for key in ('round_trip_usd', 'stop_slippage_ticks'):
+        number = value.get(key)
+        if type(number) not in (int, float) or not math.isfinite(number) or number < 0:
+            raise ValueError('verified_transaction_costs_required')
     return value
 
 
@@ -93,10 +107,18 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
                 return 'bracket_invalidated'
             if reward/loss + 1e-9 < parameters['min_rr']:
                 return 'reward_risk_below_minimum'
+        # Worst permitted LIMIT entry is the unchanged limit, not an assumed
+        # favourable fill at a transient quote. Stop slippage is a validated
+        # stress allowance, never a guaranteed maximum on a stop-market fill.
+        fees = costs(parameters)
+        loss = sign*(entry-stop)*2 + fees['round_trip_usd'] + fees['stop_slippage_ticks']*.5
+        reward = sign*(target-entry)*2 - fees['round_trip_usd']
+        if reward <= 0 or reward/loss + 1e-9 < parameters['min_rr']:
+            return 'net_reward_risk_below_minimum'
         if (thesis.get('order_id') != order['order_id'] or thesis.get('valid') is not True
                 or not thesis.get('evidence_id')
                 or not 0 <= now_ms-thesis['checked_ms'] <= parameters['max_quote_age_ms']):
-            return 'directional_thesis_not_revalidated'
+            return 'directional_thesis_not_revalidated' + (':' + str(thesis['reason']) if thesis.get('reason') else '')
         if (risk.get('allowed') is not True or risk.get('order_id') != order['order_id']
                 or not risk.get('account_binding')
                 or not 0 <= now_ms-risk['checked_ms'] <= parameters['max_quote_age_ms']):
@@ -118,7 +140,8 @@ def check(order, review, *, clock=time.time):
     evidence = {}
     try:
         parameters = policy()
-        for name in ('market', 'thesis', 'risk'):
+        # Fetch executable quotes last, after the slower account/context reads.
+        for name in ('risk', 'thesis', 'market'):
             if name not in _SOURCES:
                 raise ValueError(name + '_validator_unavailable')
             evidence[name] = _SOURCES[name](dict(order))
@@ -139,5 +162,12 @@ def status():
     except Exception as exc:
         policy_error = str(exc) if isinstance(exc, ValueError) else 'execution_policy_unreadable'
     missing = [name for name in ('market', 'thesis', 'risk') if name not in _SOURCES]
-    return dict(ready=policy_error is None and not missing, policy_error=policy_error,
+    access=[]
+    if 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
+            or not (os.environ.get('DIRECTIONAL_QUOTE_API_TOKEN') or os.environ.get('BUILDER_BROKER_API_TOKEN'))):
+        access.append('executable_quote_access_not_configured')
+    if 'risk' in _SOURCES and not os.environ.get('MFFU_RISK_EVIDENCE_FILE'):
+        access.append('mffu_current_allowances_missing')
+    return dict(ready=policy_error is None and not missing and not access, policy_error=policy_error,
+                access_blockers=access,
                 missing_validators=missing, candle_quote_fallback=False)

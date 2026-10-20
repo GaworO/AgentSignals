@@ -65,6 +65,8 @@ class ContinuationLiveTests(unittest.TestCase):
             con.execute("UPDATE continuation_candidates SET strategy=? WHERE candidate_id=?", (strategy, candidate))
             con.execute("UPDATE continuation_orders SET strategy=? WHERE order_id=?", (strategy, order))
             if strategy == 'AB_DIRECTIONAL':
+                con.execute("UPDATE continuation_candidates SET payload_json=? WHERE candidate_id=?",
+                            (json.dumps(dict(brk=2)),candidate))
                 evidence = live.ab_directional_entry_rules.evaluate('PDH' if direction == 'LONG' else 'PDL', direction,
                     dict(open=100, high=104, low=96, close=104 if direction == 'LONG' else 96),
                     activation // 60000 * 60000 - 60000, activation)

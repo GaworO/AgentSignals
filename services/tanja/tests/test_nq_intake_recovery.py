@@ -84,7 +84,7 @@ class NQIntakeRecoveryTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'CME_MINI:NQ1!', csv)
 
-    def test_all_arrival_orders_preserve_one_es_mnq_job(self):
+    def test_all_arrival_orders_preserve_one_current_nq_analysis_job(self):
         for order in itertools.permutations(('ES', 'MNQ', 'NQ')):
             with self.subTest(order=order), tempfile.TemporaryDirectory() as directory:
                 self.config['DATA_DIR'] = directory
@@ -96,7 +96,8 @@ class NQIntakeRecoveryTests(unittest.TestCase):
                     queued += json.loads(body)['queued']
                 self.assertEqual(queued, 1)
                 with app.store.connect() as db:
-                    self.assertEqual(db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0], 1)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM nq_jobs').fetchone()[0], 1)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0], 0)
                     self.assertEqual({r[0] for r in db.execute('SELECT symbol FROM bars')}, {'ES','MNQ'})
 
     def test_duplicate_and_conflicting_nq_do_not_overwrite_history(self):

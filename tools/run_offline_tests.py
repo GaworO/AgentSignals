@@ -36,6 +36,10 @@ def run(path):
     bootstrap = 'import pytest;raise SystemExit(pytest.main(__import__("sys").argv[1:]))'
     if path.is_relative_to(ROOT/'services/tanja'):
         imports.insert(1, ROOT/'services/tanja')
+        imports.insert(2, ROOT/'services/tanja/vendor')
+        # python -c puts cwd ahead of PYTHONPATH. The root has different
+        # modules with the same names; select the actual service runtime.
+        bootstrap = ('import sys;sys.path[:0]='+repr([str(ROOT/'services/tanja'),str(ROOT/'services/tanja/vendor')])+';' + bootstrap)
     if path.name in ('test_ab_directional_engine.py', 'test_ab_directional_entry_rules.py',
                      'test_continuation_thesis_mode.py'):
         imports.insert(1, ROOT/'continuation_runtime')
