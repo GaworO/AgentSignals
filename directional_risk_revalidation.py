@@ -82,8 +82,11 @@ class RiskValidator:
             proof.update(account_binding=sync.binding,
                          checked_ms=int(snapshot['read_started_at']*1000))
             costs=execution_validation.costs(execution_validation.policy())
+            cost_per_contract=costs['round_trip_usd']+costs['stop_slippage_ticks']*.5
+            if amount+qty*cost_per_contract>budget:
+                return dict(proof,reason='cost_inclusive_trade_risk_budget')
             reason=directional_account_limits.check(snapshot,sync.binding,order,
-                int(self.clock()*1000),costs['round_trip_usd']+costs['stop_slippage_ticks']*.5)
+                int(self.clock()*1000),cost_per_contract)
             if reason:return dict(proof,reason=reason)
             _, news_hard = self.news_flags(signal)
             allowed, reason = guardrails.guard_ok(

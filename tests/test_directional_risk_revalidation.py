@@ -69,6 +69,16 @@ def test_final_risk_uses_persisted_dispatch_preparation_and_fresh_broker(native)
     assert f.posts == []
 
 
+def test_costs_cannot_push_original_trade_over_guard_budget(native):
+    f=native
+    f.order['quantity']=12
+    f.prepare()
+    proof=f.validator(dict(f.order))
+    assert not proof['allowed'] and proof['reason']=='cost_inclusive_trade_risk_budget'
+    f.guard_check.assert_not_called()
+    assert f.posts==[]
+
+
 @pytest.mark.parametrize('change,reason', [
     ('mode', 'automatic_entries_disabled'),
     ('quantity', 'account_quantity_or_risk_budget'),
