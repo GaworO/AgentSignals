@@ -20,7 +20,8 @@ def evidence():
                   strategy='AB_DIRECTIONAL', contract='MNQZ2026', quote_source='fixture',
                   max_signal_age_ms=30000, max_quote_age_ms=1000, entry_zone_points=.5,
                   max_spread_ticks=2, max_slippage_ticks=1, max_volatility_points=10,
-                  volatility_definition='fixture_range', min_rr=2)
+                  volatility_definition='fixture_range', min_rr=2,
+                  max_account_age_ms=1000,max_thesis_age_ms=1000)
     limits['costs']=dict(contract='MNQZ2026',validation_reference='ZERO_COST_SYNTHETIC_ONLY',
                          round_trip_usd=0,stop_slippage_ticks=0)
     quote = dict(contract='MNQZ2026', source='fixture', market_open=True,

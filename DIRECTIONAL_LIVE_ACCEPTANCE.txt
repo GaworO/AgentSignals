@@ -64,7 +64,8 @@ Do not substitute placeholders or mark approved without the underlying checks.
 Execution policy JSON requires approved=true, validation_reference,
 strategy=AB_DIRECTIONAL, contract matching EXEC_TICKER and AB_V3_CONTRACT,
 quote_source=crosstrade_nt8, min_rr>=2, and validated positive numbers for
-max_signal_age_ms, max_quote_age_ms, entry_zone_points, max_spread_ticks,
+max_signal_age_ms, max_quote_age_ms, max_account_age_ms (at most the existing
+30000 ms sync limit), max_thesis_age_ms, entry_zone_points, max_spread_ticks,
 max_slippage_ticks, max_volatility_points. It also requires:
 volatility_definition=closed_m1_max_true_range, volatility_window_bars (1..1440),
 thesis_rule_version=original_bos_bracket_ai_v1, and costs object with matching

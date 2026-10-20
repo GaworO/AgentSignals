@@ -202,3 +202,16 @@ def test_setup_ai_to_native_ack_fill_bracket_restart_close_accounting(monkeypatc
         assert len(a.calls)==1 and len(f.posts)==1
     finally:
         f.doCleanups();a.doCleanups()
+
+
+def test_market_account_and_thesis_have_separate_freshness_clocks():
+    args=evidence()
+    args[5].update(max_quote_age_ms=250,max_account_age_ms=3000,max_thesis_age_ms=2000)
+    args[3]['checked_ms']-=2500
+    args[2]['checked_ms']-=1500
+    assert gate.evaluate(*args) is None
+    args[1]['as_of_ms']-=251
+    assert gate.evaluate(*args)=='quote_stale_or_future'
+    args[1]['as_of_ms']+=251
+    args[3]['checked_ms']-=501
+    assert gate.evaluate(*args)=='account_risk_not_revalidated'

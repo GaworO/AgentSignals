@@ -18,7 +18,7 @@ import execution_trace
 _SOURCES = {}
 LIMITS = ('max_signal_age_ms', 'max_quote_age_ms', 'entry_zone_points',
           'max_spread_ticks', 'max_slippage_ticks', 'max_volatility_points',
-          'min_rr')
+          'max_account_age_ms', 'max_thesis_age_ms', 'min_rr')
 
 
 def configure_sources(*, market, thesis, risk):
@@ -48,6 +48,8 @@ def policy():
             raise ValueError('execution_parameter_missing:' + key)
     if value['min_rr'] < 2:
         raise ValueError('directional_minimum_2r_required')
+    if value['max_account_age_ms'] > 30000:
+        raise ValueError('account_age_exceeds_existing_sync_limit')
     costs(value)
     return value
 
@@ -117,11 +119,11 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
             return 'net_reward_risk_below_minimum'
         if (thesis.get('order_id') != order['order_id'] or thesis.get('valid') is not True
                 or not thesis.get('evidence_id')
-                or not 0 <= now_ms-thesis['checked_ms'] <= parameters['max_quote_age_ms']):
+                or not 0 <= now_ms-thesis['checked_ms'] <= parameters['max_thesis_age_ms']):
             return 'directional_thesis_not_revalidated' + (':' + str(thesis['reason']) if thesis.get('reason') else '')
         if (risk.get('allowed') is not True or risk.get('order_id') != order['order_id']
                 or not risk.get('account_binding')
-                or not 0 <= now_ms-risk['checked_ms'] <= parameters['max_quote_age_ms']):
+                or not 0 <= now_ms-risk['checked_ms'] <= parameters['max_account_age_ms']):
             return 'account_risk_not_revalidated' + (':' + str(risk['reason']) if risk.get('reason') else '')
         if (review.get('state') != 'ALLOW' or not review.get('review_id')
                 or review.get('order_id') != order['order_id']
