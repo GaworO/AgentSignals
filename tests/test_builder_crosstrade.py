@@ -14,6 +14,8 @@ from unittest.mock import patch
 
 import builder_broker_sync as broker
 import builder_crosstrade as native
+import directional_ai_review
+import execution_validation
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -28,7 +30,10 @@ class NativeTests(unittest.TestCase):
         self.now=1792400000.;self.posts=[];self.life={};self.history=[];self.timeout=False;self.bad_ack=False
         self.addCleanup(patch.stopall)
         patch.dict(os.environ,dict(BUILDER_ORDER_PROVIDER='crosstrade',ACCOUNT_LABEL='Builder 50K',
+            LIVE_EXECUTION_ENABLED='true', DATA_DIR=self.tmp.name,
             AB_V3_DB=str(Path(self.tmp.name)/'v3.sqlite3'))).start()
+        # Protocol unit tests isolate the independently tested final market gate.
+        self.final_gate = patch.object(execution_validation, 'check', return_value=None).start()
         self.api=types.SimpleNamespace()
         ns=dict(Path=Path,os=os,sqlite3=sqlite3,HERE=Path(self.tmp.name),json=json,hashlib=hashlib,math=__import__('math'))
         manager=types.SimpleNamespace(INVALIDATIONS=('NO_FILL','CANCELLED','EXPIRED'),LIFECYCLE='ASSUMED_BOUNDARY_M3_RUNNER_V1')
@@ -49,7 +54,7 @@ class NativeTests(unittest.TestCase):
         self.assertTrue(self.sync.poll())
         self.t=native.Transport(self.api,self.sync,request=self.request,clock=lambda:self.now)
         patch.object(native,'_TRANSPORT',self.t).start();patch.object(native,'_API',self.api).start()
-        self.order=dict(order_id='order-one',route_id='test-route',contract='MNQZ2026',account_label='Builder 50K',
+        self.order=dict(order_id='order-one',strategy='AB_DIRECTIONAL',route_id='test-route',contract='MNQZ2026',account_label='Builder 50K',
             activation_ms=int(self.now*1000)-1000,expiry_ms=int(self.now*1000)+600000,direction='LONG',quantity=2,
             entry_price=30000.,stop_price=29990.,target_price=30030.,risk_points=10,lifecycle=manager.LIFECYCLE)
         self.prepare()
@@ -311,6 +316,7 @@ class NativeTests(unittest.TestCase):
 
     def test_native_routing_requires_fresh_completed_m1(self):
         namespace=dict(os=os,json=json,mode=lambda:'LIVE',exit_blockers=lambda:[],
+            directional_ai_review=directional_ai_review,
             frozen_parity_ok=lambda:True,builder_broker_sync=self.sync,
             now_ms=lambda:int(self.now*1000),connect=self.api.connect,contract=self.api.contract,route=self.api.route)
         functions(ROOT/'ab_v3_live.py',{'prepared_entry_blocker','m1_fresh'},namespace)

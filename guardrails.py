@@ -495,6 +495,8 @@ def flatten_all(reason):
     TradersPost for EXEC_TICKER. Fired on loss/DD latches and by the EOD flatten. Never raises.
     Off with GUARD_FLATTEN=0."""
     try:
+        import execution_safety
+        if not execution_safety.writes_enabled(): return False
         if _env('GUARD_FLATTEN', '1') != '1': return False
         if builder_crosstrade.selected():
             return builder_crosstrade.request_flatten(str(reason))
@@ -599,6 +601,9 @@ def finish_sibling_batch(group_id, status='sent'):
 
 
 def _relay_action(action):
+    import execution_safety
+    if not execution_safety.writes_enabled():
+        return dict(action=action,ok=False,status=None,error='live_execution_disabled')
     if builder_crosstrade.selected(): return builder_crosstrade.relay(action)
     if builder_crosstrade.provider() == 'invalid': return dict(ok=False,error='invalid_order_provider')
     url = os.environ.get('EXEC_WEBHOOK', '')
@@ -685,6 +690,8 @@ def sweep_orphans():
 
 def flatten_cancel_only():
     """Cancel resting orders only (no exit) — used by the orphan sweep."""
+    import execution_safety
+    if not execution_safety.writes_enabled(): return False
     try:
         if builder_crosstrade.selected(): return builder_crosstrade.relay('cancel').get('ok',False)
         if builder_crosstrade.provider() == 'invalid': return False

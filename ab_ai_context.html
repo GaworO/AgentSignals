@@ -1,33 +1,59 @@
 <!doctype html><html lang="pl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>A/B · AI Context</title><style>
 body{font:15px system-ui;background:#0d1521;color:#e5edf8;margin:0;padding:28px;max-width:1100px}h1{font-size:26px}h2{font-size:18px}p{line-height:1.6}.muted{color:#a7b9ce}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}article{border:1px solid #304359;border-radius:12px;padding:20px;margin:16px 0;background:#142133}strong{color:#86dcc4}table{width:100%;border-collapse:collapse}td,th{text-align:left;border-bottom:1px solid #304359;padding:10px;overflow-wrap:anywhere}button{padding:8px 16px;border-radius:6px;border:1px solid #829ab5;background:transparent;color:inherit}@media(max-width:700px){body{padding:16px}.grid{grid-template-columns:1fr}table{font-size:12px}}</style>
-<h1>A/B · AI Context</h1><p class="muted"><span id="policy">Sprawdzanie polityki zarządzania…</span></p>
-<p id="schedule" class="muted"></p><article><h2>A/B · CrossTrade</h2><p id="execution">Sprawdzanie stanu wykonania…</p><a href="/guard" target="_blank" rel="noopener" style="color:#86dcc4">Otwórz Guard konta ↗</a></article>
-<article><h2>Manager pozycji A/B</h2><p id="manager"></p><p id="calendar"></p><p class="muted">Wyjście po dotknięciu 2R jest zleceniem rynkowym po zamknięciu M1; nie gwarantuje realizacji dokładnie na 2R. Ta kombinacja managera z klasycznym A/B nie ma jeszcze potwierdzonej poprawy PF.</p><div id="manager-decisions"></div></article>
+<h1 id="heading">AI Context</h1><p class="muted"><span id="policy">Sprawdzanie polityki zarządzania…</span></p>
+<p id="schedule" class="muted"></p><article><h2>CrossTrade</h2><p id="execution">Sprawdzanie stanu wykonania…</p><a href="/guard" target="_blank" rel="noopener" style="color:#86dcc4">Otwórz Guard konta ↗</a></article>
+<article><h2>Manager pozycji</h2><p id="manager"></p><p id="calendar"></p><p class="muted" id="manager-note">Wyjście po dotknięciu 2R jest zleceniem rynkowym po zamknięciu M1; nie gwarantuje realizacji dokładnie na 2R. Ta kombinacja managera z klasycznym A/B nie ma jeszcze potwierdzonej poprawy PF.</p><div id="manager-decisions"></div></article>
 <button id="refresh">Odśwież podgląd</button><p id="status">Ładowanie…</p><p id="validity" class="muted"></p>
 <div class="grid"><article id="long"><h2>LONG</h2></article><article id="short"><h2>SHORT</h2></article></div>
 <article><h2>Płynność i cele</h2><p id="liquidity"></p><p id="targets"></p><p id="missing" class="muted"></p></article>
 <article><h2>Oceny przy sygnałach</h2><table><thead><tr><th>Czas</th><th>Sygnał</th><th>Ocena</th></tr></thead><tbody id="rows"></tbody></table></article>
+<article id="setup-panel" hidden><h2>AI Review konkretnego setupu</h2><p>Ocena jest przypisana do jednego setupu. Samo ALLOW nie wystarcza do zlecenia: po odpowiedzi system ponownie sprawdza warunki wykonania. Limit ważności obejmuje oczekiwanie na API.</p><div id="setup-reviews"></div></article>
 <script>
 const node=(tag,text)=>{const n=document.createElement(tag);n.textContent=text;return n};
 const date=s=>s?new Date(s*1000).toLocaleString('pl-PL'):'—';
 async function load(){try{const r=await fetch('/ab/ai-context',{cache:'no-store'});if(!r.ok)throw Error('Brak odpowiedzi');const d=await r.json();
 document.getElementById('schedule').textContent=(d.schedule?.windows||[]).map(w=>`${w.name} ${w.start}–${w.end}`).join(' · ')+' · czas Nowego Jorku. Poza sesjami AI nie wysyła zapytań.';
-const e=d.execution||{};const armed=e.policy==='AB_ONLY'&&e.entry_armed&&e.mode==='auto'&&e.auto_submit&&e.provider==='crosstrade';
-document.getElementById('execution').textContent=armed?'Wysyłanie zleceń A/B włączone; każde wejście nadal przechodzi kontrole Guard.':'Wysyłanie zleceń A/B wyłączone. Trasa CrossTrade przygotowana; wymagane ręczne włączenie handlu. Directional pozostaje shadow.';
+const e=d.execution||{};const directional=d.owner==='AB_DIRECTIONAL';const label=directional?'A/B Directional':'A/B';
+document.getElementById('heading').textContent=label+' · AI Context';
+const armed=e.live_execution_enabled&&!e.execution_kill_switch&&['AB_ONLY','V3_ONLY'].includes(e.policy)&&e.entry_armed&&e.mode==='auto'&&e.auto_submit&&e.provider==='crosstrade';
+document.getElementById('execution').textContent=`Polityka: ${e.policy||'—'}. ${armed?'Przełączniki wysyłania włączone; Guard i broker mogą nadal blokować wejścia.':'Wysyłanie rozbrojone lub niekompletna konfiguracja.'} ${e.policy==='V3_ONLY'?'Zwykłe A/B pozostaje shadow.':e.policy==='AB_ONLY'?'Directional pozostaje shadow.':''}`;
 const m=e.manager||{};
 document.getElementById('policy').textContent=m.mode==='real'?'A/B: ochronny SL u brokera, M3 dla wcześniejszych wyjść. Aktualne ALLOW od AI dopuszcza próbę 3R; przy 2R Model 0 i aktualny kontekst muszą potwierdzić dalsze trzymanie. W innym przypadku manager zleca zamknięcie.':'Tryb obserwacyjny: AI zapisuje ocenę; manager nie wysyła wyjść i nie zmienia TP/SL.';
 document.getElementById('manager').textContent=`Tryb: ${m.mode||'off'} · ${m.readiness?'Niegotowy: '+m.readiness:'Modele zweryfikowane'} · Decyzje po zamknięciu M1, wyłącznie na potwierdzonej pozycji CrossTrade. Bez kontekstu ALLOW nowy sygnał otrzymuje TP 2R.`;
+if(directional){
+document.getElementById('policy').textContent=e.directional_ai_review_required?'Directional: wejście wymaga aktualnego ALLOW dla kierunku setupu. WAIT, VETO, brak lub unieważnienie kontekstu blokują wejście. Odczyt gotowej oceny bez oczekiwania na API.':'Directional: filtr AI nie jest wymagany; oceny mają charakter obserwacyjny.';
+document.getElementById('manager').textContent=`Manager Directional: ${e.directional_exit_mode||'shadow'} · Runner 3R: ${e.directional_runner_enabled?'włączony w konfiguracji':'wyłączony'}. Gotowość i decyzje managera są dostępne w widoku V3 /ab/v3.`;
+document.getElementById('manager-note').textContent='AI ocenia kontekst przed wejściem. Nie zarządza otwartą pozycją; za wyjścia odpowiada odrębny manager V3 i ochronny bracket brokera. Poprawa PF tego filtra wymaga sprawdzenia w shadow.';
+}
+if(d.trigger==='SETUP'){
+document.getElementById('policy').textContent='AI otrzymuje konkretny setup Directional: kierunek, entry, SL, TP oraz kontekst rynku. Po ALLOW wymagana jest ponowna kontrola ceny, tezy, ryzyka i ważności. WAIT/VETO lub brak oceny blokują wejście.';
+const gate=e.revalidation||{};
+document.getElementById('execution').textContent+=` Główny wyłącznik: ${e.live_execution_enabled?'włączony':'wyłączony'}. Kontrola wykonania: ${gate.ready?'skonfigurowana — każdy setup jest sprawdzany osobno':'NIEGOTOWA'}.`;
+if(gate.policy_error)document.getElementById('execution').textContent+=' Brakuje zatwierdzonych parametrów wykonania.';
+if((gate.missing_validators||[]).length)document.getElementById('execution').textContent+=' Niezweryfikowane źródła kontroli: '+gate.missing_validators.join(', ')+'.';
+}
 document.getElementById('calendar').textContent='Kalendarz newsów: '+(e.news_calendar?.detail||'sprawdzanie');
-const decisions=document.getElementById('manager-decisions');decisions.replaceChildren();for(const x of (m.reviews||[]).slice(0,8))decisions.append(node('p',`${date(x.known_ms/1000)} · ${x.order_id} · ${x.decision.decision}: ${x.decision.reason}`));
+const decisions=document.getElementById('manager-decisions');decisions.replaceChildren();for(const x of (directional?[]:m.reviews||[]).slice(0,8))decisions.append(node('p',`${date(x.known_ms/1000)} · ${x.order_id} · ${x.decision.decision}: ${x.decision.reason}`));
 if(e.activity_status==='unverified')document.getElementById('execution').textContent+=' Historia lokalna nie wystarcza do oceny nieaktywności konta; nie oznacza to przekroczenia terminu.';
 if(e.activity_status==='due')document.getElementById('execution').textContent+=' Guard zgłasza przekroczenie terminu nieaktywności. Sprawdź status konta u dostawcy przed włączeniem handlu; licznik Guard nie potwierdza statusu konta.';
-document.getElementById('status').textContent=`${d.status} · Wywołania A/B dziś: ${d.calls_today||0} / ${d.daily_cap||12} · Wcześniej wykorzystane przez Tanję: ${d.source_calls_today??'sprawdzanie'} · Pozostało: ${d.remaining_calls??'sprawdzanie'} · Odświeżanie kontekstu: ${d.interval_minutes||60} min`;
-const review=(d.reviews||[]).find(x=>x.status==='validated');const v=review?.decision;
+document.getElementById('status').textContent=`${d.status} · Wspólne wywołania dziś: ${d.calls_today||0} / ${d.daily_cap||12} · Wcześniej wykorzystane przez Tanję: ${d.source_calls_today??'sprawdzanie'} · Pozostało: ${d.remaining_calls??'sprawdzanie'} · Odświeżanie kontekstu: ${d.interval_minutes||60} min`;
+if(d.trigger==='SETUP')document.getElementById('status').textContent=`${d.status} · Próby dziś: ${d.calls_today||0}/${d.daily_cap||12} · Wcześniej Tanja: ${d.source_calls_today??'sprawdzanie'} · Pozostało: ${d.remaining_calls??'sprawdzanie'} · Zapytanie po setupie · Limit wieku setupu: ${d.setup_max_age_seconds||120} s`;
+const review=d.trigger==='SETUP'?undefined:(d.reviews||[]).find(x=>x.status==='validated'&&x.owner===d.owner&&!x.setup);const v=review?.decision;
 document.getElementById('validity').textContent=review?`Dane do ${date(review.cutoff)}. Odpowiedź dostępna od ${date(review.finished)}. Kontekst wygasa najpóźniej ${date(review.expires_at)}; zamknięcie M1 może unieważnić go wcześniej.`:'Brak zatwierdzonej odpowiedzi AI.';
+if(d.trigger==='SETUP')document.getElementById('validity').textContent='Oceny poszczególnych setupów są poniżej. Nie ma wspólnej zgody LONG/SHORT dla kolejnych transakcji.';
 for(const side of ['long','short']){const box=document.getElementById(side);box.replaceChildren(node('h2',side.toUpperCase()));const s=v?.[side+'_scenario'];if(s){const invalid=(review.invalidated||[]).includes(side+'_scenario');const stale=Date.now()/1000>=review.expires_at;const unavailable=!d.active_session||['SOURCE_NOT_READY','WAITING_FOR_SESSION_DATA'].includes(d.status);box.append(node('strong',stale?'WYGASŁY':unavailable?'NIEDOSTĘPNY':invalid?'UNIEWAŻNIONY':s.permission),node('p',s.reason_pl),node('p','Argument przeciwny: '+s.contrary_evidence_pl));if(s.invalidation)box.append(node('p',`Unieważnienie: M1 ${s.invalidation.relation} ${s.invalidation.price} (${s.invalidation.evidence_id})`));}}
 document.getElementById('liquidity').textContent=v?.liquidity_reading_pl||'—';document.getElementById('targets').textContent=v?.target_2r_3r_pl||'—';document.getElementById('missing').textContent=(v?.missing_context_pl||[]).join(' · ');
 const rows=document.getElementById('rows');rows.replaceChildren();for(const a of d.annotations||[]){const tr=document.createElement('tr');tr.append(node('td',date(a.at)),node('td',a.candidate_id),node('td',a.payload.state));rows.append(tr);}
+document.getElementById('setup-panel').hidden=d.trigger!=='SETUP';
+const setups=document.getElementById('setup-reviews');setups.replaceChildren();
+for(const job of d.setup_requests||[]){
+const r=(d.reviews||[]).find(x=>x.id===job.review_id);const s=r?.setup;const answer=r?.decision?.[s?.direction==='LONG'?'long_scenario':'short_scenario'];
+const box=node('article','');box.append(node('h3',job.order_id),node('p',`${job.state} · ${date(job.created)} · ważny do ${date(job.expires)}`));
+if(s)box.append(node('p',`${s.direction} ${s.contract} · entry ${s.entry_price} · SL ${s.stop_price} · TP ${s.target_price} · ${s.target_r.toFixed(2)}R`));
+if(r?.latency_seconds!=null)box.append(node('p',`Oczekiwanie na AI: ${r.latency_seconds.toFixed(1)} s`));
+if(answer)box.append(node('strong',`${answer.permission} · ocena AI, nie potwierdzenie zlecenia${Date.now()/1000>=job.expires?' · WYGASŁA':''}`),node('p',answer.reason_pl),node('p','Argument przeciwny: '+answer.contrary_evidence_pl),node('p',r.decision.target_2r_3r_pl));
+setups.append(box);}
 }catch(e){document.getElementById('status').textContent='Kontekst niedostępny. Spróbuj odświeżyć podgląd.'}}
 document.getElementById('refresh').addEventListener('click',load);load();setInterval(load,60000);
 </script></html>

@@ -16,7 +16,8 @@ from test_builder_crosstrade import functions, ROOT
 
 
 def ab_env():
-    return dict(EXEC_STRATEGY_POLICY='AB_ONLY',AB_ENTRY_ARMED='1',BUILDER_ORDER_PROVIDER='crosstrade',
+    return dict(LIVE_EXECUTION_ENABLED='true', EXEC_KILL_SWITCH='false',
+                EXEC_STRATEGY_POLICY='AB_ONLY',AB_ENTRY_ARMED='1',BUILDER_ORDER_PROVIDER='crosstrade',
                 AB_V3_MODE='SHADOW',AB_V3_CONTRACT='MNQZ2026',EXEC_TICKER='MNQZ2026',
                 AB_V3_DETECTOR_CONTRACT_VERIFIED='1',ACCOUNT_PLAN='builder50',ACCOUNT='50000',
                 RISK_PCT='.5',EXEC_MAX_QTY='15',EXEC_CANCEL_AFTER_SEC='600',PRICE_OFFSET='0',ENTRY_OFFSET_PTS='0',

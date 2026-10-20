@@ -24,6 +24,8 @@ import trade_classification
 import ab_v3_live
 import execution_policy
 import ab_directional_entry_rules
+import directional_ai_review
+import execution_trace
 
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).resolve().parent)))
@@ -173,6 +175,7 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
     by design.  An ambiguous network result is never retried automatically.
     """
     _init_db()
+    resume_reviews()
     last_bar_ms, rows = _source_orders()
     if last_bar_ms is None:
         return {"status": "blocked", "reason": "shadow_last_bar_unknown", "processed": 0}
@@ -193,13 +196,28 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         if not _claim(row, now):
             continue
+        execution_trace.record(row['order_id'], 'signal_generation_observed',
+                               market_bar_ms=last_bar_ms, activation_ms=int(row['activation_ms']),
+                               strategy=row.get('strategy'), decision_ms=row.get('decision_ms'))
+        # Record the same counterfactual filter in shadow, without placing orders.
+        ai_reason, ai_review = (directional_ai_review.check(
+            row.get('direction'), row['order_id'] + ':candidate')
+            if row.get('strategy') == 'AB_DIRECTIONAL' else (None, None))
         entry_block = ab_directional_entry_rules.dispatch_blocker(row)
+        setup_review = None
+        if (row.get('strategy') == 'AB_DIRECTIONAL' and entry_block is None
+                and _v3_entry_filter(row) is None):
+            setup_review = directional_ai_review.queue_setup(row)
         if entry_block:
             result = {"state": "BLOCKED", "reason": entry_block}
         elif execution_policy.shadow_family(str(row.get('strategy') or 'CONTINUATION')):
             result = {"state": "SHADOW", "reason": "shadow_strategy:" + execution_policy.mode()}
         elif not _enabled(str(row["direction"]), str(row.get("strategy") or "CONTINUATION")):
             result = {"state": "DISABLED", "reason": "direction_not_enabled"}
+        elif setup_review and setup_review.get('state') in ('queued', 'running'):
+            result = {"state": "WAITING_AI", "reason": "setup_review_pending"}
+        elif ai_reason:
+            result = {"state": "BLOCKED", "reason": ai_reason}
         elif _DISPATCHER is None:
             result = {"state": "ERROR", "reason": "dispatcher_unavailable"}
         elif (v3_filter := _v3_entry_filter(row)):
@@ -211,12 +229,59 @@ def drain(_scan_result: dict[str, Any] | None = None) -> dict[str, Any]:
             except Exception as exc:
                 result = {"state": "ERROR", "reason": f"{type(exc).__name__}: {exc}"}
         try:
-            ab_v3_live.record_dispatch(row, result)
+            if result.get('state') != 'WAITING_AI':
+                ab_v3_live.record_dispatch(row, result)
         except Exception as exc:
             print("[ab-v3] dispatch audit error", type(exc).__name__, flush=True)
+        if ai_review is not None:
+            result['ai_review'] = ai_review
+            result['ai_would_block'] = ai_reason
+        if setup_review is not None:
+            result['setup_review'] = setup_review
         _finish(str(row["order_id"]), result, now)
+        execution_trace.record(row['order_id'], 'dispatch_decision', state=result['state'],
+                               reason=result.get('reason'))
         processed.append({"order_id": row["order_id"], "direction": row["direction"], **result})
     return {"status": "ok", "processed": len(processed), "results": processed}
+
+
+def resume_reviews():
+    """Resume only durable forward requests, once; never retry unknown dispatch."""
+    _init_db()
+    with _connect() as con:
+        pending = [dict(r) for r in con.execute("SELECT * FROM live_dispatches WHERE state='WAITING_AI'")]
+    for item in pending:
+        row = json.loads(item['source_json'])
+        reason, review = directional_ai_review.check(row['direction'], row['order_id'] + ':candidate')
+        if reason == 'v3_ai:pending':
+            continue
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
+        with _connect() as con:
+            claimed = con.execute("UPDATE live_dispatches SET state='DISPATCHING',updated_at=? WHERE order_id=? AND state='WAITING_AI'",
+                                  (now, row['order_id'])).rowcount
+        if not claimed:
+            continue
+        if execution_policy.shadow_family(row['strategy']) or not _enabled(row['direction'], row['strategy']):
+            result = dict(state='DISABLED', reason='route_disabled_while_reviewing')
+        elif reason:
+            result = dict(state='BLOCKED', reason=reason)
+        elif ab_directional_entry_rules.dispatch_blocker(row) or _v3_entry_filter(row):
+            result = dict(state='BLOCKED', reason='entry_rules_invalidated')
+        elif int(row['expiry_ms']) <= int(dt.datetime.now(dt.timezone.utc).timestamp()*1000):
+            result = dict(state='BLOCKED', reason='signal_expired')
+        elif _DISPATCHER is None:
+            result = dict(state='ERROR', reason='dispatcher_unavailable')
+        else:
+            try:
+                result = dict(_DISPATCHER(row) or {})
+                result.setdefault('state', 'ERROR')
+            except Exception:
+                result = dict(state='SUBMISSION_UNKNOWN', reason='dispatch_exception_no_retry')
+        result['ai_review'] = review
+        ab_v3_live.record_dispatch(row, result)
+        _finish(row['order_id'], result, now)
+        execution_trace.record(row['order_id'], 'post_review_dispatch_decision',
+                               state=result['state'], reason=result.get('reason'))
 
 
 def rows(limit: int = 500) -> list[dict[str, Any]]:

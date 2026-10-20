@@ -16,7 +16,8 @@ def signal(direction='LONG'):
 
 
 def env():
-    return dict(EXEC_STRATEGY_POLICY='V3_ONLY', V3_ENTRY_ARMED='1',EXEC_TICKER='MNQZ2026',
+    return dict(LIVE_EXECUTION_ENABLED='true', EXEC_KILL_SWITCH='false',
+                EXEC_STRATEGY_POLICY='V3_ONLY', V3_ENTRY_ARMED='1',EXEC_TICKER='MNQZ2026',
                 GUARD_TOKEN='unit-test-only-not-a-real-secret-12345',
                 AB_V3_CONTRACT='MNQZ2026',AB_V3_DETECTOR_CONTRACT_VERIFIED='1',
                 AB_V3_EXCLUSIVE_ROUTE='1',EXEC_TICK='0.25',PRICE_OFFSET='0',POINT_VALUE='2',

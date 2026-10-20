@@ -27,7 +27,7 @@ class IsolationTests(unittest.TestCase):
             result=agent._exec_sibling_batch([dict(signal(),_strat='A/B')],'')
             self.assertFalse(result[0]);reserve.assert_not_called();post.assert_not_called()
 
-    def test_actual_bracket_request_still_uses_fixed_geometry_and_has_no_fake_fill(self):
+    def test_legacy_http_route_cannot_execute_directional_or_infer_a_fill(self):
         response=Mock(status_code=200,text='{"success":true}')
         response.json.return_value={'success':True}
         with (patch.dict(os.environ,dict(env(),EXEC_WEBHOOK='https://example.invalid',AB_V3_MODE='SHADOW')),
@@ -35,11 +35,9 @@ class IsolationTests(unittest.TestCase):
              patch.object(guardrails,'_exec_route_id',return_value='TEST-ONLY'),
              patch('requests.post',return_value=response) as post):
             result=agent._exec_order(signal())
-        self.assertTrue(result['sent'])
-        payload=post.call_args.kwargs['json']
-        self.assertEqual(payload['orderType'],'limit')
-        self.assertEqual(payload['stopLoss']['stopPrice'],90.)
-        self.assertEqual(payload['takeProfit']['limitPrice'],120.)
+        self.assertFalse(result['sent'])
+        self.assertEqual(result['reason'],'directional_verified_native_adapter_required')
+        post.assert_not_called()
         self.assertNotIn('fill_ms',result)
 
     def test_http_200_with_rejection_or_ambiguous_body_is_not_sent(self):
@@ -49,8 +47,9 @@ class IsolationTests(unittest.TestCase):
                   patch.object(agent.live_emit,'size_for_budget',return_value=(2,40.,20.)),
                   patch('requests.post',return_value=response) as post):
                 result=agent._exec_order(signal())
-            self.assertFalse(result['sent']);self.assertEqual(result['submission_unknown'],unknown)
-            self.assertEqual(post.call_count,1)
+            self.assertFalse(result['sent'])
+            self.assertEqual(result['reason'],'directional_verified_native_adapter_required')
+            post.assert_not_called()
 
     def test_full_manager_release_is_not_unlocked(self):
         with patch.dict(os.environ,dict(env(),AB_V3_MODE='LIVE')),patch('requests.post') as post:

@@ -364,6 +364,10 @@ def _exec_order(x, text=None):
                     return builder_crosstrade.submit(payload,x['_continuation_order_id'])
                 except (builder_crosstrade.TransportError, ValueError) as exc:
                     return dict(sent=False,status=400,reason=str(exc),qty=qty,provider='crosstrade')
+            if x.get('_v3_directional'):
+                # The legacy HTTP adapter cannot prove fills and does not carry
+                # the final quote/thesis/risk evidence required for Directional.
+                return dict(sent=False,status=422,reason='directional_verified_native_adapter_required',qty=qty)
             try:
                 r = requests.post(url, json=payload, timeout=10)
                 st = getattr(r, 'status_code', None)
@@ -848,6 +852,8 @@ def _dispatch_continuation_live(order):
         guardrails.note(x, 'shadow', policy_block)
         return dict(base, state='SHADOW', reason=policy_block)
     v3_block = ab_v3_live.entry_blocker(order)
+    if order.get('_directional_ai_review') is not None:
+        x['_directional_ai_review'] = order['_directional_ai_review']
     if v3_block:
         guardrails.note(x, 'blocked', v3_block)
         return dict(base, state='BLOCKED', reason=v3_block)
@@ -1978,6 +1984,19 @@ def _continuation_live_status():
     """Read-only status/decision ledger; secrets and webhook URLs are never exposed."""
     return jsonify(status=continuation_live.status(), decisions=continuation_live.rows(200))
 
+@app.route('/execution/readiness')
+def _execution_readiness():
+    """Read-only release/gate/timing evidence. No order or activation operation."""
+    import execution_trace
+    execution = execution_policy.status()
+    return jsonify(
+        verdict='NOT_READY' if not execution['revalidation']['ready'] else 'REQUIRES_FULL_READINESS_REVIEW',
+        commit=os.environ.get('RAILWAY_GIT_COMMIT_SHA'),
+        deployment=os.environ.get('RAILWAY_DEPLOYMENT_ID'),
+        execution=execution,
+        traces=execution_trace.recent(),
+        note='ALLOW and configured switches are not proof of broker execution or live readiness.')
+
 @app.route('/continuation/live/dashboard')
 def _continuation_live_dashboard():
     """Human-readable account dispatch table with explicit strategy classes."""
@@ -1993,6 +2012,7 @@ if HEARTBEAT:
 
 # Advisory context owns its own bounded worker, independent of order dispatch.
 ab_ai_context.register(app)
+ab_ai_context.SETUP_COMPLETE_CALLBACK = continuation_live.resume_reviews
 ab_ai_context.start()
 
 if __name__=='__main__':

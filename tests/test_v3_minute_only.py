@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import Mock,patch
 
 import pandas as pd
+import directional_ai_review
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -34,6 +35,7 @@ class MinuteOnlyTests(unittest.TestCase):
         self.api=types.ModuleType('minute_test_api')
         scope=self.api.__dict__
         scope.update(Path=Path,sqlite3=sqlite3,os=os,json=json,pd=pd,math=math,hashlib=hashlib,HERE=Path(self.tmp.name),
+            directional_ai_review=directional_ai_review,
             now_ms=lambda:self.now,contract=lambda:'MNQZ2026',mode=lambda:'LIVE',route=lambda:'test-route',
             exit_mode=lambda:'real',_M1_CALLBACK=None,
             builder_broker_sync=types.SimpleNamespace(entry_blocker=lambda **kw:None),
