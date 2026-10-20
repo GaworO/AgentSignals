@@ -264,6 +264,22 @@ class Transport:
         reason = execution_safety.entry_blocker()
         if not reason and order.get('strategy') != 'A/B':
             reason = execution_validation.check(order, order.get('ai_review_at_native_dispatch'))
+        # A slow revalidation must not outlive the entry or override a cancel /
+        # Guard request made while account or market evidence was being read.
+        if not reason:
+            reason = execution_safety.entry_blocker()
+        if not reason and int(self.clock()*1000) >= expiry:
+            reason = 'ENTRY_EXPIRED_DURING_REVALIDATION'
+        if not reason:
+            with self.api.connect() as c:
+                local = c.execute('SELECT state FROM orders WHERE order_id=?', (oid,)).fetchone()
+                intent = c.execute('SELECT state,receipt_json FROM native_orders WHERE binding=? AND order_id=?',
+                                   (self.binding, oid)).fetchone()
+                exit_request = c.execute('SELECT 1 FROM native_exit_requests WHERE binding=? AND order_id=?',
+                                         (self.binding, oid)).fetchone()
+            if (not local or local['state'] != 'PREPARED' or exit_request or not intent
+                    or intent['state'] != 'SENDING' or intent['receipt_json']):
+                reason = 'ENTRY_INVALIDATED_DURING_REVALIDATION'
         if reason:
             with self.api.connect() as c:
                 c.execute("UPDATE native_orders SET state='NO_FILL',error=?,updated_ms=? WHERE binding=? AND order_id=?",
@@ -618,16 +634,26 @@ class Transport:
         if row['state']=='CLOSED_PENDING_COSTS':return dict(outcome='closed_pnl_pending',net=None,R=None,broker_reconciled=False)
         return dict(outcome='open',net=None,R=None,broker_reconciled=False)
 
-    def entry_blocker(self):
+    def entry_blocker(self, *, pending_order_id=None):
         with self.api.connect() as c:
             if c.execute("SELECT 1 FROM native_actions WHERE binding=? AND state IN ('SENDING','UNKNOWN')",(self.binding,)).fetchone():
                 return 'broker:native_action_outcome_unknown'
-            if c.execute("SELECT 1 FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED')",(self.binding,)).fetchone():
+            if pending_order_id is not None:
+                own = c.execute('SELECT state,receipt_json FROM native_orders WHERE binding=? AND order_id=?',
+                                (self.binding,pending_order_id)).fetchone()
+                if not own or own['state'] != 'SENDING' or own['receipt_json']:
+                    return 'broker:unsubmitted_native_reservation_required'
+                if c.execute('SELECT 1 FROM native_exit_requests WHERE binding=? AND order_id=?',
+                             (self.binding,pending_order_id)).fetchone():
+                    return 'broker:reserved_entry_exit_requested'
+            if c.execute("SELECT 1 FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED') AND (? IS NULL OR order_id<>?)",
+                         (self.binding,pending_order_id,pending_order_id)).fetchone():
                 return 'broker:native_order_or_cost_reconciliation_pending'
         snapshot=self.sync.snapshot()
         if snapshot:
             with self.api.connect() as c:
-                native=list(c.execute('SELECT receipt_json,command_json,observation_json,state FROM native_orders WHERE binding=? ORDER BY created_ms',(self.binding,)))
+                native=list(c.execute('SELECT receipt_json,command_json,observation_json,state FROM native_orders WHERE binding=? AND (? IS NULL OR order_id<>?) ORDER BY created_ms',
+                                      (self.binding,pending_order_id,pending_order_id)))
                 close_replies=list(c.execute("SELECT response_json FROM native_actions WHERE binding=? AND operation='close'",(self.binding,)))
             known=set()
             for row in native: known.update(json.loads(row['receipt_json'] or '{}').values())
@@ -755,9 +781,9 @@ def submit(payload,oid):
     return _TRANSPORT.submit(payload,oid)
 
 
-def entry_blocker():
+def entry_blocker(*, pending_order_id=None):
     if provider()=='invalid':return 'broker:invalid_order_provider'
-    return _TRANSPORT.entry_blocker() if selected() and _TRANSPORT else 'broker:native_transport_not_configured' if selected() else None
+    return _TRANSPORT.entry_blocker(pending_order_id=pending_order_id) if selected() and _TRANSPORT else 'broker:native_transport_not_configured' if selected() else None
 
 
 def resolution(oid):

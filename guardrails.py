@@ -1424,13 +1424,31 @@ def _day_stats():
     return dict(sent=n_trades, losses=losses, net=net, openpos=openpos, loss_mode=loss_mode)
 
 # ---------- the gate ----------
-def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None):
+def _reserved_entry_blocker(x, reservation_id, state):
+    """Only the same, still-unsubmitted Directional batch may be rechecked."""
+    pg = _active_pending_group(state)
+    if reservation_id is None:
+        return 'group_pending' if pg else None
+    expected = 'ab_directional_' + str(x.get('_continuation_order_id') or '')
+    if (not pg or not x.get('_continuation_order_id') or x.get('_v3_directional') is not True
+            or reservation_id != expected or pg.get('group_id') != expected
+            or pg.get('strats') != [x.get('_strat')] or pg.get('accepted') != []
+            or pg.get('planned_risk_usd') != x.get('_planned_group_risk_usd')):
+        return 'owned_unsubmitted_group_required'
+    return None
+
+
+def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None, *, reservation_id=None):
     """(True,'ok') to allow staging, else (False,'<reason>'). FAIL-CLOSED on any error."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
         s = _state()
         if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
-        broker_reason = builder_broker_sync.entry_blocker()
+        if reservation_id is not None:
+            reservation_reason = _reserved_entry_blocker(x, reservation_id, s)
+            if reservation_reason: return (False, reservation_reason)
+        broker_reason = (builder_broker_sync.entry_blocker(pending_order_id=x['_continuation_order_id'])
+                         if reservation_id is not None else builder_broker_sync.entry_blocker())
         if broker_reason: return (False, broker_reason)
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
@@ -1491,7 +1509,8 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             if mm == 'nyam' and sess == 'PREM': return (False, 'monday_prem')  # keep Monday but ignore PREM — start at NYAM open
             if mm == 'quarter': x['_mon_quarter'] = True
 
-        if _active_pending_group(s):             return (False, 'group_pending')
+        reservation_reason = _reserved_entry_blocker(x, reservation_id, s)
+        if reservation_reason: return (False, reservation_reason)
         d = _day_stats()
         if d['openpos']:                        return (False, 'position_open')     # blocks OTHER setups; siblings share one batch
         pb = _peer_busy()                                                           # v27.2: one position across ALL

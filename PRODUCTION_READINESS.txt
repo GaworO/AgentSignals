@@ -68,7 +68,13 @@ flag cannot bypass a required SETUP review.
 execution_validation.py requires an approved documented policy, current bid/ask,
 market/contract identity, original bracket and minimum 2R, age/entry zone/spread/
 slippage/volatility checks, and fresh server-side thesis/account-risk evidence.
-No approved policy or production quote/thesis/risk adapter is registered.
+No approved policy or production quote/thesis adapter is registered.
+The server-side risk adapter now re-reads the persisted forward dispatch,
+prepared bracket, quantity/budget and fresh account snapshot, then calls the
+actual Guard again. Only its exact, unsubmitted native and Guard reservations
+are recognized; other reservations, costs, fills and loss/position limits still
+block. Expiry, write interlocks and exit requests are rechecked after validation
+so a slow read cannot authorize a canceled or expired entry.
 Consequently this release intentionally cannot pass final execution validation,
 even if someone changes the ordinary strategy switches. Completing those
 adapters is a remaining engineering prerequisite, not an activation flag.
@@ -148,8 +154,10 @@ process. Frozen research detcore and production detcore must not share imports.
 It strips provider credentials and gives each process an isolated DATA_DIR.
 Synthetic enabled flags are permitted only in this denied-network test process.
 Machine-readable final and baseline test receipts accompany the release.
-Full run: 83 test files, 843 reported cases: 751 passed, 77 failed, 14 errors,
-1 skipped. Baseline: 80 files, 783 cases: 690 passed, 78 failed, 14 errors,
+Full follow-up run: 84 test files, 865 reported cases: 773 passed, 77 failed,
+14 errors, 1 skipped. A subsequent focused run passed all 24 risk-revalidation
+tests, including two added full native-reservation / actual Guard cases.
+Baseline: 80 files, 783 cases: 690 passed, 78 failed, 14 errors,
 1 skipped. Failure-identity comparison found no new failing test; the late
 Guard/entry-acceptance regression was fixed. Existing failures are NOT waived
 for live activation. Includes imported unittest cases/subtests as pytest reports.
@@ -163,7 +171,8 @@ cancels, rejection, wrong-account acknowledgment, timeout/no retry and recovery.
 No provider-supported paper account is available; Builder is an evaluation.
 
 Blockers before live:
-1. Source and validate production bid/ask and server-side thesis/risk adapters.
+1. Source and validate production bid/ask and server-side thesis adapters.
+   The implemented final Guard/risk adapter still requires staging evidence.
 2. Validate documented timing/entry/spread/slippage/volatility policy on adequate
    independent data; freeze policy and engine versions.
 3. Reconcile the existing CLOSED_PENDING_COSTS with authoritative fee evidence.
@@ -202,6 +211,9 @@ After engineering/research/paper checks and a separately reviewed human decision
 These last changes are NOT applied by this release. Exit parity/shadow/staging
 attestation flags must reflect actual successful evidence, not be set just to
 remove blockers. Flags alone cannot supply missing validators or approvals.
+The persistent Guard runtime mode was set OFF during the Railway build outage.
+It overrides EXEC_MODE: an eventual authorized activation must also explicitly
+change the runtime mode through the Guard panel, after all prerequisites pass.
 
 Emergency: use the broker's own control to handle an actual open position when
 needed. EXEC_KILL_SWITCH=true stops new entries while preserving existing

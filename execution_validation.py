@@ -26,6 +26,12 @@ def configure_sources(*, market, thesis, risk):
     _SOURCES.update(market=market, thesis=thesis, risk=risk)
 
 
+def register_source(name, validator):
+    if name not in ('market', 'thesis', 'risk') or not callable(validator):
+        raise ValueError('server_side_validator_required')
+    _SOURCES[name] = validator
+
+
 def policy():
     path = os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')
     if not path:
@@ -94,7 +100,7 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
         if (risk.get('allowed') is not True or risk.get('order_id') != order['order_id']
                 or not risk.get('account_binding')
                 or not 0 <= now_ms-risk['checked_ms'] <= parameters['max_quote_age_ms']):
-            return 'account_risk_not_revalidated'
+            return 'account_risk_not_revalidated' + (':' + str(risk['reason']) if risk.get('reason') else '')
         if (review.get('state') != 'ALLOW' or not review.get('review_id')
                 or review.get('order_id') != order['order_id']
                 or not review['available_at']*1000 <= now_ms < review['expires_at']*1000):

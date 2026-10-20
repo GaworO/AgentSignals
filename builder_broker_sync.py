@@ -213,7 +213,7 @@ class AccountSync:
             reconciliation_error=getattr(self,'reconciliation_error',None),
             reconciliation='Broker account inventory and equity; native order IDs reconcile individual outcomes when selected.')
 
-    def entry_blocker(self, *, refresh=False):
+    def entry_blocker(self, *, refresh=False, pending_order_id=None):
         if not self.enabled:
             return None
         if refresh and not self.poll(wait=True):
@@ -225,7 +225,8 @@ class AccountSync:
             return 'broker:account_has_positions_or_orders'
         import builder_crosstrade
         if getattr(self,'reconciliation_error',None): return 'broker:native_reconciliation_failed'
-        return builder_crosstrade.entry_blocker()
+        return (builder_crosstrade.entry_blocker(pending_order_id=pending_order_id)
+                if pending_order_id is not None else builder_crosstrade.entry_blocker())
 
     def start(self):
         if not self.enabled or self.thread is not None:
@@ -255,8 +256,8 @@ def state():
     return instance().state()
 
 
-def entry_blocker(*, refresh=False):
-    return instance().entry_blocker(refresh=refresh)
+def entry_blocker(*, refresh=False, pending_order_id=None):
+    return instance().entry_blocker(refresh=refresh, pending_order_id=pending_order_id)
 
 
 def overlay_equity(saved_state):
