@@ -228,6 +228,25 @@ class AccountSync:
         return (builder_crosstrade.entry_blocker(pending_order_id=pending_order_id)
                 if pending_order_id is not None else builder_crosstrade.entry_blocker())
 
+    def last_confirmed_fill(self):
+        """Activity evidence survives session reset; it does not settle costs."""
+        if not self.enabled:return None
+        with self.connect() as c:
+            rows=c.execute('SELECT payload FROM broker_fills WHERE binding=?',(self.binding,)).fetchall()
+        found=[]
+        for row in rows:
+            try:
+                f=json.loads(row[0]);at=datetime.fromisoformat(f['timestamp'].replace('Z','+00:00'))
+                if (at.tzinfo is None or not 0<at.timestamp()<=self.clock()
+                        or f.get('active') is not True or type(f.get('id')) is not int or f['id']<=0
+                        or type(f.get('qty')) is not int or f['qty']<=0
+                        or f.get('action') not in ('Buy','Sell')
+                        or f.get('accountId') is not None and str(f['accountId'])!=self.account):continue
+                found.append((at.timestamp(),dict(date=at.astimezone(NY).date().isoformat(),
+                    et=at.astimezone(NY).isoformat(),strat='Broker-confirmed fill',qty=f['qty'])))
+            except (ValueError,KeyError,TypeError,OverflowError):continue
+        return max(found,key=lambda item:item[0])[1] if found else None
+
     def start(self):
         if not self.enabled or self.thread is not None:
             return

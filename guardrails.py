@@ -1171,7 +1171,8 @@ def inactivity_status(rows=None, now=None):
     rows = list(rows or [])
     confirmed = [r for r in rows if r.get('decision') == 'sent'
                  and r.get('outcome') in ('win', 'loss', 'timeout')]
-    native_ab = execution_policy.mode() == 'AB_ONLY'
+    native_ab = (execution_policy.mode() == 'AB_ONLY' or
+                 execution_policy.mode() == 'V3_ONLY' and builder_crosstrade.selected())
     if native_ab:
         # A shadow/model outcome is not account activity. This local ledger
         # also cannot prove the absence of trades made elsewhere on the account.
@@ -1182,6 +1183,11 @@ def inactivity_status(rows=None, now=None):
         raw = str(row.get('date') or str(row.get('et') or '')[:10])
         try: dated.append((dt.date.fromisoformat(raw), row))
         except Exception: pass
+    if native_ab:
+        try:
+            fill=builder_broker_sync.instance().last_confirmed_fill()
+            if fill:dated.append((dt.date.fromisoformat(fill['date']),fill))
+        except Exception:pass  # Incomplete activity history remains unverified.
     if dated:
         anchor, last = max(dated, key=lambda item: item[0])
         source = 'broker' if native_ab or last.get('reconciled') else 'model-confirmed fill'

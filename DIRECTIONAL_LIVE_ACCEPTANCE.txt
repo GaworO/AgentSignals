@@ -25,6 +25,9 @@ Implemented dependencies
   unrealized P&L must agree with cash and net liquidation. Transfers block.
   Projected loss includes costs and uses the tighter local/provider daily limit,
   current trailing floor and micro-contract allowance. Existing Guard still runs.
+- Activity tracking: V3_ONLY uses account-bound, confirmed broker fills even
+  while costs await reconciliation. Unknown history stays unverified. A fill
+  does not certify net P&L or remove the independent pending-cost entry block.
 
 Critical numerical incompatibility
 A fixed gross 2R bracket cannot meet net >=2R with positive costs. With gross
@@ -45,7 +48,9 @@ provided by the linked TV API. Required: actual NT8 CME feed/access or another
 specifically documented and accessible executable CME quote source. No new
 subscription was purchased; no fabricated bid/ask or locally stamped freshness.
 CrossTrade fills/history returned no fee rows. Broker balance: 48721.05,
-realized -240.50, open P&L zero; prior fill-derived gross -231. Difference 9.50
+prior-session realized -240.50, open P&L zero; prior fill-derived gross -231.
+After the broker session reset current realized P&L is zero and week realized
+P&L is -240.50; persisted fills retain activity evidence across that reset. Difference 9.50
 is not per-fill fee evidence. CLOSED_PENDING_COSTS is preserved.
 Account response exposes autoLiqLevel=-2000 but no unambiguous current absolute
 trailing floor. Do not reinterpret that field as today's minimum balance.
@@ -72,7 +77,7 @@ thesis_rule_version=original_bos_bracket_ai_v1, and costs object with matching
 contract, validation_reference, round_trip_usd>=0, stop_slippage_ticks>=0.
 These parameter values remain unset until evidence exists.
 
-Validation results: complete offline run 1029 cases: 966 passed, 60 failed,
+Validation results: complete offline run 1033 cases: 970 passed, 60 failed,
 2 collection errors, 1 skipped. All Tanja service test files pass after correcting
 runtime import precedence, helper collection and the current NQ queue fixture.
 Current native adapter, broker sync, execution gate, setup AI, risk revalidation,

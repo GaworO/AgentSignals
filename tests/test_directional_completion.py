@@ -215,3 +215,38 @@ def test_market_account_and_thesis_have_separate_freshness_clocks():
     args[1]['as_of_ms']+=251
     args[3]['checked_ms']-=501
     assert gate.evaluate(*args)=='account_risk_not_revalidated'
+
+
+def test_native_directional_activity_uses_fill_without_certifying_costs(monkeypatch):
+    import datetime as dt
+    from types import SimpleNamespace
+    import guardrails
+    import builder_broker_sync
+    monkeypatch.setenv('EXEC_STRATEGY_POLICY','V3_ONLY')
+    monkeypatch.setenv('BUILDER_ORDER_PROVIDER','crosstrade')
+    monkeypatch.setenv('ACCOUNT_PLAN','builder50')
+    monkeypatch.setenv('ACCOUNT_STARTED_ON','2026-09-01')
+    monkeypatch.setenv('INACTIVITY_DAYS','7')
+    monkeypatch.setattr(builder_broker_sync,'instance',lambda:SimpleNamespace(
+        last_confirmed_fill=lambda:dict(date='2026-10-20',et='2026-10-20T09:45:00-04:00',qty=5)))
+    result=guardrails.inactivity_status([],now=dt.datetime(2026,10,20,20,tzinfo=dt.timezone.utc))
+    assert result['status']=='ok' and result['last_trade_date']=='2026-10-20'
+    assert result['source']=='broker' and result['last_trade']['net'] is None
+    monkeypatch.setattr(builder_broker_sync,'instance',lambda:SimpleNamespace(last_confirmed_fill=lambda:None))
+    assert guardrails.inactivity_status([],now=dt.datetime(2026,10,20,20,tzinfo=dt.timezone.utc))['status']=='unverified'
+
+
+def test_activity_history_is_account_bound_and_excludes_future_voided_fills(tmp_path):
+    import builder_broker_sync as b
+    cfg=dict(DATA_DIR=str(tmp_path),ACCOUNT_PLAN='builder50',BUILDER_BROKER_SYNC_ENABLED='1',
+        BUILDER_BROKER_ACCOUNT_VERIFIED='1',BUILDER_BROKER_ACCOUNT_ID='1',
+        BUILDER_BROKER_ACCOUNT_NAME='fixture',BUILDER_BROKER_ENVIRONMENT='demo',BUILDER_BROKER_API_TOKEN='fixture')
+    sync=b.AccountSync(cfg,clock=lambda:1792530000)
+    base=dict(id=1,qty=1,action='Buy',active=True,timestamp='2026-10-20T13:45:00Z')
+    with sync.connect() as db:
+        for i,changes in enumerate(({},dict(active=False,timestamp='2026-10-20T15:00:00Z'),
+            dict(timestamp='2026-10-21T15:00:00Z'),dict(accountId=2,timestamp='2026-10-20T16:00:00Z'))):
+            f=dict(base,id=i+1,**changes)
+            db.execute('INSERT INTO broker_fills VALUES(?,?,?,?,?)',(sync.binding,str(i+1),0,0,json.dumps(f)))
+        db.execute('INSERT INTO broker_fills VALUES(?,?,?,?,?)',('foreign','99',0,0,json.dumps(dict(base,timestamp='2026-10-20T17:00:00Z'))))
+    assert sync.last_confirmed_fill()['et']=='2026-10-20T09:45:00-04:00'
