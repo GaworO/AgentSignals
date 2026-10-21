@@ -19,6 +19,10 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, build_opener
 
 import builder_broker_sync as account_sync
+import directional_ai_review
+import execution_safety
+import execution_validation
+import execution_trace
 
 TERMINAL = {'Filled','Completed','Canceled','Cancelled','Rejected','Expired'}
 ACTIVE = {'Working','Suspended','Accepted','PendingNew','PendingReplace','PendingCancel','PartFilled','PartiallyFilled'}
@@ -77,8 +81,24 @@ def stable_version(life):
     reports=[r for r in life['reports'] if r.get('commandId')==version_id and numeric(r.get('id'))]
     if not reports:return False
     latest=max(reports,key=lambda r:r['id'])
-    return (matching[0].get('commandStatus')=='Replaced' and latest.get('commandStatus')=='Replaced'
-            and latest.get('rejectReason') in (None,'Success') and latest.get('ordStatus')=='Working')
+    if latest.get('rejectReason') not in (None,'Success'):
+        return False
+    if (matching[0].get('commandStatus')=='Replaced' and latest.get('commandStatus')=='Replaced'
+            and latest.get('ordStatus')=='Working'):
+        return True
+    # Tradovate OSO children activate with Modify/AtExecution, not Replaced.
+    # Accept only the initial automated activation of an OnHold OCO child.
+    # Callers independently prove exact owned IDs, quantity and planned prices.
+    order=life['order'];oid=order.get('id');command=matching[0]
+    originals=[c for c in life['commands'] if c.get('commandType')=='New' and c.get('id')==oid]
+    return (len(changed)==1 and len(originals)==1
+            and not any(c.get('commandType')=='Cancel' for c in life['commands'])
+            and numeric(order.get('ocoId')) and order.get('ordStatus')=='Working'
+            and command.get('orderId')==oid and command.get('isAutomated') is True
+            and command.get('commandStatus')=='AtExecution'
+            and latest.get('commandStatus')=='AtExecution'
+            and originals[0].get('commandStatus')=='ExecutionStopped'
+            and any(r.get('commandId')==oid and r.get('commandStatus')=='OnHold' for r in life['reports']))
 
 
 class TransportError(ValueError):
@@ -118,6 +138,10 @@ class Transport:
             ''')
 
     def _request(self, method, path, body=None):
+        if method == 'POST' and not execution_safety.writes_enabled():
+            raise TransportError('LIVE_EXECUTION_DISABLED')
+        if method == 'POST' and path == self.prefix+'/orders/place' and execution_safety.entry_blocker():
+            raise TransportError(execution_safety.entry_blocker())
         allowed_read = (path == '/orders' or path.startswith('/fills/history?') or
                         path.startswith('/contracts/find?') or
                         re.fullmatch(re.escape(self.prefix)+r'/orders/[1-9][0-9]*(?:/lifecycle)?',path))
@@ -170,6 +194,8 @@ class Transport:
         return self.contract_id
 
     def submit(self,payload,oid):
+        safety=execution_safety.entry_blocker()
+        if safety:raise TransportError(safety)
         now=int(self.clock()*1000)
         if not self.sync.enabled or not selected():raise TransportError('SELECTED_VERIFIED_NATIVE_ACCOUNT_REQUIRED')
         with self.api.connect() as c:
@@ -177,6 +203,8 @@ class Transport:
         if not r or r['state']!='PREPARED':raise TransportError('PREPARED_V3_ENTRY_REQUIRED')
         order=json.loads(r['order_json'])
         import execution_policy
+        if execution_policy.mode() == 'V3_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL':
+            raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if order.get('strategy') == 'A/B':
@@ -207,6 +235,12 @@ class Transport:
         snapshot=self.sync.snapshot();now=int(self.clock()*1000)
         expiry=min(order['expiry_ms'],now+int(payload.get('cancelAfter',60))*1000)
         if expiry<=now or now>=order['expiry_ms']:raise TransportError('ENTRY_EXPIRED')
+        if order.get('strategy') != 'A/B':
+            ai_reason, review = directional_ai_review.check(order.get('direction'), oid + ':native')
+            if ai_reason:
+                raise TransportError(ai_reason)
+            if review is not None:
+                order['ai_review_at_native_dispatch'] = review
         client='b50-'+hashlib.sha256((self.binding+'|'+oid).encode()).hexdigest()[:56]
         body=dict(instrument=order['contract'][:-4]+order['contract'][-1],action=action,qty=quantity,
             orderType='limit',limitPrice=entry,takeProfit=target,stopLoss=stop,tif='gtd',
@@ -224,8 +258,38 @@ class Transport:
             c.execute('INSERT INTO native_orders VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                 (self.binding,oid,client,now,expiry,'SENDING',encode(command),None,None,None,now))
             self.audit(c,oid,'ENTRY_RESERVED',body)
+        # Final validation is after account refresh and durable idempotency claim.
+        # Failure here proves no POST was made; UNKNOWN is reserved for an actual
+        # possibly delivered request.
+        reason = execution_safety.entry_blocker()
+        if not reason and order.get('strategy') != 'A/B':
+            reason = execution_validation.check(order, order.get('ai_review_at_native_dispatch'))
+        # A slow revalidation must not outlive the entry or override a cancel /
+        # Guard request made while account or market evidence was being read.
+        if not reason:
+            reason = execution_safety.entry_blocker()
+        if not reason and int(self.clock()*1000) >= expiry:
+            reason = 'ENTRY_EXPIRED_DURING_REVALIDATION'
+        if not reason:
+            with self.api.connect() as c:
+                local = c.execute('SELECT state FROM orders WHERE order_id=?', (oid,)).fetchone()
+                intent = c.execute('SELECT state,receipt_json FROM native_orders WHERE binding=? AND order_id=?',
+                                   (self.binding, oid)).fetchone()
+                exit_request = c.execute('SELECT 1 FROM native_exit_requests WHERE binding=? AND order_id=?',
+                                         (self.binding, oid)).fetchone()
+            if (not local or local['state'] != 'PREPARED' or exit_request or not intent
+                    or intent['state'] != 'SENDING' or intent['receipt_json']):
+                reason = 'ENTRY_INVALIDATED_DURING_REVALIDATION'
+        if reason:
+            with self.api.connect() as c:
+                c.execute("UPDATE native_orders SET state='NO_FILL',error=?,updated_ms=? WHERE binding=? AND order_id=?",
+                          (reason,int(self.clock()*1000),self.binding,oid))
+                self.audit(c,oid,'ENTRY_REVALIDATION_BLOCKED',dict(reason=reason))
+            return dict(sent=False,submission_unknown=False,accepted_any=False,provider='crosstrade',
+                        reason=reason,qty=quantity,status=422)
         state='UNKNOWN';receipt=None;error='SUBMISSION_OUTCOME_UNKNOWN_NO_RETRY'
         try:
+            execution_trace.record(oid,'order_submission',at_ms=int(self.clock()*1000))
             reply=self.request('POST',self.prefix+'/orders/place',body)
             ids=reply.get('response',{})
             if (reply.get('success') is True and reply.get('destination')=='tradovate'
@@ -236,6 +300,7 @@ class Transport:
                     and ids.get('osoChildIds')==[ids['oso1Id'],ids['oso2Id']]):
                 receipt={k:ids[k] for k in ('orderId','oso1Id','oso2Id')}
                 state='WAITING_BROKER_FILL';error=None
+                execution_trace.record(oid,'broker_acknowledgment',at_ms=int(self.clock()*1000),filled=False)
         except Exception:pass
         with self.api.connect() as c:
             c.execute("UPDATE native_orders SET state=?,receipt_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=? AND state='SENDING'",
@@ -360,12 +425,18 @@ class Transport:
         fills=self.fills(ids,snapshot,row['created_ms'])
         entry_fills=[f for f in fills if f['orderId']==receipt['orderId']]
         exit_fills=[f for f in fills if f['orderId']!=receipt['orderId']]
+        for fill in fills:
+            execution_trace.record(row['order_id'], 'entry_fill' if fill['orderId']==receipt['orderId'] else 'exit_fill',
+                                   at_ms=stamp(fill['timestamp']), fill_id=fill['id'],
+                                   quantity=fill['qty'], price=fill['price'])
         eq=sum(f['qty'] for f in entry_fills);xq=sum(f['qty'] for f in exit_fills)
         entry_status=entry['order'].get('ordStatus')
         native_active=[life['order']['id'] for life in lives.values() if life['order'].get('ordStatus') not in TERMINAL]
         at=int(snapshot['observed_at']*1000)
         with self.api.connect() as c:
             if entry_status in TERMINAL:
+                execution_trace.record(row['order_id'], 'broker_terminal_observed',
+                                       at_ms=at, state=entry_status)
                 c.execute("UPDATE native_actions SET state='ACKNOWLEDGED',updated_ms=? WHERE binding=? AND order_id=? AND operation='cancel'",(at,self.binding,row['order_id']))
             for child in (receipt['oso1Id'],receipt['oso2Id']):
                 if lives[child]['order'].get('ordStatus') in TERMINAL:
@@ -563,16 +634,26 @@ class Transport:
         if row['state']=='CLOSED_PENDING_COSTS':return dict(outcome='closed_pnl_pending',net=None,R=None,broker_reconciled=False)
         return dict(outcome='open',net=None,R=None,broker_reconciled=False)
 
-    def entry_blocker(self):
+    def entry_blocker(self, *, pending_order_id=None):
         with self.api.connect() as c:
             if c.execute("SELECT 1 FROM native_actions WHERE binding=? AND state IN ('SENDING','UNKNOWN')",(self.binding,)).fetchone():
                 return 'broker:native_action_outcome_unknown'
-            if c.execute("SELECT 1 FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED')",(self.binding,)).fetchone():
+            if pending_order_id is not None:
+                own = c.execute('SELECT state,receipt_json FROM native_orders WHERE binding=? AND order_id=?',
+                                (self.binding,pending_order_id)).fetchone()
+                if not own or own['state'] != 'SENDING' or own['receipt_json']:
+                    return 'broker:unsubmitted_native_reservation_required'
+                if c.execute('SELECT 1 FROM native_exit_requests WHERE binding=? AND order_id=?',
+                             (self.binding,pending_order_id)).fetchone():
+                    return 'broker:reserved_entry_exit_requested'
+            if c.execute("SELECT 1 FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED') AND (? IS NULL OR order_id<>?)",
+                         (self.binding,pending_order_id,pending_order_id)).fetchone():
                 return 'broker:native_order_or_cost_reconciliation_pending'
         snapshot=self.sync.snapshot()
         if snapshot:
             with self.api.connect() as c:
-                native=list(c.execute('SELECT receipt_json,command_json,observation_json,state FROM native_orders WHERE binding=? ORDER BY created_ms',(self.binding,)))
+                native=list(c.execute('SELECT receipt_json,command_json,observation_json,state FROM native_orders WHERE binding=? AND (? IS NULL OR order_id<>?) ORDER BY created_ms',
+                                      (self.binding,pending_order_id,pending_order_id)))
                 close_replies=list(c.execute("SELECT response_json FROM native_actions WHERE binding=? AND operation='close'",(self.binding,)))
             known=set()
             for row in native: known.update(json.loads(row['receipt_json'] or '{}').values())
@@ -589,6 +670,8 @@ class Transport:
         return None
 
     def action(self,oid,operation,action_id,*,snapshot=None):
+        if not execution_safety.writes_enabled():
+            raise TransportError('LIVE_EXECUTION_DISABLED')
         row=self.row(oid)
         if not row or not row['receipt_json']:raise TransportError('EXACT_OWNED_BROKER_IDS_REQUIRED')
         if snapshot is None:
@@ -698,9 +781,9 @@ def submit(payload,oid):
     return _TRANSPORT.submit(payload,oid)
 
 
-def entry_blocker():
+def entry_blocker(*, pending_order_id=None):
     if provider()=='invalid':return 'broker:invalid_order_provider'
-    return _TRANSPORT.entry_blocker() if selected() and _TRANSPORT else 'broker:native_transport_not_configured' if selected() else None
+    return _TRANSPORT.entry_blocker(pending_order_id=pending_order_id) if selected() and _TRANSPORT else 'broker:native_transport_not_configured' if selected() else None
 
 
 def resolution(oid):

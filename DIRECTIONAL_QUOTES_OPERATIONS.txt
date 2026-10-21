@@ -1,0 +1,105 @@
+Directional / CrossTrade quote integration (2026-10-21)
+
+Scope
+The existing Directional strategy and CrossTrade native LIMIT transport are
+unchanged. A/B remains shadow. No new service, strategy or real-money test.
+Quote monitoring is not order authorization. No candle, last or midpoint fallback.
+
+Quote adapter
+DIRECTIONAL_QUOTE_MONITOR_ENABLED=true enables the in-process GET-only monitor
+at 30-second intervals. /execution/quotes returns its most recent persisted
+observation without another provider request. /execution/readiness includes
+quote provenance and observation age. Original response text and parsed data,
+request latency, provider timestamps and validation decision are stored in
+DATA_DIR/directional_quotes.sqlite3; retention 30 days / 100,000 rows.
+The endpoint is fixed, redirects disabled, timeout 5 seconds, body <=64KiB.
+Exact dated MNQ contract, tick/value metadata, positive tick-aligned bid <= ask,
+provider timestamps, freshness and completeness are checked. Collective uses
+the older of ts/eventTs for diagnostic age only; their semantics are unverified.
+confidence=high never authorizes an order. collective remains monitoring-only.
+
+Documented NT8 Live snapshots may pass the existing execution adapter with
+DIRECTIONAL_QUOTE_SOURCE=crosstrade_nt8 and an approved execution policy.
+There is no flag that promotes collective to executable. Approval of parameters
+cannot override explicit execution_eligible=false. Final execution fetches a
+new quote; the monitor cache is never submitted as execution evidence.
+
+Quote traffic is paced to at most one request per 2 seconds across local
+processes sharing DATA_DIR, without automatic retries or waiting in an entry
+call. 429 Retry-After (minimum 7-second backoff), transport/5xx backoff and
+pacing survive process restart. CrossTrade's 3 requests/second budget is shared
+across ALL clients of the user; the quote limiter does not govern unrelated
+external applications. Monitor traffic is just 2 requests/minute. A rate limit
+or unavailable quote fails entry closed. The 10-second monitor age ceiling is
+a diagnostic classification, not an approved executable freshness threshold.
+
+Final sequence
+Exact setup AI ALLOW and original geometry are bound to the same order.
+The existing native reservation is persisted before final validation. Slow
+account and thesis reads precede the fresh quote. The final pure gate then
+checks price/limit, spread, R:R including costs, account/thesis/review ages and
+identity. Native transport again checks kill switch, expiry, ownership and
+cancellation immediately before POST. Original LIMIT and bracket are unchanged;
+no conversion to MARKET. Broker ACK is not fill or proof of protection.
+
+Risk repair
+Actual Tradovate USD/SOD balance field aliases are normalized. Missing or
+conflicting balances block. Provider allowance proof remains account-bound,
+dated, and mandatory. No panel floor or approved parameter is fabricated.
+
+External evidence still required
+- CrossTrade's definition of collective bid/ask: actual unaveraged CME BBO or
+  aggregate/indicative prices, timestamp semantics and update/staleness policy.
+  An independent executable feed comparison where accessible. Public docs:
+  https://crosstrade.io/docs/api/market/get-quote
+  https://crosstrade.io/docs/api/rate-limiting
+- Current MFFU stage/plan option, absolute floor, daily allowance, contract cap
+  and validity period from the specific account. User supplied floor 48161.90
+  and balance 48721.05; this is not a complete dated provider allowance proof.
+- Representative NYAM/NYPM quotes, exact AI durations and actual fill evidence
+  for approved spread/age/entry-zone/volatility/slippage parameters. A short
+  overnight sample cannot validate NY execution thresholds or probable slippage.
+- Provider paper account for independent broker-side certification. MFFU Builder
+  demo is not used as a disposable paper account. Local protocol simulator is
+  explicitly labelled, and does not certify external protection behavior.
+
+Fixed gross 2R incompatibility
+For gross stop risk L, target G, round-trip costs C and stop stress S,
+net RR=(G-C)/(L+C+S). >=2 requires G>=2L+3C+2S. Fixed G=2L cannot pass with
+positive costs. Do not silently move TP/entry or approve a new bracket policy.
+The existing 3R runner requires its own acceptance checks and user approval.
+
+Controlled activation (ONLY after all acceptance checks and explicit approval)
+1. Keep LIVE_EXECUTION_ENABLED=false, EXEC_KILL_SWITCH=true, Guard OFF,
+   AUTO_SUBMIT=0, EXEC_MODE=off and V3_ENTRY_ARMED=0 during verification.
+2. Supply reviewed DIRECTIONAL_EXECUTION_POLICY_FILE and current
+   MFFU_RISK_EVIDENCE_FILE. Verify provider provenance and dated contract,
+   fees, current account-wide inventory/P&L, calendar, sessions, entry geometry,
+   net >=2R and broker lifecycle/protection. Freeze hashes and release SHA.
+3. Obtain explicit activation approval. Keep EXEC_STRATEGY_POLICY=V3_ONLY,
+   AB_ENTRY_ARMED=0, AB_MANAGER_MODE=shadow, BUILDER_ORDER_PROVIDER=crosstrade,
+   AB_AI_ENABLED=true, AB_AI_OWNER=AB_DIRECTIONAL, AB_AI_TRIGGER=SETUP,
+   V3_AI_REVIEW_REQUIRED=true, AB_AI_MAX_CALLS_PER_DAY=12. Keep NYAM 09:30-11:00
+   and NYPM 13:30-16:00 America/New_York. The call cap is not a dollar budget.
+4. The entry switches, after checks, are AB_V3_MODE=LIVE,
+   AB_DIRECTIONAL_LIVE_LONG=1, AB_DIRECTIONAL_LIVE_SHORT=1, V3_ENTRY_ARMED=1,
+   AUTO_SUBMIT=1, EXEC_MODE=auto, LIVE_EXECUTION_ENABLED=true and Guard AUTO.
+   Keep kill true until effective configuration/protection is verified, then
+   user-authorized release of EXEC_KILL_SWITCH=false. Do not replay history.
+   V3_EXIT_MODE=real / V3_EXIT_REAL_EXECUTION=true require existing ownership/
+   parity checks; V3_RUNNER_ENABLED remains false until separately accepted.
+   Preserve the currently tighter DAY_LOSS_N=1 (not the default 2),
+   DAY_LOSS_USD=550, MAX_TRADES_DAY=3, EXEC_MAX_QTY=15,
+   AB_DIRECTIONAL_RISK_USD_50K=250 and rolling LOSS_STREAK_N=3.
+5. Observe native ACK, actual fills and matching working stop/target/OCO,
+   not merely SENT/HTTP 200. Uncertainty blocks further entries.
+
+Rollback
+First set EXEC_KILL_SWITCH=true and AUTO_SUBMIT=0 / Guard OFF to stop entries.
+If exposure exists, keep the master and protective-exit path available; disabling
+all writes would also disable necessary cancellation/close operations. Confirm
+broker-side protection and resolve outstanding positions/orders manually if
+needed. Only when flat with zero working orders set LIVE_EXECUTION_ENABLED=false,
+V3_ENTRY_ARMED=0 and Directional flags off. Redeploy the last verified release
+with these disabled variables, preserving /data journals and idempotency keys.
+Verify SHA, health, positions, orders and restart recovery. Never delete state.

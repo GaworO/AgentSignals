@@ -283,10 +283,11 @@ def guard_exit_requested(reason):
     api=live()
     with api.connect() as c:
         c.execute('BEGIN IMMEDIATE')
-        for row in c.execute("SELECT order_id,position_json FROM orders WHERE state IN ('ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','EXIT_UNKNOWN')").fetchall():
-            # A prepared entry has no position to exit. Never turn it into an
-            # exit request that cannot be resolved by guard_exit_accepted().
-            if not json.loads(row['position_json'] or '{}'): continue
+        for row in c.execute("SELECT order_id,position_json FROM orders WHERE state IN ('PREPARED','WAITING_BROKER_FILL','SUBMISSION_UNKNOWN','ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','EXIT_UNKNOWN')").fetchall():
+            # Latch even unconfirmed entries: a delayed acknowledgment must not
+            # resurrect a position after Guard requested shutdown. With no fill
+            # this stays unresolved until the native journal proves NO_FILL;
+            # guard_exit_accepted() must never invent a close or a flat account.
             oid=row[0]
             c.execute("UPDATE orders SET state='GUARD_EXIT_PENDING',updated_ms=? WHERE order_id=?",(api.now_ms(),oid))
             api._exit_transition(c,oid,'EXIT_REQUESTED',api.now_ms(),'guard:'+reason)

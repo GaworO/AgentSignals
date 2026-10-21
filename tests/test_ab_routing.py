@@ -16,7 +16,8 @@ from test_builder_crosstrade import functions, ROOT
 
 
 def ab_env():
-    return dict(EXEC_STRATEGY_POLICY='AB_ONLY',AB_ENTRY_ARMED='1',BUILDER_ORDER_PROVIDER='crosstrade',
+    return dict(LIVE_EXECUTION_ENABLED='true', EXEC_KILL_SWITCH='false',
+                EXEC_STRATEGY_POLICY='AB_ONLY',AB_ENTRY_ARMED='1',BUILDER_ORDER_PROVIDER='crosstrade',
                 AB_V3_MODE='SHADOW',AB_V3_CONTRACT='MNQZ2026',EXEC_TICKER='MNQZ2026',
                 AB_V3_DETECTOR_CONTRACT_VERIFIED='1',ACCOUNT_PLAN='builder50',ACCOUNT='50000',
                 RISK_PCT='.5',EXEC_MAX_QTY='15',EXEC_CANCEL_AFTER_SEC='600',PRICE_OFFSET='0',ENTRY_OFFSET_PTS='0',
@@ -118,7 +119,7 @@ class ContextTests(unittest.TestCase):
         # Monday Oct 19 2026 10:00 NY.
         self.now=1792418400.;self.calls=[]
         self.config=dict(DATA_DIR=self.tmp.name,AB_AI_ENABLED='true',AB_AI_INTERVAL_MINUTES='60',
-                         AB_AI_MAX_CALLS_PER_DAY='12',OPENAI_MODEL='fixture',OPENAI_API_KEY='fixture')
+                         AB_AI_MAX_CALLS_PER_DAY='12',AB_AI_HYBRID_ENABLED='false',OPENAI_MODEL='fixture',OPENAI_API_KEY='fixture')
         self.used=0
         self.support=ai.ContextSupport(self.config,reader=self.source,transport=self.transport,clock=lambda:self.now)
 
@@ -143,6 +144,13 @@ class ContextTests(unittest.TestCase):
                contrary_evidence_pl='Trend przeciwny',invalidation=dict(evidence_id=ref,field='low',price=90.,relation='below'))
         d=dict(packet_id=p['packet_id'],long_scenario=s,short_scenario=s,liquidity_reading_pl='Hipoteza OHLC',
                target_2r_3r_pl='Potrzebne entry i SL',missing_context_pl=['Brak pełnego D1'])
+        if p.get('ict_context'):
+            # Explicit mocked fixture only, never a genuine model response.
+            d['setup_binding']=dict(order_id=p['setup']['order_id'],direction=p['setup']['direction'],
+                                    setup_fingerprint=p['setup_fingerprint'])
+            d['ict_assessment']={name:dict(assessment='UNKNOWN',evidence_ids=[],
+                reason_pl='Mocked test: no discretionary ICT judgment',missing_evidence=['fixture'])
+                for name in p['ict_context']['topics']}
         return dict(status='completed',usage=dict(input_tokens=10,output_tokens=10),
                     output=[dict(type='message',content=[dict(type='output_text',text=json.dumps(d))])])
 

@@ -495,6 +495,8 @@ def flatten_all(reason):
     TradersPost for EXEC_TICKER. Fired on loss/DD latches and by the EOD flatten. Never raises.
     Off with GUARD_FLATTEN=0."""
     try:
+        import execution_safety
+        if not execution_safety.writes_enabled(): return False
         if _env('GUARD_FLATTEN', '1') != '1': return False
         if builder_crosstrade.selected():
             return builder_crosstrade.request_flatten(str(reason))
@@ -599,6 +601,9 @@ def finish_sibling_batch(group_id, status='sent'):
 
 
 def _relay_action(action):
+    import execution_safety
+    if not execution_safety.writes_enabled():
+        return dict(action=action,ok=False,status=None,error='live_execution_disabled')
     if builder_crosstrade.selected(): return builder_crosstrade.relay(action)
     if builder_crosstrade.provider() == 'invalid': return dict(ok=False,error='invalid_order_provider')
     url = os.environ.get('EXEC_WEBHOOK', '')
@@ -685,6 +690,8 @@ def sweep_orphans():
 
 def flatten_cancel_only():
     """Cancel resting orders only (no exit) — used by the orphan sweep."""
+    import execution_safety
+    if not execution_safety.writes_enabled(): return False
     try:
         if builder_crosstrade.selected(): return builder_crosstrade.relay('cancel').get('ok',False)
         if builder_crosstrade.provider() == 'invalid': return False
@@ -1164,7 +1171,8 @@ def inactivity_status(rows=None, now=None):
     rows = list(rows or [])
     confirmed = [r for r in rows if r.get('decision') == 'sent'
                  and r.get('outcome') in ('win', 'loss', 'timeout')]
-    native_ab = execution_policy.mode() == 'AB_ONLY'
+    native_ab = (execution_policy.mode() == 'AB_ONLY' or
+                 execution_policy.mode() == 'V3_ONLY' and builder_crosstrade.selected())
     if native_ab:
         # A shadow/model outcome is not account activity. This local ledger
         # also cannot prove the absence of trades made elsewhere on the account.
@@ -1175,6 +1183,11 @@ def inactivity_status(rows=None, now=None):
         raw = str(row.get('date') or str(row.get('et') or '')[:10])
         try: dated.append((dt.date.fromisoformat(raw), row))
         except Exception: pass
+    if native_ab:
+        try:
+            fill=builder_broker_sync.instance().last_confirmed_fill()
+            if fill:dated.append((dt.date.fromisoformat(fill['date']),fill))
+        except Exception:pass  # Incomplete activity history remains unverified.
     if dated:
         anchor, last = max(dated, key=lambda item: item[0])
         source = 'broker' if native_ab or last.get('reconciled') else 'model-confirmed fill'
@@ -1417,13 +1430,31 @@ def _day_stats():
     return dict(sent=n_trades, losses=losses, net=net, openpos=openpos, loss_mode=loss_mode)
 
 # ---------- the gate ----------
-def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None):
+def _reserved_entry_blocker(x, reservation_id, state):
+    """Only the same, still-unsubmitted Directional batch may be rechecked."""
+    pg = _active_pending_group(state)
+    if reservation_id is None:
+        return 'group_pending' if pg else None
+    expected = 'ab_directional_' + str(x.get('_continuation_order_id') or '')
+    if (not pg or not x.get('_continuation_order_id') or x.get('_v3_directional') is not True
+            or reservation_id != expected or pg.get('group_id') != expected
+            or pg.get('strats') != [x.get('_strat')] or pg.get('accepted') != []
+            or pg.get('planned_risk_usd') != x.get('_planned_group_risk_usd')):
+        return 'owned_unsubmitted_group_required'
+    return None
+
+
+def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None, *, reservation_id=None):
     """(True,'ok') to allow staging, else (False,'<reason>'). FAIL-CLOSED on any error."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
         s = _state()
         if _kill_active(s):                     return (False, 'killed:' + (s.get('kill_reason') or '?'))
-        broker_reason = builder_broker_sync.entry_blocker()
+        if reservation_id is not None:
+            reservation_reason = _reserved_entry_blocker(x, reservation_id, s)
+            if reservation_reason: return (False, reservation_reason)
+        broker_reason = (builder_broker_sync.entry_blocker(pending_order_id=x['_continuation_order_id'])
+                         if reservation_id is not None else builder_broker_sync.entry_blocker())
         if broker_reason: return (False, broker_reason)
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
@@ -1484,7 +1515,8 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             if mm == 'nyam' and sess == 'PREM': return (False, 'monday_prem')  # keep Monday but ignore PREM — start at NYAM open
             if mm == 'quarter': x['_mon_quarter'] = True
 
-        if _active_pending_group(s):             return (False, 'group_pending')
+        reservation_reason = _reserved_entry_blocker(x, reservation_id, s)
+        if reservation_reason: return (False, reservation_reason)
         d = _day_stats()
         if d['openpos']:                        return (False, 'position_open')     # blocks OTHER setups; siblings share one batch
         pb = _peer_busy()                                                           # v27.2: one position across ALL

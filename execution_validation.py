@@ -1,0 +1,193 @@
+"""Final Directional gate, using separately supplied server-side evidence.
+
+There is deliberately no candle-to-quote fallback. CrossTrade collective
+quotes are monitored but cannot authorize orders without source verification.
+Registered adapters still require verified quote access, account allowances,
+complete current thesis evidence and approved execution parameters.
+Policy values must come from an explicitly documented and approved strategy
+validation; none are inferred from observed trades or the AI response.
+"""
+import json
+import math
+import os
+import time
+from pathlib import Path
+
+import execution_trace
+
+_SOURCES = {}
+LIMITS = ('max_signal_age_ms', 'max_quote_age_ms', 'entry_zone_points',
+          'max_spread_ticks', 'max_slippage_ticks', 'max_volatility_points',
+          'max_account_age_ms', 'max_thesis_age_ms', 'min_rr')
+
+
+def configure_sources(*, market, thesis, risk):
+    if not all(callable(f) for f in (market, thesis, risk)):
+        raise ValueError('server_side_validators_required')
+    _SOURCES.update(market=market, thesis=thesis, risk=risk)
+
+
+def register_source(name, validator):
+    if name not in ('market', 'thesis', 'risk') or not callable(validator):
+        raise ValueError('server_side_validator_required')
+    _SOURCES[name] = validator
+
+
+def policy():
+    path = os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')
+    if not path:
+        raise ValueError('validated_execution_policy_missing')
+    value = json.loads(Path(path).read_text())
+    if (value.get('approved') is not True or not value.get('validation_reference')
+            or value.get('strategy') != 'AB_DIRECTIONAL'
+            or not value.get('volatility_definition')):
+        raise ValueError('validated_execution_policy_missing')
+    for key in LIMITS:
+        number = value.get(key)
+        if type(number) not in (int, float) or not math.isfinite(number) or number <= 0:
+            raise ValueError('execution_parameter_missing:' + key)
+    if value['min_rr'] < 2:
+        raise ValueError('directional_minimum_2r_required')
+    if value['max_account_age_ms'] > 30000:
+        raise ValueError('account_age_exceeds_existing_sync_limit')
+    costs(value)
+    return value
+
+
+def costs(parameters):
+    """Per-contract round-trip costs; never infer commission from cash changes."""
+    value = parameters.get('costs', {})
+    if not value.get('validation_reference') or value.get('contract') != parameters.get('contract'):
+        raise ValueError('verified_transaction_costs_required')
+    for key in ('round_trip_usd', 'stop_slippage_ticks'):
+        number = value.get(key)
+        if type(number) not in (int, float) or not math.isfinite(number) or number < 0:
+            raise ValueError('verified_transaction_costs_required')
+    return value
+
+
+def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
+    """Pure validation, also exercised by the offline broker simulator."""
+    try:
+        sign = {'LONG': 1, 'SHORT': -1}[order['direction']]
+        entry, stop, target = (float(order[k]) for k in ('entry_price', 'stop_price', 'target_price'))
+        tick = .25  # This adapter only supports the validated MNQ contract.
+        contract = order['contract']
+        if not (order['activation_ms'] <= now_ms < order['expiry_ms']):
+            return 'signal_expired'
+        if now_ms-order['activation_ms'] > parameters['max_signal_age_ms']:
+            return 'signal_too_old'
+        if quote.get('contract') != contract or parameters.get('contract') != contract:
+            return 'contract_mismatch'
+        if quote.get('market_open') is not True:
+            return 'market_closed_or_unknown'
+        if quote.get('execution_eligible') is False:
+            return 'quote_source_unverified'
+        if quote.get('source') != parameters.get('quote_source') or not quote.get('source'):
+            return 'quote_source_unverified'
+        if not 0 <= now_ms-quote['as_of_ms'] <= parameters['max_quote_age_ms']:
+            return 'quote_stale_or_future'
+        bid, ask, volatility = (float(quote[k]) for k in ('bid', 'ask', 'volatility_points'))
+        if (not all(math.isfinite(v) and v > 0 for v in (entry, stop, target, bid, ask))
+                or not math.isfinite(volatility) or volatility < 0 or bid > ask):
+            return 'invalid_market_or_bracket'
+        if any(abs(v/tick-round(v/tick)) > 1e-8 for v in (entry, stop, target, bid, ask)):
+            return 'off_tick_price'
+        px = ask if sign == 1 else bid
+        if abs(px-entry) > parameters['entry_zone_points']:
+            return 'outside_validated_entry_zone'
+        if (ask-bid)/tick > parameters['max_spread_ticks']:
+            return 'spread_limit'
+        if max(0, sign*(px-entry))/tick > parameters['max_slippage_ticks']:
+            return 'slippage_limit'
+        if (quote.get('volatility_definition') != parameters['volatility_definition']
+                or volatility > parameters['max_volatility_points']):
+            return 'volatility_limit_or_definition'
+        # The order is a LIMIT; an adverse fill beyond entry is not authorized.
+        # Test both the original bracket and the current executable side.
+        for price in (entry, px):
+            loss, reward = sign*(price-stop), sign*(target-price)
+            if loss <= 0 or reward <= 0:
+                return 'bracket_invalidated'
+            if reward/loss + 1e-9 < parameters['min_rr']:
+                return 'reward_risk_below_minimum'
+        # Worst permitted LIMIT entry is the unchanged limit, not an assumed
+        # favourable fill at a transient quote. Stop slippage is a validated
+        # stress allowance, never a guaranteed maximum on a stop-market fill.
+        fees = costs(parameters)
+        loss = sign*(entry-stop)*2 + fees['round_trip_usd'] + fees['stop_slippage_ticks']*.5
+        reward = sign*(target-entry)*2 - fees['round_trip_usd']
+        if reward <= 0 or reward/loss + 1e-9 < parameters['min_rr']:
+            return 'net_reward_risk_below_minimum'
+        if (thesis.get('order_id') != order['order_id'] or thesis.get('valid') is not True
+                or not thesis.get('evidence_id')
+                or not 0 <= now_ms-thesis['checked_ms'] <= parameters['max_thesis_age_ms']):
+            return 'directional_thesis_not_revalidated' + (':' + str(thesis['reason']) if thesis.get('reason') else '')
+        if (risk.get('allowed') is not True or risk.get('order_id') != order['order_id']
+                or not risk.get('account_binding')
+                or not 0 <= now_ms-risk['checked_ms'] <= parameters['max_account_age_ms']):
+            return 'account_risk_not_revalidated' + (':' + str(risk['reason']) if risk.get('reason') else '')
+        if (review.get('state') != 'ALLOW' or not review.get('review_id')
+                or review.get('order_id') != order['order_id']
+                or not review['available_at']*1000 <= now_ms < review['expires_at']*1000):
+            return 'setup_review_missing_or_expired'
+        geometry = ('direction', 'contract', 'entry_price', 'stop_price', 'target_price', 'activation_ms', 'expiry_ms')
+        if any(review.get('setup', {}).get(k) != order.get(k) for k in geometry):
+            return 'setup_review_geometry_mismatch'
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return 'revalidation_evidence_incomplete'
+    return None
+
+
+def check(order, review, *, clock=time.time):
+    started = int(clock()*1000)
+    evidence = {}
+    try:
+        parameters = policy()
+        # Fetch executable quotes last, after the slower account/context reads.
+        for name in ('risk', 'thesis', 'market'):
+            if name not in _SOURCES:
+                raise ValueError(name + '_validator_unavailable')
+            evidence[name] = _SOURCES[name](dict(order))
+        import ab_ai_context
+        if (os.environ.get('AB_AI_TRIGGER') == 'HYBRID' or
+                getattr(ab_ai_context.INSTANCE,'trigger',None) == 'HYBRID'):
+            import directional_ai_review
+            blocked, latest = directional_ai_review.check(order['direction'],order['order_id'])
+            if blocked or not review or latest.get('review_id') != review.get('review_id'):
+                raise ValueError(blocked or 'hybrid_review_changed')
+            review = latest
+        reason = evaluate(order, evidence['market'], evidence['thesis'], evidence['risk'],
+                          review or {}, parameters, int(clock()*1000))
+    except Exception as exc:
+        reason = str(exc) if isinstance(exc, ValueError) else 'revalidation_source_failed'
+    # A durable log failure propagates and prevents submission.
+    execution_trace.record(order['order_id'], 'execution_eligibility', started_ms=started,
+                           reason=reason, allowed=reason is None)
+    return reason
+
+
+def status():
+    try:
+        policy()
+        policy_error = None
+    except Exception as exc:
+        policy_error = str(exc) if isinstance(exc, ValueError) else 'execution_policy_unreadable'
+    missing = [name for name in ('market', 'thesis', 'risk') if name not in _SOURCES]
+    access=[]
+    if 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
+            or not (os.environ.get('DIRECTIONAL_QUOTE_API_TOKEN') or os.environ.get('BUILDER_BROKER_API_TOKEN'))):
+        access.append('executable_quote_access_not_configured')
+    if 'risk' in _SOURCES and not os.environ.get('MFFU_RISK_EVIDENCE_FILE'):
+        access.append('mffu_current_allowances_missing')
+    from directional_market_data import QuoteClient
+    try:
+        last=QuoteClient().latest()
+        if last and last.get('quote',{}).get('execution_eligible') is False:
+            access.append('quote_source_suitability_unverified')
+        quote_status=None if not last else {k:last.get(k) for k in ('observed_ms','observation_age_ms','reason','quote','request_latency_ms')}
+    except Exception:
+        quote_status={'reason':'quote_monitor_unavailable'}
+    return dict(quote_monitor=quote_status, ready=policy_error is None and not missing and not access, policy_error=policy_error,
+                access_blockers=access,
+                missing_validators=missing, candle_quote_fallback=False)

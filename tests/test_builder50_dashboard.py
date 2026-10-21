@@ -152,9 +152,9 @@ class Builder50DashboardTests(unittest.TestCase):
         }, clear=True), mock.patch.object(agent.requests, 'post', return_value=response) as post:
             result = agent._exec_order({'dir': 'LONG', 'entry': 20000, 'SL': 19990,
                                         '_test_signal': True})
-        self.assertTrue(result['sent'])
-        self.assertIs(post.call_args.kwargs['json']['test'], True)
-        self.assertIn('route_id', result)
+        self.assertFalse(result['sent'])
+        self.assertEqual(result['reason'], 'live_execution_disabled')
+        post.assert_not_called()
         self.assertNotIn('path_tail', result)
 
     def test_builder_ab_and_shallow_share_one_500_dollar_ceiling(self):

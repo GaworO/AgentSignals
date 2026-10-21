@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app import App
-from connection_test import ConnectionTest,TestBlocked,TransportError,test_payload,send_test
+from connection_test import ConnectionTest,TestBlocked,TransportError,test_payload as make_test_payload,send_test
 from store import Store
 
 URL='https://webhooks.traderspost.io/trading/webhook/00000000-0000-0000-0000-000000000000/test_password_only'
@@ -76,7 +76,7 @@ class TestConnection(unittest.TestCase):
         with self.assertRaises(TestBlocked):changed.run('f'*32,self.transport,lambda:91000)
 
     def test_boundary_forbids_non_test_and_redacts_provider_response(self):
-        p=test_payload('MNQZ2026','a'*32,1000)
+        p=make_test_payload('MNQZ2026','a'*32,1000)
         for change in [{'test':False},{'test':1},{'quantity':2},{'action':'exit'},{'ticker':'ESZ2026'}]:
             with self.assertRaises(TestBlocked):send_test(URL,dict(p,**change))
         response=MagicMock();response.__enter__.return_value=response
@@ -93,7 +93,7 @@ class TestConnection(unittest.TestCase):
         with patch('connection_test.urllib.request.build_opener') as opener:
             opener.return_value.open.side_effect=urllib.error.HTTPError(URL,403,URL,{},io.BytesIO(URL.encode()))
             with self.assertRaisesRegex(TransportError,'^HTTP_403$'):
-                send_test(URL,test_payload('MNQZ2026','a'*32,1000))
+                send_test(URL,make_test_payload('MNQZ2026','a'*32,1000))
 
     def test_wsgi_auth_csrf_custom_payload_rejected_and_valid_test(self):
         cfg=dict(self.config,DATA_DIR=self.temp.name,TANJA_FEED_TOKEN='a'*40,TANJA_DASHBOARD_PASSWORD='local_test_password_1234')

@@ -1,0 +1,135 @@
+Directional execution completion — 2026-10-20
+
+This supplements PRODUCTION_READINESS.txt. The prior candidate a161321 was
+verified running in Builder as c3051e64-7b73-4e22-8ecc-2a59b9a93862 with
+V3_ONLY, A/B shadow, SETUP AI, 12/day, master false, kill true, Guard OFF.
+New code does not authorize orders. Deployment SHA is recorded in the receipt.
+
+Implemented dependencies
+- directional_market_data.py: fixed-origin GET-only NT8 quote adapter, dated
+  MNQ identity, tick/value/source checks, provider timestamp, no redirects,
+  bounded response, no candle-price fallback. Collective/cluster mean pricing
+  is explicitly rejected. Volatility uses separately identified closed M1 true
+  ranges; the window and threshold require validation, not a default guess.
+- directional_thesis.py: exact persisted setup and original BOS evidence,
+  pending/unconsumed state, complete closed-M1 coverage since activation,
+  original SL/TP not already touched, current market-only context GET and
+  refreshed AI invalidation. No new AI call. Missing/current-minute-race data
+  blocks. The conservative rule version original_bos_bracket_ai_v1 requires
+  explicit validation in the execution policy; registration alone proves none.
+- execution_validation.py: executable quote fetched AFTER slow account/context
+  reads, then all timestamps checked again. Original LIMIT never moved.
+  Net reward/risk includes verified round-trip costs and stop slippage stress.
+- directional_account_limits.py: account-bound, dated MFFU risk evidence;
+  unknown/expired/current-floor ambiguity blocks. Account-wide realized and
+  unrealized P&L must agree with cash and net liquidation. Transfers block.
+  Projected loss includes costs and uses the tighter local/provider daily limit,
+  current trailing floor and micro-contract allowance. Existing Guard still runs.
+- Activity tracking: V3_ONLY uses account-bound, confirmed broker fills even
+  while costs await reconciliation. Unknown history stays unverified. A fill
+  does not certify net P&L or remove the independent pending-cost entry block.
+
+Critical numerical incompatibility
+A fixed gross 2R bracket cannot meet net >=2R with positive costs. With gross
+stop loss L, target reward G, round-trip cost C and stop slippage stress S:
+  net RR = (G-C)/(L+C+S)
+  net RR >=2 requires G >=2L+3C+2S.
+The code rejects this conflict, does not silently extend TP or assume a better
+entry fill. The synthetic integration example uses a 3R protocol bracket; that
+is not validation/activation of the production 3R runner. Production original
+fixed 2R remains unchanged. A separately approved and validated bracket policy
+is needed to satisfy the newly requested net criterion.
+
+Read-only external evidence
+CrossTrade /market/quote returned MNQ 12-26 bid/ask but source=collective and
+pricingBasis=cluster_mean_mid, with no documented NT8 Live dataSource. Such a
+response is indicative, not accepted as executable. Tradovate quotes are not
+provided by the linked TV API. Required: actual NT8 CME feed/access or another
+specifically documented and accessible executable CME quote source. No new
+subscription was purchased; no fabricated bid/ask or locally stamped freshness.
+CrossTrade fills/history returned no fee rows. Broker balance: 48721.05,
+prior-session realized -240.50, open P&L zero; prior fill-derived gross -231.
+After the broker session reset current realized P&L is zero and week realized
+P&L is -240.50; persisted fills retain activity evidence across that reset. Difference 9.50
+is not per-fill fee evidence. CLOSED_PENDING_COSTS is preserved.
+Account response exposes autoLiqLevel=-2000 but no unambiguous current absolute
+trailing floor. Do not reinterpret that field as today's minimum balance.
+Required: current account stage/MLL option, provider's absolute minimum balance,
+daily allowance, contract cap, timestamp/validity, and an authoritative fill-fee
+statement or restored complete API fee history for reconciliation.
+
+Exact evidence/configuration prerequisites
+DIRECTIONAL_QUOTE_SOURCE=crosstrade_nt8
+DIRECTIONAL_QUOTE_API_TOKEN=<optional token override; otherwise existing
+BUILDER_BROKER_API_TOKEN is used, on the same fixed CrossTrade origin>
+DIRECTIONAL_EXECUTION_POLICY_FILE=<reviewed immutable JSON path>
+MFFU_RISK_EVIDENCE_FILE=<current account-specific evidence JSON path>
+Do not substitute placeholders or mark approved without the underlying checks.
+
+Execution policy JSON requires approved=true, validation_reference,
+strategy=AB_DIRECTIONAL, contract matching EXEC_TICKER and AB_V3_CONTRACT,
+quote_source=crosstrade_nt8, min_rr>=2, and validated positive numbers for
+max_signal_age_ms, max_quote_age_ms, max_account_age_ms (at most the existing
+30000 ms sync limit), max_thesis_age_ms, entry_zone_points, max_spread_ticks,
+max_slippage_ticks, max_volatility_points. It also requires:
+volatility_definition=closed_m1_max_true_range, volatility_window_bars (1..1440),
+thesis_rule_version=original_bos_bracket_ai_v1, and costs object with matching
+contract, validation_reference, round_trip_usd>=0, stop_slippage_ticks>=0.
+These parameter values remain unset until evidence exists.
+
+Validation results: complete offline run 1033 cases: 970 passed, 60 failed,
+2 collection errors, 1 skipped. All Tanja service test files pass after correcting
+runtime import precedence, helper collection and the current NQ queue fixture.
+Current native adapter, broker sync, execution gate, setup AI, risk revalidation,
+Directional routing/isolation and M1 manager suites pass. Remaining failures are
+obsolete 1s/old release-constant tests, disabled shallow/premium variants,
+legacy Pine reconciliation and retired dashboard/module expectations. The two
+collection errors require absent rl_trade_manager.downside_manager research
+artifacts. They are reported, not hidden or converted to green results.
+
+MFFU evidence JSON requires provider=MFFU, verified=true, account_binding equal
+to the configured native account binding, source_reference, observed_at_ms,
+expires_at_ms, minimum_balance (absolute current floor), daily_loss_limit_usd,
+max_micro_contracts (integer). It cannot be a generic plan starting floor.
+
+Controlled activation — only after evidence, integration checks and approval
+1. Preserve disabled configuration while supplying/verifying these dependencies.
+   Confirm fresh dated MNQ quotes; missing/stale/collective data must block.
+   Verify current session, feed and calendar; reconcile all native journals;
+   no pending costs, unknown orders or foreign exposure. Confirm account risk
+   evidence, net-R bracket validation and protective exit readiness separately.
+2. Freeze tested commit and policy hashes. Verify full supported broker-paper
+   lifecycle if available. The offline simulator is not broker-side certification.
+   Review any remaining test failures by current runtime relevance.
+3. Obtain the user's separate activation approval after presenting this evidence.
+4. Apply to Builder only: EXEC_STRATEGY_POLICY=V3_ONLY, AB_ENTRY_ARMED=0,
+   AB_MANAGER_MODE=shadow, BUILDER_ORDER_PROVIDER=crosstrade,
+   AB_AI_OWNER=AB_DIRECTIONAL, AB_AI_TRIGGER=SETUP,
+   V3_AI_REVIEW_REQUIRED=true, AB_AI_ENABLED=true, AB_AI_MAX_CALLS_PER_DAY=12.
+   Keep V3_RUNNER_ENABLED=false unless its separate validation is completed.
+   Directional activation flags then are AB_V3_MODE=LIVE,
+   AB_DIRECTIONAL_LIVE_LONG=1, AB_DIRECTIONAL_LIVE_SHORT=1, V3_ENTRY_ARMED=1,
+   AUTO_SUBMIT=1, EXEC_MODE=auto, LIVE_EXECUTION_ENABLED=true,
+   EXEC_KILL_SWITCH=false. Set persistent Guard mode to auto separately.
+   V3_EXIT_MODE=real / V3_EXIT_REAL_EXECUTION=true require the existing explicit
+   parity/shadow/ownership checks. Never assert those checks by flag alone.
+   Preserve existing DAY_LOSS_USD=550, DAY_LOSS_N=1, MAX_TRADES_DAY=3,
+   EXEC_MAX_QTY=15 and AB_DIRECTIONAL_RISK_USD_50K=250 (tighter limits still win).
+5. Verify effective runtime flags/version and native account inventory. No
+   historical signal replay/catch-up. ALLOW and HTTP ACK are not fills.
+
+Rollback / emergency
+EXEC_KILL_SWITCH=true blocks new entries while allowing existing protective
+writes if master stays true. Do not turn master off with an unmanaged position.
+Use broker-native protection/emergency controls as needed; verify actual flat
+state and working-order inventory. Once flat: master false, AUTO_SUBMIT=0,
+Guard OFF, entry arms 0, exit shadow. Redeploy the recorded prior commit with
+these disabled flags. Never restore old A/B armed values or delete journals.
+Rollback to a161321 is possible only as a disabled release; it lacks the new
+net-R and account allowance checks. Main and Tanja are not rolled back here.
+
+Monitoring
+/execution/readiness, /ab/ai-context, /ab/ai-context/view, /ab/v3,
+/continuation/live, /guard/data, /guard/health.
+Runtime readiness reports access blockers even when adapters are registered.
+A green route/configuration check is not a complete LIVE acceptance decision.

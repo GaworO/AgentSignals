@@ -1,0 +1,241 @@
+AgentSignals — disabled production release, 2026-10-20
+
+Historical a161321 audit below. See DIRECTIONAL_LIVE_ACCEPTANCE.txt and the
+deployment receipt for the subsequent adapter, account-limit and net-R changes.
+
+VERDICT: NOT READY FOR EXPLICIT LIVE ACTIVATION.
+This release is for observation and engineering verification. No test order was
+submitted to the Builder evaluation account. SIMULATOR is not provider paper.
+
+Scope and initial evidence
+--------------------------
+Actual repository: GaworO/AgentSignals, branch
+codex/ab-crosstrade-context-20261019, baseline 7e88c1f.
+The user's Desktop directory is a research workspace, not the Git checkout.
+
+Builder initially ran 7e88c1f, deployment
+5cfd1086-4100-4109-88a9-5f4dce361932, with AB_ONLY, AB_ENTRY_ARMED=1,
+AUTO_SUBMIT=1, EXEC_MODE=auto, AB_MANAGER_MODE=real. Directional was shadow.
+This was capable of A/B execution, despite the initial observation-mode premise.
+The actual CrossTrade account was demo environment Builder evaluation ...5021.
+GETs verified flat positions and no active orders before deployment.
+Cash/net liquidation 48721.05; realized daily P&L -240.50.
+Native journal still contains CLOSED_PENDING_COSTS, not a free trading slot.
+
+Main initially ran deployment a92b1cbd-d37f-4b1a-af80-10d29f6916a7 without a
+Git SHA. V3_ONLY, AUTO_SUBMIT=0, EXEC_MODE=manual, V3_ENTRY_ARMED=0.
+Tanja initially ran 65f774f6-2ca0-4aba-990b-ef0104a2aca0 without a Git SHA.
+Actual Tanja-prefixed flags: AI false, trading loop off, read-only CrossTrade
+capture true. Do not overwrite Main or Tanja from this Builder branch.
+The final deployment receipt is separate, generated only after verification.
+
+Code and routing
+----------------
+agent.py: /bars -> isolated continuation_scan_runtime.py -> forward ledger
+continuation_live.py -> Directional entry rules -> setup queue -> AI review
+-> durable WAITING_AI -> single resume -> account Guard -> prepared native
+order -> fresh account snapshot -> final execution gate -> CrossTrade OSO.
+The final gate runs after durable order reservation, before POST. Failure is
+logged and no POST occurs. Unknown submissions are never automatically retried.
+
+execution_policy.py: V3_ONLY separates A/B and Continuation from Directional.
+builder_crosstrade.py: V3_ONLY also checks the persisted strategy identity.
+ab_v3_live.py: persists AB_DIRECTIONAL provenance with immutable initial bracket.
+A/B shadow bookkeeping remains separate from account risk and realized P&L.
+No retrospective orders are caught up at startup.
+
+LIVE_EXECUTION_ENABLED defaults false. With false, entries, native financial
+POSTs, manager exits and Guard cancel/flatten writes are disabled.
+EXEC_KILL_SWITCH=true blocks new entries but allows protective operations
+if the master write switch is already true. It does NOT itself flatten.
+Do not disable protective writes while an unhandled live position exists.
+
+execution_trace.py records signal observation, source bar/activation, review
+start/completion, eligibility, POST, acknowledgment, observed fills and terminal
+broker states. Existing bars table stores source timestamp and receipt time.
+AI reviews and native journals retain their original timing evidence.
+Trace write failure prevents a new order; it is not silently ignored.
+
+AI and final validation
+-----------------------
+SETUP mode queues only eligible forward Directional setups in NYAM 09:30–11:00
+and NYPM 13:30–16:00 America/New_York. Maximum 12 attempts per NY date, shared
+with earlier stored usage; unknown responses consume an attempt and are not
+retried automatically. Source Tanja AI must remain disabled.
+Review includes causal multi-timeframe context, supplied liquidity evidence,
+entry, SL, TP and 2R/3R alternatives. It cannot change those prices or quantity.
+ALLOW is bound to one order, direction and exact geometry. WAIT/VETO, missing,
+expired, changed or invalidated review blocks. The optional periodic filter
+flag cannot bypass a required SETUP review.
+
+execution_validation.py requires an approved documented policy, current bid/ask,
+market/contract identity, original bracket and minimum 2R, age/entry zone/spread/
+slippage/volatility checks, and fresh server-side thesis/account-risk evidence.
+No approved policy or production quote/thesis adapter is registered.
+The server-side risk adapter now re-reads the persisted forward dispatch,
+prepared bracket, quantity/budget and fresh account snapshot, then calls the
+actual Guard again. Only its exact, unsubmitted native and Guard reservations
+are recognized; other reservations, costs, fills and loss/position limits still
+block. Expiry, write interlocks and exit requests are rechecked after validation
+so a slow read cannot authorize a canceled or expired entry.
+Consequently this release intentionally cannot pass final execution validation,
+even if someone changes the ordinary strategy switches. Completing those
+adapters is a remaining engineering prerequisite, not an activation flag.
+No candle close is substituted for bid/ask.
+
+CrossTrade versus legacy adapter
+-------------------------------
+CrossTrade Tradovate is retained because the connected account and historical
+native OSO fills are verified. Exact account/environment, dated MNQ contract,
+0.25 tick, positive integer quantity, scalar protective levels, GTD, flat-only
+and maxPositions=1 are enforced. Acknowledgment proves acceptance, not a fill.
+Partial fills remain visible but block manager ownership until fully reconciled.
+Restart recovery requires exact native IDs/client ID. Cancel/close is account-
+and order-owned; unknown requests are not retried. Costs must reconcile.
+The legacy HTTP path is blocked for Directional: its assumed-fill behavior is
+not suitable for this release. It is not substituted for CrossTrade.
+
+Initial automated OSO activation uses Modify/AtExecution in observed Tradovate
+data. The adapter now recognizes only the narrow verified initial activation
+shape, with matching ownership/geometry and no conflicting cancel/modification.
+Guard latches unconfirmed entries so a late acceptance cannot resurrect them.
+An unconfirmed entry remains unresolved until broker evidence establishes its
+state; no fake closed position is created.
+
+Primary references:
+https://crosstrade.io/docs/api/orders/post-place-order
+https://crosstrade.io/docs/api/overview
+https://crosstrade.io/docs/api/quotes/get-quote
+https://crosstrade.io/docs/api/websocket-api
+https://docs.traderspost.io/docs/assets/futures-trading
+The linked Tradovate API has no standalone bid/ask route. NT8 quote capability
+does not establish quote availability for this connected account.
+
+AI evaluation and proposed limits
+---------------------------------
+Recorded mixed-version Directional ledger: 30 closed trades, model PF 1.5407,
+win rate 46.67%, net expectancy +0.3144R, max drawdown 3.9906R. Stored transaction
+cost model is 1.75 points/trade. NYAM/NYPM subset: 7 closed, PF 1.3529, win rate
+42.86%, expectancy +0.2146R, max drawdown 2.1195R. Not broker returns or an
+out-of-sample validation of today's NO_DIB/BOS50/AI combination.
+
+A: no-AI historical ledger, as above.
+B: exact setup AI cohort has zero historical reviews. PF/expectancy/DD and
+missed entries cannot be estimated honestly.
+C: asynchronous observational AI has the same executions as A by definition;
+identical ledger metrics are not an independent result.
+
+Read-only analysis used 26546 archived M1 rows and 60 Directional orders.
+16 NY-session setups include 7 recorded fills. At 50–54 seconds all seven
+recorded first-fill bars begin later; at 60 seconds three are inside their fill
+bar (intrabar ordering unknown). At 120 seconds three first-fill bars have
+ended. This does not prove a later order could not fill on a retest.
+
+The original strategy places RESTING limits. Demanding a tiny current-price
+distance can reject valid resting setups and is a strategy change.
+Derived constraint: do not reprice a fixed 2R entry adversely (zero adverse
+repricing); keep the original limit, SL and TP. No order is chased.
+Research grids, not production permissions: age 30/60/120s, distance
+0/0.025/0.05/0.1R; bid/ask spread 1/2/4 ticks; quote age 250/500/1000ms.
+Spread and realized slippage are not identifiable from M1. Capture bid/ask,
+order-event and fill timestamps, then validate on independent dates with the
+unchanged detector, causal volatility definition and actual costs. No positive
+production tolerance was selected from unavailable evidence.
+Existing 120s AI review TTL is an observation safeguard, not validated entry TTL.
+
+Measured validated AI attempts: N=4, median 49.589s, p95 59.027s, range
+47.226–60.645s. Other/diagnostic attempts lasted 54.377, 60.765 and 161.610s.
+Fresh sequential broker read batch: 0.696s. These are different samples, not an
+end-to-end latency percentile. Provider inference dominates observed wait;
+queue-on-setup and callback resume avoid an extra periodic scan after completion.
+No claim of faster model inference or improved PF is made.
+
+Testing and remaining blockers
+------------------------------
+tools/run_offline_tests.py runs every test file in its own network-disabled
+process. Frozen research detcore and production detcore must not share imports.
+It strips provider credentials and gives each process an isolated DATA_DIR.
+Synthetic enabled flags are permitted only in this denied-network test process.
+Machine-readable final and baseline test receipts accompany the release.
+Full follow-up run: 84 test files, 865 reported cases: 773 passed, 77 failed,
+14 errors, 1 skipped. A subsequent focused run passed all 24 risk-revalidation
+tests, including two added full native-reservation / actual Guard cases.
+Baseline: 80 files, 783 cases: 690 passed, 78 failed, 14 errors,
+1 skipped. Failure-identity comparison found no new failing test; the late
+Guard/entry-acceptance regression was fixed. Existing failures are NOT waived
+for live activation. Includes imported unittest cases/subtests as pytest reports.
+The baseline already fails tests (retired 1s expectations, old detector rules,
+missing research modules, Tanja dependency/fixture problems). A green focused
+suite does not mean the complete repository suite is green.
+
+Simulator covers final market gate -> native acknowledgment -> fill -> restart
+-> stop closure and costs. Protocol tests also cover partial fills, exact-owned
+cancels, rejection, wrong-account acknowledgment, timeout/no retry and recovery.
+No provider-supported paper account is available; Builder is an evaluation.
+
+Blockers before live:
+1. Source and validate production bid/ask and server-side thesis adapters.
+   The implemented final Guard/risk adapter still requires staging evidence.
+2. Validate documented timing/entry/spread/slippage/volatility policy on adequate
+   independent data; freeze policy and engine versions.
+3. Reconcile the existing CLOSED_PENDING_COSTS with authoritative fee evidence.
+   -231 is gross, not net. Do not fabricate fee rows or clear the journal.
+4. Resolve and rerun complete-suite failures; verify feed/calendar readiness.
+5. Demonstrate broker-paper lifecycle and manager exits on a suitable account,
+   including partial entry, reconnect, bracket protection and cancellation.
+6. Validate AI filtering and any 3R runner separately. Do not enable the runner
+   merely because its model files exist.
+
+Single activation procedure — operator only, AFTER blockers resolved
+-------------------------------------------------------------------
+Current safe values are in directional_ai_shadow.env.example. Deploy that file's
+nonsecret values only to Builder, preserving its existing credentials.
+Keep LIVE_EXECUTION_ENABLED=false, EXEC_KILL_SWITCH=true, AUTO_SUBMIT=0 and
+both entry arms 0 while validating production reads.
+
+Prerequisites: approved account/environment and permissions, unique route,
+dated EXEC_TICKER=AB_V3_CONTRACT, verified $2/point and 0.25 tick, Guard admin
+and feed/event credentials, current calendar, fresh causal reference candles,
+no unresolved native order/position/cost journal, verified risk and actual
+account balance. Preserve DAY_LOSS_USD=550, DAY_LOSS_N=1, MAX_TRADES_DAY=3 and
+existing drawdown controls unless a separately validated policy changes them.
+Do not reset loss latches, activity or account equity to force an entry.
+
+After engineering/research/paper checks and a separately reviewed human decision:
+  EXEC_STRATEGY_POLICY=V3_ONLY; AB_ENTRY_ARMED=0; AB_MANAGER_MODE=shadow
+  BUILDER_ORDER_PROVIDER=crosstrade
+  AB_AI_OWNER=AB_DIRECTIONAL; AB_AI_TRIGGER=SETUP; V3_AI_REVIEW_REQUIRED=true
+  AB_AI_MAX_CALLS_PER_DAY=12; AB_AI_ENABLED=true
+  DIRECTIONAL_EXECUTION_POLICY_FILE=<validated immutable policy file>
+  AB_V3_MODE=LIVE; AB_DIRECTIONAL_LIVE_LONG=1; AB_DIRECTIONAL_LIVE_SHORT=1
+  V3_ENTRY_ARMED=1; AUTO_SUBMIT=1; EXEC_MODE=auto; V3_RUNNER_ENABLED=false
+  V3_EXIT_MODE=real; V3_EXIT_REAL_EXECUTION=true
+  EXEC_KILL_SWITCH=false; LIVE_EXECUTION_ENABLED=true
+These last changes are NOT applied by this release. Exit parity/shadow/staging
+attestation flags must reflect actual successful evidence, not be set just to
+remove blockers. Flags alone cannot supply missing validators or approvals.
+The persistent Guard runtime mode was set OFF during the Railway build outage.
+It overrides EXEC_MODE: an eventual authorized activation must also explicitly
+change the runtime mode through the Guard panel, after all prerequisites pass.
+
+Emergency: use the broker's own control to handle an actual open position when
+needed. EXEC_KILL_SWITCH=true stops new entries while preserving existing
+protective operations if LIVE_EXECUTION_ENABLED remains true. Confirm owned
+orders, bracket state and fills; do not infer flatness from an HTTP reply.
+Only after flat and all orders resolved, use the disabled release configuration
+to stop every write. An app shutdown does not remove broker-side brackets.
+
+Rollback: keep the disabled configuration, deploy the recorded previous commit
+only to Builder, verify runtime source/hash, read-only connectivity and flatness.
+Do not restore the old AB_ONLY/armed variables. SQLite changes are additive;
+retain backups and journals, never delete UNKNOWN or CLOSED_PENDING_COSTS.
+Main and Tanja are independently versioned; do not roll them back with Builder.
+
+Monitor:
+  /execution/readiness — version, final validation blockers, recent timing
+  /ab/ai-context/view and /ab/ai-context — setup review, reason, latency, expiry
+  /continuation/live — idempotent decisions and pending/terminal dispatch
+  /ab/v3 — real M1, native order state, broker synchronization, manager decisions
+  /guard/health and /guard/data — calendar, feed, risk, account/reconciliation
+Reconcile by native account-bound parent/child IDs, immutable fill IDs and fees,
+then compare cash movement; do not mark an accepted order filled.

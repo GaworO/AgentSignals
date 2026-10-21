@@ -7,6 +7,7 @@ It does not replace Guard, prove broker fills or change detector rules.
 import math
 import os
 import re
+import execution_safety
 
 
 def mode():
@@ -32,6 +33,9 @@ def signal_family(signal):
 
 
 def entry_blocker(signal):
+    safety = execution_safety.entry_blocker()
+    if safety:
+        return safety
     value = mode()
     if value == 'LEGACY':
         return None
@@ -120,7 +124,11 @@ def ab_entry_blocker(signal):
 
 
 def status():
-    return dict(policy=mode(), entry_armed=os.environ.get('AB_ENTRY_ARMED' if mode() == 'AB_ONLY' else 'V3_ENTRY_ARMED', '0') == '1',
+    import execution_validation
+    return dict(policy=mode(), live_execution_enabled=execution_safety.writes_enabled(),
+                revalidation=execution_validation.status(),
+                execution_kill_switch=os.environ.get('EXEC_KILL_SWITCH','false') != 'false',
+                entry_armed=os.environ.get('AB_ENTRY_ARMED' if mode() == 'AB_ONLY' else 'V3_ENTRY_ARMED', '0') == '1',
                 entry_variant=('CANONICAL_AB_NATIVE_BRACKET' if mode() == 'AB_ONLY' else 'DIRECTIONAL_MODEL0_RUNNER_2R_3R' if os.environ.get('V3_RUNNER_ENABLED','false').lower()=='true' and os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' else 'DIRECTIONAL_FIXED_SL_TP_2R'),
                 active_manager_live=(os.environ.get('AB_MANAGER_MODE','off').lower()=='real' if mode()=='AB_ONLY' else os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real'),
                 broker_fill_proven_by_http=False,

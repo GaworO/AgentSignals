@@ -15,6 +15,8 @@ import sqlite3
 import threading
 import builder_broker_sync
 import builder_crosstrade
+import directional_ai_review
+import execution_safety
 import time
 
 import pandas as pd
@@ -253,7 +255,7 @@ def prepare(order, claim=False):
     if order.get("strategy") != "AB_DIRECTIONAL" or mode() == "OFF": return
     source = _payload(order)
     snap = source.get("v3_snapshot")
-    value = dict(order_id=order["order_id"], direction=order["direction"],
+    value = dict(order_id=order["order_id"], strategy="AB_DIRECTIONAL", direction=order["direction"],
                  activation_ms=int(order["activation_ms"]), expiry_ms=int(order["expiry_ms"]),
                  entry_price=float(order["entry_price"]), stop_price=float(order["stop_price"]),
                  target_price=float(order["target_price"]), risk_points=float(order["risk_points"]),
@@ -264,6 +266,7 @@ def prepare(order, claim=False):
     value['baseline_target_price'] = value['target_price']
     value['target_price'] = entry_target(order)
     value['runner_enabled'] = value['target_price'] != value['baseline_target_price']
+    value['ai_review'] = order.get('_directional_ai_review')
     with connect() as c:
         if claim and mode() == 'LIVE':
             c.execute('BEGIN IMMEDIATE')
@@ -417,6 +420,9 @@ def entry_blocker(order):
     """Guarded exclusive route; assumed fills do not require broker snapshots."""
     if mode() != "LIVE": return None
     if order.get("strategy") != "AB_DIRECTIONAL": return "v3_exclusive_route_other_strategy"
+    ai_reason, review = directional_ai_review.check(order.get('direction'), order['order_id'] + ':entry')
+    order['_directional_ai_review'] = review
+    if ai_reason: return ai_reason
     native_reason = builder_crosstrade.entry_blocker()
     if native_reason: return native_reason
     blockers = setting_blockers()
@@ -453,6 +459,9 @@ def prepared_entry_blocker(signal):
     if mode() != 'LIVE': return None
     if not signal.get('_v3_directional') or not signal.get('_continuation_order_id'):
         return 'v3_exclusive_route_other_strategy'
+    ai_reason, review = directional_ai_review.check(signal.get('dir'), signal['_continuation_order_id'] + ':dispatch')
+    signal['_directional_ai_review'] = review
+    if ai_reason: return ai_reason
     blockers=exit_blockers()
     if blockers: return 'v3:'+blockers[0]
     if not frozen_parity_ok(): return 'v3:historical_parity_failed'
@@ -652,6 +661,8 @@ def signal_runner_exits():
 
 
 def _send_broker_exit(payload):
+    if not execution_safety.writes_enabled():
+        raise ValueError('live_execution_disabled')
     if builder_crosstrade.selected(): return builder_crosstrade.exit_payload(payload)
     if builder_crosstrade.provider() == "invalid": raise ValueError("invalid_order_provider")
     import requests

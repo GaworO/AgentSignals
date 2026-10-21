@@ -1,4 +1,4 @@
-"""Regression: end-of-day flattening must not turn unconfirmed entries into exits."""
+"""Guard latches unconfirmed entries without inventing a position or closure."""
 from contextlib import contextmanager
 import json
 import sqlite3
@@ -10,7 +10,7 @@ import v3_position_manager as manager
 
 
 class GuardEodPositionsTests(unittest.TestCase):
-    def test_only_known_positions_transfer_to_guard(self):
+    def test_unconfirmed_entries_stay_unresolved_and_cannot_be_resurrected(self):
         c = sqlite3.connect(":memory:")
         c.row_factory = sqlite3.Row
         self.addCleanup(c.close)
@@ -38,12 +38,14 @@ class GuardEodPositionsTests(unittest.TestCase):
             manager.guard_exit_requested("eod_15:55")
             manager.guard_exit_requested("eod_15:55")
         actual = dict(c.execute("SELECT order_id,state FROM orders"))
-        expected_transfers = {"assumed", "confirmed", "unknown"}
+        expected_transfers = {"prepared", "waiting", "assumed", "confirmed", "unknown", "empty"}
         self.assertEqual({row[0] for row in transitions}, expected_transfers)
-        self.assertEqual(len(transitions), 3)
+        self.assertEqual(len(transitions), 6)
         for oid, state, _ in rows:
             self.assertEqual(actual[oid], "GUARD_EXIT_PENDING" if oid in expected_transfers else state)
         self.assertTrue(all(row[1:] == ("EXIT_REQUESTED", 2, "guard:eod_15:55") for row in transitions))
+        for oid in ('prepared', 'waiting', 'empty'):
+            self.assertIsNone(c.execute('SELECT position_json FROM orders WHERE order_id=?',(oid,)).fetchone()[0])
 
 
 if __name__ == "__main__":
