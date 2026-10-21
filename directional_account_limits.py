@@ -23,7 +23,19 @@ def check(snapshot, binding, order, now_ms, cost_per_contract):
             if type(n) not in (int,float) or not math.isfinite(n) or n<=0:
                 return 'mffu_allowances_invalid'
         if type(proof['max_micro_contracts']) is not int:return 'mffu_allowances_invalid'
-        b=snapshot['account']['balance']
+        b=dict(snapshot['account']['balance'])
+        # Actual Tradovate cash-balance API uses USD/SOD suffixed fields.
+        # Conflicting aliases are unknown risk, not permission to pick one.
+        for canonical,aliases in {
+            'cashSOD':('totalCashValueSOD','cashSODUSD'),
+            'fundsInTransit':('fundsInTransitUSD',),
+            'fundsInTransitAppliedToCash':('fundsInTransitAppliedToCashUSD',),
+        }.items():
+            values=[b[k] for k in (canonical,*aliases) if k in b]
+            if not values or any(type(v) not in (int,float) or not math.isfinite(v) for v in values):
+                return 'account_wide_pnl_unknown'
+            if any(abs(v-values[0])>.01 for v in values):return 'account_wide_pnl_unreconciled'
+            b[canonical]=values[0]
         keys=('netLiq','totalCashValue','realizedPnL','openPnL','cashSOD','fundsInTransit','fundsInTransitAppliedToCash')
         if any(type(b.get(k)) not in (int,float) or not math.isfinite(b[k]) for k in keys):
             return 'account_wide_pnl_unknown'

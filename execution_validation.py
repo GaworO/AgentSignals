@@ -1,7 +1,7 @@
 """Final Directional gate, using separately supplied server-side evidence.
 
-There is deliberately no candle-to-quote fallback. CrossTrade Tradovate has no
-bid/ask API. The separate NT8 adapter rejects indicative collective pricing.
+There is deliberately no candle-to-quote fallback. CrossTrade collective
+quotes are monitored but cannot authorize orders without source verification.
 Registered adapters still require verified quote access, account allowances,
 complete current thesis evidence and approved execution parameters.
 Policy values must come from an explicitly documented and approved strategy
@@ -81,6 +81,8 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
             return 'contract_mismatch'
         if quote.get('market_open') is not True:
             return 'market_closed_or_unknown'
+        if quote.get('execution_eligible') is False:
+            return 'quote_source_unverified'
         if quote.get('source') != parameters.get('quote_source') or not quote.get('source'):
             return 'quote_source_unverified'
         if not 0 <= now_ms-quote['as_of_ms'] <= parameters['max_quote_age_ms']:
@@ -170,6 +172,14 @@ def status():
         access.append('executable_quote_access_not_configured')
     if 'risk' in _SOURCES and not os.environ.get('MFFU_RISK_EVIDENCE_FILE'):
         access.append('mffu_current_allowances_missing')
-    return dict(ready=policy_error is None and not missing and not access, policy_error=policy_error,
+    from directional_market_data import QuoteClient
+    try:
+        last=QuoteClient().latest()
+        if last and last.get('quote',{}).get('execution_eligible') is False:
+            access.append('quote_source_suitability_unverified')
+        quote_status=None if not last else {k:last.get(k) for k in ('observed_ms','observation_age_ms','reason','quote','request_latency_ms')}
+    except Exception:
+        quote_status={'reason':'quote_monitor_unavailable'}
+    return dict(quote_monitor=quote_status, ready=policy_error is None and not missing and not access, policy_error=policy_error,
                 access_blockers=access,
                 missing_validators=missing, candle_quote_fallback=False)

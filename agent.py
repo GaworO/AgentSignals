@@ -1984,6 +1984,13 @@ def _continuation_live_status():
     """Read-only status/decision ledger; secrets and webhook URLs are never exposed."""
     return jsonify(status=continuation_live.status(), decisions=continuation_live.rows(200))
 
+@app.route('/execution/quotes')
+def _execution_quotes():
+    """Read-only last observation. Does not fetch, arm or authorize an order."""
+    from directional_market_data import QuoteClient
+    return jsonify(monitor_enabled=os.environ.get('DIRECTIONAL_QUOTE_MONITOR_ENABLED')=='true',
+                   latest=QuoteClient().latest(), cached_status_only=True)
+
 @app.route('/execution/readiness')
 def _execution_readiness():
     """Read-only release/gate/timing evidence. No order or activation operation."""
@@ -2015,9 +2022,10 @@ ab_ai_context.register(app)
 ab_ai_context.SETUP_COMPLETE_CALLBACK = continuation_live.resume_reviews
 import execution_validation
 from directional_risk_revalidation import RiskValidator
-from directional_market_data import MarketSource
+from directional_market_data import MarketSource, start_monitor
 from directional_thesis import ThesisValidator
 execution_validation.register_source('market', MarketSource())
+start_monitor()
 execution_validation.register_source('thesis', ThesisValidator())
 execution_validation.register_source('risk', RiskValidator(
     signal_builder=_continuation_live_signal, budget_builder=_directional_live_budget,
