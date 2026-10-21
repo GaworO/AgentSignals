@@ -119,7 +119,7 @@ class ContextTests(unittest.TestCase):
         # Monday Oct 19 2026 10:00 NY.
         self.now=1792418400.;self.calls=[]
         self.config=dict(DATA_DIR=self.tmp.name,AB_AI_ENABLED='true',AB_AI_INTERVAL_MINUTES='60',
-                         AB_AI_MAX_CALLS_PER_DAY='12',OPENAI_MODEL='fixture',OPENAI_API_KEY='fixture')
+                         AB_AI_MAX_CALLS_PER_DAY='12',AB_AI_HYBRID_ENABLED='false',OPENAI_MODEL='fixture',OPENAI_API_KEY='fixture')
         self.used=0
         self.support=ai.ContextSupport(self.config,reader=self.source,transport=self.transport,clock=lambda:self.now)
 

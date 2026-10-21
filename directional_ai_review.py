@@ -9,9 +9,9 @@ def required():
 
 
 def check(direction, candidate_id):
-    if os.environ.get('AB_AI_TRIGGER', 'PERIODIC') not in ('PERIODIC', 'SETUP'):
+    if os.environ.get('AB_AI_TRIGGER', 'PERIODIC') not in ('PERIODIC', 'SETUP', 'HYBRID'):
         return 'v3_ai:invalid_trigger', None
-    if os.environ.get('AB_AI_TRIGGER', 'PERIODIC') == 'SETUP':
+    if os.environ.get('AB_AI_TRIGGER', 'PERIODIC') in ('SETUP', 'HYBRID'):
         oid = candidate_id
         for suffix in (':candidate', ':entry', ':dispatch', ':native'):
             if oid.endswith(suffix):
@@ -38,7 +38,7 @@ def check(direction, candidate_id):
 
 
 def queue_setup(order):
-    if os.environ.get('AB_AI_TRIGGER', 'PERIODIC') != 'SETUP':
+    if os.environ.get('AB_AI_TRIGGER', 'PERIODIC') not in ('SETUP', 'HYBRID'):
         return None
     try:
         if ab_ai_context.INSTANCE is None:

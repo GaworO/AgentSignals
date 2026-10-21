@@ -149,6 +149,14 @@ def check(order, review, *, clock=time.time):
             if name not in _SOURCES:
                 raise ValueError(name + '_validator_unavailable')
             evidence[name] = _SOURCES[name](dict(order))
+        import ab_ai_context
+        if (os.environ.get('AB_AI_TRIGGER') == 'HYBRID' or
+                getattr(ab_ai_context.INSTANCE,'trigger',None) == 'HYBRID'):
+            import directional_ai_review
+            blocked, latest = directional_ai_review.check(order['direction'],order['order_id'])
+            if blocked or not review or latest.get('review_id') != review.get('review_id'):
+                raise ValueError(blocked or 'hybrid_review_changed')
+            review = latest
         reason = evaluate(order, evidence['market'], evidence['thesis'], evidence['risk'],
                           review or {}, parameters, int(clock()*1000))
     except Exception as exc:
