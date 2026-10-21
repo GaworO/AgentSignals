@@ -6,6 +6,7 @@ The sole worker owns paid requests. Unknown outcomes are never retried.
 import base64
 from datetime import datetime
 import hashlib
+import hmac
 import json
 import math
 import os
@@ -14,6 +15,7 @@ import sqlite3
 import threading
 import time
 import directional_setup_review
+import directional_ict_context
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
 
@@ -92,14 +94,23 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def request_json(url, headers, payload=None):
+class RecordedResponse(dict):
+    """Parsed response plus original UTF-8 response body, never auth headers."""
+    pass
+
+
+def request_json(url, headers, payload=None, *, capture_raw=False):
     request = Request(url, headers=headers, data=None if payload is None else encode(payload).encode(),
                       method='GET' if payload is None else 'POST')
     with build_opener(NoRedirect()).open(request, timeout=60) as response:
         raw = response.read(4_000_001)
         if len(raw) > 4_000_000:
             raise ValueError('response_too_large')
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if capture_raw:
+            parsed = RecordedResponse(parsed)
+            parsed.response_text = raw.decode('utf-8')
+        return parsed
 
 
 def schema_check(value, schema):
@@ -127,7 +138,8 @@ def schema_check(value, schema):
 
 
 def validate(decision, packet):
-    schema_check(decision, SCHEMA)
+    is_ict = packet.get('ict_context',{}).get('version') == directional_ict_context.VERSION
+    schema_check(decision, directional_setup_review.response_schema(SCHEMA) if is_ict else SCHEMA)
     if decision['packet_id'] != packet['packet_id']:
         raise ValueError('packet_mismatch')
     for side in ('long_scenario','short_scenario'):
@@ -140,6 +152,8 @@ def validate(decision, packet):
             if (evidence.get('symbol') not in ('NQ','MNQ') or type(evidence.get(anchor['field'])) not in (int,float)
                     or evidence[anchor['field']] != anchor['price']):
                 raise ValueError('invalidation_price_or_symbol_mismatch')
+    if is_ict:
+        directional_setup_review.validate_binding(decision, packet)
 
 
 class ContextSupport:
@@ -177,7 +191,21 @@ class ContextSupport:
               CREATE TABLE IF NOT EXISTS setup_requests(
                 order_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, created REAL NOT NULL,
                 expires REAL NOT NULL, state TEXT NOT NULL, setup TEXT NOT NULL, review_id TEXT);
+              CREATE TABLE IF NOT EXISTS setup_review_events(
+                id INTEGER PRIMARY KEY, order_id TEXT NOT NULL, at REAL NOT NULL,
+                event TEXT NOT NULL, detail TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS setup_review_observations(
+                review_id TEXT PRIMARY KEY, order_id TEXT NOT NULL, at REAL NOT NULL, payload TEXT NOT NULL);
             ''')
+            db.execute('BEGIN IMMEDIATE')
+            columns={r[1] for r in db.execute('PRAGMA table_info(reviews)')}
+            for name in ('response_body','response_body_format','response_text','error_code',
+                         'prompt_version','prompt_sha256','model','response_model'):
+                if name not in columns:
+                    db.execute('ALTER TABLE reviews ADD COLUMN '+name+' TEXT')
+            for name in ('requested_at','response_received_at'):
+                if name not in columns:
+                    db.execute('ALTER TABLE reviews ADD COLUMN '+name+' REAL')
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=5)
@@ -200,9 +228,53 @@ class ContextSupport:
         if not key:
             raise ValueError('missing_api_key')
         return request_json('https://api.openai.com/v1/responses',
-            {'Authorization':'Bearer '+key,'Content-Type':'application/json'}, payload)
+            {'Authorization':'Bearer '+key,'Content-Type':'application/json'}, payload, capture_raw=True)
+
+    def event(self, order_id, event, **detail):
+        """Durable diagnostics without changing a terminal execution decision."""
+        with self.connect() as db:
+            previous=db.execute('SELECT event,detail FROM setup_review_events WHERE order_id=? ORDER BY id DESC LIMIT 1',
+                                (str(order_id),)).fetchone()
+            text=encode(detail)
+            if previous and previous['event']==event and previous['detail']==text:
+                return
+            db.execute('INSERT INTO setup_review_events(order_id,at,event,detail) VALUES(?,?,?,?)',
+                       (str(order_id),self.clock(),event,text))
+
+    def observe_review(self, job):
+        """Join saved review, cached quote and existing dispatch; no broker call."""
+        import directional_review_observation
+        import directional_market_data
+        import execution_validation
+        setup=json.loads(job['setup'])
+        review=self.setup_annotation(job['order_id'],setup['direction'])
+        dispatch=None
+        path=Path(self.config.get('CONTINUATION_LIVE_DB',self.path.parent/'continuation_live.sqlite3'))
+        if path.is_file():
+            with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True) as db:
+                db.row_factory=sqlite3.Row
+                row=db.execute('SELECT state,guard_reason,updated_at FROM live_dispatches WHERE order_id=?',(job['order_id'],)).fetchone()
+                dispatch=dict(row) if row else None
+        try:parameters=execution_validation.policy();policy_error=None
+        except ValueError as exc:parameters=None;policy_error=str(exc)
+        except OSError:parameters=None;policy_error='validated_execution_policy_unreadable'
+        quote=directional_market_data.QuoteClient(path=self.path.parent/'directional_quotes.sqlite3').latest()
+        report=directional_review_observation.assess(setup,review,quote,now=self.clock(),config=self.config,
+                      dispatch=dispatch,parameters=parameters,policy_error=policy_error)
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO setup_review_observations VALUES(?,?,?,?)',
+                       (job['review_id'],job['order_id'],self.clock(),encode(report)))
 
     def queue_setup(self, order):
+        try:
+            result=self._queue_setup(order)
+        except (ValueError,KeyError,TypeError,OverflowError):
+            self.event(order.get('order_id','UNKNOWN'),'queue_rejected',reason='invalid_setup_evidence')
+            raise
+        self.event(order.get('order_id','UNKNOWN'),'queue_decision',**{k:v for k,v in result.items() if k!='order_id'})
+        return result
+
+    def _queue_setup(self, order):
         """Durable local enqueue only; a detector never makes a paid/network call."""
         if not self.enabled or self.trigger != 'SETUP':
             return dict(state='DISABLED')
@@ -326,15 +398,26 @@ class ContextSupport:
         job = None
         if self.trigger == 'SETUP':
             with self.connect() as db:
+                expired=[r['order_id'] for r in db.execute("SELECT order_id FROM setup_requests WHERE state='queued' AND expires<=?",(now,))]
                 db.execute("UPDATE setup_requests SET state='expired' WHERE state='queued' AND expires<=?", (now,))
                 job = db.execute("SELECT * FROM setup_requests WHERE state='queued' ORDER BY created,order_id LIMIT 1").fetchone()
+            for oid in expired:
+                self.event(oid,'review_expired',reason='expired_before_request')
             if job is None:
                 self.status = 'WAITING_FOR_SETUP'
                 return False
-        source = self.reader()
+        try:
+            source = self.reader()
+            p = self.packet(source, now)
+        except Exception as exc:
+            if job is None:
+                raise
+            reason=str(exc) if isinstance(exc,ValueError) and str(exc).replace('_','').isalnum() else 'context_source_unavailable'
+            self.event(job['order_id'],'source_blocked',reason=reason)
+            self.status='SOURCE_NOT_READY'
+            return False
         if type(source.get('calls_today')) is int and source['calls_today'] >= 0:
             self.source_usage = dict(day=local.date().isoformat(), calls=source['calls_today'])
-        p = self.packet(source, now)
         if not session_at(p['as_of']) or session_at(p['as_of'])['name'] != session_at(now)['name']:
             self.status = 'WAITING_FOR_SESSION_DATA'
             return False
@@ -346,15 +429,24 @@ class ContextSupport:
             if p['as_of'] < setup['activation_ms']/1000:
                 self.status = 'WAITING_FOR_SETUP_DATA'
                 return False
-            p = dict(p, setup=setup, review_expires_at=job['expires'])
-            del p['packet_id']
-            p['packet_id'] = digest(p)
-            if len(encode(p).encode()) > 505000:
-                raise ValueError('input_too_large')
-            instructions = directional_setup_review.prompt(instructions)
+            try:
+                p = directional_ict_context.attach(p, setup, job['fingerprint'])
+                p['review_expires_at'] = job['expires']
+                del p['packet_id']
+                p['packet_id'] = digest(p)
+                if len(encode(p).encode()) > 505000:
+                    raise ValueError('input_too_large')
+            except ValueError as exc:
+                reason=str(exc) if str(exc).replace('_','').isalnum() else 'context_build_failed'
+                self.event(job['order_id'],'context_build_blocked',reason=reason)
+                self.status='SOURCE_NOT_READY'
+                return False
+            instructions = directional_setup_review.ict_prompt(instructions)
+        prompt_version = directional_setup_review.PROMPT_VERSION if job is not None else 'ab-advisory-context-v1'
         payload = dict(model=self.config.get('OPENAI_MODEL',''),store=False,max_output_tokens=3000,
             reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=encode(p))],
-            text={'format':dict(type='json_schema',name='ab_advisory_context_v1',strict=True,schema=SCHEMA)})
+            text={'format':dict(type='json_schema',name='directional_ict_setup_v2' if job is not None else 'ab_advisory_context_v1',
+                strict=True,schema=directional_setup_review.response_schema(SCHEMA) if job is not None else SCHEMA)})
         if not payload['model'] or not self.config.get('OPENAI_API_KEY'):
             self.status = 'API_NOT_CONFIGURED'
             return False
@@ -390,13 +482,24 @@ class ContextSupport:
                     return False
             db.execute('INSERT INTO reviews(id,day,started,cutoff,status,request) VALUES(?,?,?,?,?,?)',
                        (p['packet_id'],day,now,p['as_of'],'running',encode(payload)))
+            db.execute('UPDATE reviews SET prompt_version=?,prompt_sha256=?,model=? WHERE id=?',
+                (prompt_version,hashlib.sha256(instructions.encode()).hexdigest(),payload['model'],p['packet_id']))
         decision = None;usage = {};status = 'unknown'
+        response_body=response_text=error_code=response_model=body_format=None
         try:
             if job is not None:
                 import execution_trace
                 execution_trace.record(job['order_id'], 'ai_review_started', at_ms=int(self.clock()*1000),
                                        review_id=p['packet_id'], market_cutoff_ms=int(p['as_of']*1000))
+            with self.connect() as db:
+                db.execute('UPDATE reviews SET requested_at=? WHERE id=?',(self.clock(),p['packet_id']))
             raw = self.transport(payload)
+            with self.connect() as db:
+                db.execute('UPDATE reviews SET response_received_at=? WHERE id=?',(self.clock(),p['packet_id']))
+            response_body=getattr(raw,'response_text',None)
+            body_format='original_http_utf8' if response_body is not None else 'transport_json_reserialized'
+            response_body=response_body if response_body is not None else encode(raw)
+            response_model=raw.get('model')
             status = 'rejected';usage = raw.get('usage',{})
             if raw.get('status') != 'completed':
                 raise ValueError('incomplete_response')
@@ -404,24 +507,40 @@ class ContextSupport:
             texts = [c['text'] for c in parts if c.get('type')=='output_text']
             if len(texts)!=1 or any(c.get('type')=='refusal' for c in parts):
                 raise ValueError('missing_structured_response')
-            decision = json.loads(texts[0]);validate(decision,p)
+            response_text=texts[0]
+            decision = json.loads(response_text);validate(decision,p)
             status = 'expired' if job is not None and self.clock() >= job['expires'] else 'validated'
-        except Exception:
+        except Exception as exc:
+            error_code=str(exc) if isinstance(exc,ValueError) and str(exc).replace('_','').isalnum() else type(exc).__name__
             decision = None  # Errors never turn into permissions or inferred success.
+        # Model input never includes credentials; redact provider echoes if any.
+        for secret_name in ('OPENAI_API_KEY','AB_CONTEXT_SOURCE_PASSWORD','GUARD_TOKEN'):
+            secret=self.config.get(secret_name)
+            if secret:
+                response_body=response_body.replace(secret,'[REDACTED]') if response_body else response_body
+                response_text=response_text.replace(secret,'[REDACTED]') if response_text else response_text
         with self.connect() as db:
             db.execute('UPDATE reviews SET status=?,finished=?,decision=?,usage=? WHERE id=?',
                 (status,self.clock(),encode(decision),encode(usage),p['packet_id']))
+            db.execute('UPDATE reviews SET response_body=?,response_body_format=?,response_text=?,error_code=?,response_model=? WHERE id=?',
+                       (response_body,body_format,response_text,error_code,response_model,p['packet_id']))
             if job is not None:
                 db.execute('UPDATE setup_requests SET state=? WHERE order_id=? AND review_id=?',
                            (status, job['order_id'], p['packet_id']))
         self.status = status
         if job is not None:
+            self.event(job['order_id'],'review_completed',review_id=p['packet_id'],state=status,error_code=error_code,
+                       expires_at=job['expires'])
             import execution_trace
             execution_trace.record(job['order_id'], 'ai_review_completed', at_ms=int(self.clock()*1000),
                                    review_id=p['packet_id'], state=status)
             callback = globals().get('SETUP_COMPLETE_CALLBACK')
             if callback:
                 callback()  # local dispatcher rechecks all controls; no AI retry
+            try:
+                self.observe_review(dict(job,review_id=p['packet_id']))
+            except Exception:
+                self.event(job['order_id'],'observation_unavailable',reason='read_only_observation_failed')
         return True
 
     def annotate(self, signal, candidate_id, record=True, owner='A/B'):
@@ -477,7 +596,7 @@ def current(signal):
 
 
 def register(app):
-    from flask import jsonify, Response
+    from flask import jsonify, Response, request
     def status():
         import execution_policy
         import guardrails
@@ -506,10 +625,13 @@ def register(app):
         now = INSTANCE.clock()
         day = datetime.fromtimestamp(now,NY).date().isoformat()
         with INSTANCE.connect() as db:
-            rows = [dict(r) for r in db.execute('SELECT id,day,started,finished,cutoff,status,decision,usage,invalidated,request FROM reviews ORDER BY started DESC LIMIT 12')]
+            rows = [dict(r) for r in db.execute('SELECT id,day,started,finished,cutoff,status,decision,usage,invalidated,request,prompt_version,prompt_sha256,model,response_model,error_code,requested_at,response_received_at FROM reviews ORDER BY started DESC LIMIT 12')]
             annotations = [dict(r) for r in db.execute('SELECT * FROM annotations ORDER BY at DESC LIMIT 40')]
             calls = db.execute('SELECT COUNT(*) FROM reviews WHERE day=?',(day,)).fetchone()[0]
             setups = [dict(r) for r in db.execute('SELECT order_id,created,expires,state,review_id FROM setup_requests ORDER BY created DESC LIMIT 40')]
+            events = [dict(r) for r in db.execute('SELECT * FROM setup_review_events ORDER BY id DESC LIMIT 40')]
+        for event in events:
+            event['detail']=json.loads(event['detail'])
         for row in rows:
             row['owner'] = review_owner(row)
             try:
@@ -520,6 +642,8 @@ def register(app):
             row['setup'] = packet.get('setup')
             row['expires_at'] = packet.get('review_expires_at', expires_at(row['cutoff'], INSTANCE.minutes))
             row['latency_seconds'] = row['finished']-row['started'] if row['finished'] is not None else None
+            row['response_latency_seconds'] = (row['response_received_at']-row['requested_at']
+                if row['response_received_at'] is not None and row['requested_at'] is not None else None)
             for key in ('decision','usage','invalidated'):
                 row[key] = json.loads(row[key] or 'null')
         for row in annotations:
@@ -530,6 +654,27 @@ def register(app):
                        remaining_calls=max(0,INSTANCE.cap-calls-source_calls) if source_calls is not None else None,
                        calls_today=calls,daily_cap=INSTANCE.cap,interval_minutes=INSTANCE.minutes,
                        reviews=rows,annotations=annotations,setup_requests=setups,
+                       setup_review_events=events,
                        setup_max_age_seconds=INSTANCE.setup_max_age)
+
+    def setup_export(order_id):
+        # Exact requests contain private strategy evidence, so the full export
+        # requires existing operator authentication and performs no review.
+        wanted=os.environ.get('GUARD_TOKEN','')
+        supplied=request.headers.get('X-Guard-Token','')
+        if not wanted or not supplied or not hmac.compare_digest(wanted,supplied):
+            return jsonify(error='unauthorized'),401
+        if INSTANCE is None:
+            return jsonify(error='review_service_unavailable'),503
+        with INSTANCE.connect() as db:
+            job=db.execute('SELECT * FROM setup_requests WHERE order_id=?',(order_id,)).fetchone()
+            events=[dict(r) for r in db.execute('SELECT * FROM setup_review_events WHERE order_id=? ORDER BY id',(order_id,))]
+            review=db.execute('SELECT * FROM reviews WHERE id=?',(job['review_id'],)).fetchone() if job else None
+            observation=db.execute('SELECT payload FROM setup_review_observations WHERE order_id=? ORDER BY at DESC LIMIT 1',(order_id,)).fetchone()
+        for event in events:event['detail']=json.loads(event['detail'])
+        return jsonify(order_id=order_id,setup_request=dict(job) if job else None,
+                       review=dict(review) if review else None,events=events,
+                       observation=json.loads(observation['payload']) if observation else None,read_only=True)
     app.add_url_rule('/ab/ai-context', 'ab_ai_context', status, methods=['GET'])
+    app.add_url_rule('/ab/ai-context/setup/<order_id>', 'ab_ai_setup_export', setup_export, methods=['GET'])
     app.add_url_rule('/ab/ai-context/view', 'ab_ai_context_view', lambda: Response(Path(__file__).with_suffix('.html').read_text(),mimetype='text/html'), methods=['GET'])

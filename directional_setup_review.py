@@ -1,6 +1,10 @@
 """Causal setup descriptions for observational AI reviews; no execution API."""
 import json
 import math
+import copy
+import directional_ict_context
+
+PROMPT_VERSION = 'directional-ict-setup-v2'
 
 
 def describe(order, contract):
@@ -32,8 +36,9 @@ def describe(order, contract):
                   alternative_2r=levels['entry_price']+sign*2*risk,
                   alternative_3r=levels['entry_price']+sign*3*risk,
                   source_level=snapshot.get('source_level'), fvg_edge=snapshot.get('fvg_edge'),
-                  setup_category=payload.get('setup_category'), entry_rules=payload.get('entry_rules'))
-    if len(json.dumps(result, allow_nan=False)) > 12000:
+                  setup_category=payload.get('setup_category'), entry_rules=payload.get('entry_rules'),
+                  frozen_context=directional_ict_context.frozen_context(order, payload))
+    if len(json.dumps(result, allow_nan=False)) > 40000:
         raise ValueError('setup_too_large')
     return result
 
@@ -62,3 +67,57 @@ trend alone is insufficient to reject a reversal. State when history is insuffic
 Your answer is not an executable order. Do not claim that a delayed order would fill or that
 the setup remains valid after your cutoff. The application separately records response
 latency and expiry. Do not change quantity, stop, target or strategy.'''
+    # Kept below as a separate extension so the complete production instruction
+    # and its version can be exported without reconstructing a historical call.
+
+
+def ict_prompt(base):
+    return prompt(base) + '''
+ICT review version directional-ict-setup-v2. Assess EVERY ict_context topic.
+Return setup_binding with the exact order_id, direction and setup_fingerprint.
+For each topic return SUPPORTS, CONTRADICTS, MIXED or UNKNOWN, evidence IDs,
+reason_pl and missing_evidence. UNKNOWN is required when evidence is missing;
+never fill a gap with remembered prices or events. Frozen detector labels are
+observations to verify, not a trader-approved narrative. H1/H4 direction alone
+cannot prohibit a reversal. Use a cited dealing range before asserting premium
+or discount. A selected session range is not automatically that dealing range.
+Distinguish sell-side/buy-side sweep and reclaim from directional breakout;
+distinguish BOS from MSS, gap formation from mitigation and IFVG inversion.
+Evaluate the original entry location, nearest liquidity/HTF obstacles before
+2R/3R, ATR completeness/usage, NY session and ES/NQ alignment. SMT requires
+paired comparable swing references, not merely candle agreement. Never use
+ATR efficiency alone as ICT confirmation. Missing decisive context warrants
+WAIT rather than an invented confirmation. Copy no outcome or future evidence.
+Use only existing evidence IDs; geometry and validity must stay unchanged.
+Keep each topic reason concise (one or two sentences); cite only decisive evidence IDs.
+'''
+
+
+def response_schema(base):
+    value = copy.deepcopy(base)
+    def obj(fields):
+        return dict(type='object',properties=fields,required=list(fields),additionalProperties=False)
+    string=dict(type='string'); ids=dict(type='array',items=string)
+    value['properties']['setup_binding']=obj(dict(order_id=string,
+        direction=dict(type='string',enum=['LONG','SHORT']),setup_fingerprint=string))
+    assessment=obj(dict(assessment=dict(type='string',enum=['SUPPORTS','CONTRADICTS','MIXED','UNKNOWN']),
+                        evidence_ids=ids,reason_pl=string,missing_evidence=ids))
+    value['properties']['ict_assessment']=obj({name:assessment for name in directional_ict_context.TOPICS})
+    value['required'] += ['setup_binding','ict_assessment']
+    return value
+
+
+def validate_binding(decision, packet):
+    expected=dict(order_id=packet['setup']['order_id'],direction=packet['setup']['direction'],
+                  setup_fingerprint=packet['setup_fingerprint'])
+    if decision['setup_binding'] != expected:
+        raise ValueError('ai_setup_binding_mismatch')
+    for item in decision['ict_assessment'].values():
+        if any(ref not in packet['evidence'] for ref in item['evidence_ids']):
+            raise ValueError('ict_evidence_missing')
+        if not item['reason_pl'].strip():
+            raise ValueError('ict_reason_required')
+        if item['assessment'] != 'UNKNOWN' and not item['evidence_ids']:
+            raise ValueError('ict_claim_without_evidence')
+        if item['assessment'] == 'UNKNOWN' and not item['missing_evidence']:
+            raise ValueError('ict_unknown_requires_missing_evidence')

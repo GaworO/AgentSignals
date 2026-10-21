@@ -144,6 +144,13 @@ class ContextTests(unittest.TestCase):
                contrary_evidence_pl='Trend przeciwny',invalidation=dict(evidence_id=ref,field='low',price=90.,relation='below'))
         d=dict(packet_id=p['packet_id'],long_scenario=s,short_scenario=s,liquidity_reading_pl='Hipoteza OHLC',
                target_2r_3r_pl='Potrzebne entry i SL',missing_context_pl=['Brak pełnego D1'])
+        if p.get('ict_context'):
+            # Explicit mocked fixture only, never a genuine model response.
+            d['setup_binding']=dict(order_id=p['setup']['order_id'],direction=p['setup']['direction'],
+                                    setup_fingerprint=p['setup_fingerprint'])
+            d['ict_assessment']={name:dict(assessment='UNKNOWN',evidence_ids=[],
+                reason_pl='Mocked test: no discretionary ICT judgment',missing_evidence=['fixture'])
+                for name in p['ict_context']['topics']}
         return dict(status='completed',usage=dict(input_tokens=10,output_tokens=10),
                     output=[dict(type='message',content=[dict(type='output_text',text=json.dumps(d))])])
 
