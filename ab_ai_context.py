@@ -496,6 +496,13 @@ class ContextSupport:
             instructions += '\nHybrid v1: use deterministic hybrid_context as mechanical observations, not trader confirmation. Return hybrid_assessment with market_thesis, liquidity_objective, entry_quality, structural_invalidation, nearest_opposing_liquidity, rr_assessment and conditional_management_plan. Cite evidence IDs and mark unavailable facts UNKNOWN in missing. Management is advice only; no position manager is enabled by this response. Never change setup geometry. If setup exists, copy its entry_price, stop_price, target_price and expiry_ms exactly into approved_geometry. Net RR is UNKNOWN without verified costs and executable quotes; do not certify execution. Context reviews cannot authorize an entry.'
             p.pop('packet_id',None)
             p['packet_id'] = digest(p)
+            if len(encode(p).encode())>505000 and p.get('cached_context_review'):
+                # Preserve the exact current setup snapshot. Never truncate a
+                # model sentence into different advice merely to fit a cache.
+                cached=p['cached_context_review']
+                p['cached_context_review']={k:cached[k] for k in ('review_id','as_of','expires_at','advisory_only')}
+                p['cached_context_review']['decision_omitted']='SIZE_LIMIT_USE_FRESH_COMPLETE_SETUP_CONTEXT'
+                p.pop('packet_id',None);p['packet_id']=digest(p)
             if len(encode(p).encode())>505000:
                 self.status='HYBRID_INPUT_TOO_LARGE'
                 return False
@@ -614,6 +621,8 @@ class ContextSupport:
                 db.execute("UPDATE setup_requests SET state=? WHERE order_id=? AND review_id=? AND state='running'",
                            (status, job['order_id'], p['packet_id']))
         self.status = status
+        if self.trigger == 'HYBRID' and status == 'validated':
+            self.invalidate(self.last_source)  # apply AI anchors to post-response bars before callback
         if job is not None:
             self.event(job['order_id'],'review_completed',review_id=p['packet_id'],state=status,error_code=error_code,
                        expires_at=job['expires'])

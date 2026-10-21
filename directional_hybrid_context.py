@@ -104,6 +104,12 @@ def build(packet, setup=None):
                     full=bool(later) and later[0]['time']==p['available_at'] and later[-1]['available_at']==cutoff and all(
                         z['time']-a['time']==60 for a,z in zip(later,later[1:]))
                     taken=any(e['high']>p['price'] if p['side']=='high' else e['low']<p['price'] for e in later)
+                    if full and taken:
+                        key,hit=next((k,e) for k,e in bars('MNQ',1) if e['time']>=p['available_at'] and
+                                     (e['high']>p['price'] if p['side']=='high' else e['low']<p['price']))
+                        events.append(dict(kind='OBSERVED_LIQUIDITY_TAKEN',symbol='MNQ',timeframe=tf,
+                            direction='UP' if p['side']=='high' else 'DOWN',available_at=hit['available_at'],
+                            price=p['price'],evidence_ids=p['refs']+[key]))
                     liquidity.append(dict(side='BUY_SIDE' if p['side']=='high' else 'SELL_SIDE',price=p['price'],
                         timeframe=tf,available_at=p['available_at'],evidence_ids=p['refs'],
                         state='TAKEN' if taken else 'UNTAKEN_OBSERVED' if full else 'UNKNOWN_COVERAGE'))
@@ -149,6 +155,12 @@ def build(packet, setup=None):
                     entry_inside=low<=setup['entry_price']<=high if setup else None,lifecycle='INVERSION_RECORDED'))
     # Bound the summary, not the original evidence. Prefer a nearby MNQ gap
     # for the candidate plus recent events; no cross-contract price translation.
+    for gap in gaps:
+        if gap['kind']=='IFVG' and gap['timeframe']>=5:
+            up=gap['direction'] in ('bull','long')
+            events.append(dict(kind='IFVG',symbol=gap['symbol'],timeframe=gap['timeframe'],
+                direction='UP' if up else 'DOWN',available_at=gap['available_at'],
+                price=gap['upper'] if up else gap['lower'],evidence_ids=gap['evidence_ids']))
     gaps.sort(key=lambda g:g['available_at'],reverse=True)
     if setup:
         near=sorted((g for g in gaps if g['symbol']=='MNQ'),key=lambda g:min(abs(g['lower']-setup['entry_price']),abs(g['upper']-setup['entry_price'])))[:4]

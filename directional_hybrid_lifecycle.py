@@ -84,6 +84,7 @@ def reusable_context(service, packet):
     with service.connect() as db:
         rows=db.execute("SELECT * FROM reviews WHERE review_kind='CONTEXT' AND status='validated' ORDER BY started DESC LIMIT 3").fetchall()
     for row in rows:
+        if json.loads(row['invalidated']):continue
         p=json.loads(json.loads(row['request'])['input'][1]['content'])
         if service.clock()<p['review_expires_at'] and reason(service,p) is None:
             return dict(review_id=row['id'],as_of=p['as_of'],expires_at=p['review_expires_at'],

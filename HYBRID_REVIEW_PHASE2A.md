@@ -70,7 +70,9 @@ cutoff and availability timestamps. Raw bars remain in the exact saved input.
 Structure summaries retain the recent hour and latest per kind/timeframe/market;
 gap summaries retain latest per market/timeframe/kind, recent and nearby MNQ gaps.
 These bounds prevent overflowing the existing 505000-byte packet limit. Oversize
-input blocks without spending. Missing per-bar receipt times remain explicitly
+input blocks without spending. If a cached advisory response would overflow the
+packet, its exact stored reference is retained with decision_omitted; the complete
+fresh setup context is preserved and model sentences are never truncated. Missing per-bar receipt times remain explicitly
 UNKNOWN; historical replay uses the previously receipt-filtered source export.
 
 ## Lifecycle and final gate
@@ -83,7 +85,9 @@ an advisory cached context review. Generic context cannot authorize a setup.
 Context expires after 15 minutes or at session end. Setup validity is the earliest
 of original expiry, activation + existing setup TTL (120 seconds), session end.
 New material NQ/MNQ structure events invalidate older reasoning conservatively,
-including supportive changes. Same-cutoff data corrections also invalidate it.
+including supportive changes. M5+ IFVG inversions and observed M1 takings of
+confirmed liquidity (with complete intervening coverage) are material events too.
+Same-cutoff data corrections also invalidate it.
 
 Strict output adds seven reason/evidence/missing fields: market_thesis,
 liquidity_objective, entry_quality, structural_invalidation,
@@ -95,7 +99,8 @@ No field changes the original order. Conditional management is advice only.
 Input, raw output, parsed decision, prompt version/hash, model, latency, expiry,
 review kind, setup lifecycle and validation event are stored in existing SQLite.
 After AI, the worker reads fresh market data, checks event changes, data revisions,
-continuous post-activation M1 coverage and original SL/TP touches. These candles
+continuous post-activation M1 coverage and original SL/TP touches. Model invalidation anchors are also applied to post-response bars before dispatch;
+an invalidated context response is never reused. These candles
 are validity evidence, **never executable quotes**. The cache must have been read
 since process startup and within 15 seconds; packet cutoff must be <=120 seconds
 old. Restart cannot reuse a stale cached ALLOW. Changed geometry tombstones the

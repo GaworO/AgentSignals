@@ -275,3 +275,53 @@ def test_mnq_fvg_inversion_is_causal_and_separate_from_nq():
     assert any(g['kind']=='IFVG' and g['lower']==102 and g['upper']==105 and g['available_at']==240 for g in gs)
     early=dict(p,as_of=180,evidence={k:v for k,v in ev.items() if v['available_at']<=180})
     assert not any(g['kind']=='IFVG' for g in hybrid.build(early)['fvg_ifvg']['value'])
+
+
+def test_ifvg_on_m5_is_a_material_context_event():
+    p=dict(as_of=1800,packet_id='ifvg_fixture',evidence={
+        'nq-gap':dict(kind='IFVG',symbol='NQ',timeframe=5,available_at=1800,
+                      lower=100,upper=102,direction='short')})
+    events=hybrid.build(p)['structure_events']['value']
+    assert len(events)==1 and events[0]['kind']=='IFVG' and events[0]['direction']=='DOWN'
+    assert events[0]['available_at']==1800 and events[0]['evidence_ids']==['nq-gap']
+
+
+def test_observed_liquidity_taking_uses_closed_m1_before_m5_close():
+    ev={}
+    pairs=[(104,100),(105,101),(110,106),(106,102),(105,101)]
+    for i,(hi,lo) in enumerate(pairs):
+        ev['m5-'+str(i)]=dict(kind='bar',symbol='MNQ',timeframe=5,time=i*300,available_at=(i+1)*300,open=lo+1,high=hi,low=lo,close=lo+1)
+    ev['m1']=dict(kind='bar',symbol='MNQ',timeframe=1,time=1500,available_at=1560,open=109,high=111,low=108,close=109)
+    events=hybrid.build(dict(as_of=1560,evidence=ev,packet_id='sweep_fixture'))['structure_events']['value']
+    assert any(e['kind']=='OBSERVED_LIQUIDITY_TAKEN' and e['available_at']==1560 and e['price']==110 for e in events)
+
+
+def test_invalidated_context_review_is_never_reused(h):
+    h.support.process_one()
+    with h.support.connect() as db:db.execute("UPDATE reviews SET invalidated='[\"long_scenario\"]'")
+    assert life.reusable_context(h.support,h.support.packet(h.source(),h.now)) is None
+
+
+def test_model_invalidation_anchor_applied_before_dispatch_callback(h):
+    start=h.now
+    def source():
+        s=h.source();p=s['context']['packet']
+        for e in p['evidence'].values():
+            if e['kind']=='bar' and e['symbol']=='MNQ' and e['timeframe']==1:e.update(high=101,low=99)
+            if h.now>start and e['kind']=='bar' and e['symbol']=='NQ' and e['timeframe']==1 and e['available_at']==h.now:e.update(low=88,close=89)
+        p['packet_id']=ai.digest({k:v for k,v in p.items() if k!='packet_id'});return s
+    h.support.reader=source
+    def transport(p):
+        raw=mocked_response(h,p);h.now+=60;return raw
+    h.support.transport=transport;h.support.queue_setup(candidate(h));h.support.process_one()
+    assert gate.check('LONG','one')[0]=='v3_ai:invalidated'
+
+
+def test_oversized_advisory_cache_does_not_truncate_fresh_setup(h,monkeypatch):
+    monkeypatch.setattr(life,'reusable_context',lambda s,p:dict(review_id='cached',as_of=h.now,expires_at=h.now+900,
+        advisory_only=True,decision={'reason':'x'*505000}))
+    h.support.queue_setup(candidate(h));assert h.support.process_one()
+    p=json.loads(h.calls[0]['input'][1]['content'])
+    assert p['cached_context_review']['decision_omitted']=='SIZE_LIMIT_USE_FRESH_COMPLETE_SETUP_CONTEXT'
+    assert p['setup']['entry_price']==100 and p['evidence'] and p['hybrid_context']
+    assert len(ai.encode(p).encode())<=505000
