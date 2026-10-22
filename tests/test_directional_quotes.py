@@ -35,6 +35,19 @@ def test_collective_observed_logged_but_never_authorizes(tmp_path,monkeypatch):
     assert not c.latest()['allowed']
 
 
+def test_drafted_consensus_timestamp_observation_is_not_bbo_attestation(tmp_path):
+    # Shape observed from the production provider on 2026-10-22, prices/time
+    # shifted for a deterministic offline fixture. It cannot certify a venue.
+    raw=dict(collective(),source='drafted',pricingBasis='drafted_consensus')
+    r=client(tmp_path,raw).fetch('MNQZ2026')
+    assert r['quote']['quote_age_ms']==500 and r['quote']['spread_ticks']==2
+    assert r['quote']['market_open'] and r['quote']['source']=='drafted'
+    assert r['reason']=='quote_source_suitability_unverified'
+    fake_proof=dict(quote_verification=dict(verified=True,source='drafted',contract='MNQZ2026',
+        reference='UNIT_TEST_ONLY',timestamp_semantics='bid_ask_event_time',venue_bbo=True))
+    assert not q.attest_quote(r['quote'],fake_proof)['execution_eligible']
+
+
 @pytest.mark.parametrize('change,reason',[
     ({'instrument':'MNQ 03-27'},'quote_contract_metadata_mismatch'),
     ({'tickSize':.5},'quote_contract_metadata_mismatch'),

@@ -16,12 +16,32 @@ def status(transport, now_ms=None):
                     'target_modify':'COMMAND_REPORT_AND_VERSION_VALIDATION_IMPLEMENTED_PAPER_UNVERIFIED',
                     'partial_close':'BLOCKED_NO_ATOMIC_LINKED_BRACKET_RESIZE_PROOF',
                     'structural_trailing':'RESEARCH_RULES_ONLY',
-                    'runner':'RESEARCH_RULES_ONLY',
-                    'early_exit':'RESEARCH_RULES_ONLY',
+                    'runner':'ORIGINAL_MODEL0_FULL_EXIT_ONLY_REQUIRES_SEPARATE_PROOF',
+                    'early_exit':'ORIGINAL_M3_FULL_EXIT_PAPER_AND_QUOTE_GATED',
                     'guard_exit':'EXISTING_NATIVE_GUARD_PATH_UNCHANGED'},
                 positions=[],pending_intents=[])
     if transport is None:
         result['reason']='NATIVE_TRANSPORT_NOT_CONFIGURED';return result
+    # Configuration visibility is not permission for a specific position.
+    # The writer repeats proof, quote and owned-position checks at dispatch.
+    blockers=[]
+    try:
+        import execution_validation
+        import execution_safety
+        from directional_management_broker import full_exit_proof
+        full_exit_proof(transport,execution_validation.policy(),now_ms)
+        result['broker_paper_verified']=True
+        if not execution_safety.writes_enabled():blockers.append('LIVE_EXECUTION_DISABLED')
+        if transport.api.exit_mode()!='real':blockers.append('exit_mode_not_real')
+        blockers.extend(transport.api.exit_blockers())
+        if not transport.api.frozen_parity_ok():blockers.append('original_rule_parity_failed')
+    except (ValueError,OSError,TypeError,KeyError,AttributeError) as exc:
+        blockers.append(str(exc) if isinstance(exc,ValueError) else 'MANAGER_CONFIGURATION_UNKNOWN')
+    result['original_full_exit']=dict(implemented=True,configured=not blockers,blockers=blockers,
+        rule_source='v3_position_manager / frozen M3 / Model0',
+        per_event_validation_required=True,advanced_modifications_enabled=False)
+    result['active_management_writes']=not blockers
+    result['write_blocker']=blockers[0] if blockers else 'PER_EVENT_VALIDATION_REQUIRED'
     try:
         with transport.api.connect() as c:
             tables={r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -40,6 +60,7 @@ def status(transport, now_ms=None):
                     observed_ms=at,age_ms=age,broker_fresh=fresh,
                     remaining_quantity=s.get('remaining_quantity'),stop=s.get('last_stop'),
                     target=s.get('last_target'),fees=s.get('fees'),
+                    original_policy_decision=s.get('original_policy_decision'),
                     net_realized_usd=s.get('realized_net_usd')))
             for row in c.execute("SELECT payload FROM ict_management_intents WHERE binding=? AND status IN ('REQUESTED','ACK','UNKNOWN')",(transport.binding,)):
                 i=json.loads(row[0]);result['pending_intents'].append({k:i.get(k) for k in

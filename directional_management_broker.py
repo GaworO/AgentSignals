@@ -1,13 +1,116 @@
-"""Read-only CrossTrade/Tradovate bridge for the Phase 3A manager.
+"""CrossTrade/Tradovate bridge for the existing Directional manager.
 
-Order operation plans follow documented REST schemas. Sending ANY management
-operation is deliberately impossible here, even if environment flags are armed.
-Tests use a separate injected in-memory adapter, never this transport's writer.
+Original full exits reuse the native close journal and require provider-paper
+evidence. Research partial/trailing/runner modifications have no write authority.
 """
 import json
+import math
 from urllib.parse import quote
 import builder_crosstrade as native
 from directional_position_manager import Manager
+
+
+def full_exit_proof(transport,policy,now):
+    """Evidence is account/contract-bound; a demo label is not paper proof."""
+    proof=policy.get('broker_workflow_verification',{})
+    if not isinstance(proof,dict):raise ValueError('NATIVE_MANAGER_FULL_EXIT_PAPER_PROOF_REQUIRED')
+    management=proof.get('management',{})
+    if not isinstance(management,dict):raise ValueError('NATIVE_MANAGER_FULL_EXIT_PAPER_PROOF_REQUIRED')
+    if (proof.get('verified') is not True or proof.get('simulator_only') is not False
+            or proof.get('provider')!='CrossTrade' or proof.get('surface')!='tradovate'
+            or proof.get('contract')!=transport.api.contract()
+            or proof.get('account_binding')!=transport.binding
+            or not proof.get('paper_evidence_reference')
+            or not all(proof.get(k) is True for k in ('native_oso_oco','partial_fill_repair','restart_recovery','net_accounting'))
+            or not all(management.get(k) is True for k in ('full_exit','terminal_children','duplicate_timeout_recovery'))
+            or not management.get('paper_evidence_reference')
+            or type(management.get('verified_at_ms')) not in (int,float)
+            or type(management.get('expires_at_ms')) not in (int,float)
+            or not 0<management['verified_at_ms']<=now<management['expires_at_ms']):
+        raise ValueError('NATIVE_MANAGER_FULL_EXIT_PAPER_PROOF_REQUIRED')
+
+
+def original_exit(transport,payload):
+    """One writer: exact persisted M3/Model0 action -> existing native close.
+
+    No partial order, stop replacement or AI-invented rule is accepted. Guard
+    emergency closes use their existing independent path and do not call here.
+    """
+    import execution_validation
+    from directional_market_data import QuoteClient
+    import v3_frozen_exit
+    t=transport;api=t.api;extras=payload.get('extras',{})
+    oid=extras.get('v3OrderId');aid=extras.get('v3ActionId')
+    policy=execution_validation.policy()
+    full_exit_proof(t,policy,int(t.clock()*1000))
+    quote=None
+
+    def validate():
+        now=int(t.clock()*1000)
+        if execution_validation.policy()!=policy:raise ValueError('NATIVE_MANAGER_POLICY_CHANGED')
+        full_exit_proof(t,policy,now)
+        if api.exit_mode()!='real' or api.exit_blockers():raise ValueError('NATIVE_MANAGER_EXECUTION_INTERLOCK')
+        if not api.frozen_parity_ok():raise ValueError('NATIVE_MANAGER_RULE_PARITY_FAILED')
+        with api.connect() as c:
+            row=c.execute('SELECT * FROM orders WHERE order_id=?',(oid,)).fetchone()
+            action=c.execute('SELECT * FROM actions WHERE action_id=? AND order_id=?',(aid,oid)).fetchone()
+            ex=c.execute('SELECT * FROM exit_trades WHERE trade_id=?',(oid,)).fetchone()
+            decision=c.execute('SELECT payload_json FROM manager_states WHERE order_id=?',(oid,)).fetchone()
+        if not row or not action or not ex:raise ValueError('ORIGINAL_EXIT_JOURNAL_REQUIRED')
+        order=json.loads(row['order_json']);position=json.loads(row['position_json'] or '{}')
+        if (order.get('strategy')!='AB_DIRECTIONAL' or order.get('contract')!=api.contract()
+                or row['state']!='EXIT_UNKNOWN' or action['state']!='EXIT_UNKNOWN'
+                or json.loads(action['payload_json'])!=payload
+                or payload.get('action')!='exit' or payload.get('orderType')!='market'
+                or payload.get('ticker')!=order['contract']
+                or position.get('assumed') is not False or position.get('exclusive') is not True
+                or payload.get('quantity')!=position.get('quantity') or position.get('quantity')!=order.get('quantity')
+                or position.get('position_id')!=extras.get('v3PositionId')
+                or extras.get('v3Policy')!='V3_M3_OBFH_10M_RUNNER_V1'
+                or extras.get('v3PrimaryReason')!=ex['primary_reason']):
+            raise ValueError('ORIGINAL_EXIT_IDENTITY_MISMATCH')
+        if ex['signal_time'] is None or not 0<=now-ex['signal_time']<=10000:
+            raise ValueError('ORIGINAL_EXIT_SIGNAL_EXPIRED')
+        if ex['primary_manager']=='M3':
+            d=json.loads(decision[0]) if decision else {}
+            if (d.get('decision')!='CLOSE' or d.get('m3_confirmed') is not True
+                    or d.get('reason')!=ex['primary_reason']
+                    or d.get('reason') not in v3_frozen_exit.MANAGER_REASONS['M3']
+                    or d.get('boundary',{}).get('classification')=='RECOVERY'
+                    or type(d.get('known_ms')) is not int or d['known_ms']!=ex['signal_time']
+                    or not 0<=now-d['known_ms']<=15000):
+                raise ValueError('ORIGINAL_M3_CONFIRMATION_REQUIRED')
+        elif ex['primary_manager']=='RUNNER':
+            with api.connect() as c:
+                r=c.execute('SELECT payload_json FROM runner_decisions WHERE order_id=?',(oid,)).fetchone()
+            d=json.loads(r[0]) if r else {}
+            if (not order.get('runner_enabled') or not api.runner_parity_ok()
+                    or d.get('decision_kind')!='EXIT_2R' or d.get('selected') is not False
+                    or ex['primary_reason'] not in ('RUNNER_2R_EXIT','RUNNER_2R_DATA_FALLBACK')
+                    or type(d.get('touch_ms')) is not int or d['touch_ms']!=ex['signal_time']
+                    or not 0<=now-d['touch_ms']<=15000):
+                raise ValueError('ORIGINAL_RUNNER_CONFIRMATION_REQUIRED')
+        else:raise ValueError('ORIGINAL_MANAGER_REQUIRED')
+        if quote is not None:
+            cap=policy.get('max_quote_age_ms');spread=policy.get('max_spread_ticks')
+            if (type(cap) not in (int,float) or not math.isfinite(cap) or cap<=0
+                    or type(spread) not in (int,float) or not math.isfinite(spread) or spread<=0
+                    or quote.get('execution_eligible') is not True or quote.get('timestamp_semantics_verified') is not True
+                    or quote.get('source')!=policy.get('quote_source') or not policy.get('quote_source')
+                    or quote.get('contract')!=order['contract'] or quote.get('market_open') is not True
+                    or not native.tick(quote.get('bid')) or not native.tick(quote.get('ask'))
+                    or quote['bid']>quote['ask'] or (quote['ask']-quote['bid'])/.25>spread
+                    or type(quote.get('as_of_ms')) not in (int,float)
+                    or not 0<=now-quote['as_of_ms']<=cap):
+                raise ValueError('NATIVE_MANAGER_EXECUTABLE_QUOTE_REQUIRED')
+        return order
+
+    order=validate()
+    quote=QuoteClient(clock=t.clock).fetch(order['contract'],parameters=policy,order_id=oid,execution=True)
+    validate()
+    # The native journal arbitrates duplicate Guard/manager close requests.
+    # Recheck the rule and quote after slow reconciliation, immediately at IO.
+    return t.action(oid,'close',aid,before_send=validate)
 
 
 def modification_reports(life):
@@ -147,7 +250,18 @@ def observe_native(transport,oid,snapshot):
     manager.register(order,json.loads(row['receipt_json']))
     try:
         observed=CrossTradeManagementAdapter(transport).read(oid,snapshot,cached=True)
-        return manager.reconcile(oid,observed,int(transport.clock()*1000))
+        state=manager.reconcile(oid,observed,int(transport.clock()*1000))
+        with transport.api.connect() as c:
+            policy=c.execute('SELECT payload_json FROM manager_states WHERE order_id=?',(oid,)).fetchone()
+            if policy:
+                decision=json.loads(policy[0])
+                # The existing frozen-rule runtime is the sole decision source.
+                # Observing a decision never fabricates execution or approval.
+                with manager.connect() as journal:
+                    journal.execute('BEGIN IMMEDIATE')
+                    state=manager.get(oid);state['original_policy_decision']=decision
+                    manager.save(journal,state)
+        return state
     except (ValueError,KeyError,TypeError) as e:
         # Never leave a previously PROTECTED cache as permission after failure.
         with manager.connect() as c:

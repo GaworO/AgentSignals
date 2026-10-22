@@ -238,10 +238,7 @@ class NativeTests(unittest.TestCase):
 
     def test_native_manager_exit_releases_db_lock_and_duplicate_or_unknown_close_never_resends(self):
         self.submit();self.open()
-        aid='exit-one';payload=dict(extras=dict(v3OrderId='order-one',v3ActionId=aid))
-        with self.api.connect() as c:
-            c.execute("UPDATE orders SET state='EXIT_UNKNOWN'")
-            c.execute('INSERT INTO actions VALUES(?,?,?,?,?,?)',(aid,'order-one',int(self.now*1000),'EXIT_UNKNOWN',json.dumps(payload),int(self.now*1000)))
+        aid='exit-one';payload=self.original_exit_fixture(aid)
         self.api._send_broker_exit=native.exit_payload
         self.exit(aid,'order-one',payload)
         self.assertEqual(self.local()['state'],'EXIT_PENDING');self.assertEqual(len(self.posts),2)
@@ -249,6 +246,33 @@ class NativeTests(unittest.TestCase):
             version=dict(orderId=14,orderQty=2,orderType='Market'),commands=[],reports=[])
         self.t.action('order-one','close','another-action',snapshot=self.snapshot([self.entry],2))
         self.assertEqual(len(self.posts),2)
+
+    def original_exit_fixture(self,aid='exit-one'):
+        # Synthetic proof is confined to the network-denied unit test process.
+        # It is never written to a policy file or treated as broker evidence.
+        now=int(self.now*1000)
+        self.manager_policy=dict(quote_source='crosstrade_nt8',max_quote_age_ms=3000,max_spread_ticks=4,
+            broker_workflow_verification=dict(verified=True,simulator_only=False,provider='CrossTrade',
+                surface='tradovate',contract='MNQZ2026',account_binding=self.t.binding,
+                paper_evidence_reference='UNIT_TEST_ONLY',native_oso_oco=True,partial_fill_repair=True,
+                restart_recovery=True,net_accounting=True,management=dict(full_exit=True,terminal_children=True,
+                    duplicate_timeout_recovery=True,paper_evidence_reference='UNIT_TEST_ONLY',
+                    verified_at_ms=now-1,expires_at_ms=now+60000)))
+        self.exit_quote=dict(source='crosstrade_nt8',contract='MNQZ2026',execution_eligible=True,
+            timestamp_semantics_verified=True,market_open=True,bid=30000.,ask=30000.25,as_of_ms=now)
+        patch.object(execution_validation,'policy',return_value=self.manager_policy).start()
+        patch('directional_market_data.QuoteClient.fetch',side_effect=lambda *a,**k:copy.deepcopy(self.exit_quote)).start()
+        self.api.exit_blockers=lambda:[];self.api.frozen_parity_ok=lambda:True;self.api.runner_parity_ok=lambda:True
+        payload=dict(ticker='MNQZ2026',action='exit',orderType='market',quantity=2,
+            extras=dict(v3OrderId='order-one',v3ActionId=aid,v3PositionId='ct:11',
+                v3Policy='V3_M3_OBFH_10M_RUNNER_V1',v3PrimaryReason='F2'))
+        with self.api.connect() as c:
+            c.execute("UPDATE orders SET state='EXIT_UNKNOWN'")
+            c.execute('INSERT INTO actions VALUES(?,?,?,?,?,?)',(aid,'order-one',now,'EXIT_UNKNOWN',json.dumps(payload),now))
+            c.execute("UPDATE exit_trades SET primary_manager='M3',primary_reason='F2',signal_time=?",(now,))
+            c.execute('INSERT INTO manager_states VALUES(?,?)',('order-one',json.dumps(dict(decision='CLOSE',
+                m3_confirmed=True,reason='F2',known_ms=now,boundary=dict(classification='FAILURE')))))
+        return payload
 
     def test_partial_lifecycle_and_modified_protection_fail_closed(self):
         self.submit();self.life[12]['commands']=[dict(commandType='Modify')]

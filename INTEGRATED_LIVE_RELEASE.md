@@ -1,9 +1,15 @@
 # Integrated Directional release — 22 October 2026
 
-Base: 667545a (Phase 3A), including cbe70a5 (2A/2B) and d4ff5ec (2R gross).
-This is a reconciliation/visibility hardening release, not certification of Phase 3B live management.
+Base: be3eb46, including 667545a (Phase 3A), cbe70a5 (2A/2B) and d4ff5ec (2R gross).
+This release connects the existing frozen M3/Model0 full-exit policy to a proof-gated native writer. It does not certify broker-paper operation or activate trading.
 
 ## Changes in this release
+
+- The original persisted M3/Model0 decision is the sole discretionary full-exit source. Exact order/action/position identity, original rule parity, paper evidence bound to the account/contract, verified executable quotes and current permissions are rechecked after broker reads and before IO.
+- Reuse the existing native close journal. Unknown delivery is never blindly resent. A known pre-send veto is durably NOT_SENT and cannot lock out the independent Guard close.
+- Native 3R runner entries additionally require proof of the original full-close path, including final entry revalidation.
+- Persist the existing manager decision alongside its actual broker-state observation and expose it in /execution/manager. No AI advice or generic research event gains write authority.
+- Parse the observed drafted/drafted_consensus ts/eventTs fields for monitoring. Both drafted and collective remain observational regardless of claimed confidence or policy flags.
 
 - Modification confirmation requires the latest report for the exact owned Modify command/order and current version. `rejectReason=Success` is not rejection. `AtExecution` alone never confirms an operator stop modification.
 - A rejected management intent is persisted after the complete broker packet validates. Invalid packets still roll back atomically. Restart cannot forget a valid rejection and leave it pending forever.
@@ -16,17 +22,36 @@ This is a reconciliation/visibility hardening release, not certification of Phas
 
 The existing native entry/Guard transport constructs entry OSO brackets and reconciles receipts, fills, original SL/TP, OCO linkage and final accounting. Its Guard full-close/cancel path is unchanged.
 
-The ICT manager observes those actual native records and persists state. Its rule evaluator and simulated intent lifecycle cover HOLD/REDUCE/EXIT/STOP/TARGET, but its real broker writer remains blocked by `PHASE3B_BROKER_MANAGEMENT_NOT_VERIFIED`. No environment switch can certify these operations.
+The ICT manager observes those actual native records and persists state. Its generic research evaluator and simulated intent lifecycle cover HOLD/REDUCE/EXIT/STOP/TARGET; those generic broker writes remain blocked by `PHASE3B_BROKER_MANAGEMENT_NOT_VERIFIED`. The original frozen strategy full-exit path is separately connected to the existing native close writer. It requires saved paper evidence, account/contract binding, unexpired verification, a current original M3 or Model0 decision, exact position ownership, unchanged protective geometry and verified fresh quotes. Flags alone cannot satisfy this proof.
 
 CrossTrade supports Tradovate PUT `/tv/accounts/{account}/orders/{id}/change` and POST `/tv/accounts/{account}/positions/close`. Support for these individual calls is not proof of an atomic reduction with matching remaining OCO quantities. The Tradovate-specific CLOSEPOSITION documentation says partial closes leave working orders in place. Therefore REDUCE/runner-after-partial cannot safely be implemented by an unverified close-then-resize sequence. Cancel-and-rebracket also has a protection gap. No undocumented atomic endpoint is assumed.
 
-Outstanding code integration after broker-paper protocol validation: enable the narrow owned modification writer; coordinate its journal with the native Guard writer; allow only journal-confirmed modified geometry in native reconciliation; connect approved causal management rules to the runtime event dispatcher. The current native reconciler deliberately expects the original bracket. Simply enabling PUT would cause a changed bracket to be treated as unexpected intervention. These dependencies are not hidden behind an “enabled” flag.
+Outstanding advanced integration after an original rule is identified and its broker-paper protocol validated: enable a narrow owned modification writer, coordinate its journal with the native Guard writer and allow only journal-confirmed modified geometry in native reconciliation. The original full-exit runtime is connected in this release; advanced trailing/partial rules are not authorized by that connection. The current native reconciler deliberately expects the original bracket. Simply enabling PUT would cause a changed bracket to be treated as unexpected intervention. These dependencies are not hidden behind an “enabled” flag.
+
+## Original strategy rules preserved
+
+All triggers use completed M1 candles available at decision time; fill minute is excluded. The code and model hashes of v3_frozen_exit.py, v3_boundary.py and v3_runner.py are unchanged.
+
+| Action | Existing condition | Runtime status in this release |
+|---|---|---|
+| HOLD | No confirmed M3 reason, or Boundary classification RECOVERY | Existing frozen decision; RECOVERY never vetoes native SL or Guard |
+| Full EXIT / F2 | Supportive FVG fails by body close and opposing displacement is confirmed | Exact saved M3 reason, before first 2R touch, freshness and broker proof required |
+| Full EXIT / B11 | No re-expansion for three completed M1 after supportive FVG retest, plus opposing displacement | Same original M3 dispatch gate |
+| Full EXIT / OBFH_EXPANSION | Opposing BOS creates linked FVG of at least 3 points; next bar holds; a later adverse candle makes a new adverse close by >=0.25, body/range >=0.5 and range >= prior ATR20 | Original function, no new thresholds |
+| Full EXIT / OBFH_3_CLOSES_10M | Prior three-bar no-expansion warning after >=3 minutes with MFE<0.75R; opposing BOS and linked FVG hold, then three consecutive adverse closes by >=0.25 within ten minutes | Zone body-close invalidation cancels candidate; expiry alone never exits |
+| Structural invalidation | The exact F2/B11/OBFH evidence above, not an arbitrary AI opinion | Existing deterministic rule only |
+| Optional Model0 runner | At first completed-M1 2R touch, original model selects HOLD_3R only above 0.75; otherwise EXIT_2R, including data fallback | Existing model/hash/year/parity checks; not activated; exact saved decision and separate paper proof required |
+| Partial, trailing, break-even | No original approved Directional condition identified | Inactive; no invented management rule or unproved close-and-resize sequence |
+
+M3 dispatch remains inside its existing 10-second signal window, with a maximum 15-second closed-M1 decision age. The original BOS compares a directional close to prior 15-bar extremes with body/range >=0.5; displacement also requires body at least prior 10-bar max and ATR20. These constants are reported from the frozen implementation, not newly proposed.
+
+The writer uses documented POST /tv/accounts/{account}/positions/close for a full owned position. ACK is not a fill. Native reconciliation must prove flat and terminal children before accounting completes. No dynamic stop/target PUT is enabled by this release.
 
 ## Required external evidence
 
 1. A separate supported paper account, with no evaluation/payout consequences, identified by account ID and environment and with copy trading disabled. `environment=demo` on an MFFU evaluation is insufficient. Capture real order lifecycle responses, not simulated fixtures. No artificial MFFU orders.
 2. Quote-source provenance: contract-specific bid/ask event timestamp semantics, venue BBO status and latency measurements. Current collective/cluster_mean_mid remains observational. The existing adapter can consume a suitable CrossTrade NT8 feed, but the connected NT8 client currently reports disconnected.
-3. Current MFFU minimum balance, daily allowance policy, contract/margin limits and account-wide activity/control evidence. The old DD_FLOOR and an autoLiqLevel of -2000 are not a current absolute broker floor. Account controls must remain current; a one-time manually populated file is not a permanent solution.
+3. The user reconfirmed the panel floor 48,161.90 as unchanged. Broker cash/net liquidation is 48,721.05, no positions/working orders: headroom is 559.15 USD, or 459.15 after the existing 100 USD buffer, before new trade risk/costs. Provider daily loss policy/remaining allowance and provider maximum MNQ/margin limits remain UNKNOWN. Configured DAY_LOSS_USD=550 and EXEC_MAX_QTY=15 are application settings, not provider confirmations. autoLiqLevel=-2000 is not an absolute minimum balance. A continuously refreshed account-control source remains necessary.
 4. A measured and approved execution policy with max quote/signal age, entry tolerance, spread/slippage/volatility bounds, verified fees and 2R gross minimum. Do not fill unknown numerical limits with examples from unit tests.
 5. Railway build availability for this workspace. Existing service Online is not evidence of deployment availability.
 
@@ -56,7 +81,7 @@ Only after the checks pass and the user explicitly authorizes final activation, 
 | DIRECTIONAL_EXECUTION_POLICY_FILE | validated account/contract policy on persistent volume |
 | MFFU_RISK_EVIDENCE_FILE | verified current account evidence on persistent volume |
 
-This is an entry configuration target, NOT a complete active-manager configuration. No exact safe active-manager setting exists until the outstanding writer/protocol/rule integration and paper acceptance are complete. Keep V3_EXIT_MODE=shadow, V3_EXIT_REAL_EXECUTION=false and V3_RUNNER_ENABLED=false until those features are separately proven. Keep Guard/news/risk limits unchanged. Revalidation still runs per setup; AI approval is not order authorization.
+This is an entry configuration target. For the original M3 full-exit feature, only after independently recorded paper acceptance and final authorization, the operator may set V3_EXIT_MODE=real and V3_EXIT_REAL_EXECUTION=true with V3_EXIT_M1_ENABLED=false, V3_EXIT_M2_ENABLED=false, V3_EXIT_M3_ENABLED=true. Existing parity/shadow/staging checks must pass. The approved execution policy must contain broker_workflow_verification.management with full_exit, terminal_children, duplicate_timeout_recovery, a real paper_evidence_reference and verified_at_ms/expires_at_ms; the surrounding evidence must identify the intended account_binding and contract. Do not create this attestation from unit-test fixtures. V3_RUNNER_ENABLED stays false until separate Model0 2R/3R paper acceptance. No permitted partial/trailing configuration is supplied because the original Directional strategy does not define those actions. Until these checks pass, retain V3_EXIT_MODE=shadow and V3_EXIT_REAL_EXECUTION=false. Keep Guard/news/risk limits unchanged. Revalidation still runs per setup; AI approval is not order authorization.
 
 ## Emergency stop and rollback
 

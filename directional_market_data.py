@@ -48,18 +48,19 @@ def inspect_quote(raw, contract, now_ms, max_age_ms):
     bid,ask=raw.get('bid'),raw.get('ask')
     if any(not number(v) or v <= 0 or abs(v/.25-round(v/.25))>1e-8 for v in (bid,ask)) or bid>ask:
         raise ValueError('quote_bid_ask_invalid')
-    collective=raw.get('source')=='collective'
-    keys=('ts','eventTs') if collective else ('epoch',)
+    consensus=raw.get('source') in ('collective','drafted')
+    keys=('ts','eventTs') if consensus else ('epoch',)
     stamps={}
     for key in keys:
         at=raw.get(key)
         if not number(at) or at<=0: raise ValueError('quote_provider_timestamp_required')
         stamps[key]=at*1000
-    # Both timestamps must be current, but their meaning for collective is unverified.
+    # Both timestamps must be current. Consensus timestamp semantics and BBO
+    # provenance remain unverified, including the observed drafted response.
     at=min(stamps.values())
     if any(not 0<=now_ms-v<=max_age_ms for v in stamps.values()):
         raise ValueError('quote_stale_or_future')
-    nt8=(not collective and not raw.get('pricingBasis') and raw.get('source') in (None,'nt8','crosstrade_nt8')
+    nt8=(not consensus and not raw.get('pricingBasis') and raw.get('source') in (None,'nt8','crosstrade_nt8')
          and raw.get('type')=='Future' and isinstance(raw.get('dataSource'),dict)
          and raw['dataSource'].get('status')=='Live')
     return dict(contract=contract, instrument=expected, source='crosstrade_nt8' if nt8 else str(raw.get('source') or 'unknown'),
@@ -68,7 +69,7 @@ def inspect_quote(raw, contract, now_ms, max_age_ms):
                 feed_candidate=nt8, timestamp_semantics_verified=False, execution_eligible=False,
                 timestamp_semantics='UNVERIFIED_PROVIDER_TIMESTAMP',
                 provenance_reason='quote_source_suitability_unverified',
-                market_open=raw.get('marketOpen' if collective else 'isMarketOpen') is True)
+                market_open=raw.get('marketOpen' if consensus else 'isMarketOpen') is True)
 
 
 def attest_quote(result, parameters):

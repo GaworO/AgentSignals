@@ -193,6 +193,16 @@ class Transport:
             self.contract_id=found['id']
         return self.contract_id
 
+    def runner_entry_blocker(self,order):
+        # A 3R native target depends on the original Model0 2R exit path.
+        # Do not open such a position before that full-close protocol is proven.
+        if order.get('strategy')!='AB_DIRECTIONAL' or not order.get('runner_enabled'):return None
+        try:
+            from directional_management_broker import full_exit_proof
+            full_exit_proof(self,execution_validation.policy(),int(self.clock()*1000))
+        except Exception:return 'NATIVE_RUNNER_FULL_EXIT_PAPER_PROOF_REQUIRED'
+        return None
+
     def directional_permission(self, order):
         import execution_policy
         if order.get('strategy')!='AB_DIRECTIONAL':return None
@@ -218,7 +228,7 @@ class Transport:
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
-        permission=self.directional_permission(order)
+        permission=self.directional_permission(order) or self.runner_entry_blocker(order)
         if permission:raise TransportError(permission)
         if order.get('strategy') == 'A/B':
             check = dict(_strat='A/B',dir=order['direction'],entry=order['entry_price'],SL=order['stop_price'],TP=order['target_price'])
@@ -282,7 +292,7 @@ class Transport:
         # A slow revalidation must not outlive the entry or override a cancel /
         # Guard request made while account or market evidence was being read.
         if not reason:
-            reason = execution_safety.entry_blocker() or self.directional_permission(order)
+            reason = execution_safety.entry_blocker() or self.directional_permission(order) or self.runner_entry_blocker(order)
         if not reason and int(self.clock()*1000) >= expiry:
             reason = 'ENTRY_EXPIRED_DURING_REVALIDATION'
         if not reason:
@@ -735,7 +745,7 @@ class Transport:
                     return 'broker:cash_change_or_fee_revision_requires_reconciliation'
         return None
 
-    def action(self,oid,operation,action_id,*,snapshot=None):
+    def action(self,oid,operation,action_id,*,snapshot=None,before_send=None):
         if not execution_safety.writes_enabled():
             raise TransportError('LIVE_EXECUTION_DISABLED')
         row=self.row(oid)
@@ -765,6 +775,7 @@ class Transport:
         else:raise TransportError('NATIVE_ACTION_NOT_ALLOWED')
         if not 0<=self.clock()-snapshot['observed_at']<=3:
             raise TransportError('FRESH_BROKER_READ_REQUIRED')
+        if before_send is not None:before_send()
         with self.api.connect() as c:
             c.execute('BEGIN IMMEDIATE')
             old=c.execute('SELECT state FROM native_actions WHERE binding=? AND action_id=?',(self.binding,action_id)).fetchone()
@@ -778,6 +789,20 @@ class Transport:
             c.execute('INSERT INTO native_actions VALUES(?,?,?,?,?,?,?,?)',
                 (self.binding,action_id,oid,operation,'SENDING',encode(body),None,int(self.clock()*1000)))
         state='UNKNOWN';reply={}
+        try:
+            if before_send is not None:before_send()
+            if not execution_safety.writes_enabled():raise TransportError('LIVE_EXECUTION_DISABLED')
+            if not 0<=self.clock()-snapshot['observed_at']<=3:
+                raise TransportError('FRESH_BROKER_READ_REQUIRED')
+        except Exception:
+            # This is a known pre-IO veto, not an ambiguous provider timeout.
+            # Keep its identity durable but release the unique close slot so
+            # the independent Guard can still protect the existing position.
+            with self.api.connect() as c:
+                c.execute("UPDATE native_actions SET state='NOT_SENT',operation=?,updated_ms=? WHERE binding=? AND action_id=?",
+                          (operation+'_not_sent',int(self.clock()*1000),self.binding,action_id))
+                self.audit(c,oid,'ACTION_NOT_SENT',dict(action=operation,reason='final_validation_failed'))
+            return dict(success=False,not_sent=True)
         try:
             reply=self.request('POST',path,body)
             if (reply.get('success') is True and reply.get('destination')=='tradovate' and reply.get('account')==self.sync.name
@@ -894,7 +919,8 @@ def exit_payload(payload):
     extras=payload.get('extras',{})
     oid=extras.get('v3OrderId');action_id=extras.get('v3ActionId')
     if not oid or not action_id:raise TransportError('EXACT_LOCAL_EXIT_IDENTITY_REQUIRED')
-    reply=_TRANSPORT.action(oid,'close',action_id)
+    from directional_management_broker import original_exit
+    reply=original_exit(_TRANSPORT,payload)
     class Reply:
         status_code=200 if reply.get('success') else 503
         def json(self):return reply
