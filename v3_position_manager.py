@@ -32,6 +32,12 @@ def check_models():
     boundary.models()
 
 
+def observe_native(transport, order_id, snapshot):
+    """Phase 3A: persist broker-authoritative state, never dispatch management."""
+    from directional_management_broker import observe_native as observe
+    return observe(transport, order_id, snapshot)
+
+
 def accept_entry(source,result):
     api=live();oid=source['order_id'];at=api.now_ms()
     with api.connect() as c:

@@ -1,0 +1,2113 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1"><title>Directional · Phase 3A</title>
+    <style>
+    :root{font-family:system-ui,-apple-system,sans-serif;color:#e8edf5;background:#0d1420;color-scheme:dark}
+    body{margin:0}main{max-width:1120px;margin:auto;padding:48px 24px 80px}h1{font-size:40px;line-height:1.12;letter-spacing:-1px;margin:12px 0 18px}
+    h2{font-size:25px;margin:38px 0 16px}h3{font-size:17px;margin:0 0 12px}p,li{line-height:1.65;color:#bfcbdc}a{color:#8fc7ff}
+    .eyebrow{text-transform:uppercase;letter-spacing:2px;font-size:12px;color:#84c4ce}.lead{max-width:800px;font-size:19px}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:28px 0}
+    .card,.step,.notice{background:#172335;border:1px solid #2d405b;border-radius:12px;padding:20px}
+    .card strong{display:block;font-size:28px;color:#a7e2d1}.card small{display:block;margin-top:8px;color:#c0ccda}
+    .notice{border-left:4px solid #f2b85d}.badge{display:inline-block;font-size:12px;letter-spacing:.5px;background:#274359;color:#b8e0ff;padding:6px 9px;border-radius:5px}
+    .scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#142031}td,th{padding:13px;text-align:left;border-bottom:1px solid #314057;vertical-align:top;font-size:14px;line-height:1.5}th{font-weight:600}
+    .step{display:grid;grid-template-columns:44px 1fr;gap:18px;margin:14px 0}.n{font-size:24px;color:#6daab8}
+    details{margin-top:14px}summary{cursor:pointer;color:#91c9ff}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 ui-monospace,monospace;color:#bfcbdc;background:#0e1927;padding:18px;border-radius:8px;max-height:520px;overflow:auto}
+    .footer{font-size:12px;color:#8295ac;margin-top:40px}@media(max-width:600px){main{padding:28px 14px}h1{font-size:30px}.step{grid-template-columns:1fr}}
+    </style></head><body><main>
+    <div class="eyebrow">AgentSignals / Directional / 22 October 2026</div>
+    <h1>ICT Position Manager<br>Phase 3A foundation</h1>
+    <p class="lead">Persistent broker observations, deterministic management proposals and offline lifecycle verification. Existing Directional entry rules and A/B shadow routing are preserved.</p>
+    <span class="badge">LOCAL ONLY</span> <span class="badge">REAL MANAGEMENT WRITES BLOCKED</span>
+    <div class="cards"><div class="card"><strong>344</strong><small>Focused tests passed, plus 29 subtests</small></div>
+    <div class="card"><strong>29</strong><small>New manager cases; all 12 requested lifecycle categories</small></div>
+    <div class="card"><strong>0</strong><small>Paid AI calls / real orders / deployments in Phase 3A</small></div>
+    <div class="card"><strong>580</strong><small>Same historical entries compared; not a new holdout</small></div></div>
+    <div class="notice"><b>Broker-side management is not verified.</b><p>The real adapter refuses every partial, stop/target change and runner action. Simulated bracket resizing below is not evidence that CrossTrade can safely perform that operation on the MFFU account.</p></div>
+    <h2>What changed</h2><div class="scroll"><table><tr><td>Capability</td><td>Existing implementation / evidence</td><td>Phase 3A addition</td></tr><tr><td>Entry and original target / stop</td><td>Native CrossTrade bracket, owned entry/child IDs and broker fills; original fixed target remains at broker. User&#x27;s accepted entry objective is 2R **gross**, with net costs still reported.</td><td>Observes full TP and SL completion without generating another close order.</td></tr><tr><td>Persistent position</td><td>`v3_position_manager.py` has assumed/shadow positions and a broker-confirmed path; `builder_crosstrade.py` owns durable order/fill reconciliation.</td><td>Account-bound `ict_positions`, `ict_position_events`, `ict_management_intents`, consuming the same broker reconciliation batch.</td></tr><tr><td>Early exits</td><td>Frozen M1/M2/M3 exit library and Boundary classification. F2, B11, B13/MSS and opposing BOS→FVG hold rules exist.</td><td>Explicit closed-candle invalidation event plumbing, disabled research option. Existing frozen decisions are not rewritten or relabeled ICT approval.</td></tr><tr><td>Runner</td><td>Frozen Model0, 18 features, strict score &gt;0.75, pre-touch information, year/dense-feed restrictions; legacy 2R/3R and Boundary research.</td><td>Simulated post-partial target-extension intent with exact command confirmation. This is a separate research option, not promotion of historical Model0 into a new live rule.</td></tr><tr><td>Partial take-profit</td><td>No verified Directional native partial plus linked bracket-resize lifecycle.</td><td>Explicit integer reduction quantity/price; simulated reduction, protected remainder and runner/SL paths. Real action blocked.</td></tr><tr><td>Break-even</td><td>No verified native Directional break-even lifecycle in the original route.</td><td>Disabled research trigger; stop to actual average entry only if tick-valid, tightening and behind executable side. Explicitly **not fee-neutral break-even**.</td></tr><tr><td>Structural trailing</td><td>No verified native Directional structural trail.</td><td>Confirmed swing event, timestamped level, no loosening; ACK does not change stored stop. Real action blocked.</td></tr><tr><td>Session end / Guard</td><td>Existing account Guard and native queued exits remain authoritative.</td><td>Observes their owned close fills. Optional simulated session-end proposal does not replace the independent Guard.</td></tr><tr><td>A/B manager</td><td>`ab_position_manager.py` is a separate original A/B manager, with different ownership.</td><td>New manager rejects registration of any strategy other than `AB_DIRECTIONAL`. No A/B live permissions added.</td></tr></table></div>
+    <p>New journals are connected to the existing broker reconciler. They keep owned fills, protection, quantities and costs across restarts. Closed-candle proposals require fresh quotes, risk and broker evidence. No production rule scheduler or real management writer has been activated.</p>
+    <h2>Illustrative position lifecycle</h2><p><b>Entirely simulated.</b> Example LONG: 2 contracts, entry 100, SL 90, original TP 120. One contract at 110, runner to 130. These prices and quantities demonstrate protocol behaviour; they are not an approved live policy or an actual trade.</p>
+    <article class="step"><span class="n">01</span><div><h3>Entry fills confirmed; native SL/TP observed</h3>
+        <span class="badge">PROTECTED</span><p>Remaining: <b>2</b> ·
+        Initial risk: $40.00 · Broker clock: 120000 synthetic ms</p>
+        <p>TARGET 120 ×2 (Working) · STOP 90 ×2 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Entry fills confirmed; native SL/TP observed&quot;,
+  &quot;at_ms&quot;: 120000,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;aae15787468e855eff72f3186a5d71aed878daa2934b691f76d0424e77878d0d&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 40.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 0,
+    &quot;favorable_high&quot;: null,
+    &quot;favorable_low&quot;: null,
+    &quot;fees&quot;: 1.9,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 120,
+    &quot;observed_mae_r&quot;: null,
+    &quot;observed_mfe_r&quot;: null,
+    &quot;observed_ms&quot;: 120000,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: false,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 120,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 0,
+    &quot;realized_net_usd&quot;: -1.9,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 2,
+    &quot;runner&quot;: false,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;PROTECTED&quot;,
+    &quot;unrealized_r&quot;: null
+  }
+}</pre></details></div></article><article class="step"><span class="n">02</span><div><h3>Closed candle + validated synthetic quote/risk → research REDUCE</h3>
+        <span class="badge">PROTECTED</span><p>Remaining: <b>2</b> ·
+        Initial risk: $40.00 · Broker clock: 120000 synthetic ms</p>
+        <p>TARGET 120 ×2 (Working) · STOP 90 ×2 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Closed candle + validated synthetic quote/risk \u2192 research REDUCE&quot;,
+  &quot;at_ms&quot;: 120000,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;aae15787468e855eff72f3186a5d71aed878daa2934b691f76d0424e77878d0d&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 40.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 0,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 1.9,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;REDUCE&quot;,
+      &quot;quantity&quot;: 1,
+      &quot;reason&quot;: &quot;RESEARCH_TP1&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 120,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120000,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: false,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 120,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 0,
+    &quot;realized_net_usd&quot;: -1.9,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 2,
+    &quot;runner&quot;: false,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;PROTECTED&quot;,
+    &quot;unrealized_r&quot;: 1.1
+  },
+  &quot;proposal&quot;: {
+    &quot;action&quot;: &quot;REDUCE&quot;,
+    &quot;quantity&quot;: 1,
+    &quot;reason&quot;: &quot;RESEARCH_TP1&quot;,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;broker_fingerprint&quot;: &quot;aae15787468e855eff72f3186a5d71aed878daa2934b691f76d0424e77878d0d&quot;,
+    &quot;decision_ms&quot;: 120000,
+    &quot;event&quot;: {
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;confirmed&quot;: true,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;,
+      &quot;open_ms&quot;: 60000,
+      &quot;closed_ms&quot;: 120000,
+      &quot;close&quot;: 111.0,
+      &quot;high&quot;: 112.0,
+      &quot;low&quot;: 88.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;
+    },
+    &quot;quote&quot;: {
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;bid&quot;: 111.0,
+      &quot;ask&quot;: 111.25,
+      &quot;as_of_ms&quot;: 120000,
+      &quot;execution_eligible&quot;: true,
+      &quot;timestamp_semantics_verified&quot;: true
+    },
+    &quot;risk&quot;: {
+      &quot;binding&quot;: &quot;SIMULATOR&quot;,
+      &quot;allowed&quot;: true,
+      &quot;checked_ms&quot;: 120000
+    },
+    &quot;options&quot;: {
+      &quot;partial&quot;: {
+        &quot;enabled&quot;: true,
+        &quot;source&quot;: &quot;RESEARCH_ONLY&quot;,
+        &quot;price&quot;: 110.0,
+        &quot;known_ms&quot;: 120000,
+        &quot;expires_ms&quot;: 180000,
+        &quot;quantity&quot;: 1
+      }
+    },
+    &quot;max_quote_age_ms&quot;: 1000,
+    &quot;max_event_age_ms&quot;: 60000
+  }
+}</pre></details></div></article><article class="step"><span class="n">03</span><div><h3>Reduction ACK; quantity remains TWO until fill</h3>
+        <span class="badge">REDUCE_PENDING</span><p>Remaining: <b>2</b> ·
+        Initial risk: $40.00 · Broker clock: 120000 synthetic ms</p>
+        <p>TARGET 120 ×2 (Working) · STOP 90 ×2 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Reduction ACK; quantity remains TWO until fill&quot;,
+  &quot;at_ms&quot;: 120000,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;aae15787468e855eff72f3186a5d71aed878daa2934b691f76d0424e77878d0d&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 40.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 0,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 1.9,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;REDUCE&quot;,
+      &quot;quantity&quot;: 1,
+      &quot;reason&quot;: &quot;RESEARCH_TP1&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 120,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120000,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: false,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 120,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 0,
+    &quot;realized_net_usd&quot;: -1.9,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 2,
+    &quot;runner&quot;: false,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;REDUCE_PENDING&quot;,
+    &quot;unrealized_r&quot;: 1.1
+  },
+  &quot;intent&quot;: {
+    &quot;id&quot;: &quot;59b971b5887d5e738b786c2b432b41bc45cc4623a1d9af3aaec0899e3bf554e3&quot;,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;operation&quot;: &quot;REDUCE&quot;,
+    &quot;status&quot;: &quot;ACK&quot;,
+    &quot;created_ms&quot;: 120000,
+    &quot;remaining_before&quot;: 2,
+    &quot;exit_quantity_before&quot;: 0,
+    &quot;quantity&quot;: 1,
+    &quot;command_id&quot;: 77,
+    &quot;broker_order_id&quot;: 14
+  }
+}</pre></details></div></article><article class="step"><span class="n">04</span><div><h3>Partial fill + simulated atomic resize → ONE protected contract</h3>
+        <span class="badge">PROTECTED</span><p>Remaining: <b>1</b> ·
+        Initial risk: $40.00 · Broker clock: 120100 synthetic ms</p>
+        <p>TARGET 120 ×1 (Working) · STOP 90 ×1 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Partial fill + simulated atomic resize \u2192 ONE protected contract&quot;,
+  &quot;at_ms&quot;: 120100,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;2503af581e6108204d98dd40887372825dc6ccd19fd6cb258628a2430e3ff805&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 20.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 1,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 2.8499999999999996,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      },
+      &quot;102&quot;: {
+        &quot;fees&quot;: 0.95,
+        &quot;id&quot;: 102,
+        &quot;ms&quot;: 120100,
+        &quot;order_id&quot;: 14,
+        &quot;price&quot;: 110.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;REDUCE&quot;,
+      &quot;quantity&quot;: 1,
+      &quot;reason&quot;: &quot;RESEARCH_TP1&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 120,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120100,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: true,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 120,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 20.0,
+    &quot;realized_net_usd&quot;: 17.15,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 1,
+    &quot;runner&quot;: false,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;PROTECTED&quot;,
+    &quot;unrealized_r&quot;: null
+  }
+}</pre></details></div></article><article class="step"><span class="n">05</span><div><h3>Restart: persisted remaining quantity and bracket recovered</h3>
+        <span class="badge">PROTECTED</span><p>Remaining: <b>1</b> ·
+        Initial risk: $40.00 · Broker clock: 120100 synthetic ms</p>
+        <p>TARGET 120 ×1 (Working) · STOP 90 ×1 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Restart: persisted remaining quantity and bracket recovered&quot;,
+  &quot;at_ms&quot;: 120100,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;2503af581e6108204d98dd40887372825dc6ccd19fd6cb258628a2430e3ff805&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 20.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 1,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 2.8499999999999996,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      },
+      &quot;102&quot;: {
+        &quot;fees&quot;: 0.95,
+        &quot;id&quot;: 102,
+        &quot;ms&quot;: 120100,
+        &quot;order_id&quot;: 14,
+        &quot;price&quot;: 110.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;REDUCE&quot;,
+      &quot;quantity&quot;: 1,
+      &quot;reason&quot;: &quot;RESEARCH_TP1&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 120,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120100,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: true,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 120,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 20.0,
+    &quot;realized_net_usd&quot;: 17.15,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 1,
+    &quot;runner&quot;: false,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;PROTECTED&quot;,
+    &quot;unrealized_r&quot;: null
+  }
+}</pre></details></div></article><article class="step"><span class="n">06</span><div><h3>Runner target ACK; old target still authoritative</h3>
+        <span class="badge">HOLD</span><p>Remaining: <b>1</b> ·
+        Initial risk: $40.00 · Broker clock: 120100 synthetic ms</p>
+        <p>TARGET 120 ×1 (Working) · STOP 90 ×1 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Runner target ACK; old target still authoritative&quot;,
+  &quot;at_ms&quot;: 120100,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;2503af581e6108204d98dd40887372825dc6ccd19fd6cb258628a2430e3ff805&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 20.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 1,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 2.8499999999999996,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      },
+      &quot;102&quot;: {
+        &quot;fees&quot;: 0.95,
+        &quot;id&quot;: 102,
+        &quot;ms&quot;: 120100,
+        &quot;order_id&quot;: 14,
+        &quot;price&quot;: 110.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;TARGET&quot;,
+      &quot;price&quot;: 130.0,
+      &quot;reason&quot;: &quot;RESEARCH_RUNNER_LIQUIDITY&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 120,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120100,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: true,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 120,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 20.0,
+    &quot;realized_net_usd&quot;: 17.15,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 1,
+    &quot;runner&quot;: false,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;HOLD&quot;,
+    &quot;unrealized_r&quot;: 1.1
+  },
+  &quot;proposal&quot;: {
+    &quot;action&quot;: &quot;TARGET&quot;,
+    &quot;price&quot;: 130.0,
+    &quot;reason&quot;: &quot;RESEARCH_RUNNER_LIQUIDITY&quot;,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;broker_fingerprint&quot;: &quot;2503af581e6108204d98dd40887372825dc6ccd19fd6cb258628a2430e3ff805&quot;,
+    &quot;decision_ms&quot;: 120100,
+    &quot;event&quot;: {
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;confirmed&quot;: true,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;,
+      &quot;open_ms&quot;: 60000,
+      &quot;closed_ms&quot;: 120000,
+      &quot;close&quot;: 111.0,
+      &quot;high&quot;: 112.0,
+      &quot;low&quot;: 88.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;
+    },
+    &quot;quote&quot;: {
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;bid&quot;: 111.0,
+      &quot;ask&quot;: 111.25,
+      &quot;as_of_ms&quot;: 120100,
+      &quot;execution_eligible&quot;: true,
+      &quot;timestamp_semantics_verified&quot;: true
+    },
+    &quot;risk&quot;: {
+      &quot;binding&quot;: &quot;SIMULATOR&quot;,
+      &quot;allowed&quot;: true,
+      &quot;checked_ms&quot;: 120100
+    },
+    &quot;options&quot;: {
+      &quot;runner&quot;: {
+        &quot;enabled&quot;: true,
+        &quot;source&quot;: &quot;RESEARCH_ONLY&quot;,
+        &quot;price&quot;: 130.0,
+        &quot;known_ms&quot;: 120000,
+        &quot;expires_ms&quot;: 180000
+      }
+    },
+    &quot;max_quote_age_ms&quot;: 1000,
+    &quot;max_event_age_ms&quot;: 60000
+  },
+  &quot;intent&quot;: {
+    &quot;id&quot;: &quot;270c9628a5e910ff18be6b53b7614239fef066585d8e61e62286b7696e17658d&quot;,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;operation&quot;: &quot;TARGET&quot;,
+    &quot;status&quot;: &quot;ACK&quot;,
+    &quot;created_ms&quot;: 120100,
+    &quot;remaining_before&quot;: 1,
+    &quot;exit_quantity_before&quot;: 1,
+    &quot;price&quot;: 130.0,
+    &quot;command_id&quot;: 77,
+    &quot;broker_order_id&quot;: null
+  }
+}</pre></details></div></article><article class="step"><span class="n">07</span><div><h3>Exact command report + matching protected order → RUNNER</h3>
+        <span class="badge">RUNNER</span><p>Remaining: <b>1</b> ·
+        Initial risk: $40.00 · Broker clock: 120200 synthetic ms</p>
+        <p>TARGET 130.0 ×1 (Working) · STOP 90 ×1 (Working)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Exact command report + matching protected order \u2192 RUNNER&quot;,
+  &quot;at_ms&quot;: 120200,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;2aa34ecb62f6ef410459f1b86f6e4148b2f828d11a3f69bbacbf4def04db1e82&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 20.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 1,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 2.8499999999999996,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      },
+      &quot;102&quot;: {
+        &quot;fees&quot;: 0.95,
+        &quot;id&quot;: 102,
+        &quot;ms&quot;: 120100,
+        &quot;order_id&quot;: 14,
+        &quot;price&quot;: 110.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;TARGET&quot;,
+      &quot;price&quot;: 130.0,
+      &quot;reason&quot;: &quot;RESEARCH_RUNNER_LIQUIDITY&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 130.0,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120200,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: true,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 130.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Working&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 20.0,
+    &quot;realized_net_usd&quot;: 17.15,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 1,
+    &quot;runner&quot;: true,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;RUNNER&quot;,
+    &quot;unrealized_r&quot;: null
+  }
+}</pre></details></div></article><article class="step"><span class="n">08</span><div><h3>Runner fill + sibling cancellation + simulated fees → CLOSED</h3>
+        <span class="badge">CLOSED</span><p>Remaining: <b>0</b> ·
+        Initial risk: $40.00 · Broker clock: 120300 synthetic ms</p>
+        <p>TARGET 130.0 ×0 (Filled) · STOP 90 ×0 (Canceled)</p><details><summary>Exact simulated state and event</summary>
+        <pre>{
+  &quot;step&quot;: &quot;Runner fill + sibling cancellation + simulated fees \u2192 CLOSED&quot;,
+  &quot;at_ms&quot;: 120300,
+  &quot;state&quot;: {
+    &quot;average_entry&quot;: 100.0,
+    &quot;binding&quot;: &quot;SIMULATOR&quot;,
+    &quot;broker_fingerprint&quot;: &quot;7935888238d17cebb16d1d3d8f7525edfe29a68e373d1b080bd89d9ddd253260&quot;,
+    &quot;contract&quot;: &quot;MNQZ2026&quot;,
+    &quot;current_stop_risk_usd&quot;: 20.0,
+    &quot;direction&quot;: &quot;LONG&quot;,
+    &quot;entry_quantity&quot;: 2,
+    &quot;entry_terminal&quot;: true,
+    &quot;excursion_source&quot;: &quot;CLOSED_BARS_OBSERVED_ONLY&quot;,
+    &quot;exit_quantity&quot;: 2,
+    &quot;favorable_high&quot;: 112.0,
+    &quot;favorable_low&quot;: 88.0,
+    &quot;fees&quot;: 3.8,
+    &quot;fills&quot;: {
+      &quot;101&quot;: {
+        &quot;fees&quot;: 1.9,
+        &quot;id&quot;: 101,
+        &quot;ms&quot;: 50000,
+        &quot;order_id&quot;: 11,
+        &quot;price&quot;: 100.0,
+        &quot;quantity&quot;: 2,
+        &quot;side&quot;: 1
+      },
+      &quot;102&quot;: {
+        &quot;fees&quot;: 0.95,
+        &quot;id&quot;: 102,
+        &quot;ms&quot;: 120100,
+        &quot;order_id&quot;: 14,
+        &quot;price&quot;: 110.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1
+      },
+      &quot;103&quot;: {
+        &quot;fees&quot;: 0.95,
+        &quot;id&quot;: 103,
+        &quot;ms&quot;: 120300,
+        &quot;order_id&quot;: 12,
+        &quot;price&quot;: 130.0,
+        &quot;quantity&quot;: 1,
+        &quot;side&quot;: -1
+      }
+    },
+    &quot;frozen&quot;: {
+      &quot;broker_ids&quot;: {
+        &quot;orderId&quot;: 11,
+        &quot;oso1Id&quot;: 12,
+        &quot;oso2Id&quot;: 13
+      },
+      &quot;order&quot;: {
+        &quot;contract&quot;: &quot;MNQZ2026&quot;,
+        &quot;direction&quot;: &quot;LONG&quot;,
+        &quot;entry_price&quot;: 100.0,
+        &quot;order_id&quot;: &quot;one&quot;,
+        &quot;quantity&quot;: 2,
+        &quot;stop_price&quot;: 90,
+        &quot;strategy&quot;: &quot;AB_DIRECTIONAL&quot;,
+        &quot;target_price&quot;: 120
+      }
+    },
+    &quot;ict_levels&quot;: {
+      &quot;boundary_context&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.boundary_context&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;current_price&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.current_price&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;frozen_dol&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.frozen_dol&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;narrative&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.narrative&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;next_dol_after_delivery&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.next_dol_after_delivery&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;opposite_side_liquidity_previously_taken&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.dol_tag.opposite_side_liquidity_previously_taken&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_contract_identity&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_contract_identity&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;source_event&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;missing_or_future_frozen_evidence&quot;,
+        &quot;source&quot;: {
+          &quot;order_id&quot;: &quot;one&quot;,
+          &quot;path&quot;: &quot;native_order.snapshot.source_event&quot;
+        },
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      },
+      &quot;structural_invalidation&quot;: {
+        &quot;available_at_ms&quot;: null,
+        &quot;reason&quot;: &quot;Protective SL is recorded separately; an ICT invalidation rule is not inferred from it.&quot;,
+        &quot;status&quot;: &quot;UNKNOWN&quot;,
+        &quot;value&quot;: null
+      }
+    },
+    &quot;initial_risk_points&quot;: 10.0,
+    &quot;initial_risk_usd&quot;: 40.0,
+    &quot;initial_sl&quot;: 90,
+    &quot;initial_tp&quot;: 120,
+    &quot;last_event&quot;: {
+      &quot;close&quot;: 111.0,
+      &quot;closed_ms&quot;: 120000,
+      &quot;confirmed&quot;: true,
+      &quot;contract&quot;: &quot;MNQZ2026&quot;,
+      &quot;high&quot;: 112.0,
+      &quot;kind&quot;: &quot;CLOSE&quot;,
+      &quot;low&quot;: 88.0,
+      &quot;open_ms&quot;: 60000,
+      &quot;source&quot;: &quot;SIMULATED_CLOSED_M1&quot;
+    },
+    &quot;last_proposal&quot;: {
+      &quot;action&quot;: &quot;TARGET&quot;,
+      &quot;price&quot;: 130.0,
+      &quot;reason&quot;: &quot;RESEARCH_RUNNER_LIQUIDITY&quot;
+    },
+    &quot;last_stop&quot;: 90,
+    &quot;last_target&quot;: 130.0,
+    &quot;observed_mae_r&quot;: -1.2,
+    &quot;observed_mfe_r&quot;: 1.2,
+    &quot;observed_ms&quot;: 120300,
+    &quot;original_quantity&quot;: 2,
+    &quot;partial_done&quot;: true,
+    &quot;protective_orders&quot;: [
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 12,
+        &quot;kind&quot;: &quot;TARGET&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 130.0,
+        &quot;quantity&quot;: 0,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Filled&quot;
+      },
+      {
+        &quot;confirmed&quot;: true,
+        &quot;id&quot;: 13,
+        &quot;kind&quot;: &quot;STOP&quot;,
+        &quot;oco&quot;: 9,
+        &quot;parent&quot;: 11,
+        &quot;price&quot;: 90,
+        &quot;quantity&quot;: 0,
+        &quot;side&quot;: -1,
+        &quot;status&quot;: &quot;Canceled&quot;
+      }
+    ],
+    &quot;realized_gross_usd&quot;: 80.0,
+    &quot;realized_net_usd&quot;: 76.2,
+    &quot;reason&quot;: &quot;BROKER_CONFIRMED&quot;,
+    &quot;remaining_quantity&quot;: 0,
+    &quot;runner&quot;: true,
+    &quot;setup_id&quot;: &quot;one&quot;,
+    &quot;state&quot;: &quot;CLOSED&quot;,
+    &quot;unrealized_r&quot;: null
+  }
+}</pre></details></div></article>
+    <h2>Historical results do not justify promotion</h2>
+    <p>Saved 2019–2022 outcomes, same 580 entries and quantities. Net figures include the archive's $3.50 round-trip cost per contract. Fixed 2R performs best among these four variants, but all have PF below 1.</p>
+    <div class="scroll"><table><thead><tr><th>Archived policy</th><th>Net PF</th><th>Net win rate</th><th>Expectancy / trade</th><th>Realized DD</th></tr></thead><tbody><tr><th>Original fixed 2R</th><td>0.7872</td><td>31.72%</td><td>$-33.09</td><td>$22,030.50</td></tr><tr><th>Boundary early exit</th><td>0.7614</td><td>29.14%</td><td>$-34.81</td><td>$22,511.50</td></tr><tr><th>Selective 3R only</th><td>0.7291</td><td>29.48%</td><td>$-43.86</td><td>$27,281.00</td></tr><tr><th>Boundary + selective 3R</th><td>0.7008</td><td>26.90%</td><td>$-45.58</td><td>$28,279.00</td></tr></tbody></table></div>
+    <p>Partial take-profit and structural trailing: <b>not measured</b>, because no matched causal outcome ledger defines those rules. The later archive contains only one filled trade.</p>
+    <ul><li>No new candle replay: metrics recomputed from saved per-trade outcomes.</li><li>2019–2022 cohort was evaluated retrospectively with a model trained later; not a forward deployment test.</li><li>Samples were inspected previously; no fresh untouched holdout. Later cohort contains ONE filled trade.</li><li>Original historical costs: USD 3.50 round trip per contract; not current broker fee evidence.</li><li>First-2R-touch selective runner is idealized at M1 resolution; target replacement latency/OCO races absent.</li><li>Fixed entries and quantities can overlap when exits change; no portfolio admission/risk replay.</li><li>Drawdown uses realized exit cashflows from zero, not mark-to-market, MFFU trailing drawdown or intratrade equity.</li><li>The compared historical Boundary/Model0 policy is not the new research-option manager or the hybrid AI reviewer.</li></ul>
+    <h2>Test scope and the legacy failures</h2>
+    <p>The focused suites passed 344 tests plus 29 subtests. The separate expanded audit found 18 failures in unchanged legacy one-second-candle tests. The runtime deliberately rejects that obsolete input. Those failures are retained, not hidden, in the linked evidence.</p>
+    <h2>Phase 3B: required before any real management</h2>
+    <ol><li>Supported isolated paper account, verified executable quotes, actual SL/TP/OCO topology and repaired-child ownership.</li>
+    <li>Exact command ACK → report → working-order verification, including rejection, timeout, restart and duplicate events.</li>
+    <li>Prove safe partial-close and bracket-resize sequencing. Keep partials blocked if continuous protection cannot be established.</li>
+    <li>Coordinate the existing Phase 2B geometry validator and all writers so only confirmed owned modifications are accepted.</li>
+    <li>Specify and validate partial/runner/trailing/invalidation rules; wire causal events and recheck Guard/account-wide risk before each potential operation.</li>
+    <li>Complete broker-paper evidence for all lifecycles. Deployment and live activation remain separate, with explicit approval.</li></ol>
+    <h2>Evidence and complete audit</h2><p><a href="ICT_POSITION_MANAGER_PHASE3A.md">Full audit and Phase 3B checklist</a> · <a href="research.json">Research metrics + source hashes</a> · <a href="lifecycle-demo.json">Exact simulated lifecycle</a> · <a href="verification.json">Verification manifest</a> · <a href="tests.xml">Focused JUnit</a> · <a href="entry-tests.xml">Entry rules JUnit</a> · <a href="expanded-tests.xml">Expanded audit JUnit</a> · <a href="legacy-check.json">Legacy failure evidence</a></p>
+    <details><summary>Read the complete audit here</summary><pre># Directional ICT Position Manager — Phase 3A
+
+Local implementation on top of `d4ff5ec`, 22 October 2026. **Not deployed. No
+production flags, Guard settings, permissions, paid AI calls or broker orders
+were changed by this phase.** A/B routing and Directional entry rules are unchanged.
+
+This is a persistent observation and deterministic simulation foundation. The
+real CrossTrade adapter **unconditionally refuses every new management write**,
+including when LIVE flags are enabled. Completing a simulator lifecycle does
+not establish broker-side protection on the MFFU account.
+
+## 1. Original manager audit
+
+| Capability | Existing implementation / evidence | Phase 3A addition |
+|---|---|---|
+| Entry and original target / stop | Native CrossTrade bracket, owned entry/child IDs and broker fills; original fixed target remains at broker. User&#x27;s accepted entry objective is 2R **gross**, with net costs still reported. | Observes full TP and SL completion without generating another close order. |
+| Persistent position | `v3_position_manager.py` has assumed/shadow positions and a broker-confirmed path; `builder_crosstrade.py` owns durable order/fill reconciliation. | Account-bound `ict_positions`, `ict_position_events`, `ict_management_intents`, consuming the same broker reconciliation batch. |
+| Early exits | Frozen M1/M2/M3 exit library and Boundary classification. F2, B11, B13/MSS and opposing BOS→FVG hold rules exist. | Explicit closed-candle invalidation event plumbing, disabled research option. Existing frozen decisions are not rewritten or relabeled ICT approval. |
+| Runner | Frozen Model0, 18 features, strict score &gt;0.75, pre-touch information, year/dense-feed restrictions; legacy 2R/3R and Boundary research. | Simulated post-partial target-extension intent with exact command confirmation. This is a separate research option, not promotion of historical Model0 into a new live rule. |
+| Partial take-profit | No verified Directional native partial plus linked bracket-resize lifecycle. | Explicit integer reduction quantity/price; simulated reduction, protected remainder and runner/SL paths. Real action blocked. |
+| Break-even | No verified native Directional break-even lifecycle in the original route. | Disabled research trigger; stop to actual average entry only if tick-valid, tightening and behind executable side. Explicitly **not fee-neutral break-even**. |
+| Structural trailing | No verified native Directional structural trail. | Confirmed swing event, timestamped level, no loosening; ACK does not change stored stop. Real action blocked. |
+| Session end / Guard | Existing account Guard and native queued exits remain authoritative. | Observes their owned close fills. Optional simulated session-end proposal does not replace the independent Guard. |
+| A/B manager | `ab_position_manager.py` is a separate original A/B manager, with different ownership. | New manager rejects registration of any strategy other than `AB_DIRECTIONAL`. No A/B live permissions added. |
+
+The frozen exit library includes supportive FVG failure with opposing
+displacement (F2), lack of re-expansion with opposing displacement (B11),
+re-expansion failure with opposing MSS (B13), MSS and opposing BOS/FVG-hold
+expansion or three-close conditions. Historical configurations differ; these
+are not interchangeable with a new arbitrary ICT invalidation level.
+
+Archived `v3_exit_parity.json` records 939 checks and zero stated signal
+mismatches, M3 PF 1.0656 and Model0+M3 PF 1.1143 on its historical sample. These
+are archived parity/research figures, **not live performance or the same cohort
+as the 580-trade comparison below**. Frozen model weights and thresholds were
+not changed.
+
+Original runtime switches include `V3_EXIT_MODE=shadow`,
+`V3_EXIT_REAL_EXECUTION=false`, `V3_RUNNER_ENABLED=false`, exit parity/shadow/paper
+attestations and the master entry/risk controls. The first three are safe code
+defaults; this phase did not read or mutate Railway. The previous saved
+preflight (22 October) showed kill=true, entry armed=0, both Directional flags=0,
+mode=SHADOW and AUTO_SUBMIT=0. That is **prior evidence**, not a newly verified
+effective production configuration. The new adapter block is independent of
+all those variables and cannot be removed by setting an environment flag.
+
+## 2. Persistent broker-authoritative state
+
+Each registered record freezes setup ID, direction, dated contract, original
+entry/SL/TP/quantity and the three native bracket IDs. It tracks actual weighted
+entry, observed remaining quantity, original risk in points/USD, current stop
+risk, working protection, immutable fills, fee revisions and gross/net realized
+P&amp;L. MNQ uses the existing 0.25 tick and USD 2 per point convention; this module
+is not a generic instrument engine.
+
+Original timestamped DOL/boundary observations are copied through the existing
+causal evidence extractor. Unavailable fields are `UNKNOWN`. The protective SL
+is not automatically called an ICT thesis-invalidation level. Research levels
+carry source, known time and expiry. No AI advice is consumed as execution
+authority, and this module makes no AI request.
+
+Unrealized R uses the liquidation side of an explicitly verified fresh quote.
+Observed high/low and MFE/MAE R use closed bars whose entire interval follows the
+first fill. They are **observed excursion only**, not reconstructed complete
+intratrade extremes. Broker updates clear unrealized R until another valid
+quote is provided. Missing fees keep net P&amp;L unknown; a fee/cash disagreement
+does not inherit the previous reconciled net figure.
+
+On restart, stored intents are recovered and current broker positions, orders
+and fills must reconcile before any proposal can proceed. Account/contract,
+entry ownership, native parent/OCO linkage, order side, stop/target type and
+remaining quantity must agree. Over-sized protection, unrecognized child IDs,
+unexplained manual changes, extra exposure or conflicting fill data require
+reconciliation. A broker packet validates atomically: one correct stop update
+cannot partially commit when another leg in that packet is invalid.
+
+This phase recognizes the original native close journal (Guard/session/early
+exits) as well as TP/SL fills. New multi-child repair trees are not guessed:
+they require an explicit Phase 3B mapping. Cached terminal lifecycle evidence
+may accompany a fresh account read; working orders must come from the current
+native reconciliation batch. The observation hook adds no broker HTTP calls.
+
+## 3. State machine and action contract
+
+| State | Meaning / transition |
+|---|---|
+| RECONCILIATION_REQUIRED | Awaiting fill/protection evidence or a failed invariant. No new management proposal. |
+| PROTECTED | Actual open quantity agrees with fills and both linked working legs. |
+| HOLD | Explicit no-action decision or an outstanding stop/target modification. |
+| REDUCE_PENDING | Durable reduction request; ACK alone leaves quantity unchanged. |
+| RUNNER | Reduction filled and target extension confirmed by the exact command report and matching order. |
+| EXIT_PENDING | Exit request or original native close is outstanding; position remains open until broker evidence proves flat. |
+| CLOSED | Owned fills net to zero, entry is terminal and protective/close orders are terminal. Fees may still be unknown. |
+
+Decision order is explicit invalidation → session-end → one partial → optional
+runner → confirmed-swing trail → optional break-even → HOLD. All research
+options default inactive; the example configuration is not loaded by production.
+A partial must leave at least one contract. A stop must tighten, remain behind
+the current liquidation price and not increase the original total stop risk.
+Rules expire at decision time, not merely at their old candle timestamp.
+
+`on_event()` requires a confirmed closed event, source/contract, caller-supplied
+event/quote freshness limits, verified quote timestamp semantics, a fresh
+account-risk verdict for the same binding and fresh reconciled broker state.
+Partial entry fills are protected but cannot start research management while
+the entry remains working. Final submission re-reads broker state and
+re-evaluates the proposal. Intent reservation is committed before simulated IO;
+duplicates and UNKNOWN outcomes are never blindly resent.
+
+`v3_position_manager.observe_native()` is wired to the existing native broker
+reconciler. **There is no automatic production candle→research-rule scheduler**
+and no live management writer in Phase 3A. The typed event entry point is
+exercised by the tests/demo. This keeps undefined thresholds inactive instead
+of silently inventing live rules. Guard&#x27;s existing independent exit path is
+unchanged, including during a market-data outage.
+
+## 4. CrossTrade support and the remaining execution boundary
+
+The Tradovate API documents order changes for price/quantity. A change response
+contains a command ID; lifecycle command/report evidence is required before
+treating the modification as successful. A version row or HTTP success alone
+is insufficient. [Change-order documentation](https://crosstrade.io/docs/api/orders/put-change-order).
+
+Tradovate also documents full/partial position close by quantity or percentage.
+The manager prepares matching read-only operation plans. The available
+documentation does not prove the atomic linked SL/TP resizing and protection
+handoff required here. [Close-position documentation](https://crosstrade.io/docs/api/positions/post-close-position).
+
+Native brackets are broker-hosted, while CrossTrade can repair protection after
+partial fills. Such repair may introduce additional order identities. This
+phase accepts only relationships it can prove, rather than assuming the first
+three IDs cover every future repair. [Tradovate order and exit documentation](https://crosstrade.io/docs/tradovate/order-types-and-exits).
+
+Implemented plans: stop change, target change, single-order quantity change,
+partial close and full close. **All plans have `allowed=false`; `submit()` and
+`require_write()` refuse every operation on the real adapter.** Only the
+in-memory test adapter can submit. Native linkage/working state are read;
+safe broker mutations remain for Phase 3B.
+
+Crucially, the existing Phase 2B reconciler deliberately rejects unrecognized
+modifications and changed original bracket geometry. Before activating any
+Phase 3A intent, Phase 3B must teach that reconciler to accept only the exact
+owned, confirmed modification journal. Otherwise a valid manager change would
+look like manual intervention. This change has **not** been smuggled into the
+observation-only patch.
+
+## 5. Lifecycle verification
+
+`tests/test_directional_position_manager.py` has 29 passing cases covering all
+12 requested lifecycle categories: LONG/SHORT TP and SL, partial→runner,
+partial→remaining SL, trailing ACK/confirmation, structural exit, restart,
+partially filled entry, duplicate/unknown requests, rejected stop, quantity
+mismatch and manual broker activity. Additional cases cover stale evidence,
+expired options, fee revisions, atomic validation and original native closes.
+
+The focused Phase 2A/2B/manager/A/B regression run and original entry-rule suite
+passed **344 tests plus 29 subtests**, zero failures/errors. Results are saved
+as `tests.xml` and `entry-tests.xml` in the artifact directory.
+All test broker operations are mocked; external networking is disabled by the
+offline test runtime. There are no paid AI calls or real broker orders.
+
+The expanded historical suite is separately retained as `expanded-tests.xml`.
+It has 18 failures in unchanged `test_v3_boundary_runtime.py` at its obsolete
+one-second feed helper. Production `ab_v3_live._bar()` rejects that feed by
+design; `legacy-check.json` proves both files match base `d4ff5ec`. These tests
+were not deleted, marked xfail or used to justify restoring one-second input.
+This delivery does not claim the entire legacy repository suite is green.
+
+Reproduce the illustrative lifecycle with:
+
+```sh
+python tools/phase3a_manager_demo.py /tmp/phase3a-lifecycle.json
+python tools/phase3a_research.py /path/to/research_v3_boundary_runner_shadow_20261006 /tmp/phase3a-research.json
+```
+
+`lifecycle-demo.json` labels every quote, candle, fill, risk verdict and command
+as simulated. The example takes one of two contracts at 1R and extends the
+other to 3R. **This is not a chosen strategy rule or performance result.** Atomic
+bracket resize exists only in the simulator; real operation remains blocked.
+
+## 6. Historical comparison: 580 identical entries and quantities
+
+Metrics are recomputed from saved complete policy ledgers, not a newly run
+candle replay. Fees follow the original research convention, USD 3.50 round
+trip per contract. Drawdown is realized exit-cashflow drawdown from zero; it is
+not MFFU trailing drawdown or mark-to-market drawdown.
+
+| Archived policy | Net PF | Net win rate | Expectancy USD/trade | Closed-trade drawdown USD | Net USD |
+|---|---:|---:|---:|---:|---:|
+| Original fixed 2R | 0.7872 | 31.72% | -33.09 | 22,030.50 | -19,191.50 |
+| Boundary early exit | 0.7614 | 29.14% | -34.81 | 22,511.50 | -20,189.50 |
+| Selective 3R branch only | 0.7291 | 29.48% | -43.86 | 27,281.00 | -25,436.50 |
+| Boundary + selective runner | 0.7008 | 26.90% | -45.58 | 28,279.00 | -26,434.50 |
+| Partial TP | Not measured | — | — | — | No comparable causal outcome ledger |
+| Structural trailing | Not measured | — | — | — | No fixed swing rule and comparable outcome ledger |
+
+On this saved cohort, the tested changes **worsen** net PF and expectancy;
+none establishes a profitable policy. The later archive contains one filled
+trade: fixed/runner-only -206 USD; Boundary variants -100 USD. A single trade
+cannot establish an improvement.
+
+Limitations: 2019–2022 data evaluated retrospectively using a model trained
+later, repeatedly inspected samples, no untouched holdout; 33 recorded trades
+with open-period M1 gaps and three same-minute SL/TP ambiguities; idealized
+first-2R-touch runner execution; extended positions can overlap (maximum two)
+without replaying portfolio admission. Source SHA-256 hashes, training
+separation, protocol and detailed metrics are in `research.json`. Do not
+combine these figures with the separate 939-case frozen exit parity evidence.
+
+## 7. Rule decisions deliberately left open
+
+- Partial price/level, integer sizing and whether it applies to one-contract trades.
+- Conditions selecting a runner, its liquidity target, maximum holding period
+  and timing before the original broker target can fill.
+- Swing confirmation definition, trailing offset and minimum adjustment step.
+- Break-even trigger and whether fees are included; average-entry stop alone
+  does not mean net break-even.
+- Exact structural invalidation evidence and whether to await a closed M1 or M5.
+- Quote/event freshness, spread, permitted execution slippage and how to handle
+  safe exits when market data is unavailable. Test constants are not live defaults.
+- Interaction priorities with existing M3, Guard, scheduled flatten and partial
+  entry/repair orders. Existing Guard/session policy remains untouched.
+
+## 8. Exact Phase 3B requirements
+
+1. A supported isolated broker paper account, correct account/environment and
+   dated contract, Pro API access, verified executable bid/ask and timestamp
+   semantics. Unverified `collective` remains observational.
+2. Record authentic entry/partial fill/SL/TP/OCO topology, including repaired
+   children and reconnects. Prove same-account ownership, quantity and terminal
+   sibling cancellation from broker lifecycle evidence.
+3. Capture actual stop/target/quantity change command IDs, report status,
+   rejection fields and resulting working order. Test timeout/unknown outcome,
+   duplicate callback and restart without blind resubmission.
+4. Prove a safe partial-close sequence with protection continuously covering
+   remaining quantity and without oversized orders. If no such sequence or
+   atomic operation can be verified, keep partials disabled. Never infer it
+   from one successful HTTP response.
+5. Extend the original Phase 2B geometry validator for exact owned management
+   intents only, not arbitrary price changes. Coordinate all writers through
+   one journal/serialization boundary; Guard must not race a reduction or trail.
+6. Select/validate the missing research rules using a causal replay and an
+   adequate later, untouched sample. Preserve original Directional entries.
+   Current archived results do not justify activating a runner or early exit.
+7. Wire closed-candle events to the existing service scheduler only after those
+   rules are specified; refresh verified quote, spread/limit checks, current
+   account-wide realized/unrealized risk, broker orders and Guard before each
+   potential write. Verify behaviour on data/connection/account uncertainty.
+8. Paper-test all 12 lifecycles with broker evidence; include process restart,
+   manual intervention, disconnect with a working protective stop, unexpected
+   fill, fee revision and an emergency stop. Alert on UNKNOWN/RECON states.
+9. Back up journals, deploy with entries/management still inhibited, verify
+   effective configuration and observation only. Live activation is a separate
+   explicit approval after evidence passes; no environment flag alone removes
+   the Phase 3A adapter prohibition.
+
+Rollback must retain broker-hosted protection and all journals. Inhibit new
+management intents, reconcile in-flight commands, then revert code while
+preserving original Guard/owned exits. Do not restore an older database or
+resend UNKNOWN commands. A kill switch by itself is not evidence that the
+account is flat.
+</pre></details>
+    <p class="footer">Base d4ff5ec. No Railway access or production mutations in this phase. Code: directional_position_manager.py · directional_management_broker.py · existing reconciliation hooks. Git commit is recorded separately in delivery.json.</p>
+    </main></body></html>

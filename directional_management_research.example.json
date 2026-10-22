@@ -1,0 +1,14 @@
+{
+  "scope": "RESEARCH_ONLY_NOT_LOADED_BY_PRODUCTION",
+  "management_writes": "UNCONDITIONALLY_BLOCKED_IN_REAL_ADAPTER",
+  "max_quote_age_ms": null,
+  "max_event_age_ms": null,
+  "options": {
+    "partial": {"enabled": false, "price": null, "quantity": null, "source": "UNKNOWN", "known_ms": null, "expires_ms": null},
+    "runner": {"enabled": false, "price": null, "source": "UNKNOWN", "known_ms": null, "expires_ms": null},
+    "trail": {"enabled": false, "price": null, "source": "UNKNOWN", "known_ms": null, "expires_ms": null},
+    "break_even": {"enabled": false, "price": null, "source": "UNKNOWN", "known_ms": null, "expires_ms": null},
+    "invalidation": {"enabled": false, "price": null, "source": "UNKNOWN", "known_ms": null, "expires_ms": null},
+    "session_end": {"enabled": false, "at_ms": null}
+  }
+}

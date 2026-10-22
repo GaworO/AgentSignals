@@ -1,0 +1,87 @@
+{
+  "base": "d4ff5ec",
+  "files": {
+    "tests/test_v3_boundary_runtime.py": {
+      "unchanged_from_base": true,
+      "sha256": "dc856498e9bdf7b525cfa04b29eda15cf9d7942ddae1231a62ba22b7ddb771d6"
+    },
+    "ab_v3_live.py": {
+      "unchanged_from_base": true,
+      "sha256": "eaa7201c25e60d6d6af6cbb43da37abe44780c6fd970eb4b3d80808304c3ccfa"
+    }
+  },
+  "failures": [
+    {
+      "name": "test_boundary_reaches_manager_and_m3_gating[FAILURE-None-HOLD]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_boundary_reaches_manager_and_m3_gating[FAILURE-F2-CLOSE]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_boundary_reaches_manager_and_m3_gating[RECOVERY-B11-HOLD]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_boundary_reaches_manager_and_m3_gating[AMBIGUOUS-B11-CLOSE]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_boundary_reaches_manager_and_m3_gating[NO_BOUNDARY_YET-OBFH_EXPANSION-CLOSE]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_boundary_reaches_manager_and_m3_gating[FAILURE-OBFH_3_CLOSES_10M-CLOSE]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_failure_close_dispatches_without_broker_snapshot_and_closes_assumed",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_runner_first_2r_uses_strict_threshold[0.751-HOLD_3R]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_runner_first_2r_uses_strict_threshold[0.75-EXIT_2R]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_runner_first_2r_uses_strict_threshold[0.2-EXIT_2R]",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_no_fill_during_scoring_discards_manager_and_runner",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_no_fill_between_action_creation_and_http_prevents_send",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_guard_and_stop_override_recovery",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_unknown_exit_is_not_retried",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_entry_and_prepared_dispatch_need_no_broker_flat",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_runner_invalidation_after_scoring_before_dispatch",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_first_2r_then_3r_closes_only_active_assumed",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    },
+    {
+      "name": "test_runner_missing_seconds_cannot_select_hold",
+      "message": "ValueError: V3 accepts completed M1 bars only; one-second input is disabled"
+    }
+  ]
+}

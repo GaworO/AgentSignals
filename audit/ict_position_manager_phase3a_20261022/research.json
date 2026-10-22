@@ -1,0 +1,694 @@
+{
+  "kind": "RECOMPUTED_ARCHIVED_RESEARCH_NOT_LIVE",
+  "sources": {
+    "OLDER_580/POLICY_LEDGER.csv": "bfc89a1b0c7463557ecca40a8421ee52e041d36c7686ecccc214e4f0c2269e49",
+    "LATER_ARCHIVE58/POLICY_LEDGER.csv": "d163d077594e352fa1a6779c993be8414927879accac879f3be629d726ad042c",
+    "PROTOCOL.json": "e1c1b08d2cf4f3436f7fd5aec1836a4075a6ba8bb6268ae0adbf9cc1ac1e0564",
+    "TRAINING_SEPARATION.json": "e3096f19436eb98c10d51b5f259f04139d2b0110584fbf4b327b4f0c14f15890",
+    "CAUSAL_CHECKS.json": "b7083134e6f9d97aacf8f490f5ddccbb1f899a839b7f09b2997a64f5695dc09f",
+    "VERIFICATION.json": "c99af3fc3fb5262871eb941bc1b6774480b8c202a8114167fc522f91ddb06170"
+  },
+  "periods": {
+    "OLDER_580": {
+      "ORIGINAL_V3": {
+        "trades": 580,
+        "net_pf": 0.7871985363419638,
+        "pf_undefined_reason": null,
+        "net_usd": -19191.5,
+        "win_rate": 0.31724137931034485,
+        "expectancy_usd": -33.088793103448275,
+        "expectancy_net_r": -0.16519215090403652,
+        "closed_trade_drawdown_usd": 22030.5,
+        "max_overlapping_positions": 1,
+        "first_fill_utc": "2019-06-03T16:37:00+00:00",
+        "last_exit_utc": "2022-05-31T18:20:00+00:00",
+        "recorded_open_m1_gap_trades": 33,
+        "recorded_same_minute_sl_tp": 3,
+        "changed_from_original": 0
+      },
+      "BOUNDARY_BEFORE_RUNNER": {
+        "trades": 580,
+        "net_pf": 0.7614154711540734,
+        "pf_undefined_reason": null,
+        "net_usd": -20189.5,
+        "win_rate": 0.2913793103448276,
+        "expectancy_usd": -34.80948275862069,
+        "expectancy_net_r": -0.17351982857702083,
+        "closed_trade_drawdown_usd": 22511.5,
+        "max_overlapping_positions": 1,
+        "first_fill_utc": "2019-06-03T16:37:00+00:00",
+        "last_exit_utc": "2022-05-31T18:20:00+00:00",
+        "recorded_open_m1_gap_trades": 33,
+        "recorded_same_minute_sl_tp": 3,
+        "changed_from_original": 72
+      },
+      "BOUNDARY_FOUR_STATE": {
+        "trades": 580,
+        "net_pf": 0.700775948428577,
+        "pf_undefined_reason": null,
+        "net_usd": -26434.5,
+        "win_rate": 0.2689655172413793,
+        "expectancy_usd": -45.57672413793104,
+        "expectancy_net_r": -0.22736398616135886,
+        "closed_trade_drawdown_usd": 28279.0,
+        "max_overlapping_positions": 2,
+        "first_fill_utc": "2019-06-03T16:37:00+00:00",
+        "last_exit_utc": "2022-05-31T18:20:00+00:00",
+        "recorded_open_m1_gap_trades": 33,
+        "recorded_same_minute_sl_tp": 3,
+        "changed_from_original": 97
+      },
+      "RECOVERY_RUNNER_BRANCH_ONLY": {
+        "trades": 580,
+        "net_pf": 0.7291295064771874,
+        "pf_undefined_reason": null,
+        "net_usd": -25436.5,
+        "win_rate": 0.29482758620689653,
+        "expectancy_usd": -43.85603448275862,
+        "expectancy_net_r": -0.21903630848837455,
+        "closed_trade_drawdown_usd": 27281.0,
+        "max_overlapping_positions": 2,
+        "first_fill_utc": "2019-06-03T16:37:00+00:00",
+        "last_exit_utc": "2022-05-31T18:20:00+00:00",
+        "recorded_open_m1_gap_trades": 33,
+        "recorded_same_minute_sl_tp": 3,
+        "changed_from_original": 25
+      }
+    },
+    "LATER_ARCHIVE58": {
+      "ORIGINAL_V3": {
+        "trades": 1,
+        "net_pf": 0.0,
+        "pf_undefined_reason": null,
+        "net_usd": -206.0,
+        "win_rate": 0.0,
+        "expectancy_usd": -206.0,
+        "expectancy_net_r": -1.0842105263157895,
+        "closed_trade_drawdown_usd": 206.0,
+        "max_overlapping_positions": 1,
+        "first_fill_utc": "2026-10-06T08:08:00+00:00",
+        "last_exit_utc": "2026-10-06T08:29:00+00:00",
+        "recorded_open_m1_gap_trades": 0,
+        "recorded_same_minute_sl_tp": 0,
+        "changed_from_original": 0
+      },
+      "BOUNDARY_BEFORE_RUNNER": {
+        "trades": 1,
+        "net_pf": 0.0,
+        "pf_undefined_reason": null,
+        "net_usd": -100.0,
+        "win_rate": 0.0,
+        "expectancy_usd": -100.0,
+        "expectancy_net_r": -0.5263157894736842,
+        "closed_trade_drawdown_usd": 100.0,
+        "max_overlapping_positions": 1,
+        "first_fill_utc": "2026-10-06T08:08:00+00:00",
+        "last_exit_utc": "2026-10-06T08:26:00+00:00",
+        "recorded_open_m1_gap_trades": 0,
+        "recorded_same_minute_sl_tp": 0,
+        "changed_from_original": 1
+      },
+      "BOUNDARY_FOUR_STATE": {
+        "trades": 1,
+        "net_pf": 0.0,
+        "pf_undefined_reason": null,
+        "net_usd": -100.0,
+        "win_rate": 0.0,
+        "expectancy_usd": -100.0,
+        "expectancy_net_r": -0.5263157894736842,
+        "closed_trade_drawdown_usd": 100.0,
+        "max_overlapping_positions": 1,
+        "first_fill_utc": "2026-10-06T08:08:00+00:00",
+        "last_exit_utc": "2026-10-06T08:26:00+00:00",
+        "recorded_open_m1_gap_trades": 0,
+        "recorded_same_minute_sl_tp": 0,
+        "changed_from_original": 1
+      },
+      "RECOVERY_RUNNER_BRANCH_ONLY": {
+        "trades": 1,
+        "net_pf": 0.0,
+        "pf_undefined_reason": null,
+        "net_usd": -206.0,
+        "win_rate": 0.0,
+        "expectancy_usd": -206.0,
+        "expectancy_net_r": -1.0842105263157895,
+        "closed_trade_drawdown_usd": 206.0,
+        "max_overlapping_positions": 1,
+        "first_fill_utc": "2026-10-06T08:08:00+00:00",
+        "last_exit_utc": "2026-10-06T08:29:00+00:00",
+        "recorded_open_m1_gap_trades": 0,
+        "recorded_same_minute_sl_tp": 0,
+        "changed_from_original": 0
+      }
+    }
+  },
+  "protocol": {
+    "scope": "Shadow-only integration of frozen Boundary and existing frozen Model0 runner. Interpret V2 as original2R and runner V3 as3R, preserving original SL. No changes to WinExpert, LossExpert, existing Boundary fit, runner fit, thresholds or production.",
+    "boundary_gate": "Retain existing first-HIGH-HIGH Boundary decision for an apples-to-apples extension of Boundary-only. FAILURE requests the same early next-open exit. RECOVERY becomes RECOVERY_V2 provisionally. AMBIGUOUS, outside-HIGH-HIGH and unavailable state map to AMBIGUOUS with explicit assessed/availability reason. No later conflict retuning or confirmation rules promoted.",
+    "runner_transition": "A RECOVERY_V2 trade may transition to RECOVERY_RUNNER_V3 at its first2R touch only. Score existing Model0 from bars strictly before the2R touch minute; score>0.75 promotes. Otherwise standard2R exit. Do not backdate promotion/runner confidence to the original RECOVERY warning. Trades that never reach2R remain false RECOVERY_V2 if they lose. No runner for FAILURE or AMBIGUOUS in this narrowly preregistered integration.",
+    "runner_inputs": "Reuse frozen RUNNER_2026_MODEL weights, imputation, scaler,18features and threshold. Historical feature computation equivalent to existing runner research, using available completed pre-touch bars with missing minutes counted, no synthetic candles. Production year/dense-feed guards remain untouched. Historical evaluation uses saved weights outside their production deployment year, as prior external2019-2022 tests did.",
+    "counterfactual_truth": "Original TP2R/SL is winner/loser truth. For original TP trades only, follow original SL versus3R using frozen runner_trade replay. TP3R before SL means extension would help; SL before3R means standard2R was better. Unresolved futures remain unknown. Counterfactual labels never enter score or transition. Evaluate RECOVERY_RUNNER_V3 by3R success, not the tautological fact it already reached2R; evaluate RECOVERY_V2 both by original TP accuracy and missed/protected runner opportunities. AMBIGUOUS is abstention, not a correct prediction.",
+    "policies": "Original V3; previous Boundary-only without runner; extended Boundary4state; control Original V3 plus only the RECOVERY-gated runner branch with FAILURE exits disabled, to separate incremental runner contribution from FAILURE cost. Same entries/sizes; report any overlapping positions due extended holding as fixed-cohort limitation. No queue reshuffle or new entries.",
+    "execution": "Prior early-exit next-open/adverse0.25pt,2USD/point,3.50USD roundtrip/contract. At2R, standard branch receives historical target2R fill; runner branch continues originalSL to3R without extra fees or resizing. Intrabar2R touch timing modeled at M1 resolution; both3R/SL in same candle adverse-first. Standard2R app-market slippage is not added: this is the preexisting idealized historical runner convention, not broker/live-fill validation.",
+    "data": "External earlier2019-2022 same580 trades (never in training but repeatedly inspected). Separate laterarchive58 tail has only1 original trade, already reviewed, with no RECOVERY/runner opportunity. No fresh untouched holdout available in supplied files as of protocol. Ask for extra unseen data; never market reused samples as a new blind test.",
+    "outputs": "Four-class ledger with initial warning, promotion time and final class; original truth and runner counterfactual; class precision where meaningful, abstentions, selected/rejected3R confusion within RECOVERY; full-cohort PF/net/expectancy/realizedDD, incrementalUSD/R versus original and versus priorBoundary, all changed trades; per-period reports and training/hash/prefix audit.",
+    "validation": "Hash models/input/caller protocol before-after, verify historical weights match live score implementation; prove runner prefix feature parity, no label inputs, original/class partition totals and unchanged other trades; reproduce prior Boundary-only580 exactly. No fit or policy parameter sweep. Shadow-only."
+  },
+  "training_separation": {
+    "runner_train_n": 263,
+    "runner_first_fill_ms": 1654086600000,
+    "runner_last_label_ms": 1765810620000,
+    "old_test_before_training": true,
+    "later_test_after_training": true,
+    "experts_audit": "Inherited audited training separation; all model hashes unchanged",
+    "fresh_untouched_holdout_available": false
+  },
+  "causal_checks": [
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_b8e2299657179b147fc5",
+      "recovery_known_ms": 1565630460000,
+      "runner_decision_ms": 1565632860000,
+      "latest_feature_bar_ms": 1565632800000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_d317ae4bbd03d3de381a",
+      "recovery_known_ms": 1569941460000,
+      "runner_decision_ms": 1569942000000,
+      "latest_feature_bar_ms": 1569941940000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_7cdc931115372e5dc669",
+      "recovery_known_ms": 1570214340000,
+      "runner_decision_ms": 1570218480000,
+      "latest_feature_bar_ms": 1570218420000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_f2e10e79e678e831b125",
+      "recovery_known_ms": 1572016980000,
+      "runner_decision_ms": 1572213600000,
+      "latest_feature_bar_ms": 1572037140000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": true
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_5c126bcdd5fb86c72191",
+      "recovery_known_ms": 1582169820000,
+      "runner_decision_ms": 1582170840000,
+      "latest_feature_bar_ms": 1582170780000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_d7c896f2d64eea870608",
+      "recovery_known_ms": 1585820400000,
+      "runner_decision_ms": 1585820760000,
+      "latest_feature_bar_ms": 1585820700000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_d9e26b15b2eb9ecf5a33",
+      "recovery_known_ms": 1588317660000,
+      "runner_decision_ms": 1588318260000,
+      "latest_feature_bar_ms": 1588318200000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_168d7506397ada8ed459",
+      "recovery_known_ms": 1589153700000,
+      "runner_decision_ms": 1589153880000,
+      "latest_feature_bar_ms": 1589153820000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_e7d9f63d50e0c9d20615",
+      "recovery_known_ms": 1590684360000,
+      "runner_decision_ms": 1590686940000,
+      "latest_feature_bar_ms": 1590686880000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_9d59c3f0ee560b8a6ace",
+      "recovery_known_ms": 1592273460000,
+      "runner_decision_ms": 1592274600000,
+      "latest_feature_bar_ms": 1592274540000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_48b615c0dde028326840",
+      "recovery_known_ms": 1592558280000,
+      "runner_decision_ms": 1592568000000,
+      "latest_feature_bar_ms": 1592567940000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_6ada15f9e6e4c43505d1",
+      "recovery_known_ms": 1593199980000,
+      "runner_decision_ms": 1593200100000,
+      "latest_feature_bar_ms": 1593200040000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_76c609f044c5a4067d3c",
+      "recovery_known_ms": 1593546540000,
+      "runner_decision_ms": 1593546660000,
+      "latest_feature_bar_ms": 1593546600000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_fb8639cbb5df63f550eb",
+      "recovery_known_ms": 1594641720000,
+      "runner_decision_ms": 1594647120000,
+      "latest_feature_bar_ms": 1594647060000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_a617e22ae1c6486634f0",
+      "recovery_known_ms": 1595269620000,
+      "runner_decision_ms": 1595271720000,
+      "latest_feature_bar_ms": 1595271660000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_9c6e807f51d041451366",
+      "recovery_known_ms": 1595876880000,
+      "runner_decision_ms": 1595887260000,
+      "latest_feature_bar_ms": 1595887200000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": true
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_dacb932237fad11e65b2",
+      "recovery_known_ms": 1596173400000,
+      "runner_decision_ms": 1596174000000,
+      "latest_feature_bar_ms": 1596173940000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_090bc20ddb038b5741d7",
+      "recovery_known_ms": 1597342080000,
+      "runner_decision_ms": 1597342860000,
+      "latest_feature_bar_ms": 1597342800000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_24266d4a03f4027c5bcc",
+      "recovery_known_ms": 1599633000000,
+      "runner_decision_ms": 1599633840000,
+      "latest_feature_bar_ms": 1599633780000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_12a3ee2c4024094e30b4",
+      "recovery_known_ms": 1601449620000,
+      "runner_decision_ms": 1601450280000,
+      "latest_feature_bar_ms": 1601450220000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_c270d1e1016b9fe447b2",
+      "recovery_known_ms": 1603999140000,
+      "runner_decision_ms": 1604001540000,
+      "latest_feature_bar_ms": 1604001480000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_a15801bb507441d5aa85",
+      "recovery_known_ms": 1604052780000,
+      "runner_decision_ms": 1604055360000,
+      "latest_feature_bar_ms": 1604055300000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_79a94851909bc8a10e70",
+      "recovery_known_ms": 1604610240000,
+      "runner_decision_ms": 1604610840000,
+      "latest_feature_bar_ms": 1604610780000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_7583613b664844642a43",
+      "recovery_known_ms": 1605513900000,
+      "runner_decision_ms": 1605527760000,
+      "latest_feature_bar_ms": 1605527700000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_e439b32d4bc14a0f1c08",
+      "recovery_known_ms": 1610121660000,
+      "runner_decision_ms": 1610121960000,
+      "latest_feature_bar_ms": 1610121900000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_fbf7a1f00cccab2a9353",
+      "recovery_known_ms": 1616738520000,
+      "runner_decision_ms": 1616738760000,
+      "latest_feature_bar_ms": 1616738700000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_dc089d1aaefefe0d3da2",
+      "recovery_known_ms": 1616756580000,
+      "runner_decision_ms": 1616756700000,
+      "latest_feature_bar_ms": 1616756640000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_0a26a44d350ab23d0e58",
+      "recovery_known_ms": 1617200580000,
+      "runner_decision_ms": 1617201600000,
+      "latest_feature_bar_ms": 1617201540000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_8be9b101d17eef9d34b5",
+      "recovery_known_ms": 1617976080000,
+      "runner_decision_ms": 1617976800000,
+      "latest_feature_bar_ms": 1617976740000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_14626c1b14514597ba45",
+      "recovery_known_ms": 1620931200000,
+      "runner_decision_ms": 1620934260000,
+      "latest_feature_bar_ms": 1620934200000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_7fc8281658748604c353",
+      "recovery_known_ms": 1621392960000,
+      "runner_decision_ms": 1621399740000,
+      "latest_feature_bar_ms": 1621399680000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_ed50dbce6cf25162b4a3",
+      "recovery_known_ms": 1621866000000,
+      "runner_decision_ms": 1621866120000,
+      "latest_feature_bar_ms": 1621866060000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_5877749e17ffcd523aca",
+      "recovery_known_ms": 1622577600000,
+      "runner_decision_ms": 1622585100000,
+      "latest_feature_bar_ms": 1622585040000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": true
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_66b8d8e5175e0b817b2a",
+      "recovery_known_ms": 1624891200000,
+      "runner_decision_ms": 1624907040000,
+      "latest_feature_bar_ms": 1624906980000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_4bd680e094fb107f6f1d",
+      "recovery_known_ms": 1629354540000,
+      "runner_decision_ms": 1629356400000,
+      "latest_feature_bar_ms": 1629356340000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_a771a5cf4226b97ae415",
+      "recovery_known_ms": 1633723860000,
+      "runner_decision_ms": 1633904100000,
+      "latest_feature_bar_ms": 1633904040000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": true
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_8297c0b507cd93179493",
+      "recovery_known_ms": 1633905960000,
+      "runner_decision_ms": 1633909080000,
+      "latest_feature_bar_ms": 1633909020000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_54cd4a9c411bf019254d",
+      "recovery_known_ms": 1635520920000,
+      "runner_decision_ms": 1635523740000,
+      "latest_feature_bar_ms": 1635523680000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_df0417ee56afb3bd68a1",
+      "recovery_known_ms": 1637941980000,
+      "runner_decision_ms": 1637942160000,
+      "latest_feature_bar_ms": 1637942100000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_2a993f36acc4bf9c042a",
+      "recovery_known_ms": 1641239460000,
+      "runner_decision_ms": 1641244860000,
+      "latest_feature_bar_ms": 1641244800000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_93944b9c4a83dbf44434",
+      "recovery_known_ms": 1643381700000,
+      "runner_decision_ms": 1643382060000,
+      "latest_feature_bar_ms": 1643382000000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_5c607b21af84b7f1414f",
+      "recovery_known_ms": 1645199400000,
+      "runner_decision_ms": 1645200180000,
+      "latest_feature_bar_ms": 1645200120000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_a2404bd750ffa2a1e066",
+      "recovery_known_ms": 1645821120000,
+      "runner_decision_ms": 1645822440000,
+      "latest_feature_bar_ms": 1645822380000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_9f26a499c99c01ac5700",
+      "recovery_known_ms": 1647354180000,
+      "runner_decision_ms": 1647354420000,
+      "latest_feature_bar_ms": 1647354360000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_7b11a19d0a1f8b7095ce",
+      "recovery_known_ms": 1649966700000,
+      "runner_decision_ms": 1650232800000,
+      "latest_feature_bar_ms": 1649969940000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": true
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_976a14064263e290c57e",
+      "recovery_known_ms": 1650463380000,
+      "runner_decision_ms": 1650463680000,
+      "latest_feature_bar_ms": 1650463620000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_ca7a6e7dd3196c2f73a3",
+      "recovery_known_ms": 1650903720000,
+      "runner_decision_ms": 1650903900000,
+      "latest_feature_bar_ms": 1650903840000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_f76693934c132ff0ef83",
+      "recovery_known_ms": 1651139640000,
+      "runner_decision_ms": 1651141200000,
+      "latest_feature_bar_ms": 1651141140000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_SHORT_1d8178064783fff51ac6",
+      "recovery_known_ms": 1653531420000,
+      "runner_decision_ms": 1653534540000,
+      "latest_feature_bar_ms": 1653534480000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    },
+    {
+      "period": "OLDER_580",
+      "order_id": "CAUSAL_ABDIR_LONG_e72fc97f359369441f99",
+      "recovery_known_ms": 1653659400000,
+      "runner_decision_ms": 1653659760000,
+      "latest_feature_bar_ms": 1653659700000,
+      "score_parity": true,
+      "prefix_only": true,
+      "missing_prebar_minutes": false
+    }
+  ],
+  "verification": {
+    "status": "PASS",
+    "models_unchanged": true,
+    "zero_fit_calls": true,
+    "score_and_prebar_feature_parity": 50,
+    "future_bar_exclusion": true,
+    "no_backdated_runner_decisions": true,
+    "original580_and_boundary_reproduced": true,
+    "costs_and_partition_reconciled": true,
+    "production_changes": false,
+    "fresh_holdout_pending": true
+  },
+  "not_measured": {
+    "partial_take_profit": "No matched causal outcome ledger with defined integer sizing, costs and bracket resizing.",
+    "structural_trailing": "No matched causal outcome ledger with a fixed confirmed-swing rule."
+  },
+  "limitations": [
+    "No new candle replay: metrics recomputed from saved per-trade outcomes.",
+    "2019\u20132022 cohort was evaluated retrospectively with a model trained later; not a forward deployment test.",
+    "Samples were inspected previously; no fresh untouched holdout. Later cohort contains ONE filled trade.",
+    "Original historical costs: USD 3.50 round trip per contract; not current broker fee evidence.",
+    "First-2R-touch selective runner is idealized at M1 resolution; target replacement latency/OCO races absent.",
+    "Fixed entries and quantities can overlap when exits change; no portfolio admission/risk replay.",
+    "Drawdown uses realized exit cashflows from zero, not mark-to-market, MFFU trailing drawdown or intratrade equity.",
+    "The compared historical Boundary/Model0 policy is not the new research-option manager or the hybrid AI reviewer."
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "base": "d4ff5ec5265a6d967ece8dcf1eb3319be773467a",
+  "scope": "LOCAL_PHASE3A_ONLY",
+  "focused_tests_passed": 344,
+  "subtests_passed": 29,
+  "manager_tests_passed": 29,
+  "focused_failures": 0,
+  "focused_errors": 0,
+  "focused_breakdown": {
+    "main_tests": 334,
+    "main_subtests": 16,
+    "entry_rule_tests": 10,
+    "entry_rule_subtests": 13
+  },
+  "expanded_legacy_failures": 18,
+  "expanded_legacy_evidence": "expanded-tests.xml; legacy-check.json",
+  "external_network_disabled_during_tests": true,
+  "paid_ai_calls": 0,
+  "broker_orders_sent": 0,
+  "deployed": false,
+  "production_permissions_changed": false,
+  "real_adapter_management_writes": "UNCONDITIONALLY_BLOCKED",
+  "source_sha256": {
+    "directional_position_manager.py": "d7d8eec79dfd89c46608ee4a6dbc0720ca826bc4611acbacd00f8e52b6effc0c",
+    "directional_management_broker.py": "f9f79a8d0961dec116ce55f5ace58a375b64d3e7ac1149bc3c2e67b56a635468",
+    "builder_crosstrade.py": "8bda1a8e4d8264822d43aebeb2af3f6e0295c20dbd222e812d105e877a6c22e6",
+    "v3_position_manager.py": "671a1f9557bb699202a61eba9608ea1da5412a0ed58b44551c9769622fea5267",
+    "tests/test_directional_position_manager.py": "f74de366ee29ce16f39c786631e9a261f607b51dbda30ec277567afb4eef414c",
+    "directional_management_research.example.json": "d1d232026afa466a7ae5a9b94748d7835690024d12b19545782b9e24ba4e2047",
+    "tools/phase3a_research.py": "e108510b190906369484986b68ad7922cc9a3cd9b8fcc68aa85dff7a01775021",
+    "tools/phase3a_manager_demo.py": "9b15117cf180b8703e56b7b2254f1b56c831abc79cc27a6824116d274af02b74",
+    "tools/phase3a_report.py": "54fd1c2e2818c2bdbd3c6c50a0a32ff25ba0b67fd818fd31c4b96c4e21731055"
+  },
+  "unchanged_from_base": {
+    "ab_v3_live.py": "eaa7201c25e60d6d6af6cbb43da37abe44780c6fd970eb4b3d80808304c3ccfa",
+    "ab_directional_entry_rules.py": "c0da5e799d2b34d8fddf24a013375643e18b3ff7f2b35c6cfe01d89f549d1ba4",
+    "execution_policy.py": "b5cf8ba344814af1962034217cb316d6f8fa3c8c879d307546f455f25238af9d",
+    "execution_validation.py": "5f2bfe46fa5735fb1235f25746332146e53efb8bff567d13dbf05b95e993fe6d",
+    "v3_frozen_exit.py": "f2349c4f979f905641002fa0356b7c8ea3239aa2088182701c0a3b9f9cfeb0b9",
+    "v3_runner.py": "6a59f2cad89cff9237be206b67a1e73e804d3952c4dc2514895ecc728d4e5907",
+    "v3_exit_parity.json": "7f44ef5417c98718129f76e589e506154650a47fea452836f450ce6a79121a73",
+    "ab_position_manager.py": "70bcc558f38af130b199f3578cc81354a78ee27d0b3a090facf443105f3ab17e"
+  }
+}

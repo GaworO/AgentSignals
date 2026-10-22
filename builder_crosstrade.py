@@ -419,6 +419,10 @@ class Transport:
         with ThreadPoolExecutor(max_workers=3) as pool:
             jobs={oid:pool.submit(self.lifecycle,oid) for oid in ids}
             lives={oid:job.result() for oid,job in jobs.items()}
+        # Share this exact read with the observation-only ICT manager; no
+        # additional API requests or assumption that working orders are cached.
+        if not hasattr(self,'_ict_lifecycles'):self._ict_lifecycles={}
+        self._ict_lifecycles[row['order_id']]=(lives,int(self.clock()*1000))
         entry=lives[receipt['orderId']]
         if not any(c.get('commandType')=='New' and c.get('clOrdId')==row['client_id'] for c in entry['commands']):
             raise TransportError('ENTRY_CLIENT_ID_NOT_RECONCILED')
@@ -608,6 +612,18 @@ class Transport:
                             (encode(previous),error,int(self.clock()*1000),self.binding,row['order_id']))
             self.reconcile_costs(snapshot)
             self.drain_exits(snapshot)
+            # Phase 3A is observation-only. It shares this account journal but
+            # has no authority to dispatch partials, trails or runner changes.
+            import v3_position_manager
+            with self.api.connect() as c:
+                latest_closed=c.execute("SELECT order_id FROM native_orders WHERE binding=? AND state IN ('CLOSED','CLOSED_PENDING_COSTS') ORDER BY created_ms DESC LIMIT 1",(self.binding,)).fetchone()
+            settled_account=not snapshot['positions'] and not snapshot['orders']
+            observed_ids=list(dict.fromkeys([r['order_id'] for r in rows]+([latest_closed[0]] if latest_closed and settled_account else [])))
+            for oid in observed_ids:
+                try:v3_position_manager.observe_native(self,oid,snapshot)
+                except Exception:
+                    with self.api.connect() as c:
+                        self.audit(c,oid,'ICT_OBSERVATION_FAILED',{'management_enabled':False})
         finally:self.poll_lock.release()
 
     def reconcile_costs(self,snapshot):
