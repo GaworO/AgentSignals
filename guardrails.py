@@ -1768,6 +1768,11 @@ def health(feed_age_min=None, market_open=None):
         s = _state(); mode = exec_mode()
         webhook = _exec_ready()
         live = (mode == 'auto' and webhook)
+        directional=execution_policy.directional_health()
+        if directional is not None:
+            add('directional_execution','ok' if directional['ready'] else 'warn',
+                '; '.join(directional['blockers']) if not directional['ready'] else directional['note'])
+            live=live and directional['ready']
         stale_min = _envf('STALE_MIN', 20)
         fa = feed_age_min; fa_src = 'live'
         if fa is None: fa = s.get('feed_age_min'); fa_src = 'last-seen'
@@ -1882,7 +1887,7 @@ def health(feed_age_min=None, market_open=None):
         status = 'critical' if worst == 3 else ('warn' if worst == 2 else 'ok')
         if mode != 'auto': status = 'paused'
         bad = [c for c in checks if c['level'] in ('warn', 'critical')]
-        if status == 'ok' and live:   summary = 'AUTO live & healthy'
+        if status == 'ok' and live:   summary = 'AUTO path ready; individual order checks still apply'
         elif status == 'paused':      summary = 'AUTO is not the active mode (%s)' % mode
         else:                         summary = '; '.join('%s: %s' % (c['name'], c['detail']) for c in bad)[:260] or status
         out = dict(status=status, mode=mode, live=live, ts=_now_ms(), checks=checks, summary=summary)

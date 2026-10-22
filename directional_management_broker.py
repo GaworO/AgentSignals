@@ -10,6 +10,34 @@ import builder_crosstrade as native
 from directional_position_manager import Manager
 
 
+def modification_reports(life):
+    """Only the latest owned command report can confirm a modification.
+
+    `Success` is Tradovate's non-error rejectReason. AtExecution is used for
+    initial OSO activation and is not confirmation of a requested stop change.
+    An ACK or a proposed order version alone proves neither acceptance nor fill.
+    """
+    oid=life['order']['id'];out=[]
+    for command in life['commands']:
+        cid=command.get('id')
+        if (command.get('commandType')!='Modify' or command.get('orderId')!=oid
+                or not native.numeric(cid)):continue
+        reports=[r for r in life['reports'] if r.get('commandId')==cid
+                 and r.get('orderId')==oid and native.numeric(r.get('id'))]
+        if not reports:continue
+        r=max(reports,key=lambda item:item['id'])
+        rejected=(r.get('rejectReason') not in (None,'Success')
+                  or r.get('commandStatus')=='Rejected' or command.get('commandStatus')=='Rejected')
+        confirmed=(not rejected and command.get('commandStatus')=='Replaced'
+                   and r.get('commandStatus')=='Replaced' and r.get('ordStatus')=='Working'
+                   and life['order'].get('ordStatus')=='Working'
+                   and life['version'].get('id')==cid and life['version'].get('orderId')==oid
+                   and native.stable_version(life))
+        out.append(dict(command_id=cid,order_id=oid,report_id=r['id'],
+                        rejected=rejected,confirmed=bool(confirmed)))
+    return out
+
+
 class CrossTradeManagementAdapter:
     def __init__(self,transport):self.transport=transport
 
@@ -86,10 +114,7 @@ class CrossTradeManagementAdapter:
             legs.append(dict(id=o['id'],kind=kind,parent=o.get('parentId'),oco=o.get('ocoId'),
                              quantity=v.get('orderQty'),price=v.get(field),status=o['ordStatus'],
                              side=1 if o.get('action','').lower()=='buy' else -1,confirmed=native.stable_version(life)))
-            for r in life['reports']:
-                if r.get('commandId'):
-                    reports.append(dict(command_id=r['commandId'],rejected=bool(r.get('rejectReason')),
-                                        confirmed=r.get('commandStatus') in ('AtExecution','Completed') and not r.get('rejectReason')))
+            reports.extend(modification_reports(life))
         # Normalize supported reciprocal/anchor OCO representations only after
         # the original adapter's linkage predicate proves the pair.
         if native.oco_linked(lives[ids['oso1Id']]['order'],lives[ids['oso2Id']]['order']):

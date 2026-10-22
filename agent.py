@@ -1995,14 +1995,22 @@ def _execution_quotes():
 def _execution_readiness():
     """Read-only release/gate/timing evidence. No order or activation operation."""
     import execution_trace
+    import directional_management_status
     execution = execution_policy.status()
     return jsonify(
         verdict='NOT_READY' if not execution['revalidation']['ready'] else 'REQUIRES_FULL_READINESS_REVIEW',
         commit=os.environ.get('RAILWAY_GIT_COMMIT_SHA'),
         deployment=os.environ.get('RAILWAY_DEPLOYMENT_ID'),
         execution=execution,
+        position_manager=directional_management_status.status(builder_crosstrade._TRANSPORT),
         traces=execution_trace.recent(),
         note='ALLOW and configured switches are not proof of broker execution or live readiness.')
+
+@app.route('/execution/manager')
+def _execution_manager():
+    """Current persisted broker observations. No fetching or management writes."""
+    import directional_management_status
+    return jsonify(directional_management_status.status(builder_crosstrade._TRANSPORT))
 
 @app.route('/continuation/live/dashboard')
 def _continuation_live_dashboard():

@@ -56,9 +56,10 @@ def bar(ms,high=101.,low=99.,close=100.):
 
 def feed(o,clock,touch=False,stop=False):
     start=o['activation_ms'];clock[0]=start+180000+2000
-    live.ingest(dict(contract=live.contract(),tf='M1',bars=[bar(start+i*60000) for i in range(3)]))
-    sec=[bar(start+120000+i*1000,high=120. if touch and i==20 else 101.,low=89. if stop and i==25 else 99.) for i in range(62)]
-    live.ingest(dict(contract=live.contract(),tf='1s',bars=sec))
+    # Production evaluates completed minutes; do not resurrect retired 1s IO.
+    minutes=[bar(start+i*60000,high=120. if touch and i==2 else 101.,
+                 low=89. if stop and i==2 else 99.) for i in range(3)]
+    live.ingest(dict(contract=live.contract(),tf='M1',bars=minutes))
 
 
 def m3(known,reason=None):
@@ -270,18 +271,19 @@ def test_runner_invalidation_after_scoring_before_dispatch(env,monkeypatch):
 def test_first_2r_then_3r_closes_only_active_assumed(env,monkeypatch):
     o,clock=env;accept(o);feed(o,clock,touch=True);set_decisions(monkeypatch,'RECOVERY',None)
     monkeypatch.setattr(runner,'score',lambda f:.9);pm.monitor()
-    clock[0]+=1000;live.ingest(dict(contract=live.contract(),tf='1s',bars=[bar(clock[0]-1000,high=130.)]))
+    clock[0]+=60000
+    live.ingest(dict(contract=live.contract(),tf='M1',bars=[bar(o['activation_ms']+180000,high=130.)]))
     pm.monitor()
     assert get_order()['state']=='CLOSED'
     assert json.loads(get_order()['position_json'])['closure_basis']=='ASSUMED_BRACKET_TARGET'
 
 
-def test_runner_missing_seconds_cannot_select_hold(env,monkeypatch):
+def test_runner_missing_pre_touch_minute_cannot_select_hold(env,monkeypatch):
     o,clock=env;accept(o);feed(o,clock,touch=True);set_decisions(monkeypatch,'NO_BOUNDARY_YET',None)
-    with live.connect() as c:c.execute("DELETE FROM bars WHERE tf='1s' AND ts_ms=?",(o['activation_ms']+121000,))
+    with live.connect() as c:c.execute("DELETE FROM bars WHERE tf='M1' AND ts_ms=?",(o['activation_ms']+60000,))
     score=Mock(return_value=.99);monkeypatch.setattr(runner,'score',score);pm.monitor()
     with live.connect() as c:r=json.loads(c.execute('SELECT payload_json FROM runner_decisions').fetchone()[0])
-    assert r['decision_kind']=='EXIT_2R' and r['error']=='runner_touch_seconds_gap' and not score.called
+    assert r['decision_kind']=='EXIT_2R' and r['error']=='runner_prebar_m1_gap' and not score.called
 
 
 def test_feed_arriving_during_tick_is_drained(env,monkeypatch):

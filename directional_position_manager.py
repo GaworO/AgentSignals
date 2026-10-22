@@ -17,6 +17,10 @@ PENDING={'REQUESTED','ACK','UNKNOWN'}
 
 def encoded(x):return json.dumps(x,sort_keys=True,separators=(',',':'),allow_nan=False)
 def digest(x):return hashlib.sha256(encoded(x).encode()).hexdigest()
+def broker_fingerprint(snapshot):
+    # A fresh poll of unchanged facts is not a position change. Its timestamp
+    # is validated separately on every reconciliation, including duplicates.
+    return digest({k:v for k,v in snapshot.items() if k!='observed_ms'})
 def number(x):return type(x) in (int,float) and math.isfinite(x)
 def integer(x):return type(x) is int and x>=0
 def price(x):return number(x) and x>0 and abs(x/.25-round(x/.25))<1e-8
@@ -90,7 +94,11 @@ class Manager:
             c.execute('BEGIN IMMEDIATE');row=c.execute('SELECT payload FROM ict_positions WHERE binding=? AND setup_id=?',(self.binding,oid)).fetchone()
             if not row:raise ValueError('UNREGISTERED_SETUP')
             s=json.loads(row[0]);event=digest(snapshot)
-            if c.execute('SELECT 1 FROM ict_position_events WHERE binding=? AND setup_id=? AND event_id=?',(self.binding,oid,event)).fetchone():return s
+            if c.execute('SELECT 1 FROM ict_position_events WHERE binding=? AND setup_id=? AND event_id=?',(self.binding,oid,event)).fetchone():
+                if not fresh(now,snapshot.get('observed_ms'),3000):
+                    s.update(state='RECONCILIATION_REQUIRED',reason='BROKER_SNAPSHOT_STALE_OR_INCOMPLETE',unrealized_r=None)
+                    self.save(c,s)
+                return s
             if s['observed_ms'] is not None and number(snapshot.get('observed_ms')) and snapshot['observed_ms']<s['observed_ms']:return s
             before=copy.deepcopy(s)
             c.execute('SAVEPOINT broker_packet')
@@ -136,11 +144,15 @@ class Manager:
         legs=b['protective_orders']
         working=[l for l in legs if l['status']=='Working']
         reports={r['command_id']:r for r in b.get('command_reports',[])}
+        rejected=[]
         for i in pending:
             r=reports.get(i.get('command_id'))
+            expected=ids.get('oso2Id' if i['operation']=='STOP' else 'oso1Id')
+            if r and r.get('order_id',expected)!=expected:raise ValueError('COMMAND_REPORT_ORDER_MISMATCH')
             if r and r.get('rejected'):
                 i.update(status='REJECTED',reason='BROKER_COMMAND_REJECTED');self._intent_save(c,i)
-                raise ValueError('BROKER_COMMAND_REJECTED')
+                rejected.append(i)
+        pending=[i for i in pending if i['status'] in PENDING]
         if remaining:
             if len(working)!=2 or set(l['id'] for l in working)!={ids['oso1Id'],ids['oso2Id']}:raise ValueError('PROTECTIVE_ORDER_LINKAGE_UNKNOWN')
             if {l['kind'] for l in working}!={'STOP','TARGET'}:raise ValueError('PROTECTIVE_ORDER_TYPES_UNKNOWN')
@@ -183,10 +195,11 @@ class Manager:
         if not eq:state='RECONCILIATION_REQUIRED'
         if unfinished:state='REDUCE_PENDING' if unfinished[0]['operation']=='REDUCE' else 'EXIT_PENDING' if unfinished[0]['operation']=='EXIT' else 'HOLD'
         if remaining and b.get('external_exit_pending'):state='EXIT_PENDING'
-        s.update(state=state,reason='BROKER_CONFIRMED' if eq else 'AWAITING_FILL',fills=fills,
+        if rejected:state='RECONCILIATION_REQUIRED'
+        s.update(state=state,reason='BROKER_COMMAND_REJECTED' if rejected else 'BROKER_CONFIRMED' if eq else 'AWAITING_FILL',fills=fills,
                  remaining_quantity=remaining,entry_quantity=eq,exit_quantity=xq,average_entry=avg,unrealized_r=None,
                  realized_gross_usd=gross,fees=fees,realized_net_usd=gross-fees if fees is not None and gross is not None else None,
-                 protective_orders=legs,observed_ms=b['observed_ms'],entry_terminal=b['entry_terminal'],broker_fingerprint=digest(b))
+                 protective_orders=legs,observed_ms=b['observed_ms'],entry_terminal=b['entry_terminal'],broker_fingerprint=broker_fingerprint(b))
 
     def _intent_save(self,c,i):
         c.execute('INSERT OR REPLACE INTO ict_management_intents VALUES(?,?,?,?,?)',

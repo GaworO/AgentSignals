@@ -133,3 +133,21 @@ def status():
                 active_manager_live=(os.environ.get('AB_MANAGER_MODE','off').lower()=='real' if mode()=='AB_ONLY' else os.environ.get('AB_V3_MODE','SHADOW').upper()=='LIVE' and os.environ.get('V3_EXIT_MODE','shadow').lower()=='real'),
                 broker_fill_proven_by_http=False,
                 note='Entry permission; Guard, broker ownership and active exit readiness are checked separately.')
+
+
+def directional_health():
+    """Static execution blockers for Guard's display, not order authorization."""
+    if mode()!='V3_ONLY':return None
+    s=status();revalidation=s['revalidation'];reasons=[]
+    if not s['live_execution_enabled']:reasons.append('live_execution_disabled')
+    if s['execution_kill_switch']:reasons.append('execution_kill_switch')
+    if not s['entry_armed']:reasons.append('v3_entry_not_armed')
+    if os.environ.get('AB_V3_MODE','SHADOW').upper()!='LIVE':reasons.append('directional_mode_not_live')
+    directions=[side for side in ('LONG','SHORT') if os.environ.get('AB_DIRECTIONAL_LIVE_'+side,'0')=='1']
+    if not directions:reasons.append('direction_not_enabled')
+    if revalidation.get('policy_error'):reasons.append(revalidation['policy_error'])
+    reasons.extend(revalidation.get('access_blockers') or [])
+    reasons.extend('missing_validator:'+x for x in (revalidation.get('missing_validators') or []))
+    if revalidation.get('ready') is not True and not reasons:reasons.append('execution_revalidation_not_ready')
+    return dict(ready=not reasons,blockers=list(dict.fromkeys(reasons)),enabled_directions=directions,
+                note='Static readiness only; each order still requires current AI, broker, quote and risk checks.')
