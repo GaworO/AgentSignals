@@ -36,30 +36,26 @@ A/B remains shadow under the existing `V3_ONLY` policy.
   evidence in the approved execution policy. Simulated tests cannot supply it.
   Legacy/runner paths keep their original exit attestations.
 
-## Unchanged RR conflict — operator decision required
+## Confirmed RR policy — 2026-10-22
 
-`execution_policy.entry_blocker` requires a fixed **2R gross** bracket (runner
-is separately gated and excluded here). The existing final gate additionally
-requires minimum **2R net**. These cannot both pass with positive costs.
-For risk D dollars/contract, commission C and stop slippage S:
+The user explicitly confirmed **2R gross**. The final gate now enforces the
+existing minimum against the unchanged original LIMIT bracket and current
+executable side. Net RR remains reported with commission and stop-slippage
+stress, but is no longer required to reach 2R. Verified costs remain mandatory;
+a non-positive net target still blocks. Original LIMIT, SL and TP are unchanged.
 
-- gross RR = target dollars / D;
-- net RR = (target dollars - C) / (D + C + S).
+For risk D dollars/contract, cost C and stop slippage S, net RR remains
+(target dollars - C) / (D + C + S).
 
-Recorded Oct 20 LONG 29718.25 / 29696.50 / 29761.75:
-D=$43.50; target=$87; C=$1.90; S=0 -> 2 gross, **1.874449 net**.
-A one-tick stop-slippage stress adds $0.50 to the loss denominator -> 1.854031.
-Recorded Oct 21 LONG 30020.50 / 29990.75 / 30080.00:
-D=$59.50; target=$119; C=$1.90 -> **1.907166 net**.
-Using only gross risk in the denominator is a different R-multiple convention.
-Do not treat an approximately 1.904R example as universally applicable.
+- Oct 20 LONG 29718.25 / 29696.50 / 29761.75: 2 gross, 1.874449 net
+  at $1.90 RT and zero stop slippage; 1.854031 with one stop-slippage tick.
+- Oct 21 LONG 30020.50 / 29990.75 / 30080.00: 2 gross, 1.907166 net
+  at the same RT cost and zero stop slippage.
 
-No policy change is made here. A nonzero-cost original fixed-2R setup remains
-blocked until the intended gross/net definition is explicitly confirmed and
-implemented/tested. The offline full protocol demo uses a clearly labeled
-zero *estimated* cost fixture solely to traverse this existing gate; its broker
-simulation then charges $1.90 RT per contract. This is not LIVE acceptance.
-No SL/TP widening or favourable-quote assumption resolves this contradiction.
+These geometries now pass the RR check, subject to every other gate. A sub-2R
+original bracket still fails even if the latest quote would improve the fill.
+The offline demo uses $1.90 estimated RT cost instead of a zero-cost workaround.
+AI, quotes, risk attestations and broker responses remain mocks, not LIVE proof.
 
 ## External evidence contracts (not populated or activated)
 
@@ -135,7 +131,7 @@ lists $2,000/$1,500 MLL variants, $1,000 DLL and 40 micros for evaluation; the
 actual variant/current threshold must come from this account. Local $550/day,
 1 losing group/day, 15 contracts and $250/setup ceilings remain tighter.
 
-The direct provider read was blocked because Railway CLI authentication expired.
+The initial direct provider read was blocked because Railway CLI authentication expired.
 After the user reported logging in, an explicit `railway whoami` still returned
 Unauthorized; no RAILWAY token environment override was present. Saved variables
 and direct provider GETs therefore remain unverified. The public runtime/account
@@ -170,7 +166,7 @@ than silently converted to GTD.
    `/execution/quotes`, `/ab/ai-context`, `/continuation/live`, `/guard/data` and
    `/ab/v3/data`. Keep kill=true, V3_ENTRY_ARMED=0, directions=0, V3 mode SHADOW,
    AUTO_SUBMIT=0, `V3_ONLY`, manager shadow and runner disabled.
-4. Before asking for LIVE activation: resolve gross/net policy, verify a licensed
+4. Before asking for LIVE activation: confirm the implemented gross-2R policy, verify a licensed
    timestamped executable quote source, provide approved numerical policy and
    current account-wide risk evidence, and complete genuine disposable-paper
    native bracket/partial/restart/accounting acceptance. Do not use MFFU Builder
@@ -194,9 +190,9 @@ and action CONFIRMED states require reconciliation before normal operation.
 
 ## Deterministic verification
 
-The focused execution/hybrid/quote/risk/route suites passed **285 tests and 16
+The focused execution/hybrid/quote/risk/route suites passed **289 tests and 16
 subtests**. The original Directional entry-rule suite passed **10 tests and 13
-subtests**: total **295 tests + 29 subtests**, zero failures/errors. This is not a
+subtests**: total **299 tests + 29 subtests**, zero failures/errors. This is not a
 claim that every unrelated historical repository test has been repaired.
 `tests/test_crosstrade_phase2b.py` adds 40 parameterized acceptance cases.
 No network order request or paid AI request is performed by these tests.
@@ -204,9 +200,8 @@ No network order request or paid AI request is performed by these tests.
 Reproducible offline trace: run `tools/phase2b_execution_demo.py OUTPUT.json`
 with the test dependencies installed. It consumes the minimized authentic
 `tests/fixtures/phase2b_recorded_setup.json`; all quotes, risk attestations,
-AI approval and broker responses are explicitly mocked. The complete valid-cost
-entry is BLOCKED; only the zero-estimated-cost protocol fixture traverses all
-order lifecycle steps. Simulated protection is not broker-paper verification.
+AI approval and broker responses are explicitly mocked. The cost-inclusive fixture now passes the gross-RR gate and traverses all
+order lifecycle steps with mock evidence. Simulated protection is not broker-paper verification.
 
 Artifacts are in the user's workspace under
 `audit/crosstrade_phase2b_20261021/`: HTML report, execution-demo.json, authentic
@@ -214,3 +209,13 @@ public review/dispatch, timestamped runtime observations, and two JUnit reports.
 The exact authenticated AI request/raw model response is unavailable; the saved
 public parsed response is preserved verbatim and must not be called the raw
 provider response.
+
+
+## Follow-up verification after restored Railway login
+
+Direct CrossTrade GETs on 2026-10-22 confirmed cash/equity $48,721.05, no positions
+or working orders, current realized/open P&L zero, and three historical fills:
+gross -$231, costs $9.50, net -$240.50. NT8 returns HTTP 408, client disconnected.
+The authenticated review export endpoint returns 404 on running a0db9e2.
+Saved variables match inhibited runtime permissions; trigger is still SETUP.
+This supersedes earlier authentication-blocked observations above.

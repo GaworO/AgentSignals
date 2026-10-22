@@ -24,15 +24,40 @@ def test_verified_snapshot_not_candle_or_collective():
         with pytest.raises(ValueError):market.normalize(dict(raw,**change),args[0],args[5],args[-1])
 
 
-def test_net_2r_is_not_gross_2r_and_limit_is_unchanged():
+@pytest.mark.parametrize('direction',['LONG','SHORT'])
+def test_gross_2r_accepts_costs_reports_net_and_preserves_geometry(direction):
     args=evidence();original=copy.deepcopy(args[0])
+    if direction=='SHORT':
+        args[0].update(direction='SHORT',stop_price=110.,target_price=80.)
+        args[1].update(bid=100.,ask=100.25)
+        args[4]['setup']=copy.deepcopy(args[0])
+    original=copy.deepcopy(args[0])
     args[5]['costs']['round_trip_usd']=1.9
-    assert gate.evaluate(*args)=='net_reward_risk_below_minimum'
-    assert args[0]==original
-    args[0]['target_price']=130.;args[4]['setup']=copy.deepcopy(args[0])
     assert gate.evaluate(*args) is None
+    rr=gate.reward_risk(args[0],args[5])
+    assert rr['gross_rr']==2 and 0<rr['net_rr']<2
+    assert rr['policy']=='MINIMUM_GROSS_RR_NET_REPORTED'
+    assert args[0]==original
     args[5]['costs']['stop_slippage_ticks']=40
-    assert gate.evaluate(*args)=='net_reward_risk_below_minimum'
+    assert gate.evaluate(*args) is None
+    assert gate.reward_risk(args[0],args[5])['net_rr']<rr['net_rr']
+    assert args[0]==original
+
+
+@pytest.mark.parametrize('direction',['LONG','SHORT'])
+def test_sub_2r_gross_rejected_despite_favourable_quote(direction):
+    args=evidence()
+    args[0].update(direction=direction,stop_price=90. if direction=='LONG' else 110.,
+                   target_price=119.75 if direction=='LONG' else 80.25)
+    args[1].update(bid=99.5 if direction=='LONG' else 100.25,
+                   ask=99.75 if direction=='LONG' else 100.5)
+    args[4]['setup']=copy.deepcopy(args[0])
+    assert gate.evaluate(*args)=='reward_risk_below_minimum'
+
+
+def test_costs_consuming_entire_target_remain_blocked():
+    args=evidence();args[5]['costs']['round_trip_usd']=40
+    assert gate.evaluate(*args)=='net_reward_non_positive'
 
 
 def test_unknown_costs_and_negative_costs_never_pass():

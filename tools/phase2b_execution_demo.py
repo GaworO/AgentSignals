@@ -1,8 +1,8 @@
 """Offline acceptance demonstration; injected broker only, no live clients.
 
 Uses a recorded setup. All approvals/quotes/allowances/fills are MOCK data.
-Positive-cost 2R is correctly BLOCKED. The protocol exercise explicitly uses
-ZERO estimated costs to traverse the unchanged gate; it is not live acceptance.
+The user-confirmed minimum is 2R gross. Nonzero costs remain in the evidence
+and simulated accounting; this is not live or provider-paper acceptance.
 """
 import copy
 import json
@@ -32,16 +32,17 @@ def run():
         a[4].update(order_id=f.order['order_id'],setup=recorded,available_at=f.now-1,
                     expires_at=recorded['activation_ms']/1000+120,review_id='MOCK_PHASE2B_NO_API_CALL')
         a[5]['max_signal_age_ms']=120000
-        realistic=copy.deepcopy(a);realistic[5]['costs']['round_trip_usd']=1.90
-        real_reason=gate.evaluate(*realistic)
-        assert real_reason=='net_reward_risk_below_minimum'
+        a[5]['costs']['round_trip_usd']=1.90
+        a[5]['costs']['validation_reference']='MOCK_MATCHED_TO_RECORDED_1_90_RT'
+        real_reason=gate.evaluate(*a)
+        assert real_reason is None
         variants={}
         for label in ('WAIT','expired_setup','adverse_price','insufficient_rr','stale_quote','risk_exceeded','changed_structure'):
             args=copy.deepcopy(a)
             if label=='WAIT':args[4]['state']='WAIT'
             elif label=='expired_setup':args[0]['expiry_ms']=args[-1]
             elif label=='adverse_price':args[1]['bid']+=.25;args[1]['ask']+=.25
-            elif label=='insufficient_rr':args[5]['costs']['round_trip_usd']=1.9
+            elif label=='insufficient_rr':args[0]['target_price']-=.25
             elif label=='stale_quote':args[1]['as_of_ms']-=2000
             elif label=='risk_exceeded':args[3].update(allowed=False,reason='SIMULATED_DAILY_LOSS')
             else:args[2].update(valid=False,reason='SIMULATED_NEW_STRUCTURE')
@@ -53,7 +54,7 @@ def run():
         stage('Exact setup',recorded,'BOUND','Original production geometry unchanged')
         stage('AI Review',a[4],'ALLOW','MOCK approval. No model call.')
         stage('Post-AI market / risk / quote validation',dict(thesis=a[2],quote=a[1],risk=a[3],policy=a[5]),
-              'ALLOW' if gate.evaluate(*a) is None else 'BLOCK','ZERO estimated cost fixture; NOT production approval')
+              'ALLOW' if gate.evaluate(*a) is None else 'BLOCK','2R gross, $1.90 estimated RT cost; MOCK evidence, NOT production approval')
         f.final_gate.side_effect=lambda order,review:gate.evaluate(order,a[1],a[2],a[3],review,a[5],int(f.now*1000))
         with patch.object(directional_ai_review,'check',return_value=(None,a[4])):
             ack=f.submit()
@@ -76,8 +77,8 @@ def run():
         stage('Accounting',dict(history=f.history,cash=snapshot['account']['balance']),resumed.resolution(f.order['order_id']),
               'MOCK $1.90 RT/contract matched to fills and cash; fees remain revisable')
         # A separately reset deterministic broker fixture proves rejection.
-        result=dict(recorded_setup=recorded,actual_cost_gate=dict(reason=real_reason,rr=gate.reward_risk(recorded,realistic[5])),
-                    protocol_only_zero_estimate=stages,blocked_variants=variants,
+        result=dict(recorded_setup=recorded,actual_cost_gate=dict(reason=real_reason,allowed=real_reason is None,rr=gate.reward_risk(recorded,a[5])),
+                    simulated_protocol=stages,blocked_variants=variants,
                     simulated_net_usd=net,paid_calls=0,real_orders=0,simulated_entry_posts=len(f.posts))
         return result
     finally:f.doCleanups()

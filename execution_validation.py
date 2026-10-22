@@ -81,7 +81,7 @@ def reward_risk(order, parameters):
                 net_loss_usd=loss,net_reward_usd=net_reward,
                 round_trip_usd=fees['round_trip_usd'],stop_slippage_ticks=fees['stop_slippage_ticks'],
                 basis='NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS',
-                policy='EXISTING_GROSS_AND_NET_MINIMUM_UNCHANGED')
+                policy='MINIMUM_GROSS_RR_NET_REPORTED')
 
 
 def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
@@ -135,8 +135,11 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
         # favourable fill at a transient quote. Stop slippage is a validated
         # stress allowance, never a guaranteed maximum on a stop-market fill.
         rr=reward_risk(order,parameters)
-        if rr['net_reward_usd']<=0 or rr['net_rr']+1e-9<parameters['min_rr']:
-            return 'net_reward_risk_below_minimum'
+        # User-confirmed policy (2026-10-22): minimum 2R is GROSS.
+        # Net RR remains cost-inclusive evidence, not a second 2R threshold.
+        # Keep the existing protection against a non-positive net target.
+        if rr['net_reward_usd']<=0:
+            return 'net_reward_non_positive'
         if (thesis.get('order_id') != order['order_id'] or thesis.get('valid') is not True
                 or not thesis.get('evidence_id')
                 or not 0 <= now_ms-thesis['checked_ms'] <= parameters['max_thesis_age_ms']):
@@ -185,7 +188,7 @@ def check(order, review, *, clock=time.time):
     execution_trace.record(order['order_id'], 'execution_validation_evidence',
                            order={k:order.get(k) for k in ('order_id','direction','contract','entry_price','stop_price','target_price','expiry_ms')},
                            evidence=evidence, review_id=(review or {}).get('review_id'),
-                           rr_policy='EXISTING_GROSS_AND_NET_MINIMUM_UNCHANGED')
+                           rr_policy='MINIMUM_GROSS_RR_NET_REPORTED')
     # A durable log failure propagates and prevents submission.
     execution_trace.record(order['order_id'], 'execution_eligibility', started_ms=started,
                            reason=reason, allowed=reason is None)
