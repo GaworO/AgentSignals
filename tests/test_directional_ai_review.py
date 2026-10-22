@@ -168,7 +168,6 @@ def test_native_transport_rechecks_after_account_refresh(context, monkeypatch, a
     """A valid upstream check cannot authorize a stale context after broker GETs."""
     f = native_fixtures.NativeTests()
     f.setUp()
-    monkeypatch.setenv('EXEC_STRATEGY_POLICY', 'V3_ONLY')
     try:
         f.prepare()
         permission = dict(owner='AB_DIRECTIONAL', state='ALLOW' if allowed else 'INVALIDATED',

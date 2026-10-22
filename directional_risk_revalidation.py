@@ -14,6 +14,7 @@ import builder_broker_sync
 import builder_crosstrade
 import continuation_live
 import execution_safety
+import execution_policy
 import guardrails
 import directional_account_limits
 import execution_validation
@@ -41,6 +42,9 @@ class RiskValidator:
                 return dict(proof, reason='automatic_entries_disabled')
             if order.get('strategy') != 'AB_DIRECTIONAL' or not builder_crosstrade.selected():
                 return dict(proof, reason='directional_native_route_required')
+            if ab_v3_live.native_fixed_bracket():
+                reason=ab_v3_live.native_bracket_readiness()
+                if reason:return dict(proof,reason=reason)
             with continuation_live._connect() as db:
                 dispatch = db.execute('SELECT state,source_json FROM live_dispatches WHERE order_id=?',
                                       (order['order_id'],)).fetchone()
@@ -75,10 +79,18 @@ class RiskValidator:
                 return dict(proof, reason='account_quantity_or_risk_budget')
             signal['_risk_budget_usd'] = budget
             signal['_planned_group_risk_usd'] = budget
+            permission=execution_policy.entry_blocker(signal)
+            if permission:return dict(proof,reason=permission)
             sync = builder_broker_sync.instance()
             if not sync.enabled or not sync.poll(wait=True):
                 return dict(proof, reason='fresh_broker_snapshot_required')
             snapshot = sync.snapshot()
+            # Repeat the account-wide inventory barrier after the final read.
+            # The earlier submission read may have preceded a manual fill.
+            if snapshot['positions'] or snapshot['orders']:
+                return dict(proof,reason='broker:account_has_positions_or_orders')
+            if not sync.state()['current']:
+                return dict(proof,reason='broker:account_snapshot_not_current')
             proof.update(account_binding=sync.binding,
                          checked_ms=int(snapshot['read_started_at']*1000))
             costs=execution_validation.costs(execution_validation.policy())

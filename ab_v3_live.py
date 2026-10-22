@@ -416,6 +416,29 @@ def broker_event(body, current=None):
     return dict(accepted=True)
 
 
+def native_fixed_bracket():
+    return builder_crosstrade.selected() and not runner_enabled() and exit_mode()=='shadow'
+
+
+def native_bracket_readiness():
+    """Fixed native protection has its own paper proof, not M3/runner parity.
+
+    This is an evidence requirement in the existing approved execution policy,
+    not an arming flag. Unit simulations cannot satisfy production acceptance.
+    """
+    import execution_validation
+    try:
+        p=execution_validation.policy()
+        proof=p.get('broker_workflow_verification',{})
+        if (proof.get('verified') is not True or proof.get('simulator_only') is not False
+                or proof.get('provider')!='CrossTrade' or proof.get('surface')!='tradovate'
+                or proof.get('contract')!=contract() or not proof.get('paper_evidence_reference')
+                or not all(proof.get(k) is True for k in ('native_oso_oco','partial_fill_repair','restart_recovery','net_accounting'))):
+            return 'native_bracket_paper_verification_missing'
+    except Exception:return 'native_bracket_execution_policy_unavailable'
+    return None
+
+
 def entry_blocker(order):
     """Guarded exclusive route; assumed fills do not require broker snapshots."""
     if mode() != "LIVE": return None
@@ -438,10 +461,14 @@ def entry_blocker(order):
             return "v3:runner_requires_legacy_exit_disabled"
         try: entry_target(order)
         except (ValueError,KeyError,TypeError): return "v3:runner_entry_geometry_invalid"
-    try:
-        position_manager.check_models()
-    except Exception:
-        return 'v3:boundary_models_unavailable'
+    if native_fixed_bracket():
+        reason=native_bracket_readiness()
+        if reason:return 'v3:'+reason
+    else:
+        try:
+            position_manager.check_models()
+        except Exception:
+            return 'v3:boundary_models_unavailable'
     source = _payload(order)
     snap = source.get("v3_snapshot") or {}
     if not all(policy.finite(snap.get(k)) for k in ("source_level", "fvg_edge")): return "v3:snapshot_missing"
@@ -462,9 +489,14 @@ def prepared_entry_blocker(signal):
     ai_reason, review = directional_ai_review.check(signal.get('dir'), signal['_continuation_order_id'] + ':dispatch')
     signal['_directional_ai_review'] = review
     if ai_reason: return ai_reason
-    blockers=exit_blockers()
-    if blockers: return 'v3:'+blockers[0]
-    if not frozen_parity_ok(): return 'v3:historical_parity_failed'
+    if native_fixed_bracket():
+        blockers=setting_blockers()
+        reason=native_bracket_readiness()
+        if reason:blockers.append(reason)
+    else:
+        blockers=exit_blockers()
+        if not frozen_parity_ok():return 'v3:historical_parity_failed'
+    if blockers:return 'v3:'+blockers[0]
     broker_reason=builder_broker_sync.entry_blocker(refresh=True)
     if broker_reason: return broker_reason
     oid=signal['_continuation_order_id'];current=now_ms()

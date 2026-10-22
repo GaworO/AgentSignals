@@ -193,6 +193,15 @@ class Transport:
             self.contract_id=found['id']
         return self.contract_id
 
+    def directional_permission(self, order):
+        import execution_policy
+        if order.get('strategy')!='AB_DIRECTIONAL':return None
+        if execution_policy.mode()!='V3_ONLY':return 'DIRECTIONAL_EXCLUSIVE_POLICY_REQUIRED'
+        if os.environ.get('AB_V3_MODE','SHADOW').upper()!='LIVE':return 'DIRECTIONAL_MODE_NOT_LIVE'
+        if os.environ.get('V3_ENTRY_ARMED','0')!='1':return 'DIRECTIONAL_ENTRY_NOT_ARMED'
+        if os.environ.get('AB_DIRECTIONAL_LIVE_'+order['direction'],'0')!='1':return 'DIRECTION_NOT_ENABLED'
+        return None
+
     def submit(self,payload,oid):
         safety=execution_safety.entry_blocker()
         if safety:raise TransportError(safety)
@@ -203,10 +212,14 @@ class Transport:
         if not r or r['state']!='PREPARED':raise TransportError('PREPARED_V3_ENTRY_REQUIRED')
         order=json.loads(r['order_json'])
         import execution_policy
+        if execution_policy.mode() in ('INVALID','SHADOW_ALL'):
+            raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if execution_policy.mode() == 'V3_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL':
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
+        permission=self.directional_permission(order)
+        if permission:raise TransportError(permission)
         if order.get('strategy') == 'A/B':
             check = dict(_strat='A/B',dir=order['direction'],entry=order['entry_price'],SL=order['stop_price'],TP=order['target_price'])
             if execution_policy.mode() != 'AB_ONLY' or execution_policy.entry_blocker(check):
@@ -220,6 +233,8 @@ class Transport:
                 or order['account_label']!=os.environ.get('ACCOUNT_LABEL','account')
                 or not order['activation_ms']<=now<order['expiry_ms']):
             raise TransportError('PREPARED_ENTRY_IDENTITY_OR_EXPIRY_MISMATCH')
+        if str(payload.get('tif',payload.get('timeInForce','day'))).lower() not in ('day','gtd'):
+            raise TransportError('DIRECTIONAL_LIMIT_TIF_UNSUPPORTED')
         quantity=payload.get('quantity')
         entry=payload.get('limitPrice');stop=(payload.get('stopLoss') or {}).get('stopPrice')
         target=(payload.get('takeProfit') or {}).get('limitPrice')
@@ -267,7 +282,7 @@ class Transport:
         # A slow revalidation must not outlive the entry or override a cancel /
         # Guard request made while account or market evidence was being read.
         if not reason:
-            reason = execution_safety.entry_blocker()
+            reason = execution_safety.entry_blocker() or self.directional_permission(order)
         if not reason and int(self.clock()*1000) >= expiry:
             reason = 'ENTRY_EXPIRED_DURING_REVALIDATION'
         if not reason:
@@ -330,7 +345,11 @@ class Transport:
         order,version=data['order'],data['version']
         if (order.get('id')!=oid or str(order.get('accountId'))!=self.sync.account
                 or order.get('contractId')!=self.resolve_contract() or version.get('orderId')!=oid
-                or not numeric(version.get('orderQty'))):raise TransportError('BROKER_ORDER_BINDING_MISMATCH')
+                or not (numeric(version.get('orderQty')) or
+                        (type(version.get('orderQty')) is int and version['orderQty']==0
+                         and order.get('ordStatus') in ('Suspended','Canceled','Cancelled','Rejected','Expired')
+                         and (numeric(order.get('parentId')) or numeric(order.get('ocoId')))))):
+            raise TransportError('BROKER_ORDER_BINDING_MISMATCH')
         if (any(not isinstance(c,dict) for c in data['commands']) or any(not isinstance(r,dict) for r in data['reports'])
                 or any(c.get('commandType') not in ('New','Cancel','Modify') for c in data['commands'])):
             raise TransportError('INVALID_NATIVE_COMMAND_TRAIL')
@@ -373,7 +392,13 @@ class Transport:
         # The account synchronizer retains session fills across broker resets.
         with self.sync.connect() as c:
             stored=[json.loads(r[0]) for r in c.execute('SELECT payload FROM broker_fills WHERE binding=?',(self.binding,))]
-        rows={f['id']:f for f in stored+snapshot['fills'] if f.get('orderId') in ids}
+        rows={}
+        for f in stored+snapshot['fills']:
+            if f.get('orderId') not in ids:continue
+            previous=rows.get(f.get('id'))
+            if previous and any(previous.get(k)!=f.get(k) for k in ('id','orderId','accountId','contractId','qty','price','action','timestamp')):
+                raise TransportError('CONFLICTING_OWNED_FILL_REVISION')
+            rows[f['id']]=f
         for f in rows.values():
             if (f.get('contractId')!=self.resolve_contract() or f.get('accountId') is not None and str(f['accountId'])!=self.sync.account
                     or not numeric(f.get('id')) or not numeric(f.get('qty')) or not tick(f.get('price'))
@@ -433,14 +458,16 @@ class Transport:
         entry_status=entry['order'].get('ordStatus')
         native_active=[life['order']['id'] for life in lives.values() if life['order'].get('ordStatus') not in TERMINAL]
         at=int(snapshot['observed_at']*1000)
+        if entry_status in ACTIVE and int(self.clock()*1000)>=row['expiry_ms']:
+            self.cancel_owned_order(row,receipt['orderId'],'cancel','expiry-cancel-'+row['order_id'])
         with self.api.connect() as c:
             if entry_status in TERMINAL:
                 execution_trace.record(row['order_id'], 'broker_terminal_observed',
                                        at_ms=at, state=entry_status)
-                c.execute("UPDATE native_actions SET state='ACKNOWLEDGED',updated_ms=? WHERE binding=? AND order_id=? AND operation='cancel'",(at,self.binding,row['order_id']))
+                c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND order_id=? AND operation='cancel'",(at,self.binding,row['order_id']))
             for child in (receipt['oso1Id'],receipt['oso2Id']):
                 if lives[child]['order'].get('ordStatus') in TERMINAL:
-                    c.execute("UPDATE native_actions SET state='ACKNOWLEDGED',updated_ms=? WHERE binding=? AND action_id=?",(at,self.binding,'child-cancel-'+str(child)))
+                    c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND action_id=?",(at,self.binding,'child-cancel-'+str(child)))
         base=dict(order_id=row['order_id'],route_id=order['route_id'],contract=order['contract'],account_label=order['account_label'],
             event_ms=at,source='crosstrade-native-reconciliation',broker_ids=receipt)
         observation=dict(observed_at=snapshot['observed_at'],entry_quantity=eq,exit_quantity=xq,
@@ -499,8 +526,26 @@ class Transport:
                 previous=json.loads(local['position_json'] or '{}') if local else {}
                 if previous.get('event_ms',-1)<at:
                     self.api.broker_event(body)
-            state='OPEN' if protected and eq==command['body']['qty'] and float(average)==order['entry_price'] else 'RECONCILIATION_REQUIRED'
+            # Protection is proved for actual remaining fills, including partials.
+            # A partial is never promoted to the legacy full-size manager.
+            observation.update(protection_verified=protected,remaining_quantity=remaining,
+                               entry_price=float(average),stop_price=order['stop_price'],
+                               target_price=order['target_price'],oco_verified=oco_linked(legs[0]['order'],legs[1]['order']))
+            limit_respected=(float(average)-order['entry_price'])*(1 if order['direction']=='LONG' else -1)<=1e-9
+            state=('OPEN' if eq==command['body']['qty'] else 'PARTIAL_OPEN') if protected and limit_respected else 'RECONCILIATION_REQUIRED'
+            if not protected or not limit_respected:
+                # Existing protective exit path: cancel the remaining entry,
+                # prove terminal status, then liquidate only attributed fills.
+                # No replacement bracket or discretionary manager is created.
+                self.queue_exit(row['order_id'],'PROTECTION_OR_LIMIT_NOT_VERIFIED')
             self.store_resolution(row,state,observation,receipt)
+            return
+        if not snapshot['positions'] and entry_status in ACTIVE:
+            # A target/stop can flatten the first partial fill while the
+            # remainder of the entry still works. Cancel that remainder;
+            # never allow it to refill after its bracket has completed.
+            self.cancel_owned_order(row,receipt['orderId'],'cancel','partial-exit-cancel-'+row['order_id'])
+            self.store_resolution(row,'WAITING_ENTRY_CANCEL',observation,receipt)
             return
         if snapshot['positions'] or any(o.get('id') in ids for o in snapshot['orders']) or native_active:
             raise TransportError('FLAT_AND_TERMINAL_NATIVE_ORDERS_REQUIRED')
@@ -534,6 +579,8 @@ class Transport:
                 self.api.broker_event(dict(base,event='CLOSED',quantity=0,position_id=prior['position_id'],
                     exit_price=float(exit_average),exit_fill_ms=observation['exit_fill_ms'],broker_order_id=str(close_ids[-1]) if close_ids else None,
                     event_id='ct-close-'+row['client_id']+'-'+str(at)))
+        with self.api.connect() as c:
+            c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND order_id=? AND operation='close'",(at,self.binding,row['order_id']))
         self.store_resolution(row,'CLOSED_PENDING_COSTS',observation,receipt)
 
     def schedule_reconcile(self,snapshot):
@@ -550,12 +597,15 @@ class Transport:
                 rows=[dict(r) for r in c.execute("SELECT * FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED') ORDER BY created_ms",(self.binding,))]
             for row in rows:
                 if row['state']=='CLOSED_PENDING_COSTS':continue
-                try:self.reconcile_one(row,snapshot)
+                try:
+                    self.reconcile_one(row,snapshot)
                 except Exception as exc:
                     error=str(exc) if isinstance(exc,TransportError) else 'BROKER_RECONCILIATION_FAILED'
+                    previous=json.loads(row['observation_json'] or '{}')
+                    previous.update(protection_verified=False,reconciliation_valid=False,evidence_error=error)
                     with self.api.connect() as c:
-                        c.execute('UPDATE native_orders SET error=?,updated_ms=? WHERE binding=? AND order_id=?',
-                            (error,int(self.clock()*1000),self.binding,row['order_id']))
+                        c.execute("UPDATE native_orders SET state='RECONCILIATION_REQUIRED',observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=?",
+                            (encode(previous),error,int(self.clock()*1000),self.binding,row['order_id']))
             self.reconcile_costs(snapshot)
             self.drain_exits(snapshot)
         finally:self.poll_lock.release()
@@ -636,7 +686,7 @@ class Transport:
 
     def entry_blocker(self, *, pending_order_id=None):
         with self.api.connect() as c:
-            if c.execute("SELECT 1 FROM native_actions WHERE binding=? AND state IN ('SENDING','UNKNOWN')",(self.binding,)).fetchone():
+            if c.execute("SELECT 1 FROM native_actions WHERE binding=? AND state IN ('SENDING','UNKNOWN','ACKNOWLEDGED')",(self.binding,)).fetchone():
                 return 'broker:native_action_outcome_unknown'
             if pending_order_id is not None:
                 own = c.execute('SELECT state,receipt_json FROM native_orders WHERE binding=? AND order_id=?',
@@ -697,10 +747,12 @@ class Transport:
                 raise TransportError('FOREIGN_POSITION_PRESENT')
             path=self.prefix+'/positions/close';body=dict(instrument=command['body']['instrument'])
         else:raise TransportError('NATIVE_ACTION_NOT_ALLOWED')
+        if not 0<=self.clock()-snapshot['observed_at']<=3:
+            raise TransportError('FRESH_BROKER_READ_REQUIRED')
         with self.api.connect() as c:
             c.execute('BEGIN IMMEDIATE')
             old=c.execute('SELECT state FROM native_actions WHERE binding=? AND action_id=?',(self.binding,action_id)).fetchone()
-            if old:return dict(success=old['state']=='ACKNOWLEDGED',already_reserved=True)
+            if old:return dict(success=old['state'] in ('ACKNOWLEDGED','CONFIRMED'),already_reserved=True)
             if operation=='close':
                 if c.execute("SELECT 1 FROM native_actions WHERE binding=? AND order_id=? AND operation='close'",(self.binding,oid)).fetchone():
                     return dict(success=False,already_reserved=True)
@@ -725,12 +777,18 @@ class Transport:
 
 
     def cancel_owned_child(self,row,child):
-        aid='child-cancel-'+str(child)
+        return self.cancel_owned_order(row,child,'child_cancel','child-cancel-'+str(child))
+
+    def cancel_owned_order(self,row,child,operation,aid):
+        # Private helper: caller has just proved native identity and ownership.
+        if not execution_safety.writes_enabled():return
+        if operation not in ('cancel','child_cancel'):raise TransportError('INVALID_CANCEL_OPERATION')
         with self.api.connect() as c:
             c.execute('BEGIN IMMEDIATE')
             if c.execute('SELECT 1 FROM native_actions WHERE binding=? AND action_id=?',(self.binding,aid)).fetchone():return
+            if operation=='cancel' and c.execute("SELECT 1 FROM native_actions WHERE binding=? AND order_id=? AND operation='cancel'",(self.binding,row['order_id'])).fetchone():return
             c.execute('INSERT INTO native_actions VALUES(?,?,?,?,?,?,?,?)',
-                      (self.binding,aid,row['order_id'],'child_cancel','SENDING','{}',None,int(self.clock()*1000)))
+                      (self.binding,aid,row['order_id'],operation,'SENDING','{}',None,int(self.clock()*1000)))
         reply={};state='UNKNOWN'
         try:
             reply=self.request('POST',self.prefix+'/orders/'+str(child)+'/cancel',{})

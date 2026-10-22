@@ -66,6 +66,24 @@ def costs(parameters):
     return value
 
 
+def reward_risk(order, parameters):
+    """Unchanged limit, net reward / total loss including RT costs. Per MNQ."""
+    sign={'LONG':1,'SHORT':-1}[order['direction']]
+    entry,stop,target=(float(order[k]) for k in ('entry_price','stop_price','target_price'))
+    fees=costs(parameters)
+    risk=sign*(entry-stop)*2
+    reward=sign*(target-entry)*2
+    loss=risk+fees['round_trip_usd']+fees['stop_slippage_ticks']*.5
+    net_reward=reward-fees['round_trip_usd']
+    if risk<=0 or loss<=0:raise ValueError('bracket_invalidated')
+    return dict(gross_rr=reward/risk,net_rr=net_reward/loss,
+                gross_risk_usd=risk,gross_reward_usd=reward,
+                net_loss_usd=loss,net_reward_usd=net_reward,
+                round_trip_usd=fees['round_trip_usd'],stop_slippage_ticks=fees['stop_slippage_ticks'],
+                basis='NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS',
+                policy='EXISTING_GROSS_AND_NET_MINIMUM_UNCHANGED')
+
+
 def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
     """Pure validation, also exercised by the offline broker simulator."""
     try:
@@ -81,7 +99,7 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
             return 'contract_mismatch'
         if quote.get('market_open') is not True:
             return 'market_closed_or_unknown'
-        if quote.get('execution_eligible') is False:
+        if quote.get('execution_eligible') is not True or quote.get('timestamp_semantics_verified') is not True:
             return 'quote_source_unverified'
         if quote.get('source') != parameters.get('quote_source') or not quote.get('source'):
             return 'quote_source_unverified'
@@ -103,6 +121,8 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
         if (quote.get('volatility_definition') != parameters['volatility_definition']
                 or volatility > parameters['max_volatility_points']):
             return 'volatility_limit_or_definition'
+        if sign*(px-entry) > 1e-9:
+            return 'original_limit_exceeded'
         # The order is a LIMIT; an adverse fill beyond entry is not authorized.
         # Test both the original bracket and the current executable side.
         for price in (entry, px):
@@ -114,10 +134,8 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
         # Worst permitted LIMIT entry is the unchanged limit, not an assumed
         # favourable fill at a transient quote. Stop slippage is a validated
         # stress allowance, never a guaranteed maximum on a stop-market fill.
-        fees = costs(parameters)
-        loss = sign*(entry-stop)*2 + fees['round_trip_usd'] + fees['stop_slippage_ticks']*.5
-        reward = sign*(target-entry)*2 - fees['round_trip_usd']
-        if reward <= 0 or reward/loss + 1e-9 < parameters['min_rr']:
+        rr=reward_risk(order,parameters)
+        if rr['net_reward_usd']<=0 or rr['net_rr']+1e-9<parameters['min_rr']:
             return 'net_reward_risk_below_minimum'
         if (thesis.get('order_id') != order['order_id'] or thesis.get('valid') is not True
                 or not thesis.get('evidence_id')
@@ -144,6 +162,7 @@ def check(order, review, *, clock=time.time):
     evidence = {}
     try:
         parameters = policy()
+        evidence['reward_risk']=reward_risk(order,parameters)
         # Fetch executable quotes last, after the slower account/context reads.
         for name in ('risk', 'thesis', 'market'):
             if name not in _SOURCES:
@@ -161,6 +180,12 @@ def check(order, review, *, clock=time.time):
                           review or {}, parameters, int(clock()*1000))
     except Exception as exc:
         reason = str(exc) if isinstance(exc, ValueError) else 'revalidation_source_failed'
+    # Persist the exact server-side inputs used by the final gate. No raw model
+    # packet, credentials or provider authentication are part of these adapters.
+    execution_trace.record(order['order_id'], 'execution_validation_evidence',
+                           order={k:order.get(k) for k in ('order_id','direction','contract','entry_price','stop_price','target_price','expiry_ms')},
+                           evidence=evidence, review_id=(review or {}).get('review_id'),
+                           rr_policy='EXISTING_GROSS_AND_NET_MINIMUM_UNCHANGED')
     # A durable log failure propagates and prevents submission.
     execution_trace.record(order['order_id'], 'execution_eligibility', started_ms=started,
                            reason=reason, allowed=reason is None)
@@ -175,6 +200,10 @@ def status():
         policy_error = str(exc) if isinstance(exc, ValueError) else 'execution_policy_unreadable'
     missing = [name for name in ('market', 'thesis', 'risk') if name not in _SOURCES]
     access=[]
+    import ab_v3_live
+    if ab_v3_live.native_fixed_bracket():
+        blocker=ab_v3_live.native_bracket_readiness()
+        if blocker:access.append(blocker)
     if 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
             or not (os.environ.get('DIRECTIONAL_QUOTE_API_TOKEN') or os.environ.get('BUILDER_BROKER_API_TOKEN'))):
         access.append('executable_quote_access_not_configured')

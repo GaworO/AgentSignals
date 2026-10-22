@@ -22,9 +22,12 @@ def evidence():
                   max_spread_ticks=2, max_slippage_ticks=1, max_volatility_points=10,
                   volatility_definition='fixture_range', min_rr=2,
                   max_account_age_ms=1000,max_thesis_age_ms=1000)
+    limits['quote_verification']=dict(verified=True,source='crosstrade_nt8',contract='MNQZ2026',
+        reference='SYNTHETIC_TEST_ONLY',timestamp_semantics='bid_ask_event_time',venue_bbo=True)
     limits['costs']=dict(contract='MNQZ2026',validation_reference='ZERO_COST_SYNTHETIC_ONLY',
                          round_trip_usd=0,stop_slippage_ticks=0)
     quote = dict(contract='MNQZ2026', source='fixture', market_open=True,
+                 execution_eligible=True,timestamp_semantics_verified=True,
                  as_of_ms=now, bid=99.75, ask=100., volatility_points=4,
                  volatility_definition='fixture_range')
     thesis = dict(order_id='one', valid=True, checked_ms=now, evidence_id='closed-m1-fixture')
@@ -81,7 +84,7 @@ def test_allow_is_insufficient_changed_bracket_or_missing_evidence():
 def test_adverse_move_reduces_rr_even_inside_zone():
     args = evidence()
     args[1].update(bid=100, ask=100.25)
-    assert validation.evaluate(*args) == 'reward_risk_below_minimum'
+    assert validation.evaluate(*args) == 'original_limit_exceeded'
     args[1].update(bid=100.25, ask=100.5)
     assert validation.evaluate(*args) == 'slippage_limit'
 
@@ -136,7 +139,6 @@ def test_native_oso_activation_shape_from_observed_protocol():
 def simulator(monkeypatch):
     instance = fixture.NativeTests()
     instance.setUp()
-    monkeypatch.setenv('EXEC_STRATEGY_POLICY', 'V3_ONLY')
     instance.order['strategy'] = 'AB_DIRECTIONAL'
     instance.prepare()
     try:

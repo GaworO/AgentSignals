@@ -65,13 +65,31 @@ def inspect_quote(raw, contract, now_ms, max_age_ms):
     return dict(contract=contract, instrument=expected, source='crosstrade_nt8' if nt8 else str(raw.get('source') or 'unknown'),
                 bid=bid,ask=ask,spread_points=ask-bid,spread_ticks=(ask-bid)/.25,
                 as_of_ms=int(at),quote_age_ms=now_ms-at,provider_timestamps_ms=stamps,
-                timestamp_semantics_verified=nt8,execution_eligible=nt8,
-                provenance_reason=None if nt8 else 'quote_source_suitability_unverified',
+                feed_candidate=nt8, timestamp_semantics_verified=False, execution_eligible=False,
+                timestamp_semantics='UNVERIFIED_PROVIDER_TIMESTAMP',
+                provenance_reason='quote_source_suitability_unverified',
                 market_open=raw.get('marketOpen' if collective else 'isMarketOpen') is True)
 
 
+def attest_quote(result, parameters):
+    # The documented NT8 response shape does not establish whether epoch is
+    # a bid/ask event time, last-trade time or server snapshot time. Require
+    # separately verified evidence in the approved policy; never infer it.
+    proof=(parameters or {}).get('quote_verification',{})
+    if (result.get('feed_candidate') and proof.get('verified') is True
+            and proof.get('source')==result['source']
+            and proof.get('contract')==result['contract']
+            and proof.get('reference')
+            and proof.get('timestamp_semantics')=='bid_ask_event_time'
+            and proof.get('venue_bbo') is True):
+        result.update(execution_eligible=True,timestamp_semantics_verified=True,
+                      timestamp_semantics=proof['timestamp_semantics'],
+                      provenance_reference=proof['reference'],provenance_reason=None)
+    return result
+
+
 def normalize(raw, order, parameters, now_ms):
-    result=inspect_quote(raw,order['contract'],now_ms,parameters['max_quote_age_ms'])
+    result=attest_quote(inspect_quote(raw,order['contract'],now_ms,parameters['max_quote_age_ms']),parameters)
     if not result['execution_eligible']:raise ValueError('quote_source_suitability_unverified')
     return result
 
@@ -134,7 +152,12 @@ class QuoteClient:
                 evidence['raw']=json.loads(text)
             except ValueError:pass
             now=int(self.clock()*1000)
+            previous=self.latest()
+            prior=(previous or {}).get('raw') or {}
+            evidence['source_changed']=bool(prior and prior.get('source')!=raw.get('source'))
+            evidence['previous_source']=prior.get('source')
             result=inspect_quote(raw,contract,now,(parameters or {}).get('max_quote_age_ms',MONITOR_MAX_AGE_MS))
+            result=attest_quote(result,parameters)
             evidence['quote']=result
             if execution:
                 if not result['execution_eligible']:raise ValueError('quote_source_suitability_unverified')

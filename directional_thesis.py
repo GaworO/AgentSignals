@@ -12,6 +12,7 @@ import ab_directional_entry_rules
 import ab_v3_live
 import continuation_live
 import continuation_shadow
+import directional_setup_review
 
 VERSION='original_bos_bracket_ai_v1'
 GEOMETRY=('strategy','direction','activation_ms','expiry_ms','entry_price','stop_price','target_price')
@@ -70,8 +71,16 @@ class ThesisValidator:
             packet=service.packet(service.reader(),self.clock())
             end=int(self.clock())//60*60
             if packet['as_of']!=end:return dict(proof,reason='post_review_context_not_current')
+            if getattr(service,'trigger',None)=='HYBRID':
+                # Publish this newer GET before querying the approval cache.
+                # Otherwise a material event seen here could be absent from
+                # the worker's last refresh while its ALLOW remained reusable.
+                ab_ai_context.hybrid_lifecycle.refresh(service,packet)
             review=service.setup_annotation(order['order_id'],order['direction'])
             if review.get('state')!='ALLOW':return dict(proof,reason='review_not_allowed')
+            current_setup=directional_setup_review.describe(source,order['contract'])
+            if current_setup != review.get('setup'):
+                return dict(proof,reason='original_liquidity_or_setup_evidence_changed')
             for symbol in ('NQ','MNQ'):
                 times={e['available_at'] for e in packet['evidence'].values()
                        if e['kind']=='bar' and e['timeframe']==1 and e['symbol']==symbol}

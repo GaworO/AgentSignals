@@ -67,13 +67,13 @@ def test_pacing_and_retry_after_persist_across_restart(tmp_path):
 def test_errors_fail_closed_no_retry_loop(tmp_path,error):
     def read(c):raise error
     c=client(tmp_path,reader=read)
-    with pytest.raises(ValueError):c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=1000))
+    with pytest.raises(ValueError):c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=1000,quote_verification=evidence()[5]['quote_verification']))
     assert 'secret arbitrary text' not in json.dumps(c.latest())
 
 
 def test_verified_nt8_and_latency_then_final_gate_reages_quote(tmp_path,monkeypatch):
     c=client(tmp_path,quote());monkeypatch.setenv('DIRECTIONAL_QUOTE_SOURCE','crosstrade_nt8')
-    r=c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=1000))
+    r=c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=1000,quote_verification=evidence()[5]['quote_verification']))
     assert r['execution_eligible'] and r['spread_ticks']==1
     args=evidence();args[1].update(r);args[5]['quote_source']='crosstrade_nt8'
     assert gate.evaluate(*args) is None
@@ -82,7 +82,7 @@ def test_verified_nt8_and_latency_then_final_gate_reages_quote(tmp_path,monkeypa
     c.clock=lambda:1002;c.reader=lambda c:dict(quote(),epoch=1002)
     times=iter([10,12,12]);c.monotonic=lambda:next(times)
     with pytest.raises(ValueError,match='quote_request_latency_exceeded'):
-        c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=1000))
+        c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=1000,quote_verification=evidence()[5]['quote_verification']))
 
 
 def test_even_matching_policy_cannot_accept_explicit_unverified_source():

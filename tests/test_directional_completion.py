@@ -73,16 +73,25 @@ def test_bos_and_geometry_cannot_drift():
     assert thesis.structural_check(*args)=='original_bos_reference_missing_or_changed'
 
 
+def control_proof(now, cash):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return dict(source_reference='SYNTHETIC_ONLY',verified=True,observed_at_ms=now,
+                contract='MNQZ2026',ny_day=datetime.fromtimestamp(now/1000,ZoneInfo('America/New_York')).date().isoformat(),
+                fees_reconciled=True,losses_today=0,consecutive_losses=0,
+                margin_max_new_micro_contracts=40,remaining_daily_loss_usd=1000,cash=cash,equity=cash)
+
+
 def allowance_fixture(tmp_path,monkeypatch):
     now=1000000
     proof=dict(provider='MFFU',account_binding='account',source_reference='TEST_ONLY',verified=True,
                observed_at_ms=now-1000,expires_at_ms=now+60000,minimum_balance=48000,
-               daily_loss_limit_usd=1000,max_micro_contracts=40)
+               daily_loss_limit_usd=1000,max_micro_contracts=40,account_controls=control_proof(now,48721.05))
     path=tmp_path/'risk.json';path.write_text(json.dumps(proof))
-    monkeypatch.setenv('MFFU_RISK_EVIDENCE_FILE',str(path));monkeypatch.setenv('DAY_LOSS_USD','550')
+    monkeypatch.setenv('MFFU_RISK_EVIDENCE_FILE',str(path));monkeypatch.setenv('DAY_LOSS_USD','550');monkeypatch.setenv('DAY_LOSS_N','1')
     snapshot=dict(read_started_at=999.9,account=dict(balance=dict(netLiq=48721.05,totalCashValue=48721.05,
              cashSOD=48961.55,realizedPnL=-240.5,openPnL=0,fundsInTransit=0,fundsInTransitAppliedToCash=0)))
-    order=dict(quantity=2,entry_price=100,stop_price=90)
+    order=dict(quantity=2,entry_price=100,stop_price=90,contract='MNQZ2026')
     return [snapshot,'account',order,now,1.9],proof,path
 
 

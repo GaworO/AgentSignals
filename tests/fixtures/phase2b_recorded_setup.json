@@ -1,0 +1,323 @@
+{
+  "provenance": "Recorded production Directional order, October 20. No AI or execution outcome included.",
+  "setup": {
+    "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+    "candidate_id": "ABDIR_LONG_5d44f22b8cd4a4bfc214",
+    "strategy": "AB_DIRECTIONAL",
+    "direction": "LONG",
+    "contract": "MNQZ2026",
+    "activation_ms": 1792505760000,
+    "expiry_ms": 1792506360000,
+    "entry_price": 29718.25,
+    "stop_price": 29696.5,
+    "target_price": 29761.75,
+    "risk_points": 21.75,
+    "target_r": 2.0,
+    "alternative_2r": 29761.75,
+    "alternative_3r": 29783.5,
+    "source_level": 29569.5,
+    "fvg_edge": 29696.75,
+    "setup_category": "NYPMH",
+    "entry_rules": {
+      "activation_ms": 1792505760000,
+      "bos_available_ms": 1792505760000,
+      "bos_body_fraction": 0.6083333333333333,
+      "bos_ms": 1792505700000,
+      "bos_ohlc": {
+        "close": 29752.0,
+        "high": 29759.25,
+        "low": 29729.25,
+        "open": 29733.75
+      },
+      "category": "NYPMH",
+      "direction": "LONG",
+      "eligible": true,
+      "min_bos_body_fraction": 0.5,
+      "rejection_reason": null,
+      "version": "AB_DIRECTIONAL_NO_DIB_BOS50_V1"
+    },
+    "frozen_context": {
+      "source_event": {
+        "status": "RECORDED",
+        "value": {
+          "bsl_name": "NYPMH",
+          "bsl_price": 29569.5,
+          "close": 29572.5,
+          "close_through": true,
+          "epoch": 0,
+          "jade_thesis": "LONG",
+          "jade_thesis_reason": "daily_sellside_sweep_reclaim",
+          "level_formed_ms": 1792180740000,
+          "trading_day": "2026-10-20T00:00:00",
+          "trigger_bar": 127273,
+          "trigger_ms": 1792504560000
+        },
+        "available_at_ms": 1792504620000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.source_event"
+        },
+        "reason": null
+      },
+      "frozen_dol": {
+        "status": "RECORDED",
+        "value": {
+          "constituents": [
+            {
+              "id": "H1_swing:1792465200000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29784.5,
+              "priority_tier": 1,
+              "status": "OPEN"
+            },
+            {
+              "id": "session:1792454400000:1",
+              "kind": "session",
+              "liquidity_family": "MAJOR_SESSION",
+              "price": 29784.5,
+              "priority_tier": 3,
+              "status": "OPEN"
+            },
+            {
+              "id": "H1_swing:1787054400000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29785.5,
+              "priority_tier": 1,
+              "status": "DELIVERED"
+            }
+          ],
+          "id": "POOL|H1_swing:1792465200000:1|session:1792454400000:1|H1_swing:1787054400000:1",
+          "price": 29784.5,
+          "selected_at_ms": 1792505760000,
+          "state": "OPEN",
+          "tier": 1
+        },
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.frozen_dol"
+        },
+        "reason": null
+      },
+      "boundary_context": {
+        "status": "RECORDED",
+        "value": {
+          "context_start_ms": 1780941300000,
+          "fvg_hi": 29705.0,
+          "fvg_lo": 29696.8,
+          "setup_ms": 1792505040000,
+          "source_formed_ms": 1792180740000,
+          "source_price": 29569.5
+        },
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.boundary_context"
+        },
+        "reason": null
+      },
+      "source_contract_identity": {
+        "status": "RECORDED",
+        "value": "ARCHIVE_REQUIRES_VERIFICATION",
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.source_contract_identity"
+        },
+        "reason": null
+      },
+      "current_dol": {
+        "status": "RECORDED",
+        "value": {
+          "constituent_levels": [
+            {
+              "id": "H1_swing:1792465200000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29784.5,
+              "priority_tier": 1,
+              "status": "OPEN"
+            },
+            {
+              "id": "session:1792454400000:1",
+              "kind": "session",
+              "liquidity_family": "MAJOR_SESSION",
+              "price": 29784.5,
+              "priority_tier": 3,
+              "status": "OPEN"
+            },
+            {
+              "id": "H1_swing:1787054400000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29785.5,
+              "priority_tier": 1,
+              "status": "DELIVERED"
+            }
+          ],
+          "currently_interacting": false,
+          "distance_points": 32.5,
+          "external_internal": "EXTERNAL",
+          "highest_timeframe_represented": "HIGHER_TIMEFRAME_EXTERNAL",
+          "is_stacked": true,
+          "pool_high": 29785.5,
+          "pool_id": "POOL|H1_swing:1792465200000:1|session:1792454400000:1|H1_swing:1787054400000:1",
+          "pool_low": 29784.5,
+          "pool_price": 29784.5,
+          "priority_class": "HIGHER_TIMEFRAME_EXTERNAL",
+          "priority_tier": 1,
+          "selection_eligible": true,
+          "side": "BSL",
+          "stacked_confluence": 3,
+          "status": "OPEN"
+        },
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.dol_tag.current_dol"
+        },
+        "reason": null
+      },
+      "next_dol_after_delivery": {
+        "status": "RECORDED",
+        "value": {
+          "constituent_levels": [
+            {
+              "id": "day:1792360800000:1",
+              "kind": "day",
+              "liquidity_family": "EXTERNAL_DAY_WEEK",
+              "price": 29790.0,
+              "priority_tier": 2,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "session:1792368000000:1",
+              "kind": "session",
+              "liquidity_family": "MAJOR_SESSION",
+              "price": 29790.0,
+              "priority_tier": 3,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "H1_swing:1789671600000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29793.25,
+              "priority_tier": 1,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "session:1792400400000:1",
+              "kind": "session",
+              "liquidity_family": "INTERNAL_SESSION",
+              "price": 29794.5,
+              "priority_tier": 3,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "H1_swing:1784178000000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29796.5,
+              "priority_tier": 1,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "H1_swing:1783940400000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29800.0,
+              "priority_tier": 1,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "H1_swing:1792450800000:1",
+              "kind": "H1_swing",
+              "liquidity_family": "H1_SWING",
+              "price": 29803.5,
+              "priority_tier": 1,
+              "status": "OPEN"
+            },
+            {
+              "id": "session:1792440000000:1",
+              "kind": "session",
+              "liquidity_family": "INTERNAL_SESSION",
+              "price": 29803.5,
+              "priority_tier": 3,
+              "status": "OPEN"
+            },
+            {
+              "id": "session:1792382400000:1",
+              "kind": "session",
+              "liquidity_family": "INTERNAL_SESSION",
+              "price": 29805.5,
+              "priority_tier": 3,
+              "status": "DELIVERED"
+            },
+            {
+              "id": "session:1792429200000:1",
+              "kind": "session",
+              "liquidity_family": "INTERNAL_SESSION",
+              "price": 29807.5,
+              "priority_tier": 3,
+              "status": "DELIVERED"
+            }
+          ],
+          "currently_interacting": false,
+          "distance_points": 51.5,
+          "external_internal": "EXTERNAL",
+          "highest_timeframe_represented": "HIGHER_TIMEFRAME_EXTERNAL",
+          "is_stacked": true,
+          "pool_high": 29807.5,
+          "pool_id": "POOL|day:1792360800000:1|session:1792368000000:1|H1_swing:1789671600000:1|session:1792400400000:1|H1_swing:1784178000000:1|H1_swing:1783940400000:1|H1_swing:1792450800000:1|session:1792440000000:1|session:1792382400000:1|session:1792429200000:1",
+          "pool_low": 29790.0,
+          "pool_price": 29803.5,
+          "priority_class": "HIGHER_TIMEFRAME_EXTERNAL",
+          "priority_tier": 1,
+          "selection_eligible": true,
+          "side": "BSL",
+          "stacked_confluence": 10,
+          "status": "OPEN"
+        },
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.dol_tag.next_dol_after_delivery"
+        },
+        "reason": null
+      },
+      "opposite_side_liquidity_previously_taken": {
+        "status": "RECORDED",
+        "value": false,
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.dol_tag.opposite_side_liquidity_previously_taken"
+        },
+        "reason": null
+      },
+      "narrative": {
+        "status": "RECORDED",
+        "value": "DOL_ONLY",
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.dol_tag.narrative"
+        },
+        "reason": null
+      },
+      "current_price": {
+        "status": "RECORDED",
+        "value": 29752.0,
+        "available_at_ms": 1792505760000,
+        "source": {
+          "order_id": "ORDER_ABDIR_LONG_d8c390f622d68827231d",
+          "path": "payload.v3_snapshot.dol_tag.current_price"
+        },
+        "reason": null
+      }
+    }
+  }
+}

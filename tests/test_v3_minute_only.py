@@ -39,7 +39,7 @@ class MinuteOnlyTests(unittest.TestCase):
             now_ms=lambda:self.now,contract=lambda:'MNQZ2026',mode=lambda:'LIVE',route=lambda:'test-route',
             exit_mode=lambda:'real',_M1_CALLBACK=None,
             builder_broker_sync=types.SimpleNamespace(entry_blocker=lambda **kw:None),
-            exit_blockers=lambda:[],frozen_parity_ok=lambda:True,runner_parity_ok=lambda:True,runner=types.SimpleNamespace(model_ok=lambda at:True))
+            native_fixed_bracket=lambda:False,exit_blockers=lambda:[],frozen_parity_ok=lambda:True,runner_parity_ok=lambda:True,runner=types.SimpleNamespace(model_ok=lambda at:True))
         functions(ROOT/'ab_v3_live.py',{'db_path','connect','dump','_exit_transition','_bar','ingest','frame','m1_fresh',
             'prepared_entry_blocker','_runner_first_touch','monitor','dispatch_exits','dispatch_frozen_exits'},scope)
         self.boundary=Mock();self.frozen=Mock();self.runner=Mock()

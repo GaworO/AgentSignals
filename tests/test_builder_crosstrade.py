@@ -30,7 +30,10 @@ class NativeTests(unittest.TestCase):
         self.now=1792400000.;self.posts=[];self.life={};self.history=[];self.timeout=False;self.bad_ack=False
         self.addCleanup(patch.stopall)
         patch.dict(os.environ,dict(BUILDER_ORDER_PROVIDER='crosstrade',ACCOUNT_LABEL='Builder 50K',
-            LIVE_EXECUTION_ENABLED='true', DATA_DIR=self.tmp.name,
+            LIVE_EXECUTION_ENABLED='true', EXEC_KILL_SWITCH='false', EXEC_STRATEGY_POLICY='V3_ONLY',
+            AB_V3_MODE='LIVE',V3_ENTRY_ARMED='1',AB_DIRECTIONAL_LIVE_LONG='1',AB_DIRECTIONAL_LIVE_SHORT='1',
+            GUARD_TOKEN='x'*32,EXEC_TICKER='MNQZ2026',AB_V3_CONTRACT='MNQZ2026',
+            AB_V3_DETECTOR_CONTRACT_VERIFIED='1',AB_V3_EXCLUSIVE_ROUTE='1', DATA_DIR=self.tmp.name,
             AB_V3_DB=str(Path(self.tmp.name)/'v3.sqlite3'))).start()
         # Protocol unit tests isolate the independently tested final market gate.
         self.final_gate = patch.object(execution_validation, 'check', return_value=None).start()
@@ -116,27 +119,27 @@ class NativeTests(unittest.TestCase):
         self.life[11]['order']['ordStatus']='Filled' if qty==2 else 'Working'
         for oid in (12,13):self.life[oid]['order']['ordStatus']='Working';self.life[oid]['version']['orderQty']=qty
         action='Buy' if self.order['direction']=='LONG' else 'Sell'
-        self.entry=self.fill(101,11,qty,30000,action)
+        self.entry=self.fill(101,11,qty,self.order['entry_price'],action)
         snap=self.snapshot([self.entry],qty if action=='Buy' else -qty)
-        self.t.reconcile_one(self.t.row('order-one'),snap);return snap
+        self.t.reconcile_one(self.t.row(self.order['order_id']),snap);return snap
 
     def complete(self,winning=True):
         self.now+=5
         for oid in (11,12,13):self.life[oid]['order']['ordStatus']='Filled' if oid in (11,12 if winning else 13) else 'Canceled'
         direction=1 if self.order['direction']=='LONG' else -1
-        entry=self.fill(101,11,2,30000,'Buy' if direction==1 else 'Sell',offset=4)
+        entry=self.fill(101,11,2,self.order['entry_price'],'Buy' if direction==1 else 'Sell',offset=4)
         px=self.order['target_price'] if winning else self.order['stop_price']
         exit=self.fill(102,12 if winning else 13,2,px,'Sell' if direction==1 else 'Buy')
         # Keep immutable entry timestamp if it has been seen already.
         if hasattr(self,'entry'):entry=self.entry
-        gross=(px-30000)*direction*4;net=gross-2.4
+        gross=(px-self.order['entry_price'])*direction*4;cost=getattr(self,'fixture_round_trip',1.2);net=gross-2*cost
         self.account['balance'].update(netLiq=48961.55+net,totalCashValue=48961.55+net)
         self.history=[dict(fillId=f['id'],orderId=f['orderId'],accountId=2214,accountName='Builder account',environment='demo',instrument='MNQ 12-26',
-            qty=f['qty'],price=f['price'],action=f['action'],timestamp=f['timestamp'],commission=.6,fees=.6) for f in (entry,exit)]
+            qty=f['qty'],price=f['price'],action=f['action'],timestamp=f['timestamp'],commission=cost/2,fees=cost/2) for f in (entry,exit)]
         return self.snapshot([entry,exit]),net
 
     def local(self):
-        with self.api.connect() as c:return dict(c.execute('SELECT * FROM orders WHERE order_id=?',('order-one',)).fetchone())
+        with self.api.connect() as c:return dict(c.execute('SELECT * FROM orders WHERE order_id=?',(self.order['order_id'],)).fetchone())
 
     def test_long_and_short_native_bracket_uses_scalar_levels_gtd_and_waits_for_real_fill(self):
         for direction in ('LONG','SHORT'):
@@ -183,7 +186,7 @@ class NativeTests(unittest.TestCase):
 
     def test_full_fill_promotes_to_real_position_and_partial_waits(self):
         self.submit();self.open(qty=1)
-        self.assertEqual(self.t.row('order-one')['state'],'RECONCILIATION_REQUIRED');self.assertIsNone(self.local()['position_json'])
+        self.assertEqual(self.t.row('order-one')['state'],'PARTIAL_OPEN');self.assertIsNone(self.local()['position_json'])
         # A second fill completes the entry at the same native limit.
         self.now+=2;second=self.fill(102,11,1,30000,'Buy')
         self.life[11]['order']['ordStatus']='Filled'
@@ -315,7 +318,7 @@ class NativeTests(unittest.TestCase):
         self.assertNotIn('MNQ1!',native.contract_aliases('MNQZ2026'))
 
     def test_native_routing_requires_fresh_completed_m1(self):
-        namespace=dict(os=os,json=json,mode=lambda:'LIVE',exit_blockers=lambda:[],
+        namespace=dict(os=os,json=json,mode=lambda:'LIVE',native_fixed_bracket=lambda:False,exit_blockers=lambda:[],
             directional_ai_review=directional_ai_review,
             frozen_parity_ok=lambda:True,builder_broker_sync=self.sync,
             now_ms=lambda:int(self.now*1000),connect=self.api.connect,contract=self.api.contract,route=self.api.route)

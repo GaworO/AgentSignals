@@ -11,6 +11,8 @@ import directional_risk_revalidation as risk
 import guardrails as guard
 import test_builder_crosstrade as fixture
 
+from test_directional_completion import control_proof
+
 REAL_GUARD_OK = guard.guard_ok
 REAL_ACCOUNT_BLOCKER = builder_broker_sync.entry_blocker
 
@@ -19,28 +21,31 @@ REAL_ACCOUNT_BLOCKER = builder_broker_sync.entry_blocker
 def native(monkeypatch, tmp_path):
     f = fixture.NativeTests()
     f.setUp()
-    monkeypatch.setenv('EXEC_STRATEGY_POLICY', 'V3_ONLY')
     monkeypatch.setenv('AUTO_SUBMIT', '1')
     monkeypatch.setenv('EXEC_MAX_QTY', '15')
-    monkeypatch.setenv('EXEC_KILL_SWITCH', 'false')
-    monkeypatch.setenv('DAY_LOSS_USD','550')
+    monkeypatch.setenv('DAY_LOSS_USD','550');monkeypatch.setenv('DAY_LOSS_N','1')
     f.account['balance'].update(realizedPnL=0,openPnL=0,cashSOD=48961.55,
                                 fundsInTransit=0,fundsInTransitAppliedToCash=0)
     evidence=tmp_path/'allowances.json'
     evidence.write_text(json.dumps(dict(provider='MFFU',account_binding=f.sync.binding,
         source_reference='SYNTHETIC_TEST_ONLY',verified=True,observed_at_ms=int(f.now*1000)-1000,
         expires_at_ms=int(f.now*1000)+600000,minimum_balance=48000,
-        daily_loss_limit_usd=1000,max_micro_contracts=40)))
+        daily_loss_limit_usd=1000,max_micro_contracts=40,account_controls=control_proof(f.now*1000,48961.55))))
     monkeypatch.setenv('MFFU_RISK_EVIDENCE_FILE',str(evidence))
     monkeypatch.setattr(risk.execution_validation,'policy',lambda:dict(contract='MNQZ2026',
         costs=dict(contract='MNQZ2026',validation_reference='SYNTHETIC_TEST_ONLY',round_trip_usd=1.2,stop_slippage_ticks=0)))
     monkeypatch.setattr(continuation_live, 'DB_PATH', tmp_path/'dispatch.sqlite3')
     continuation_live._init_db()
+    f.order['target_price']=30020.
+    f.prepare()
     f.source = dict(f.order, candidate_id='fixture', dol_id='FIXED_2R')
     assert continuation_live._claim(f.source, 'fixture')
     monkeypatch.setattr(ab_v3_live, 'connect', f.api.connect)
+    # Paper attestation contract has its own Phase 2B tests; this fixture tests risk.
+    monkeypatch.setattr(ab_v3_live,'native_bracket_readiness',lambda:None)
     monkeypatch.setattr(builder_broker_sync, 'instance', lambda:f.sync)
-    f.signal = dict(dir='LONG', entry=30000., SL=29990., TP=30030.,
+    f.signal = dict(dir='LONG', entry=30000., SL=29990., TP=30020., model='A/B Directional',
+                    _strict_risk_budget=True,_disable_partial=True,_risk_budget_usd=250.,
                     _v3_directional=True, _strat='A/B Directional LONG', _continuation_order_id='order-one')
     monkeypatch.setattr(guard, 'exec_mode', lambda:'auto')
     monkeypatch.setattr(guard, 'account_profile', lambda:dict(config_ok=True))

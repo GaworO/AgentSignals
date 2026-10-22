@@ -7,6 +7,8 @@ import json
 import math
 import os
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 def check(snapshot, binding, order, now_ms, cost_per_contract):
@@ -55,6 +57,38 @@ def check(snapshot, binding, order, now_ms, cost_per_contract):
         if not math.isfinite(local) or local<=0:return 'account_daily_limit_unknown'
         if risk>=min(local,proof['daily_loss_limit_usd'])+loss:
             return 'account_projected_daily_loss_breach'
+        # Volatile controls must be provider/account-wide evidence, not a
+        # static plan floor or a guessed count from this bot's trade ledger.
+        controls=proof.get('account_controls')
+        if not isinstance(controls,dict):return 'account_wide_controls_unknown'
+        age=now_ms-controls.get('observed_at_ms',-1)
+        if not 0<=age<=30000:return 'account_wide_controls_stale'
+        if (controls.get('source_reference') is None or controls.get('verified') is not True
+                or controls.get('contract')!=order.get('contract')
+                or controls.get('ny_day')!=datetime.fromtimestamp(now_ms/1000,ZoneInfo('America/New_York')).date().isoformat()
+                or controls.get('fees_reconciled') is not True):
+            return 'account_wide_controls_unverified'
+        for key in ('losses_today','consecutive_losses','margin_max_new_micro_contracts'):
+            if type(controls.get(key)) is not int or controls[key]<0:return 'account_wide_controls_unknown'
+        for key in ('remaining_daily_loss_usd','cash','equity'):
+            if type(controls.get(key)) not in (int,float) or not math.isfinite(controls[key]):return 'account_wide_controls_unknown'
+        if abs(controls['cash']-b['totalCashValue'])>.01 or abs(controls['equity']-b['netLiq'])>.01:
+            return 'account_wide_controls_balance_mismatch'
+        daily_n=int(os.environ['DAY_LOSS_N'])
+        if daily_n<0:return 'account_daily_limit_unknown'
+        if daily_n and controls['losses_today']>=daily_n:return 'account_wide_one_loss_stop'
+        streak_n=int(os.environ.get('LOSS_STREAK_N','3'))
+        if streak_n and controls['consecutive_losses']>=streak_n:
+            # A foreign account loss cannot escape the existing local cooldown.
+            last=controls.get('last_loss_closed_ms')
+            hours=float(os.environ.get('LOSS_STREAK_COOLDOWN_H','24'))
+            if type(last) not in (int,float) or not math.isfinite(last) or not 0<last<=now_ms:
+                return 'account_loss_history_unknown'
+            if not math.isfinite(hours) or hours<=0 or now_ms-last<hours*3600000:
+                return 'account_wide_loss_streak_stop'
+        # Guard separately enforces its existing consecutive-loss cooldown.
+        if qty>controls['margin_max_new_micro_contracts']:return 'account_margin_or_exposure_limit'
+        if risk>=controls['remaining_daily_loss_usd']:return 'account_provider_daily_allowance_exceeded'
         return None
     except (OSError,ValueError,KeyError,TypeError,OverflowError):
         return 'mffu_allowances_unavailable'
