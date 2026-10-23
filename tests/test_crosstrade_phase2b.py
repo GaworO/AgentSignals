@@ -53,7 +53,9 @@ def test_source_switch_is_observed_never_promoted(tmp_path):
     c.fetch('MNQZ2026');clock[0]+=3
     raw.update(source='drafted',epoch=1003)
     result=c.fetch('MNQZ2026')
-    assert result['source_changed'] and result['previous_source']=='collective'
+    assert not result['data_source_changed'] and 'source_changed' not in result
+    assert result['quote']['source']=='crosstrade_nt8'
+    assert not result['quote']['feed_candidate']
     assert not result['allowed'] and not result['quote']['execution_eligible']
 
 

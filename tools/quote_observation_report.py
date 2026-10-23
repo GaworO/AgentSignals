@@ -29,38 +29,36 @@ def session(ms):
 
 
 def summarize(rows):
+    from directional_market_data import quote_timestamps
     rows=sorted(rows,key=lambda r:r['observed_ms'])
     groups={}
     for r in rows:groups.setdefault(session(r['observed_ms']),[]).append(r)
     def group(items):
-        spreads=[];ages=[];ts_ages=[];gaps=[];switches=[];off_tick=0;previous=None;gate_pass=0
+        spreads=[];ages=[];timestamp_errors=[];switches=[];off_tick=0;previous=None;gate_pass=0
         for r in items:
-            raw=r.get('raw') or {};source=raw.get('source');now=r['observed_ms']
+            raw=r.get('raw') or {};now=r['observed_ms']
             if raw:
-                if previous and previous.get('source')!=source:
-                    switches.append(dict(at_ms=now,previous=previous.get('source'),current=source))
-                previous=raw
+                if previous and previous!=raw.get('dataSource'):
+                    switches.append(dict(at_ms=now,previous=previous,current=raw.get('dataSource')))
+                previous=raw.get('dataSource')
             bid,ask=raw.get('bid'),raw.get('ask')
             if finite(bid) and finite(ask) and 0<bid<=ask:
                 spread=(ask-bid)/.25;spreads.append(spread)
                 if any(abs(p/.25-round(p/.25))>1e-8 for p in (bid,ask)):off_tick+=1
-            # Keep the units assumption explicit. Do not replace absent eventTs with receipt time.
-            t,e=raw.get('ts'),raw.get('eventTs')
-            if finite(t):ts_ages.append(now-t*1000)
-            if finite(e):ages.append(now-e*1000)
-            if finite(t) and finite(e):gaps.append((t-e)*1000)
+            try:ages.append(now-min(quote_timestamps(raw).values()))
+            except (ValueError,TypeError,OverflowError) as exc:timestamp_errors.append(type(exc).__name__)
             q=r.get('quote') or {}
             if q and 0<=q['quote_age_ms']<=1000 and q['spread_ticks']<=2:gate_pass+=1
         return dict(count=len(items),first_ms=items[0]['observed_ms'],last_ms=items[-1]['observed_ms'],
-            sources=dict(Counter((r.get('raw') or {}).get('source','NONE') for r in items)),
+            sources=dict(Counter((r.get('quote') or {}).get('source','UNKNOWN') for r in items)),
             reasons=dict(Counter(r.get('reason') or 'NONE' for r in items)),
             spread_ticks_observed=stats(spreads),off_tick_count=off_tick,
             request_latency_ms=stats([r.get('request_latency_ms') for r in items]),
-            reported_event_age_ms=stats(ages),reported_ts_age_ms=stats(ts_ages),ts_minus_event_ms=stats(gaps),
+            reported_quote_age_ms=stats(ages),unsupported_timestamp_count=len(timestamp_errors),
             source_switches=switches,verified_executable_count=sum(bool((r.get('quote') or {}).get('execution_eligible')) for r in items),
             hypothetical_1000ms_2ticks_pass=gate_pass)
     return dict(groups={k:group(v) for k,v in groups.items()},
-                timestamp_units='UNIX_SECONDS_ASSUMED_FOR_OBSERVATION_ONLY',
+                timestamp_units='DOCUMENTED_REST_EPOCH_SECONDS_OR_UTC_DATETIME',
                 statistically_validated_execution_parameters=False)
 
 

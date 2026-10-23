@@ -22,30 +22,22 @@ def client(tmp_path,raw=None,reader=None):
                          reader=reader or (lambda c:raw),path=tmp_path/'quotes.db')
 
 
-def test_collective_observed_logged_but_never_authorizes(tmp_path,monkeypatch):
+def test_legacy_internal_timestamps_are_archived_but_never_used(tmp_path,monkeypatch):
     c=client(tmp_path,collective());r=c.fetch('MNQZ2026')
-    assert r['quote']['spread_ticks']==2 and r['quote']['quote_age_ms']==500
+    assert r['reason']=='quote_provider_timestamp_required'
     assert r['raw']==collective() and json.loads(r['original_response_text'])==collective()
-    assert not r['allowed'] and not r['quote']['execution_eligible']
-    # Restart shares pacing; later request must STILL reject collective even configured as NT8.
+    assert not r['allowed'] and 'quote' not in r
     c=client(tmp_path,collective());c.clock=lambda:1002
     monkeypatch.setenv('DIRECTIONAL_QUOTE_SOURCE','crosstrade_nt8')
-    with pytest.raises(ValueError,match='quote_source_suitability_unverified'):
+    with pytest.raises(ValueError,match='quote_provider_timestamp_required'):
         c.fetch('MNQZ2026',execution=True,parameters=dict(max_quote_age_ms=10000))
     assert not c.latest()['allowed']
 
 
-def test_drafted_consensus_timestamp_observation_is_not_bbo_attestation(tmp_path):
-    # Shape observed from the production provider on 2026-10-22, prices/time
-    # shifted for a deterministic offline fixture. It cannot certify a venue.
+def test_internal_fields_do_not_classify_the_feed_or_supply_time(tmp_path):
     raw=dict(collective(),source='drafted',pricingBasis='drafted_consensus')
     r=client(tmp_path,raw).fetch('MNQZ2026')
-    assert r['quote']['quote_age_ms']==500 and r['quote']['spread_ticks']==2
-    assert r['quote']['market_open'] and r['quote']['source']=='drafted'
-    assert r['reason']=='quote_source_suitability_unverified'
-    fake_proof=dict(quote_verification=dict(verified=True,source='drafted',contract='MNQZ2026',
-        reference='UNIT_TEST_ONLY',timestamp_semantics='bid_ask_event_time',venue_bbo=True))
-    assert not q.attest_quote(r['quote'],fake_proof)['execution_eligible']
+    assert r['reason']=='quote_provider_timestamp_required' and not r['allowed']
 
 
 @pytest.mark.parametrize('change,reason',[
@@ -54,11 +46,11 @@ def test_drafted_consensus_timestamp_observation_is_not_bbo_attestation(tmp_path
     ({'bid':29908},'quote_bid_ask_invalid'),({'ask':None},'quote_bid_ask_invalid'),
     ({'bid':0},'quote_bid_ask_invalid'),({'bid':True},'quote_bid_ask_invalid'),
     ({'bid':float('nan')},'quote_bid_ask_invalid'),({'ask':29907.1},'quote_bid_ask_invalid'),
-    ({'eventTs':980},'quote_stale_or_future'),({'ts':1001},'quote_stale_or_future'),
-    ({'eventTs':None},'quote_provider_timestamp_required'),({'stale':True},'quote_unavailable'),
+    ({'epoch':980},'quote_stale_or_future'),({'epoch':1001},'quote_stale_or_future'),
+    ({'epoch':None},'quote_provider_timestamp_required'),({'stale':True},'quote_unavailable'),
 ])
 def test_invalid_observations_persist_without_prices_fallback(tmp_path,change,reason):
-    c=client(tmp_path,dict(collective(),**change));r=c.fetch('MNQZ2026')
+    c=client(tmp_path,dict(quote(),**change));r=c.fetch('MNQZ2026')
     assert not r['allowed'] and r['reason']==reason
     assert c.latest()['original_response_text']
 

@@ -65,17 +65,16 @@ def test_nt8_requires_current_provider_proof(change):
         q.normalize(quote(),a[0],a[5],a[-1])
 
 
-def test_source_switch_survives_missing_quote_and_restart(tmp_path):
-    c=client(tmp_path,collective());c.fetch('MNQZ2026')
+def test_documented_feed_status_change_survives_missing_quote_and_restart(tmp_path):
+    c=client(tmp_path,quote());c.fetch('MNQZ2026')
     c.clock=lambda:1002
     c.reader=lambda _: (_ for _ in ()).throw(TimeoutError())
     c.fetch('MNQZ2026')
-    c=client(tmp_path,dict(collective(),source='drafted',pricingBasis='drafted_consensus',ts=1010,eventTs=1010))
+    c=client(tmp_path,dict(quote(),dataSource={'status':'Delayed'},epoch=1010))
     c.clock=lambda:1010
     result=c.fetch('MNQZ2026')
-    assert result['source_changed'] and result['previous_source']=='collective'
-    assert not result['allowed']
-    assert result['quote']['pricing_basis']=='drafted_consensus'
+    assert result['data_source_changed'] and result['previous_data_source']=={'status':'Live'}
+    assert not result['allowed'] and not result['quote']['feed_candidate']
     assert not result['quote']['timestamp_semantics_verified']
 
 

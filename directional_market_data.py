@@ -1,7 +1,7 @@
 """CrossTrade quotes: durable monitoring and fail-closed executable validation.
 
-Collective snapshots remain observable but cannot authorize execution until
-provider provenance and timestamp semantics are independently verified.
+The market endpoint is an NT8 Add-On feed, never cloud Tradovate market data.
+Only documented quote timestamps are used; removed internal fields are ignored.
 Candles measure volatility only, never stand in for bid/ask.
 """
 import json
@@ -11,6 +11,7 @@ import re
 import sqlite3
 import time
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -36,8 +37,44 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
+def quote_timestamps(raw):
+    """REST epoch is seconds; quoteTimeUtc is UTC. Never guess local time zones.
+
+    quoteTime is accepted alone only when it carries an explicit offset. The
+    documented NT8 local display string is retained raw, but cannot establish
+    freshness without epoch/quoteTimeUtc. This also avoids DST ambiguity.
+    """
+    stamps={}
+    if raw.get('epoch') is not None:
+        value=raw['epoch']
+        if not number(value) or value<=0:raise ValueError('quote_provider_timestamp_required')
+        stamps['epoch']=value*1000
+    for key in ('quoteTimeUtc','quoteTime'):
+        value=raw.get(key)
+        if value is None:continue
+        if not isinstance(value,str):raise ValueError('quote_provider_timestamp_invalid')
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?',value):
+            if key=='quoteTime':continue
+            raise ValueError('quote_provider_timestamp_invalid')
+        try:dt=datetime.fromisoformat(value.replace('Z','+00:00'))
+        except ValueError:
+            if key=='quoteTime':continue  # NT8 local display, no known zone.
+            raise ValueError('quote_provider_timestamp_invalid') from None
+        if dt.tzinfo is None:
+            if key=='quoteTime':continue
+            dt=dt.replace(tzinfo=timezone.utc)
+        elif key=='quoteTimeUtc' and dt.utcoffset().total_seconds()!=0:
+            raise ValueError('quote_utc_timestamp_offset_invalid')
+        stamps[key]=dt.timestamp()*1000
+    if not stamps:raise ValueError('quote_provider_timestamp_required')
+    # Documented display timestamps have second precision; use the oldest.
+    if max(stamps.values())-min(stamps.values())>=1000:
+        raise ValueError('quote_provider_timestamps_conflict')
+    return stamps
+
+
 def inspect_quote(raw, contract, now_ms, max_age_ms):
-    """Validate observed data separately from provenance. Never attest collective."""
+    """Validate documented NT8 data separately from deployment feed attestation."""
     expected=instrument_name(contract)
     if not isinstance(raw, dict): raise ValueError('quote_object_required')
     if raw.get('success') is False or raw.get('partial') or raw.get('unavailable') or raw.get('stale'):
@@ -48,36 +85,28 @@ def inspect_quote(raw, contract, now_ms, max_age_ms):
     bid,ask=raw.get('bid'),raw.get('ask')
     if any(not number(v) or v <= 0 or abs(v/.25-round(v/.25))>1e-8 for v in (bid,ask)) or bid>ask:
         raise ValueError('quote_bid_ask_invalid')
-    consensus=raw.get('source') in ('collective','drafted')
-    keys=('ts','eventTs') if consensus else ('epoch',)
-    stamps={}
-    for key in keys:
-        at=raw.get(key)
-        if not number(at) or at<=0: raise ValueError('quote_provider_timestamp_required')
-        stamps[key]=at*1000
-    # Both timestamps must be current. Consensus timestamp semantics and BBO
-    # provenance remain unverified, including the observed drafted response.
+    stamps=quote_timestamps(raw)
     at=min(stamps.values())
     if any(not 0<=now_ms-v<=max_age_ms for v in stamps.values()):
         raise ValueError('quote_stale_or_future')
-    nt8=(not consensus and not raw.get('pricingBasis') and raw.get('source') in (None,'nt8','crosstrade_nt8')
-         and raw.get('type')=='Future' and isinstance(raw.get('dataSource'),dict)
+    nt8=(raw.get('type')=='Future' and isinstance(raw.get('dataSource'),dict)
          and raw['dataSource'].get('status')=='Live')
-    return dict(contract=contract, instrument=expected, source='crosstrade_nt8' if nt8 else str(raw.get('source') or 'unknown'),
+    return dict(contract=contract, instrument=expected, source='crosstrade_nt8',
                 bid=bid,ask=ask,spread_points=ask-bid,spread_ticks=(ask-bid)/.25,
                 as_of_ms=int(at),quote_age_ms=now_ms-at,provider_timestamps_ms=stamps, observed_at_ms=now_ms,
-                pricing_basis=raw.get('pricingBasis'), timestamp_unit_assumption='unix_seconds',
+                timestamp_units='epoch_seconds_and_utc_datetime',
+                data_source=raw.get('dataSource'),provider_quote_time=raw.get('quoteTime'),
                 provider_expiration=raw.get('expiration'),
                 feed_candidate=nt8, timestamp_semantics_verified=False, execution_eligible=False,
                 timestamp_semantics='UNVERIFIED_PROVIDER_TIMESTAMP',
                 provenance_reason='quote_source_suitability_unverified',
-                market_open=raw.get('marketOpen' if consensus else 'isMarketOpen') is True)
+                market_open=raw.get('isMarketOpen') is True)
 
 
 def attest_quote(result, parameters):
-    # The documented NT8 response shape does not establish whether epoch is
-    # a bid/ask event time, last-trade time or server snapshot time. Require
-    # separately verified evidence in the approved policy; never infer it.
+    # Provider guidance confirms real-time NT8 quotes and the supported clocks.
+    # It does not connect this installation or establish its CME entitlement.
+    # Bind runtime feed/contract verification in the policy before execution.
     proof=(parameters or {}).get('quote_verification',{})
     now=result.get('observed_at_ms')
     start,end=proof.get('verified_at_ms'),proof.get('expires_at_ms')
@@ -158,10 +187,12 @@ class QuoteClient:
                 evidence['raw']=json.loads(text)
             except ValueError:pass
             now=int(self.clock()*1000)
+            # Internal source/pricingBasis/etc are not a provider contract.
+            # Detect only documented connection/feed-status changes.
             previous=self.latest(contract=contract, with_raw=True)
             prior=(previous or {}).get('raw') or {}
-            evidence['source_changed']=bool(prior and prior.get('source')!=raw.get('source'))
-            evidence['previous_source']=prior.get('source')
+            evidence['data_source_changed']=bool(prior and prior.get('dataSource')!=raw.get('dataSource'))
+            evidence['previous_data_source']=prior.get('dataSource')
             result=inspect_quote(raw,contract,now,(parameters or {}).get('max_quote_age_ms',MONITOR_MAX_AGE_MS))
             result=attest_quote(result,parameters)
             evidence['quote']=result

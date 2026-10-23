@@ -18,8 +18,7 @@ def quote():
 def test_verified_snapshot_not_candle_or_collective():
     args=evidence();raw=quote()
     assert market.normalize(raw,args[0],args[5],args[-1])['ask']==100
-    for change in ({'source':'collective','pricingBasis':'cluster_mean_mid'},
-                   {'dataSource':{'status':'Delayed'}},{'instrument':'NQ 12-26'},
+    for change in ({'dataSource':{'status':'Delayed'}},{'instrument':'NQ 12-26'},
                    {'epoch':None},{'bid':100.1},{'ask':99},{'epoch':1001},{'epoch':998}):
         with pytest.raises(ValueError):market.normalize(dict(raw,**change),args[0],args[5],args[-1])
 

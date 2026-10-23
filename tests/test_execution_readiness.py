@@ -17,7 +17,7 @@ def evidence():
                  entry_price=100., stop_price=90., target_price=120.)
     # Synthetic protocol parameters, NOT research-approved production limits.
     limits = dict(approved=True, validation_reference='SYNTHETIC_TEST_ONLY',
-                  strategy='AB_DIRECTIONAL', contract='MNQZ2026', quote_source='fixture',
+                  strategy='AB_DIRECTIONAL', contract='MNQZ2026', quote_source='crosstrade_nt8',
                   contract_last_trade_ms=9999999999999,contract_reference='SYNTHETIC_TEST_ONLY',
                   max_signal_age_ms=30000, max_quote_age_ms=1000, entry_zone_points=.5,
                   max_spread_ticks=2, max_slippage_ticks=1, max_volatility_points=10,
@@ -27,7 +27,7 @@ def evidence():
         reference='SYNTHETIC_TEST_ONLY',verified_at_ms=1,expires_at_ms=9999999999999,timestamp_semantics='bid_ask_event_time',venue_bbo=True)
     limits['costs']=dict(contract='MNQZ2026',validation_reference='ZERO_COST_SYNTHETIC_ONLY',
                          round_trip_usd=0,stop_slippage_ticks=0)
-    quote = dict(contract='MNQZ2026', source='fixture', market_open=True,
+    quote = dict(contract='MNQZ2026', source='crosstrade_nt8', market_open=True,
                  execution_eligible=True,timestamp_semantics_verified=True,
                  as_of_ms=now, request_latency_ms=10, bid=99.75, ask=100., volatility_points=4,
                  volatility_definition='fixture_range')

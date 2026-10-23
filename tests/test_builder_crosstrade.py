@@ -149,6 +149,8 @@ class NativeTests(unittest.TestCase):
                     self.order.update(direction='SHORT',stop_price=30010.,target_price=29970.);self.prepare()
                 result=self.submit();self.assertTrue(result['sent'])
                 body=self.posts[-1][1]
+                self.assertEqual(body['clOrdId'],body['orderId'])
+                self.assertEqual(body['clOrdId'],self.t.row('order-one')['client_id'])
                 self.assertEqual((body['takeProfit'],body['stopLoss']),(self.order['target_price'],self.order['stop_price']))
                 self.assertEqual(body['tif'],'gtd');self.assertEqual(body['requireMarketPosition'],'flat')
                 self.accept(self.order,dict(state='SENT',quantity=2,broker=result))

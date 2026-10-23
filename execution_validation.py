@@ -81,7 +81,6 @@ def price_assessment(order, quote, parameters, now_ms):
     verified = (quote.get('execution_eligible') is True
                 and quote.get('timestamp_semantics_verified') is True
                 and quote.get('source') == 'crosstrade_nt8'
-                and not quote.get('pricing_basis')
                 and type(quote.get('provenance_expires_at_ms')) is int
                 and now_ms < quote['provenance_expires_at_ms'])
     result = dict(order_id=order.get('order_id'), order_type='LIMIT',
@@ -155,7 +154,7 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
             return 'contract_expired'
         if quote.get('market_open') is not True:
             return 'market_closed_or_unknown'
-        if (quote.get('source') in ('collective', 'drafted') or quote.get('pricing_basis')
+        if (quote.get('source') != 'crosstrade_nt8'
                 or quote.get('execution_eligible') is not True
                 or quote.get('timestamp_semantics_verified') is not True):
             return 'quote_source_unverified'

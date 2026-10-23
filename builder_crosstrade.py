@@ -273,7 +273,7 @@ class Transport:
         body=dict(instrument=order['contract'][:-4]+order['contract'][-1],action=action,qty=quantity,
             orderType='limit',limitPrice=entry,takeProfit=target,stopLoss=stop,tif='gtd',
             expireTime=datetime.fromtimestamp(expiry/1000,timezone.utc).isoformat().replace('+00:00','Z'),
-            orderId=client,requireMarketPosition='flat',maxPositions=1)
+            orderId=client,clOrdId=client,requireMarketPosition='flat',maxPositions=1)
         command=dict(order=order,body=body,contract_id=self.contract_id,
             before_cash=snapshot['account']['balance']['totalCashValue'],
             before_fill_ids=sorted(f['id'] for f in snapshot['fills']))

@@ -29,7 +29,7 @@ def assess(setup, review, quote, *, now, config, dispatch=None, parameters=None,
     bid,ask=raw.get('bid'),raw.get('ask')
     valid=all(type(x) in (int,float) and math.isfinite(x) and x>0 for x in (bid,ask)) and bid<=ask
     verified=normalized.get('execution_eligible') is True
-    gate('quote_source',verified,'quote_source_suitability_unverified',raw.get('source'))
+    gate('quote_source',verified,'quote_source_suitability_unverified',normalized.get('source'))
     age=(now*1000-normalized['as_of_ms']) if normalized.get('as_of_ms') is not None else None
     gate('quote_freshness',age is not None and 0<=age<=parameters['max_quote_age_ms'] if parameters and age is not None else None,
          'quote_freshness_unverified',dict(age_ms=age,observed_ms=(quote or {}).get('observed_ms')))
@@ -62,7 +62,7 @@ def assess(setup, review, quote, *, now, config, dispatch=None, parameters=None,
     return dict(version='directional-review-observation-v1',observed_at=now,
         mode='OBSERVATION_ONLY',execution_authorized=False,decision='BLOCK',
         original_order=original,order_type='LIMIT',confirmed_executable_price=None,
-        quote=dict(raw=raw,source=raw.get('source'),timestamps_semantics_verified=normalized.get('timestamp_semantics_verified',False),
+        quote=dict(raw=raw,source=normalized.get('source'),timestamps_semantics_verified=normalized.get('timestamp_semantics_verified',False),
                    observed_ms=(quote or {}).get('observed_ms'),age_ms=age,spread_ticks=spread,
                    adapter_reason=(quote or {}).get('reason'),observation_only=True),
         observational_side_price=px,marketable_if_quote_were_executable=(sign*(px-entry)<=0 if px is not None else None),
