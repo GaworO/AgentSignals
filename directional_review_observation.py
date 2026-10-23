@@ -18,6 +18,10 @@ def assess(setup, review, quote, *, now, config, dispatch=None, parameters=None,
     gate('setup_time',setup['activation_ms']<=now*1000<setup['expiry_ms'],'signal_expired_or_not_active')
     gate('ai',review.get('state')=='ALLOW','v3_ai:'+str(review.get('state','UNAVAILABLE')).lower(),
          {k:review.get(k) for k in ('review_id','available_at','expires_at')})
+    available,expires=review.get('available_at'),review.get('expires_at')
+    review_current=(all(type(v) in (int,float) and math.isfinite(v) for v in (available,expires))
+                    and available<=now<expires)
+    gate('ai_validity',review_current,'ai_review_expired_or_time_unknown')
     gate('execution_switches',config.get('LIVE_EXECUTION_ENABLED')=='true' and
          config.get('EXEC_KILL_SWITCH','false')=='false' and config.get('V3_ENTRY_ARMED')=='1',
          'execution_interlocks_not_armed')
@@ -53,20 +57,25 @@ def assess(setup, review, quote, *, now, config, dispatch=None, parameters=None,
     if cost is not None and (not math.isfinite(cost) or cost<0):cost=None;cost_source='UNKNOWN'
     slip=(parameters.get('costs') or {}).get('stop_slippage_ticks',0) if parameters else 0
     net=(reward*2-cost)/(loss*2+cost+slip*.5) if cost is not None and loss>0 else None
-    gate('net_rr',net>=parameters['min_rr'] if net is not None and parameters else None,
-         'net_reward_risk_below_minimum' if net is not None and net<2 else 'net_rr_not_verified',net)
+    gross=reward/loss if loss>0 else None
+    gate('gross_rr',gross>=parameters['min_rr'] if gross is not None and parameters else None,
+         'gross_reward_risk_below_minimum' if gross is not None and parameters and gross<parameters['min_rr']
+         else 'gross_rr_policy_not_verified',gross)
+    # The production gate requires 2R GROSS. Net R remains a separate cost
+    # estimate; a valid 2R bracket must not be reported as rejected for fees.
     # Phase 2 does not execute the risk or thesis validators as a side effect
     # of showing a report. Their absence is not silently counted as PASS.
     gate('live_thesis_and_account',None,'independent_final_execution_validation_required')
     frozen=setup.get('frozen_context',{}).get('current_dol',{})
-    return dict(version='directional-review-observation-v1',observed_at=now,
+    return dict(version='directional-review-observation-v2',observed_at=now,
         mode='OBSERVATION_ONLY',execution_authorized=False,decision='BLOCK',
         original_order=original,order_type='LIMIT',confirmed_executable_price=None,
         quote=dict(raw=raw,source=normalized.get('source'),timestamps_semantics_verified=normalized.get('timestamp_semantics_verified',False),
                    observed_ms=(quote or {}).get('observed_ms'),age_ms=age,spread_ticks=spread,
                    adapter_reason=(quote or {}).get('reason'),observation_only=True),
         observational_side_price=px,marketable_if_quote_were_executable=(sign*(px-entry)<=0 if px is not None else None),
-        stop_distance_points=loss,gross_r=(reward/loss if loss>0 else None),estimated_net_r=net,
+        stop_distance_points=loss,gross_r=gross,estimated_net_r=net,
+        reward_risk_policy='MINIMUM_GROSS_RR_NET_REPORTED',
         costs=dict(round_trip_usd=cost,source=cost_source,stop_slippage_ticks=slip),
         nearest_frozen_liquidity=frozen,inside_entry_region=inside,
         actual_dispatch=dispatch,checks=checks,blocking_reasons=list(dict.fromkeys(reasons)))
