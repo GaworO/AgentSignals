@@ -215,7 +215,7 @@ class CrossTradeManagementAdapter:
         for key,kind,field in [('oso1Id','TARGET','price'),('oso2Id','STOP','stopPrice')]:
             life=lives[ids[key]];o,v=life['order'],life['version']
             legs.append(dict(id=o['id'],kind=kind,parent=o.get('parentId'),oco=o.get('ocoId'),
-                             quantity=v.get('orderQty'),price=v.get(field),status=o['ordStatus'],
+                             quantity=(v['orderQty']-sum(f['quantity'] for f in normalized if f['order_id']==o['id'])) if type(v.get('orderQty')) is int else None,price=v.get(field),status=o['ordStatus'],
                              side=1 if o.get('action','').lower()=='buy' else -1,confirmed=native.stable_version(life)))
             reports.extend(modification_reports(life))
         # Normalize supported reciprocal/anchor OCO representations only after
@@ -261,6 +261,9 @@ def observe_native(transport,oid,snapshot):
                     journal.execute('BEGIN IMMEDIATE')
                     state=manager.get(oid);state['original_policy_decision']=decision
                     manager.save(journal,state)
+        if state.get('remaining_quantity') and state['state'] in ('PROTECTED','HOLD','RUNNER'):
+            from directional_management_context import schedule
+            schedule(transport,oid)
         return state
     except (ValueError,KeyError,TypeError) as e:
         # Never leave a previously PROTECTED cache as permission after failure.

@@ -278,3 +278,41 @@ def test_existing_native_close_fill_is_owned_without_new_manager_action():
         assert s['realized_gross_usd']==20. and s['realized_net_usd'] is None
         assert len(f.posts)==2 # Original entry + original Guard's mocked close only.
     finally:f.doCleanups()
+
+
+@pytest.mark.parametrize('status',['Working','PartFilled','PartiallyFilled'])
+def test_native_partial_child_uses_remaining_quantity_and_sibling(status):
+    f=protocol.NativeTests();f.setUp()
+    try:
+        f.submit();f.open();f.now+=1
+        f.life[13]['order']['ordStatus']=status
+        f.life[12]['version']['orderQty']=1
+        partial=f.fill(102,13,1,f.order['stop_price'],'Sell',offset=0)
+        snap=f.snapshot([f.entry,partial],1)
+        adapter=CrossTradeManagementAdapter(f.t)
+        b=adapter.read('order-one',snap)
+        assert {x['quantity'] for x in b['protective_orders']}=={1}
+        m=Manager(f.api.connect,f.t.binding)
+        m.register(f.order,dict(orderId=11,oso1Id=12,oso2Id=13))
+        s=m.reconcile('order-one',b,int(f.now*1000))
+        assert s['state']=='PROTECTED',s['reason']
+        # The sibling is independently checked, not assumed resized.
+        f.life[12]['version']['orderQty']=2;f.now+=1
+        snap=f.snapshot([f.entry,partial],1)
+        s=m.reconcile('order-one',adapter.read('order-one',snap),int(f.now*1000))
+        assert s['state']=='RECONCILIATION_REQUIRED'
+        assert len(f.posts)==1
+    finally:f.doCleanups()
+
+
+def test_one_contract_cannot_partial_or_grow_to_demonstrate_runner(tmp_path):
+    m,b,a=setup(tmp_path)
+    b['fills'][0]['quantity']=1;b['net_position']=1
+    for leg in b['protective_orders']:leg['quantity']=1
+    # A separate observed position, not revision of a persisted fill.
+    other=Manager(lambda:sqlite3.connect(tmp_path/'one_contract.db'),'SIMULATOR')
+    order=m.get('one')['frozen']['order'];order['quantity']=1
+    other.register(order,dict(orderId=11,oso1Id=12,oso2Id=13));other.reconcile('one',b,120000)
+    p=propose(other,b,{'partial':level(110.,quantity=1),'runner':level(130.)})
+    assert p['action']=='HOLD' and other.get('one')['original_quantity']==1
+    assert not a.sent

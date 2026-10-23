@@ -11,6 +11,8 @@ def status(transport, now_ms=None):
                 write_blocker='PHASE3B_BROKER_MANAGEMENT_NOT_VERIFIED',
                 operations={
                     'reconciliation':'CONNECTED_READ_ONLY',
+                    'ict_monitor':'CLOSED_M1_M5_M15_CONTEXT_NO_ACTION_AUTHORITY',
+                    'ai_position_review':'SHARED_12_DAY_BUDGET_ADVISORY_ONLY',
                     'original_sl_tp_oco':'NATIVE_ENTRY_BRACKET_REQUIRES_PER_POSITION_PROOF',
                     'stop_modify':'COMMAND_REPORT_AND_VERSION_VALIDATION_IMPLEMENTED_PAPER_UNVERIFIED',
                     'target_modify':'COMMAND_REPORT_AND_VERSION_VALIDATION_IMPLEMENTED_PAPER_UNVERIFIED',
@@ -52,6 +54,10 @@ def status(transport, now_ms=None):
                 s=json.loads(row[0]);at=s.get('observed_ms')
                 age=now_ms-at if isinstance(at,(int,float)) else None
                 fresh=age is not None and 0<=age<=3000
+                advice=dict(s.get('position_ai_advice') or {})
+                if advice.get('status')=='validated':
+                    if now_ms/1000>=advice.get('expires_at',0):advice['status']='expired'
+                    elif not fresh or advice.get('position_fingerprint')!=s.get('broker_fingerprint'):advice['status']='invalidated'
                 # Display stale cached states as stale, never as current protection.
                 result['positions'].append(dict(
                     setup_id=s['setup_id'],contract=s['contract'],direction=s['direction'],
@@ -61,6 +67,8 @@ def status(transport, now_ms=None):
                     remaining_quantity=s.get('remaining_quantity'),stop=s.get('last_stop'),
                     target=s.get('last_target'),fees=s.get('fees'),
                     original_policy_decision=s.get('original_policy_decision'),
+                    market_monitor={k:v for k,v in s.get('market_monitor',{}).items() if k!='packet'},
+                    position_ai_advice=advice or None,
                     net_realized_usd=s.get('realized_net_usd')))
             for row in c.execute("SELECT payload FROM ict_management_intents WHERE binding=? AND status IN ('REQUESTED','ACK','UNKNOWN')",(transport.binding,)):
                 i=json.loads(row[0]);result['pending_intents'].append({k:i.get(k) for k in

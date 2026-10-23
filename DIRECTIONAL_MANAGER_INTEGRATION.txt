@@ -1,0 +1,62 @@
+Existing Directional advanced manager integration — 2026-10-23
+
+Scope: existing scanner, frozen M3/Model0, unchanged entry LIMIT/SL/minimum
+2R gross and A/B isolation. No new strategy. No production permission change.
+
+Added causal monitoring of owned broker positions from the existing received,
+closed MNQ M1 journal. Complete UTC M5/M15/H1/H4 aggregates; missing bars are
+not filled. Existing ES/NQ context reused only while causal/current, otherwise
+UNKNOWN. Bid/ask is never synthesized from these candles. Closed-price R is
+explicitly observational. Background computation does not hold native broker
+reconciliation/Guard while calculating context. State and evidence persist.
+
+Added exceptional advisory position reviews to the existing worker and durable
+reviews journal. They share the 12/day hard ceiling, fixed 3/7/2 allocations,
+setup priority, no automatic transfers and no unknown-outcome retry. Trigger:
+a fresh original frozen CLOSE or fresh opposing MNQ MSS/BOS/sweep observation.
+That trigger requests advice, not a newly invented exit. Input/response/model,
+identity, geometry, latency and expiry are retained. Position/context change,
+staleness, timeout and expiry prevent validated advice. HOLD/REDUCE/EXIT never
+submit actions or enable management rules. Existing protective paths never
+await AI. Two position calls are now usable, rather than reserved but unspent.
+
+Corrected manager protection normalization after partial child fill: remaining
+protective quantity = total orderQty minus owned verified fills. Recognize
+Working/PartFilled/PartiallyFilled, independently verify the sibling quantity.
+ACK remains different from fill and modification acceptance.
+
+Existing M3 close uses original F2/B11/OBFH rules and Recovery veto. The original
+Model0 runner starts with an explicitly selected 3R bracket and evaluates
+strictly pre-touch evidence at first completed-M1 2R touch. It is NOT a new 2R
+target replacement implementation. No target geometry or model was changed.
+M3/runner writes remain proof/quote/permission gated; no activation performed.
+
+TP1 sizing, structural trail, break-even, standalone liquidity exit have no
+approved original Directional rules. Existing research proposals and simulated
+writers cannot become production permissions. A one-contract pilot cannot
+partial; quantity is never increased for a demonstration. CrossTrade Tradovate
+partial close leaves working orders in place; no atomic resize proof exists.
+
+Independent paper is not demanded from the user in the revised scope. Absence
+of real broker verification remains a capability limitation; historical and
+mocked evidence do not satisfy existing full-exit/runner proof gates. No MFFU
+test order was sent. Any eventual activation still needs explicit approval.
+
+Historical parity: archived M3 PF 1.065555 and Model0+M3 PF 1.114326, not current
+live performance. Separate retrospective older-580 results: original PF .7872,
+Boundary before runner .7614, four-state .7008. Later archive has only one fill.
+No evidence establishes that every advanced feature improves PF. No fresh
+holdout or new backtest claimed.
+
+Quote/account access: no verified cloud BBO entitlement found in the existing
+connections. TradingView intake is OHLCV. Tradovate's public API access excludes
+prop/evaluation accounts and does not itself include market-data entitlement.
+CrossTrade NT8 can supply documented live quotes but NT8 currently times out.
+Do not purchase subscriptions or infer quote provenance. Current account-specific
+max MNQ/margin and active allowance evidence remain incomplete.
+
+Rollback: stop new admissions through Guard MANUAL; HALT is a different action
+that calls flatten. Preserve working broker brackets. Reconcile in-flight IDs.
+Persist current disarm flags; restore prior f62f6b0 only with entries blocked.
+Never restore old SQLite over a newer broker ledger. Advanced live flags remain
+shadow/false; no activation packet is ready until missing proofs are complete.

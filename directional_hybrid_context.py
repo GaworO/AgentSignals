@@ -233,7 +233,7 @@ def build(packet, setup=None):
 
 
 def budget_reason(rows, external, kind, cap=12):
-    """Fixed 3/7/2 policy for Phase 2A. No transfers; position reserve unspent.
+    """Fixed 3/7/2 policy for Phase 2A. No transfers; setup capacity and position reserve protected.
 
     Every persisted attempt counts, even crashes/timeouts. Legacy/external
     usage occupies capacity conservatively in addition to class reservations.
@@ -241,9 +241,9 @@ def budget_reason(rows, external, kind, cap=12):
     """
     if len(rows)+external>=min(cap,12):return 'DAILY_LIMIT_REACHED'
     counts={k:sum(r['review_kind']==k for r in rows) for k in ('CONTEXT','SETUP','POSITION')}
-    if kind not in ('CONTEXT','SETUP'):return 'POSITION_REVIEW_NOT_IMPLEMENTED'
-    if counts[kind]>={'CONTEXT':3,'SETUP':7}[kind]:return kind+'_ALLOCATION_EXHAUSTED'
-    reserved=2+(max(0,7-counts['SETUP']) if kind=='CONTEXT' else 0)
+    if kind not in counts:return 'UNKNOWN_REVIEW_KIND'
+    if counts[kind]>={'CONTEXT':3,'SETUP':7,'POSITION':2}[kind]:return kind+'_ALLOCATION_EXHAUSTED'
+    reserved=(max(0,2-counts['POSITION']) if kind!='POSITION' else 0)+(max(0,7-counts['SETUP']) if kind!='SETUP' else 0)
     if len(rows)+external+1+reserved>min(cap,12):return 'RESERVED_CAPACITY_PROTECTED'
     return None
 

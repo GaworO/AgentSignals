@@ -116,7 +116,7 @@ def test_budget_reserves_context_setup_position_and_counts_failures(h):
     assert hybrid.budget_reason([],10,'SETUP')=='RESERVED_CAPACITY_PROTECTED'
     assert hybrid.budget_reason([],1,'CONTEXT') is None
     assert hybrid.budget_reason([],3,'CONTEXT')=='RESERVED_CAPACITY_PROTECTED'
-    assert hybrid.budget_reason([],0,'POSITION')=='POSITION_REVIEW_NOT_IMPLEMENTED'
+    assert hybrid.budget_reason([],0,'POSITION') is None
 
 
 def test_scheduled_context_reused_only_while_valid(h):

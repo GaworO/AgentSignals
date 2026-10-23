@@ -407,7 +407,7 @@ class ContextSupport:
 
     def invalidate(self, packet):
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM reviews WHERE status='validated' AND cutoff>?", (packet['as_of']-3600,)).fetchall()
+            rows = db.execute("SELECT * FROM reviews WHERE status='validated' AND review_kind!='POSITION' AND cutoff>?", (packet['as_of']-3600,)).fetchall()
             for row in rows:
                 decision = json.loads(row['decision']);bad = set(json.loads(row['invalidated']))
                 original = json.loads(row['request'])['input'][1]['content']
@@ -642,7 +642,7 @@ class ContextSupport:
         now = self.clock();side = 'long_scenario' if signal.get('dir')=='LONG' else 'short_scenario'
         result = dict(owner=owner, mode='ADVISORY', state='UNAVAILABLE', executable=False)
         with self.connect() as db:
-            row = db.execute("SELECT * FROM reviews WHERE status='validated' ORDER BY started DESC LIMIT 1").fetchone()
+            row = db.execute("SELECT * FROM reviews WHERE status='validated' AND review_kind!='POSITION' ORDER BY started DESC LIMIT 1").fetchone()
             if (self.enabled and self.trigger == 'PERIODIC' and owner == self.owner and signal.get('dir') in ('LONG','SHORT')
                     and row and review_owner(row) == owner
                     and 'setup' not in json.loads(json.loads(row['request'])['input'][1]['content'])
@@ -662,6 +662,8 @@ class ContextSupport:
         while True:
             try:
                 self.process_one()
+                import directional_management_review
+                directional_management_review.process(self)
             except Exception:
                 self.status = 'SOURCE_NOT_READY'
                 self.last_source = None
@@ -748,7 +750,7 @@ def register(app):
         return jsonify(owner=INSTANCE.owner,mode=context_mode,trigger=trigger,status=INSTANCE.status,executable=False,execution=execution,schedule=schedule,
                        active_session=session_at(now),source_calls_today=source_calls,
                        remaining_calls=max(0,INSTANCE.cap-calls-source_calls) if source_calls is not None else None,
-                       hybrid_budget=dict(policy='FIXED_3_7_2_NO_TRANSFERS',allocations=dict(CONTEXT=3,SETUP=7,POSITION=2),used=budget_counts,position_reviews_enabled=False) if trigger=='HYBRID' else None,
+                       hybrid_budget=dict(policy='FIXED_3_7_2_NO_TRANSFERS',allocations=dict(CONTEXT=3,SETUP=7,POSITION=2),used=budget_counts,position_reviews_enabled=True,position_reviews_advisory_only=True) if trigger=='HYBRID' else None,
                        calls_today=calls,daily_cap=INSTANCE.cap,interval_minutes=INSTANCE.minutes,
                        reviews=rows,annotations=annotations,setup_requests=setups,
                        setup_review_events=events,

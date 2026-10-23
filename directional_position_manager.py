@@ -142,7 +142,7 @@ class Manager:
         avg=sum(f['price']*f['quantity'] for f in entries)/eq if eq else None
         if remaining and (not number(b['average_entry']) or abs(avg-b['average_entry'])>1e-7):raise ValueError('AVERAGE_ENTRY_MISMATCH')
         legs=b['protective_orders']
-        working=[l for l in legs if l['status']=='Working']
+        working=[l for l in legs if l['status'] in ('Working','PartFilled','PartiallyFilled')]
         reports={r['command_id']:r for r in b.get('command_reports',[])}
         rejected=[]
         for i in pending:
