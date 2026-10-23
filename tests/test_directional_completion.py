@@ -114,9 +114,9 @@ def allowance_fixture(tmp_path,monkeypatch):
                daily_loss_limit_usd=1000,max_micro_contracts=40,account_controls=control_proof(now,48721.05))
     path=tmp_path/'risk.json';path.write_text(json.dumps(proof))
     monkeypatch.setenv('MFFU_RISK_EVIDENCE_FILE',str(path));monkeypatch.setenv('DAY_LOSS_USD','550');monkeypatch.setenv('DAY_LOSS_N','1')
-    snapshot=dict(read_started_at=999.9,account=dict(balance=dict(netLiq=48721.05,totalCashValue=48721.05,
+    snapshot=dict(read_started_at=999.9,positions=[],orders=[],account=dict(balance=dict(netLiq=48721.05,totalCashValue=48721.05,
              cashSOD=48961.55,realizedPnL=-240.5,openPnL=0,fundsInTransit=0,fundsInTransitAppliedToCash=0)))
-    order=dict(quantity=2,entry_price=100,stop_price=90,contract='MNQZ2026')
+    order=dict(quantity=2,direction='LONG',entry_price=100,stop_price=90,contract='MNQZ2026')
     return [snapshot,'account',order,now,1.9],proof,path
 
 

@@ -211,6 +211,13 @@ def _exec_order(x, text=None):
         _risk_override = x.get('_risk_pct_override')
         _risk_budget_usd = x.get('_risk_budget_usd')
         _strict_risk = bool(x.get('_strict_risk_budget'))
+        _account_qty_cap = None
+        if native and not native_ab and _strict_risk:
+            import directional_risk_revalidation
+            _sizing = directional_risk_revalidation.size_for_entry(x)
+            if not _sizing['allowed']:
+                return dict(sent=False,reason=_sizing['reason'],qty=0,risk_sizing=_sizing)
+            _account_qty_cap = _sizing['max_quantity']
         if _strict_risk:
             try:
                 _sf = (live_emit.size_for_budget(e, sl, _risk_budget_usd)
@@ -269,6 +276,9 @@ def _exec_order(x, text=None):
             qty = min(qty, int(_cap))
         if x.get('_group_qty_cap') is not None:
             qty = min(qty, int(x['_group_qty_cap']))
+        if _account_qty_cap is not None:
+            # Reapply after all legacy multipliers/overrides; never expand risk.
+            qty = min(qty, _account_qty_cap)
         if _strict_risk and qty < 1:
             return {"sent": False, "reason": "risk_budget_below_one_contract", "qty": 0}
         qty = max(1, int(qty))

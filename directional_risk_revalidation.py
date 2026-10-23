@@ -89,17 +89,27 @@ class RiskValidator:
             # The earlier submission read may have preceded a manual fill.
             if snapshot['positions'] or snapshot['orders']:
                 return dict(proof,reason='broker:account_has_positions_or_orders')
+            if getattr(sync,'reconciliation_error',None):
+                return dict(proof,reason='broker:native_reconciliation_failed')
             if not sync.state()['current']:
                 return dict(proof,reason='broker:account_snapshot_not_current')
             proof.update(account_binding=sync.binding,
                          checked_ms=int(snapshot['read_started_at']*1000))
-            costs=execution_validation.costs(execution_validation.policy())
+            parameters=execution_validation.policy()
+            if parameters.get('contract')!=order.get('contract'):
+                return dict(proof,reason='cost_contract_mismatch')
+            costs=execution_validation.costs(parameters)
             cost_per_contract=costs['round_trip_usd']+costs['stop_slippage_ticks']*.5
             if amount+qty*cost_per_contract>budget:
                 return dict(proof,reason='cost_inclusive_trade_risk_budget')
             reason=directional_account_limits.check(snapshot,sync.binding,order,
                 int(self.clock()*1000),cost_per_contract)
             if reason:return dict(proof,reason=reason)
+            sizing=directional_account_limits.capacity(snapshot,sync.binding,order,
+                int(self.clock()*1000),cost_per_contract,budget)
+            proof['sizing']=sizing
+            if not sizing['allowed']:return dict(proof,reason=sizing['reason'])
+            if qty>sizing['max_quantity']:return dict(proof,reason='account_capacity_changed')
             _, news_hard = self.news_flags(signal)
             allowed, reason = guardrails.guard_ok(
                 signal, feed_age_min=self.feed_age(), market_open=self.market_open(),
@@ -108,3 +118,44 @@ class RiskValidator:
             return dict(proof, allowed=allowed, reason=None if allowed else reason)
         except Exception:
             return proof  # No exception text may expose account/provider credentials.
+
+
+def _size_for_entry(signal, *, clock=time.time):
+    """Fresh account cap before native preparation; the final gate repeats it.
+
+    Returns zero on unknown evidence. This function has no order-write operation.
+    """
+    order_id=signal.get('_continuation_order_id')
+    result=dict(allowed=False,max_quantity=0,order_id=order_id,reason='account_capacity_unknown')
+    try:
+        if not signal.get('_v3_directional') or not order_id or not builder_crosstrade.selected():
+            return dict(result,reason='directional_native_route_required')
+        try:
+            p=execution_validation.policy();fees=execution_validation.costs(p)
+        except (OSError,ValueError,TypeError,KeyError):
+            return dict(result,reason='execution_policy_or_costs_unavailable')
+        contract=os.environ.get('AB_V3_CONTRACT')
+        if p.get('contract')!=contract:return dict(result,reason='cost_contract_mismatch')
+        # Prices are the frozen scanner's prices. Never recompute SL to fit qty.
+        order=dict(order_id=order_id,contract=contract,direction=signal['dir'],
+                   entry_price=signal['entry'],stop_price=signal['SL'],target_price=signal['TP'])
+        sync=builder_broker_sync.instance()
+        if not sync.enabled or not sync.poll(wait=True):
+            return dict(result,reason='fresh_broker_snapshot_required')
+        reason=sync.entry_blocker()
+        if reason:return dict(result,reason=reason)
+        cost=fees['round_trip_usd']+fees['stop_slippage_ticks']*.5
+        result=directional_account_limits.capacity(sync.snapshot(),sync.binding,order,
+            int(clock()*1000),cost,signal.get('_risk_budget_usd'))
+    except Exception:
+        return result
+    return result
+
+
+def size_for_entry(signal, *, clock=time.time):
+    result=_size_for_entry(signal,clock=clock)
+    import execution_trace
+    # Durable failure propagates to _exec_order's existing no-send error path.
+    if signal.get('_continuation_order_id'):
+        execution_trace.record(signal['_continuation_order_id'],'account_position_sizing',evidence=result)
+    return result
