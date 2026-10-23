@@ -65,7 +65,9 @@ def inspect_quote(raw, contract, now_ms, max_age_ms):
          and raw['dataSource'].get('status')=='Live')
     return dict(contract=contract, instrument=expected, source='crosstrade_nt8' if nt8 else str(raw.get('source') or 'unknown'),
                 bid=bid,ask=ask,spread_points=ask-bid,spread_ticks=(ask-bid)/.25,
-                as_of_ms=int(at),quote_age_ms=now_ms-at,provider_timestamps_ms=stamps,
+                as_of_ms=int(at),quote_age_ms=now_ms-at,provider_timestamps_ms=stamps, observed_at_ms=now_ms,
+                pricing_basis=raw.get('pricingBasis'), timestamp_unit_assumption='unix_seconds',
+                provider_expiration=raw.get('expiration'),
                 feed_candidate=nt8, timestamp_semantics_verified=False, execution_eligible=False,
                 timestamp_semantics='UNVERIFIED_PROVIDER_TIMESTAMP',
                 provenance_reason='quote_source_suitability_unverified',
@@ -77,7 +79,10 @@ def attest_quote(result, parameters):
     # a bid/ask event time, last-trade time or server snapshot time. Require
     # separately verified evidence in the approved policy; never infer it.
     proof=(parameters or {}).get('quote_verification',{})
-    if (result.get('feed_candidate') and proof.get('verified') is True
+    now=result.get('observed_at_ms')
+    start,end=proof.get('verified_at_ms'),proof.get('expires_at_ms')
+    current=(type(now) is int and type(start) is int and type(end) is int and 0 < start <= now < end)
+    if (current and result.get('feed_candidate') and proof.get('verified') is True
             and proof.get('source')==result['source']
             and proof.get('contract')==result['contract']
             and proof.get('reference')
@@ -85,7 +90,7 @@ def attest_quote(result, parameters):
             and proof.get('venue_bbo') is True):
         result.update(execution_eligible=True,timestamp_semantics_verified=True,
                       timestamp_semantics=proof['timestamp_semantics'],
-                      provenance_reference=proof['reference'],provenance_reason=None)
+                      provenance_reference=proof['reference'],provenance_expires_at_ms=end,provenance_reason=None)
     return result
 
 
@@ -153,7 +158,7 @@ class QuoteClient:
                 evidence['raw']=json.loads(text)
             except ValueError:pass
             now=int(self.clock()*1000)
-            previous=self.latest()
+            previous=self.latest(contract=contract, with_raw=True)
             prior=(previous or {}).get('raw') or {}
             evidence['source_changed']=bool(prior and prior.get('source')!=raw.get('source'))
             evidence['previous_source']=prior.get('source')
@@ -203,10 +208,16 @@ class QuoteClient:
         if execution:return dict(result,request_latency_ms=evidence['request_latency_ms'])
         return evidence
 
-    def latest(self):
+    def latest(self, *, contract=None, with_raw=False):
         if not self.path.exists():return None
         with self.connect() as db:
-            row=db.execute('SELECT evidence FROM quotes ORDER BY id DESC LIMIT 1').fetchone()
+            filters=[];args=[]
+            if contract:
+                filters.append('contract=?');args.append(contract)
+            if with_raw:
+                filters.append("json_type(evidence,'$.raw')='object'")
+            where=(' WHERE '+' AND '.join(filters)) if filters else ''
+            row=db.execute('SELECT evidence FROM quotes'+where+' ORDER BY id DESC LIMIT 1',args).fetchone()
         if not row:return None
         result=json.loads(row[0])
         result['observation_age_ms']=int(self.clock()*1000)-result['observed_ms']

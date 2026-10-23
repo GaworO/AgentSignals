@@ -10,6 +10,7 @@ validation; none are inferred from observed trades or the AI response.
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -50,8 +51,57 @@ def policy():
         raise ValueError('directional_minimum_2r_required')
     if value['max_account_age_ms'] > 30000:
         raise ValueError('account_age_exceeds_existing_sync_limit')
+    validate_quote_parameters(value)
     costs(value)
     return value
+
+
+def validate_quote_parameters(parameters):
+    """No implicit units, non-finite thresholds or continuous contracts."""
+    if not re.fullmatch(r'MNQ[HMUZ]20\d{2}', str(parameters.get('contract', ''))):
+        raise ValueError('explicit_mnq_contract_required')
+    for key in LIMITS:
+        v = parameters.get(key)
+        if type(v) not in (int, float) or not math.isfinite(v) or v <= 0:
+            raise ValueError('execution_parameter_missing:' + key)
+    if parameters['min_rr'] < 2:
+        raise ValueError('directional_minimum_2r_required')
+    latency = parameters.get('max_quote_latency_ms', parameters['max_quote_age_ms'])
+    if type(latency) not in (int, float) or not math.isfinite(latency) or latency <= 0:
+        raise ValueError('invalid_max_quote_latency_ms')
+    expiry = parameters.get('contract_last_trade_ms')
+    if (type(expiry) is not int or expiry <= 0 or not parameters.get('contract_reference')):
+        raise ValueError('verified_contract_expiry_required')
+
+
+def price_assessment(order, quote, parameters, now_ms):
+    """Diagnostic prices are explicitly observational; never an authorization."""
+    side = 'ask' if order.get('direction') == 'LONG' else 'bid'
+    px = quote.get(side)
+    verified = (quote.get('execution_eligible') is True
+                and quote.get('timestamp_semantics_verified') is True
+                and quote.get('source') == 'crosstrade_nt8'
+                and not quote.get('pricing_basis')
+                and type(quote.get('provenance_expires_at_ms')) is int
+                and now_ms < quote['provenance_expires_at_ms'])
+    result = dict(order_id=order.get('order_id'), order_type='LIMIT',
+        original_limit=order.get('entry_price'), stop=order.get('stop_price'),
+        target=order.get('target_price'), price_side=side, observed_side_price=px,
+        executable_price=px if verified else None,
+        observational_only=not verified,
+        source=quote.get('source'), bid=quote.get('bid'), ask=quote.get('ask'),
+        as_of_ms=quote.get('as_of_ms'), request_latency_ms=quote.get('request_latency_ms'))
+    try:
+        sign = {'LONG': 1, 'SHORT': -1}[order['direction']]
+        result.update(quote_age_ms=now_ms-quote['as_of_ms'],
+            spread_ticks=(quote['ask']-quote['bid'])/.25,
+            entry_deviation_points=abs(px-order['entry_price']),
+            adverse_deviation_ticks=max(0,sign*(px-order['entry_price']))/.25,
+            original_limit_respected=sign*(px-order['entry_price']) <= 0,
+            reward_risk_at_original_limit=reward_risk(order, parameters))
+    except (KeyError, TypeError, ValueError):
+        result['assessment_incomplete'] = True
+    return result
 
 
 def costs(parameters):
@@ -87,6 +137,10 @@ def reward_risk(order, parameters):
 def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
     """Pure validation, also exercised by the offline broker simulator."""
     try:
+        validate_quote_parameters(parameters)
+        if (not order.get('order_id') or order.get('strategy') != 'AB_DIRECTIONAL'
+                or str(order.get('order_type', 'LIMIT')).upper() != 'LIMIT'):
+            return 'exact_directional_limit_setup_required'
         sign = {'LONG': 1, 'SHORT': -1}[order['direction']]
         entry, stop, target = (float(order[k]) for k in ('entry_price', 'stop_price', 'target_price'))
         tick = .25  # This adapter only supports the validated MNQ contract.
@@ -97,14 +151,25 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
             return 'signal_too_old'
         if quote.get('contract') != contract or parameters.get('contract') != contract:
             return 'contract_mismatch'
+        if now_ms >= parameters['contract_last_trade_ms']:
+            return 'contract_expired'
         if quote.get('market_open') is not True:
             return 'market_closed_or_unknown'
-        if quote.get('execution_eligible') is not True or quote.get('timestamp_semantics_verified') is not True:
+        if (quote.get('source') in ('collective', 'drafted') or quote.get('pricing_basis')
+                or quote.get('execution_eligible') is not True
+                or quote.get('timestamp_semantics_verified') is not True):
             return 'quote_source_unverified'
         if quote.get('source') != parameters.get('quote_source') or not quote.get('source'):
             return 'quote_source_unverified'
         if not 0 <= now_ms-quote['as_of_ms'] <= parameters['max_quote_age_ms']:
             return 'quote_stale_or_future'
+        latency = quote.get('request_latency_ms')
+        if (type(latency) not in (int, float) or not math.isfinite(latency) or latency < 0
+                or latency > parameters.get('max_quote_latency_ms', parameters['max_quote_age_ms'])):
+            return 'quote_request_latency_exceeded_or_unknown'
+        proof_end = quote.get('provenance_expires_at_ms')
+        if proof_end is not None and now_ms >= proof_end:
+            return 'quote_verification_expired'
         bid, ask, volatility = (float(quote[k]) for k in ('bid', 'ask', 'volatility_points'))
         if (not all(math.isfinite(v) and v > 0 for v in (entry, stop, target, bid, ask))
                 or not math.isfinite(volatility) or volatility < 0 or bid > ask):
@@ -152,6 +217,8 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
                 or review.get('order_id') != order['order_id']
                 or not review['available_at']*1000 <= now_ms < review['expires_at']*1000):
             return 'setup_review_missing_or_expired'
+        if review.get('setup', {}).get('order_id') != order['order_id']:
+            return 'setup_review_geometry_mismatch'
         geometry = ('direction', 'contract', 'entry_price', 'stop_price', 'target_price', 'activation_ms', 'expiry_ms')
         if any(review.get('setup', {}).get(k) != order.get(k) for k in geometry):
             return 'setup_review_geometry_mismatch'
@@ -179,6 +246,7 @@ def check(order, review, *, clock=time.time):
             if blocked or not review or latest.get('review_id') != review.get('review_id'):
                 raise ValueError(blocked or 'hybrid_review_changed')
             review = latest
+        evidence['price_assessment'] = price_assessment(order, evidence['market'], parameters, int(clock()*1000))
         reason = evaluate(order, evidence['market'], evidence['thesis'], evidence['risk'],
                           review or {}, parameters, int(clock()*1000))
     except Exception as exc:
