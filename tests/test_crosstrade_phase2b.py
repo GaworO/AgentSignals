@@ -79,7 +79,8 @@ def test_working_stop_zero_qty_is_not_protection(sim):
     f.life[13]['version']['orderQty']=0
     f.now+=1;f.t.reconcile(f.snapshot([f.entry],2))
     assert f.t.row('order-one')['state']=='RECONCILIATION_REQUIRED'
-    assert f.t.row('order-one')['error']=='BROKER_ORDER_BINDING_MISMATCH'
+    assert not json.loads(f.t.row('order-one')['observation_json'])['protection_verified']
+    assert f.posts[-1][0].endswith('/positions/close')
     assert f.t.entry_blocker()
 
 

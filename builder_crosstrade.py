@@ -243,7 +243,10 @@ class Transport:
                 or order['account_label']!=os.environ.get('ACCOUNT_LABEL','account')
                 or not order['activation_ms']<=now<order['expiry_ms']):
             raise TransportError('PREPARED_ENTRY_IDENTITY_OR_EXPIRY_MISMATCH')
-        if str(payload.get('tif',payload.get('timeInForce','day'))).lower() not in ('day','gtd'):
+        # Validate every supplied alias. A DAY alias must not conceal IOC/FOK
+        # in the other field and silently turn it into a resting GTD entry.
+        if any(str(payload[k]).lower() not in ('day','gtd')
+               for k in ('tif','timeInForce') if k in payload):
             raise TransportError('DIRECTIONAL_LIMIT_TIF_UNSUPPORTED')
         quantity=payload.get('quantity')
         entry=payload.get('limitPrice');stop=(payload.get('stopLoss') or {}).get('stopPrice')
@@ -357,7 +360,7 @@ class Transport:
                 or order.get('contractId')!=self.resolve_contract() or version.get('orderId')!=oid
                 or not (numeric(version.get('orderQty')) or
                         (type(version.get('orderQty')) is int and version['orderQty']==0
-                         and order.get('ordStatus') in ('Suspended','Canceled','Cancelled','Rejected','Expired')
+                         and order.get('ordStatus') in ACTIVE | TERMINAL
                          and (numeric(order.get('parentId')) or numeric(order.get('ocoId')))))):
             raise TransportError('BROKER_ORDER_BINDING_MISMATCH')
         if (any(not isinstance(c,dict) for c in data['commands']) or any(not isinstance(r,dict) for r in data['reports'])
@@ -527,7 +530,14 @@ class Transport:
             if any(f.get('orderId') not in ids and stamp(f.get('timestamp'))>=row['created_ms']
                    and f.get('contractId')==self.contract_id for f in snapshot['fills']):
                 raise TransportError('FOREIGN_SAME_CONTRACT_FILL')
-            protected=entry_geometry and bracket_geometry and all(life['order'].get('ordStatus')=='Working' and life['version']['orderQty']==remaining for life in legs)
+            # OrderVersion.orderQty is total order quantity, not unfilled
+            # quantity. A partially filled SL/TP may still protect the balance;
+            # subtract its own verified fills, and check the sibling separately.
+            child_remaining={life['order']['id']:life['version']['orderQty']-
+                sum(f['qty'] for f in exit_fills if f['orderId']==life['order']['id']) for life in legs}
+            protected=entry_geometry and bracket_geometry and all(
+                life['order'].get('ordStatus') in ('Working','PartFilled','PartiallyFilled')
+                and child_remaining[life['order']['id']]==remaining for life in legs)
             body=dict(base,event='POSITION',quantity=remaining,entry_price=float(average),fill_ms=min(stamp(f['timestamp']) for f in entry_fills),
                 direction=order['direction'],position_id='ct:'+str(receipt['orderId']),exclusive=protected and eq==command['body']['qty'],
                 stop_price=order['stop_price'],target_price=order['target_price'],event_id='ct-pos-'+row['client_id']+'-'+str(at),
@@ -543,6 +553,7 @@ class Transport:
             # Protection is proved for actual remaining fills, including partials.
             # A partial is never promoted to the legacy full-size manager.
             observation.update(protection_verified=protected,remaining_quantity=remaining,
+                               protective_remaining_quantities=child_remaining,
                                entry_price=float(average),stop_price=order['stop_price'],
                                target_price=order['target_price'],oco_verified=oco_linked(legs[0]['order'],legs[1]['order']))
             limit_respected=(float(average)-order['entry_price'])*(1 if order['direction']=='LONG' else -1)<=1e-9
@@ -620,6 +631,10 @@ class Transport:
                     with self.api.connect() as c:
                         c.execute("UPDATE native_orders SET state='RECONCILIATION_REQUIRED',observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=?",
                             (encode(previous),error,int(self.clock()*1000),self.binding,row['order_id']))
+                    # Persist recovery even when the packet is too incomplete
+                    # to reach the normal protection check. Recovery still must
+                    # re-prove ownership; it never blindly flattens an account.
+                    self.queue_exit(row['order_id'],'BROKER_PROTECTION_RECONCILIATION_FAILED')
             self.reconcile_costs(snapshot)
             self.drain_exits(snapshot)
             # Phase 3A is observation-only. It shares this account journal but
@@ -858,7 +873,17 @@ class Transport:
             try:
                 self.action(oid,'cancel','guard-cancel-'+oid,snapshot=snapshot)
                 self.action(oid,'close','guard-close-'+oid,snapshot=snapshot)
-            except Exception:pass  # Durable request is resumed after the next complete read.
+            except Exception as exc:
+                # Keep the request for the next complete read/restart and make
+                # the stalled recovery visible without repeating identical logs.
+                reason=str(exc) if isinstance(exc,TransportError) else 'BROKER_RECOVERY_READ_FAILED'
+                payload=dict(reason=reason,additional_exposure_blocked=True,
+                             recovery_requires_fresh_owned_broker_evidence=True)
+                with self.api.connect() as c:
+                    last=c.execute("SELECT payload_json FROM native_audit WHERE binding=? AND order_id=? AND kind='EXIT_RECOVERY_BLOCKED' ORDER BY id DESC LIMIT 1",
+                                   (self.binding,oid)).fetchone()
+                    if not last or last[0]!=encode(payload):
+                        self.audit(c,oid,'EXIT_RECOVERY_BLOCKED',payload)
 
 
 def configure(api):
@@ -933,7 +958,9 @@ def status():
     with _API.connect() as c:
         counts={r[0]:r[1] for r in c.execute('SELECT state,count(*) FROM native_orders WHERE binding=? GROUP BY state',(_TRANSPORT.binding,))}
         pending=[dict(r) for r in c.execute("SELECT order_id,state,error,updated_ms FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED') ORDER BY created_ms LIMIT 20",(_TRANSPORT.binding,))]
+        recovery=[dict(r) for r in c.execute('SELECT order_id,reason,created_ms FROM native_exit_requests WHERE binding=? ORDER BY created_ms LIMIT 20',(_TRANSPORT.binding,))]
     return dict(provider='crosstrade',enabled=True,route_id=route_id(),orders_by_state=counts,pending=pending,entry_blocker=_TRANSPORT.entry_blocker(),
+        recovery_requests=recovery,
         note='Accepted native order IDs are not fills. Unknown submissions are reconciled and never resent.')
 
 
