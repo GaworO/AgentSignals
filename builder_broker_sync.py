@@ -14,7 +14,7 @@ import sqlite3
 import threading
 import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, parse_qs
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
 
@@ -88,7 +88,16 @@ class AccountSync:
     def _read(self, path):
         # No configurable origin, redirects, arbitrary paths or HTTP mutations.
         prefix = '/accounts/' + quote(self.name, safe='')
-        if path not in ('/accounts', prefix, prefix+'/positions', prefix+'/orders', prefix+'/fills'):
+        history_read = False
+        if path.startswith('/fills/history?'):
+            query = parse_qs(path.split('?',1)[1], keep_blank_values=True)
+            history_read = (set(query) <= {'account','environment','limit','cursor'}
+                and query.get('account') == [self.name]
+                and query.get('environment') == [self.environment]
+                and query.get('limit') == ['1000']
+                and ('cursor' not in query or len(query['cursor']) == 1
+                     and 0 < len(query['cursor'][0]) <= 2048))
+        if not history_read and path not in ('/accounts', '/marginsnapshots', prefix, prefix+'/positions', prefix+'/orders', prefix+'/fills'):
             raise SyncError('BROKER_READ_ROUTE_NOT_ALLOWED')
         req = Request(BASE+path, method='GET', headers={
             'Authorization': 'Bearer '+self.token, 'Accept': 'application/json'})
@@ -185,6 +194,13 @@ class AccountSync:
                     self.reconciliation_error = None
                 except Exception:
                     self.reconciliation_error = 'NATIVE_RECONCILIATION_FAILED'
+            # Read-only account-wide fees/risk evidence; never grants order permission.
+            # Failure leaves the last evidence stale or explicitly blocked.
+            import directional_account_reconciliation
+            try:
+                directional_account_reconciliation.refresh(self, snapshot)
+            except Exception:
+                pass  # snapshot identity/age fences prevent reuse after storage failure
             return True
         except Exception as exc:
             error = str(exc) if isinstance(exc, SyncError) else 'BROKER_SYNC_FAILED'

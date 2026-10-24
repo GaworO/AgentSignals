@@ -216,3 +216,58 @@ def test_native_submission_rechecks_real_guard_with_its_own_reservation(native, 
     if daily_loss:
         assert result['reason'] == 'day_loss_usd'
         latch.assert_called_once_with('day_loss_usd')
+
+
+def test_integrated_reconciled_risk_quote_ai_guard_and_one_mnq_protocol(native,guarded,monkeypatch,tmp_path):
+    """All external evidence mocked; actual adapter, sizing, Guard and gate logic."""
+    import directional_account_reconciliation as ar
+    import directional_account_limits as limits
+    import execution_validation
+    from test_execution_readiness import evidence
+    f=native;state,stats,signal,check,latch=guarded
+    state['pending_group']['group_id']='ab_directional_order-one'
+    f.signal.update(signal,_continuation_order_id='order-one',TP=f.order['target_price'])
+    monkeypatch.setattr(guard,'guard_ok',REAL_GUARD_OK)
+    monkeypatch.setattr(builder_broker_sync,'entry_blocker',REAL_ACCOUNT_BLOCKER)
+    monkeypatch.setenv('EXEC_MAX_QTY','1')
+    f.order['quantity']=1;f.prepare();f.sync.config['AB_V3_CONTRACT']='MNQZ2026'
+    now=int(f.now*1000);anchor=now-2*86400000
+    proof=limits.read_static_evidence();proof.pop('account_controls')
+    proof.update(account_controls_source='CROSSTRADE_RECONCILED',
+        reconciliation_anchor=dict(verified=True,flat=True,account_binding=f.sync.binding,
+            source_reference='MOCKED_FLAT_STATEMENT',at_ms=anchor,cash=48961.55,
+            capture_complete_since_ms=anchor,coverage_reference='MOCKED_CAPTURE_COVERAGE',consecutive_losses=0),
+        margin_policy=dict(verified=True,source_reference='MOCKED_RULE',mode='CONTRACT_CAP_ONLY',
+            contract='MNQZ2026',observed_at_ms=anchor,expires_at_ms=now+60000))
+    import os
+    from pathlib import Path
+    Path(os.environ['MFFU_RISK_EVIDENCE_FILE']).write_text(json.dumps(proof))
+    f.values['/fills/history?account=Builder+account&environment=demo&limit=1000']=[]
+    f.values['/marginsnapshots']=[dict(environment='demo',data=[dict(id=2214)])]
+    assert f.sync.poll()
+    assert ar.state(f.sync)['verified'], ar.state(f.sync)
+    sized=limits.capacity(f.sync.snapshot(),f.sync.binding,f.order,now,1.2,250.)
+    assert sized['allowed'] and sized['max_quantity']==1 and sized['total_risk_usd']==21.2
+    args=evidence();args[0]=dict(f.order);args[-1]=now
+    args[1].update(bid=29999.75,ask=30000.,as_of_ms=now)
+    args[2].update(order_id='order-one',checked_ms=now)
+    args[4].update(order_id='order-one',setup=dict(f.order),available_at=f.now-1,expires_at=f.now+60)
+    decisions=[]
+    def final_gate(order,review):
+        actual_risk=f.validator(order)
+        decision=execution_validation.evaluate(order,args[1],args[2],actual_risk,args[4],args[5],now)
+        decisions.append((actual_risk,decision));return decision
+    f.final_gate.side_effect=final_gate
+    payload=f.payload();payload['quantity']=1
+    result=f.t.submit(payload,'order-one')
+    assert result['sent'] and all(r['allowed'] and d is None for r,d in decisions)
+    assert len(f.posts)==1 and f.posts[0][1]['qty']==1 and f.local()['position_json'] is None
+    f.client=result['client_id'];f.lifecycles()
+    for value in f.life.values():value['version']['orderQty']=1
+    f.life[11]['order']['ordStatus']='Filled'
+    for oid in (12,13):f.life[oid]['order']['ordStatus']='Working'
+    fill=f.fill(101,11,1,30000.,'Buy',offset=0)
+    f.now+=1;f.t.reconcile_one(f.t.row('order-one'),f.snapshot([fill],1))
+    assert f.local()['state']=='BROKER_CONFIRMED_OPEN'
+    assert json.loads(f.t.row('order-one')['observation_json'])['protection_verified'] is True
+    assert not ar.state(f.sync)['verified']  # Open exposure cannot authorize another entry.

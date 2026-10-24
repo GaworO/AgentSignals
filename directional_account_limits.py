@@ -13,11 +13,25 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-def read_evidence():
+def read_static_evidence():
     path=os.environ.get('MFFU_RISK_EVIDENCE_FILE')
     if not path:raise ValueError('mffu_current_allowances_missing')
     proof=json.loads(Path(path).read_text())
     if not isinstance(proof,dict):raise ValueError('mffu_allowances_invalid')
+    return proof
+
+
+def read_evidence():
+    proof = read_static_evidence()
+    if proof.get('account_controls_source') == 'CROSSTRADE_RECONCILED':
+        import directional_account_reconciliation as reconciliation
+        import builder_broker_sync
+        import hashlib
+        state = reconciliation.state()
+        digest = hashlib.sha256(builder_broker_sync.encode(proof).encode()).hexdigest()
+        if not state.get('verified') or state.get('rules_sha256') != digest:
+            raise ValueError('account_wide_reconciliation_unverified')
+        proof = dict(proof, account_controls=state['controls'])
     return proof
 
 

@@ -2001,6 +2001,12 @@ def _execution_quotes():
     return jsonify(monitor_enabled=os.environ.get('DIRECTIONAL_QUOTE_MONITOR_ENABLED')=='true',
                    latest=QuoteClient().latest(), cached_status_only=True)
 
+@app.route('/execution/account-risk')
+def execution_account_risk_status():
+    import directional_account_reconciliation
+    return jsonify(directional_account_reconciliation.state())
+
+
 @app.route('/execution/readiness')
 def _execution_readiness():
     """Read-only release/gate/timing evidence. No order or activation operation."""

@@ -22,7 +22,9 @@ class BrokerSyncTests(unittest.TestCase):
         self.account = dict(accountId=2214,name='test account',environment='demo',active=True,archived=False,
             balance=dict(netLiq=48961.55,totalCashValue=48961.55))
         self.responses = {'/accounts':[self.account], '/accounts/test%20account':self.account,
-            '/accounts/test%20account/positions':[], '/accounts/test%20account/orders':[], '/accounts/test%20account/fills':[]}
+            '/accounts/test%20account/positions':[], '/accounts/test%20account/orders':[], '/accounts/test%20account/fills':[],
+            '/fills/history?account=test+account&environment=demo&limit=1000':[],
+            '/marginsnapshots':[dict(environment='demo',data=[dict(id=2214)])]}
         self.partial = None
         self.fail = False
         self.calls = []
@@ -39,7 +41,10 @@ class BrokerSyncTests(unittest.TestCase):
         self.assertEqual(state['cash'],48961.55)
         self.assertEqual(state['open_positions'],0)
         self.assertIsNone(self.sync.entry_blocker())
-        self.assertEqual(len(self.calls),5)
+        self.assertEqual(len(self.calls),7)
+        import directional_account_reconciliation as ar
+        self.assertFalse(ar.state(self.sync)['verified'])
+        self.assertIn('current_account_rules_missing_or_expired', ar.state(self.sync)['missing'])
         self.assertFalse(hasattr(self.sync,'mutate'))
         with sqlite3.connect(self.sync.path) as c:
             self.assertEqual(c.execute('SELECT count(*) FROM account_snapshots').fetchone()[0],1)
