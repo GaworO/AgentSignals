@@ -421,7 +421,7 @@ def native_fixed_bracket():
 
 
 def native_bracket_readiness():
-    """Fixed native protection has its own paper proof, not M3/runner parity.
+    """Fixed native protection requires broker evidence, not M3/runner parity.
 
     This is an evidence requirement in the existing approved execution policy,
     not an arming flag. Unit simulations cannot satisfy production acceptance.
@@ -432,9 +432,31 @@ def native_bracket_readiness():
         proof=p.get('broker_workflow_verification',{})
         if (proof.get('verified') is not True or proof.get('simulator_only') is not False
                 or proof.get('provider')!='CrossTrade' or proof.get('surface')!='tradovate'
-                or proof.get('contract')!=contract() or not proof.get('paper_evidence_reference')
+                or proof.get('contract')!=contract()
                 or not all(proof.get(k) is True for k in ('native_oso_oco','partial_fill_repair','restart_recovery','net_accounting'))):
-            return 'native_bracket_paper_verification_missing'
+            return 'native_bracket_broker_verification_missing'
+        kind=proof.get('evidence_kind')
+        if kind=='ACCOUNT_BROKER_HISTORY':
+            # User-authorized MFFU pilot: a separate demo account is not a
+            # prerequisite. History must refer to this exact broker account;
+            # it does not automatically certify recovery or protection.
+            identity=[os.environ.get(k,'') for k in ('BUILDER_BROKER_ACCOUNT_ID',
+                'BUILDER_BROKER_ACCOUNT_NAME','BUILDER_BROKER_ENVIRONMENT')]
+            binding=hashlib.sha256(builder_broker_sync.encode(identity).encode()).hexdigest()
+            ids=proof.get('broker_order_ids')
+            if (not all(identity) or proof.get('account_binding')!=binding
+                    or not proof.get('evidence_reference')
+                    or not isinstance(ids,list) or len(ids)<3
+                    or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids)
+                    or type(proof.get('max_quantity')) is not int or proof['max_quantity']!=1
+                    or os.environ.get('EXEC_MAX_QTY')!='1'):
+                return 'native_bracket_history_scope_unverified'
+        elif kind in (None,'PROVIDER_PAPER'):
+            # Preserve the existing proof format for already validated users.
+            if not proof.get('paper_evidence_reference'):
+                return 'native_bracket_broker_verification_missing'
+        else:
+            return 'native_bracket_evidence_kind_unsupported'
     except Exception:return 'native_bracket_execution_policy_unavailable'
     return None
 

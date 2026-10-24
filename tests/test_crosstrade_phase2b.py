@@ -227,18 +227,18 @@ def test_target_filling_partial_cancels_remaining_entry_once(sim):
     assert f.t.row('order-one')['state']=='CLOSED_PENDING_COSTS'
 
 
-def test_native_fixed_bracket_requires_paper_proof_not_runner_permissions(monkeypatch):
+def test_native_fixed_bracket_requires_broker_proof_not_runner_permissions(monkeypatch):
     import ab_v3_live as v3
     monkeypatch.setenv('BUILDER_ORDER_PROVIDER','crosstrade')
     monkeypatch.setenv('V3_RUNNER_ENABLED','false');monkeypatch.setenv('V3_EXIT_MODE','shadow')
     monkeypatch.setenv('AB_V3_CONTRACT','MNQZ2026')
     assert v3.native_fixed_bracket()
     p={};monkeypatch.setattr(gate,'policy',lambda:p)
-    assert v3.native_bracket_readiness()=='native_bracket_paper_verification_missing'
+    assert v3.native_bracket_readiness()=='native_bracket_broker_verification_missing'
     p['broker_workflow_verification']=dict(verified=True,simulator_only=True,
         provider='CrossTrade',surface='tradovate',contract='MNQZ2026',paper_evidence_reference='TEST_ONLY',
         native_oso_oco=True,partial_fill_repair=True,restart_recovery=True,net_accounting=True)
-    assert v3.native_bracket_readiness()=='native_bracket_paper_verification_missing'
+    assert v3.native_bracket_readiness()=='native_bracket_broker_verification_missing'
     p['broker_workflow_verification']['simulator_only']=False
     assert v3.native_bracket_readiness() is None
     monkeypatch.setenv('V3_RUNNER_ENABLED','true')
@@ -261,5 +261,5 @@ def test_fixed_native_prepared_path_does_not_arm_advanced_manager(sim,monkeypatc
     monkeypatch.setattr(v3.directional_ai_review,'check',lambda *args:(None,{'state':'ALLOW'}))
     s=dict(_v3_directional=True,_continuation_order_id='order-one',dir='LONG',entry=30000.,SL=29990.,TP=30030.)
     assert v3.prepared_entry_blocker(s) is None
-    monkeypatch.setattr(v3,'native_bracket_readiness',lambda:'native_bracket_paper_verification_missing')
-    assert v3.prepared_entry_blocker(s)=='v3:native_bracket_paper_verification_missing'
+    monkeypatch.setattr(v3,'native_bracket_readiness',lambda:'native_bracket_broker_verification_missing')
+    assert v3.prepared_entry_blocker(s)=='v3:native_bracket_broker_verification_missing'

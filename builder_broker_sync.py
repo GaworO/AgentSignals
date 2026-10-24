@@ -99,6 +99,17 @@ class AccountSync:
                     raise SyncError('BROKER_RESPONSE_TOO_LARGE')
                 return json.loads(raw)
         except HTTPError as exc:
+            if exc.code==403:
+                # Expose only the provider's allowlisted reconnect condition,
+                # never raw response details or credentials on the dashboard.
+                expired=False
+                try:
+                    error=json.loads(exc.read(8193))
+                    expired=isinstance(error,dict) and error.get('error')=='tradovate_session_expired'
+                except (ValueError,UnicodeError,OSError):
+                    pass
+                if expired:
+                    raise SyncError('TRADOVATE_SESSION_EXPIRED_RECONNECT_REQUIRED') from None
             raise SyncError('BROKER_HTTP_'+str(exc.code)) from None
         except (URLError, OSError, TimeoutError):
             raise SyncError('BROKER_CONNECTION_FAILED') from None

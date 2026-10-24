@@ -1,0 +1,93 @@
+Directional MFFU pilot — preparation, not activation (24 October 2026)
+
+The user designates existing MFFU Evaluation ...5021 as the destination and
+accepts evaluation/drawdown consequences. A separate personal paper account is
+NOT mandatory. No artificial signal, evaluation test order, new strategy,
+service, quote override, or activation is authorized by this preparation.
+
+Basic evidence acceptance
+native_bracket_readiness supports ACCOUNT_BROKER_HISTORY alongside the existing
+PROVIDER_PAPER format. Account history must bind the exact account ID, account
+name, Tradovate environment and dated contract; identify real broker order IDs;
+contain an evidence reference; and be scoped to max_quantity=1 with effective
+EXEC_MAX_QTY=1. No check is waived: native OSO/OCO, fill/protection handling,
+restart recovery and net accounting evidence remain required. Simulator-only
+evidence cannot certify broker behavior. This format grants no broker permission.
+
+The archived Oct20 A/B 3R native lifecycle is actual MFFU evidence for LIMIT,
+fill, working children, OCO cancellation and final fees. It is not a new
+Directional 2R execution or an independently observed restart under exposure.
+The one-MNQ LONG/SHORT 2R tests exercise the current native adapter using MOCKED
+provider replies; the final quote/AI/risk gates are tested separately. Their
+results must not be labeled actual broker fills or full live-pipeline proof.
+
+Pilot proposal (NOT APPLIED)
+EXEC_MAX_QTY=1
+EXEC_QTY=auto
+EXEC_STRATEGY_POLICY=V3_ONLY
+BUILDER_ORDER_PROVIDER=crosstrade
+AB_V3_EXCLUSIVE_ROUTE=1
+AB_ENTRY_ARMED=0
+AB_MANAGER_MODE=shadow
+AB_AI_ENABLED=true
+AB_AI_OWNER=AB_DIRECTIONAL
+AB_AI_TRIGGER=SETUP (effective existing HYBRID)
+AB_AI_MAX_CALLS_PER_DAY=12 (fixed CONTEXT3/SETUP7/POSITION2)
+V3_AI_REVIEW_REQUIRED=true
+V3_EXIT_MODE=shadow
+V3_EXIT_REAL_EXECUTION=false
+V3_RUNNER_ENABLED=false
+PARTIAL_AT_1R=0
+MANAGE_BE=0
+Retain the existing one-loss/day rule, buffers, session/news gates and 250 USD
+strategy cap. Actual size is min(dynamic capacity, 1); if capacity<1 reject.
+Never move the structural stop or enlarge the LIMIT to make quantity fit.
+Native entry is LIMIT/GTD, requireMarketPosition=flat, maxPositions=1, with
+original bracket geometry and expiry. No scale-in or simultaneous position.
+
+First eligible signal
+Only a newly generated Directional LONG/SHORT in its configured session can
+qualify. Build causal context, obtain exact setup AI approval within daily
+budget, then recheck quote, original limit, expiry, structure, current broker
+inventory, fees and account risk. Reject unavailable/expired evidence. Do not
+replay saved setups. ACK does not establish a fill. Verify working owned SL/TP
+quantities and OCO against each actual fill. Failed protection blocks further
+exposure and invokes the existing owned recovery procedure, never blind retries.
+
+Known current external access failure
+CrossTrade GET account/positions/orders returns HTTP403:
+tradovate_session_expired. Reconnect the EXISTING MFFU account through CrossTrade
+My Account > Brokers. The cached 23 October cash/floor cannot certify current
+risk. Quote feed remains unverified; passive LIMIT/GTD alone does not establish
+current spread, executable price, structural validity or broker account capacity.
+
+Risk example only
+Recorded SHORT ORDER_ABDIR_SHORT_d70246a041a0a03df5e2 at Oct23 08:08 NY:
+entry29108, SL29135, TP29054. Risk=27pts*2USD=54USD; reward=108USD=2R gross.
+Historical round-trip fee1.90USD is an estimate, not a current fee tariff.
+Illustrative stop slippage 2ticks*0.50USD=1USD => estimated loss56.90USD,
+net target106.10USD, estimated netR1.8647. This slippage is NOT calibrated or a
+worst-case guarantee. With the OLD 48721.05 cash, 48161.90 floor and 100 reserve,
+usable headroom was459.15; after estimated loss402.25. Current headroom UNKNOWN.
+This setup was outside NY review windows, disabled, and is expired. No AI approval
+or executable current quote is claimed. Current authorized order quantity=0.
+
+Final activation (requires verified dependencies and separate final approval)
+Before requesting approval: restore fresh account reads, confirm account-specific
+max MNQ/margin/DLL/floor and risk-control refresh, validate entitled executable
+quotes and measured policy, review broker evidence and protection/recovery tests,
+freeze release/policy hashes, verify no unknown order or reconciliation state.
+Then the reviewed activation packet sets AB_V3_MODE=LIVE,
+AB_DIRECTIONAL_LIVE_LONG=1, AB_DIRECTIONAL_LIVE_SHORT=1, V3_ENTRY_ARMED=1,
+AUTO_SUBMIT=1, EXEC_MODE=auto, EXEC_KILL_SWITCH=false,
+LIVE_EXECUTION_ENABLED=true with Guard AUTO and the pilot settings above.
+The next eligible exact AI-reviewed setup executes automatically, without another
+per-signal human approval. Advanced write actions remain disabled.
+
+Rollback
+Block new entries with V3_ENTRY_ARMED=0, AUTO_SUBMIT=0 and Guard MANUAL.
+EXEC_KILL_SWITCH=true is an entry block; do not confuse the dashboard HALT action,
+which may also flatten. Retain master write capability needed for existing
+protective recovery until broker state is known flat. Verify fills, cancellation,
+SL/TP quantities, OCO and fees before restoring a prior disabled image. Preserve
+all durable journals. Never restore an old SQLite backup over newer broker fills.
