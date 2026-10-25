@@ -153,8 +153,8 @@ def finish_without_entry(db,oid,review_id,decision,now):
 def prepare_review(db, oid, packet, selections, external_calls, now, *, config):
     """Build wick-based alternatives, then atomically reserve existing SETUP capacity.
 
-    Explicit source-candle association must come from the caller's verified
-    detector mapping. There is deliberately no first/middle/third fallback.
+    Ordered three-candle FVG evidence is required. The confirmed first-candle
+    wick rule derives its source association; conflicting mappings are rejected.
     No API is called here; returned payload can use the existing AI transport.
     """
     import directional_recovery_plans as plans

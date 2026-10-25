@@ -1,4 +1,4 @@
-"""Recorded candles; mocked associations/AI/account. No API or orders."""
+"""Recorded candles, confirmed first-candle rule, mocked AI/account. No API/orders."""
 import copy
 import json
 import sqlite3
@@ -28,7 +28,7 @@ def market():
         recovery_anchors=dict(order_id='TEST_ORIGINAL',origin=dict(candle_id=ref(T-120000),price=29802.25),
             extreme=dict(candle_id=ref(T-60000),price=29837.75)))
     selection=dict(kind='FIBO_50_LIMIT',fvg_candle_ids=[ref(T-i*60000) for i in (5,4,3)],
-        source_candle_id=ref(T-5*60000),source_association_reference='TEST_ONLY_EXPLICIT_MAPPING')
+        source_candle_id=ref(T-5*60000),source_association_reference=plans.SOURCE_POLICY)
     return original,packet,selection
 
 
@@ -53,21 +53,20 @@ def proof(now):
         broker_ids=dict(orderId=1,oso1Id=2,oso2Id=3),state='NO_FILL',entry_status='Canceled',no_fill_verified_since_ms=T+600000)
 
 
-def test_fibo_stop_uses_explicit_source_wick_not_old_stop_or_gap_edge(market):
+def test_fibo_stop_uses_confirmed_first_candle_not_old_stop_or_gap_edge(market):
     before=copy.deepcopy(market);r=build(market);assert r['status']=='ELIGIBLE_FOR_AI'
     p=r['plan'];assert p['entry_price']==29820
     assert p['stop_price']==29735.75 and p['stop_price']!=market[0]['stop_price']
     assert p['target_price']==29988.5 and p['stop_distance_points']==84.25
     assert p['stop_anchor']['wick_price']==29736 and p['expiry_ms']==T+1200000
+    assert p['stop_anchor']['source_policy']==plans.SOURCE_POLICY
     assert market==before
 
 
-def test_changing_source_candle_recalculates_sl_target_and_bound_id(market):
-    a=build(market)['plan'];market[2]['source_candle_id']=ref(T-4*60000)
-    b=build(market)['plan']
-    assert b['stop_price']==29762.75 and b['target_price']==29934.5
-    assert a['plan_id']!=b['plan_id'] and a['order_id']!=b['order_id']
-    assert b['entry_price']==a['entry_price']
+@pytest.mark.parametrize('offset',[4,3])
+def test_middle_or_confirmation_candle_cannot_replace_first(market,offset):
+    market[2]['source_candle_id']=ref(T-offset*60000)
+    assert build(market)['reason']=='FVG_SOURCE_POLICY_MISMATCH'
 
 
 def test_short_is_exact_mirror_using_high_wick(market):
@@ -85,13 +84,46 @@ def test_short_is_exact_mirror_using_high_wick(market):
 
 
 @pytest.mark.parametrize('field',['source_candle_id','source_association_reference'])
-def test_missing_source_never_defaults_to_confirmation_candle(market,field):
-    market[2].pop(field);assert build(market)['reason']=='FVG_SOURCE_CANDLE_ASSOCIATION_UNKNOWN'
+def test_mapping_is_derived_from_confirmed_rule_not_required_per_setup(market,field):
+    expected=build(market)['plan'];market[2].pop(field)
+    assert build(market)['plan']==expected
+
+
+def test_gap_proof_alone_resolves_first_candle_without_operator_mapping(market):
+    market[2].pop('source_candle_id');market[2].pop('source_association_reference')
+    p=build(market)['plan'];plans.verify_plan(p)
+    assert p['stop_anchor']['candle_id']==ref(T-5*60000)
+    assert p['selection']['source_policy']==plans.SOURCE_POLICY
+    assert 'FIRST chronological candle' in payload(market)['input'][0]['content']
+
+
+def test_first_candle_rule_does_not_guess_missing_or_reordered_evidence(market):
+    market[2].pop('source_candle_id')
+    market[2]['fvg_candle_ids'].reverse()
+    assert build(market)['reason']=='FVG_CANDLES_NOT_CONTIGUOUS'
+    market[2]['fvg_candle_ids'].reverse()
+    market[1]['evidence'].pop(ref(T-5*60000))
+    assert build(market)['reason']=='SOURCE_CANDLE_UNKNOWN'
+
+
+def test_stale_source_policy_and_legacy_saved_plan_are_rejected(market):
+    p=build(market)['plan'];p['version']='directional-recovery-wick-v1'
+    p['plan_id']=plans.digest({k:v for k,v in p.items() if k not in ('plan_id','order_id')})
+    with pytest.raises(ValueError,match='PLAN_CHANGED'):plans.verify_plan(p)
+    market[2]['source_policy']='EXPLICIT_ANY_CANDLE'
+    assert build(market)['reason']=='FVG_SOURCE_POLICY_MISMATCH'
+
+
+def test_even_rehashed_plan_cannot_select_another_source(market):
+    p=build(market)['plan'];p['stop_anchor']['candle_id']=ref(T-4*60000)
+    p['plan_id']=plans.digest({k:v for k,v in p.items() if k not in ('plan_id','order_id')})
+    p['order_id']=p['opportunity_id']+':recovery:2:'+p['plan_id'][:16]
+    with pytest.raises(ValueError,match='SOURCE_POLICY_MISMATCH'):plans.verify_plan(p)
 
 
 def test_confirmation_candle_wrong_side_is_blocked_not_fixed(market):
     market[2].update(kind='DEEP_FVG_LIMIT',source_candle_id=ref(T-3*60000))
-    assert build(market)['reason']=='SOURCE_WICK_WRONG_SIDE_OF_ENTRY'
+    assert build(market)['reason']=='FVG_SOURCE_POLICY_MISMATCH'
 
 
 def test_exact_fvg_half_tick_is_blocked_without_silent_rounding(market):
@@ -196,12 +228,16 @@ def test_recovery_does_not_silently_use_legacy_fixed_risk(market,monkeypatch):
     assert plans.size(build(market)['plan'],{},'test',T+620000,3.24,250)['reason']=='RECOVERY_05_PERCENT_NOT_CONFIGURED'
 
 
-@pytest.mark.parametrize('source_offset,quantity',[(5,1),(4,2)])
-def test_real_risk_engine_recalculates_05_percent_from_new_wick(case,market,monkeypatch,source_offset,quantity):
+@pytest.mark.parametrize('wick_low,quantity',[(29736,1),(29763,2)])
+def test_real_risk_engine_recalculates_05_percent_from_new_wick(case,market,monkeypatch,wick_low,quantity):
     args,proof_data,save=case
     monkeypatch.setenv('AB_DIRECTIONAL_RISK_MODE','EQUITY_PERCENT');monkeypatch.setenv('AB_DIRECTIONAL_RISK_PCT','0.5')
     monkeypatch.setenv('EXEC_MAX_QTY','40');proof_data['max_micro_contracts']=40
-    market[2]['source_candle_id']=ref(T-source_offset*60000);p=build(market)['plan']
+    # Second case is synthetic OHLC, not a different interpretation of the real FVG.
+    candle=market[1]['evidence'][market[2]['fvg_candle_ids'][0]]
+    candle['low']=wick_low
+    candle['open']=max(candle['open'],wick_low);candle['close']=max(candle['close'],wick_low)
+    p=build(market)['plan']
     # Shift only the fixture clock so both independent risk and review windows are current.
     now=T+620000;delta=now-args[3]
     args[0]['read_started_at']+=delta/1000

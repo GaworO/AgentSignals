@@ -10,12 +10,13 @@ import math
 import directional_ict_context
 import directional_recovery_plans as plans
 
-PROMPT_VERSION = 'directional-recovery-ict-wick-v1'
+PROMPT_VERSION = 'directional-recovery-ict-wick-v2'
 PROMPT = '''Review one existing Directional opportunity after its original LIMIT
 expired unfilled. Select at most ONE supplied eligible plan or return WAIT/REJECT.
 Do not create a setup, choose another candle, change LIMIT/SL/TP, quantity or expiry.
-The source candle is explicitly bound to each selected FVG. LONG stop is below
-its low wick, SHORT stop above its high wick, using the supplied server buffer.
+The source candle is the FIRST chronological candle of each selected three-candle
+FVG, explicitly bound by FIRST_FVG_CANDLE_WICK_V1. LONG stop is below its low wick,
+SHORT stop above its high wick, using the supplied server buffer.
 Do not substitute the gap edge, third confirmation candle, old stop, or a fixed
 one-point stop. If the supplied source candle is not a valid ICT invalidation
 anchor, return WAIT or REJECT and explain why. FIBO_50 uses the ORIGINAL anchors

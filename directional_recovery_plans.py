@@ -1,8 +1,8 @@
 """Causal NO-FILL price plans; no model, broker or execution-permission writes.
 
-The source candle is an explicit detector/operator association. fvg_bar (the
-third candle confirming a gap) is NEVER implicitly used as its stop anchor.
-Unknown association rejects a plan, rather than guessing the first/middle bar.
+The user-confirmed stop anchor is the FIRST chronological candle of the selected
+three-candle FVG. fvg_bar (the third confirmation candle) is not a stop anchor.
+Missing candle proof or a conflicting supplied association rejects the plan.
 """
 import copy
 import hashlib
@@ -12,7 +12,8 @@ import os
 import re
 from decimal import Decimal
 
-VERSION = 'directional-recovery-wick-v1'
+VERSION = 'directional-recovery-wick-v2'
+SOURCE_POLICY = 'FIRST_FVG_CANDLE_WICK_V1'
 KINDS = ('FIBO_50_LIMIT', 'DEEP_FVG_LIMIT', 'NEW_BOS_FVG_RETEST')
 GEOMETRY = ('order_id', 'direction', 'contract', 'entry_price', 'stop_price',
             'target_price', 'activation_ms', 'expiry_ms')
@@ -101,7 +102,9 @@ def build(original, packet, selection, now_ms, *, stop_buffer_points):
     """Return one immutable candidate, or an explicit UNKNOWN/BLOCK reason.
 
     Selection is prepared by deterministic code, never supplied by AI. It must
-    contain gap evidence IDs and the explicit source_candle_id association.
+    contain ordered gap evidence IDs. The source association is derived from the
+    confirmed FIRST_FVG_CANDLE_WICK_V1 rule, never chosen by the model. An explicit
+    source_candle_id must agree with that rule or the plan is rejected.
     Buffer is supplied by the existing SL_ANCHOR_BUF configuration, not inferred
     from a model response. Off-tick midpoints remain blocked, never rounded.
     """
@@ -122,10 +125,14 @@ def build(original, packet, selection, now_ms, *, stop_buffer_points):
         low, high = (number(a['high']), number(c['low'])) if sign == 1 else (number(c['high']), number(a['low']))
         if low >= high:
             raise ValueError('DIRECTIONAL_FVG_NOT_PRESENT')
-        anchor = selection.get('source_candle_id')
-        if anchor not in refs or not selection.get('source_association_reference'):
-            raise ValueError('FVG_SOURCE_CANDLE_ASSOCIATION_UNKNOWN')
-        source = bar(packet, anchor, contract)
+        anchor = refs[0]
+        if ('source_candle_id' in selection and selection['source_candle_id'] != anchor
+                or 'source_policy' in selection and selection['source_policy'] != SOURCE_POLICY):
+            raise ValueError('FVG_SOURCE_POLICY_MISMATCH')
+        selection = copy.deepcopy(selection)
+        selection.update(source_candle_id=anchor, source_policy=SOURCE_POLICY,
+                         source_association_reference=SOURCE_POLICY)
+        source = a
         buffer = number(stop_buffer_points)
         if buffer <= 0 or buffer % TICK:
             raise ValueError('WICK_BUFFER_INVALID')
@@ -181,7 +188,8 @@ def build(original, packet, selection, now_ms, *, stop_buffer_points):
                     stop_distance_points=float(distance), stop_risk_usd_per_contract=float(distance*2),
                     gross_r=2., activation_ms=now_ms, expiry_ms=original['activation_ms']+1200000,
                     fvg=dict(lower=float(low), upper=float(high), candle_ids=refs, available_at=c['available_at']),
-                    stop_anchor=dict(candle_id=anchor, wick_field='low' if sign==1 else 'high',
+                    stop_anchor=dict(candle_id=anchor, source_policy=SOURCE_POLICY,
+                        wick_field='low' if sign==1 else 'high',
                         wick_price=float(wick), buffer_points=float(buffer),
                         candle=copy.deepcopy(source), association_reference=selection['source_association_reference']),
                     evidence={k:copy.deepcopy(packet['evidence'][k]) for k in dict.fromkeys(all_refs)},
@@ -199,6 +207,17 @@ def verify_plan(plan):
         raise ValueError('RECOVERY_PLAN_CHANGED')
     if plan['order_id'] != plan['opportunity_id'] + ':recovery:2:' + plan['plan_id'][:16]:
         raise ValueError('RECOVERY_ORDER_ID_CHANGED')
+    anchor = plan.get('stop_anchor', {})
+    selection = plan.get('selection', {})
+    refs = plan.get('fvg', {}).get('candle_ids', [])
+    if (len(refs) != 3 or anchor.get('source_policy') != SOURCE_POLICY
+            or anchor.get('candle_id') != refs[0]
+            or selection.get('source_policy') != SOURCE_POLICY
+            or selection.get('source_candle_id') != refs[0]
+            or selection.get('fvg_candle_ids') != refs
+            or anchor.get('association_reference') != SOURCE_POLICY
+            or selection.get('source_association_reference') != SOURCE_POLICY):
+        raise ValueError('FVG_SOURCE_POLICY_MISMATCH')
 
 
 def size(plan, snapshot, binding, now_ms, cost_per_contract, legacy_budget):
