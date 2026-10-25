@@ -14,7 +14,8 @@ retry PendingCancel or unresolved provider Cancel commands. A timeout/ACK is nev
 terminal. Retry only the same entry ID. Never create a replacement entry.
 B. Persist a partial ACK's original entry ID; recover via clOrdId when ACK is lost.
 Read parent first, cancel independently of unavailable child data. Children are
-cancelled only on a terminal unfilled parent with verified flat account. A filled
+cancelled only while Suspended, on a terminal unfilled parent after a fresh
+account/parent/fill recheck. Working SL/TP are never orphan-cleanup candidates. A filled
 position's protection is not cancelled just to cancel its remaining entry.
 C. Persist broker exposure before child reads. Native-verified late fills are
 accepted as broker facts even after setup/AI expiry. No new setup approval is
@@ -43,14 +44,16 @@ surfaces unresolved recovery alerts; logs record transitions. Entries remain
 blocked until native exposure, orders, actions and costs are reconciled.
 
 Test evidence
-546 focused tests and 44 subtests passed, including existing AI, risk, quote,
+548 focused tests and 44 subtests passed, plus 10 Directional entry-rule tests
+and 13 subtests using the production isolated detector bootstrap. Coverage includes AI, risk, quote,
 manager and broker suites. Test broker responses and AI are MOCKS, not provider
 certification. Tests cover cancellation timeout/fill races, restart, missing
 children/partial ACK, better fills, partial cancellation, feed/risk changes,
 late GTD, disconnects, unexpected exposure, missing/rejected stop, safe recovery,
 unchanged quote admission and shadow-route isolation. One pre-existing datetime
 utcnow deprecation warning remains. Not a claim that every repository research
-suite passes; standalone research detector tests require absent detcore.a_cont_v2.
+suite passes. Detector tests must use continuation_scan_runtime to select the
+existing isolated detcore package, as the production scanner does.
 
 Cloud-only policy proposal — NOT IMPLEMENTED OR APPROVED
 Keep the original Directional scanner, frozen geometry and minimum gross 2R.

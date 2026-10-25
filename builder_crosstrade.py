@@ -214,7 +214,8 @@ class Transport:
             fact.update(actual_entry_price=avg,actual_stop_distance=sign*(avg-command['order']['stop_price']),
                 actual_target_distance=sign*(command['order']['target_price']-avg),
                 stop_price=command['order']['stop_price'],target_price=command['order']['target_price'])
-        self.phase(row,'PARTIALLY_FILLED' if eq and entry['order']['ordStatus'] in ACTIVE else 'FILLED' if eq else 'WORKING',exposure=fact)
+        self.phase(row,'PARTIALLY_FILLED' if eq and entry['order']['ordStatus'] in ACTIVE else 'FILLED' if eq else 'WORKING',exposure=fact,
+                   recovery=row['state']=='RECONCILIATION_REQUIRED',reason=row.get('error') if row['state']=='RECONCILIATION_REQUIRED' else None)
         return fact
 
     def monitor_parent(self,row,receipt,entry,snapshot,fact):
@@ -1007,6 +1008,25 @@ class Transport:
         with _LOCK:
             life=self.entry_identity(row,{'orderId':child},strict=False) if operation=='cancel' else self.lifecycle(child)
             status=life['order'].get('ordStatus');now=int(self.clock()*1000)
+            if operation=='child_cancel' and status not in TERMINAL:
+                # Never delete a Working protective leg to clean up an entry.
+                # A stale flat poll may precede a fill/OSO activation. Re-read
+                # the parent and account, and permit only orphan Suspended legs.
+                receipt=json.loads(self.row(row['order_id'])['receipt_json'] or '{}')
+                if child not in (receipt.get('oso1Id'),receipt.get('oso2Id')):
+                    raise TransportError('OWNED_CHILD_ID_REQUIRED')
+                parent=self.entry_identity(row,receipt,strict=False)
+                if not self.sync.poll(wait=True):raise TransportError('FRESH_BROKER_READ_REQUIRED')
+                snapshot=self.sync.snapshot()
+                if (status!='Suspended' or parent['order']['ordStatus'] not in ('Canceled','Cancelled','Rejected','Expired')
+                        or snapshot['positions'] or self.fills({receipt['orderId']},snapshot,row['created_ms'])
+                        or any(str(r.get('reportType','')).lower() in ('fill','partialfill') or r.get('ordStatus') in ('Filled','PartFilled','PartiallyFilled') for r in parent['reports'])
+                        or not 0<=self.clock()-snapshot['observed_at']<=3):
+                    raise TransportError('PROTECTIVE_CHILD_CANCELLATION_FORBIDDEN')
+                # Do not act on the leg read from before the fresh account poll.
+                life=self.lifecycle(child);status=life['order'].get('ordStatus')
+                if status not in TERMINAL and status!='Suspended':
+                    raise TransportError('PROTECTIVE_CHILD_CANCELLATION_FORBIDDEN')
             if status in TERMINAL:
                 with self.api.connect() as c:
                     c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND order_id=? AND operation=?",(now,self.binding,row['order_id'],operation)) if operation=='cancel' else None

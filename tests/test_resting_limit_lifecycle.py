@@ -219,3 +219,19 @@ def test_native_deadline_never_outlives_original_ai_approval(f,monkeypatch):
     monkeypatch.setattr(directional_ai_review,'check',lambda *args:(None,dict(expires_at=f.now+10,review_id='MOCK')))
     submit(f)
     assert f.t.row('order-one')['expiry_ms']==int((f.now+10)*1000)
+
+def test_orphan_cleanup_never_cancels_working_protection_from_stale_flat_poll(f):
+    submit(f);f.now+=2;f.life[11]['order']['ordStatus']='Canceled'
+    for oid in (12,13):f.life[oid]['order']['ordStatus']='Working'
+    f.t.reconcile(f.snapshot())
+    assert len(f.posts)==1 and f.t.entry_blocker()
+    assert phase(f)['recovery']
+
+
+def test_fill_arriving_during_orphan_cleanup_preserves_suspended_children(f):
+    submit(f);f.now+=2;f.life[11]['order']['ordStatus']='Canceled';old=f.snapshot()
+    # The next authenticated account read discovers exposure after the old poll.
+    f.values['/accounts/Builder%20account/positions']=[dict(accountId=2214,contractId=100,netPos=1)]
+    f.t.reconcile(old)
+    assert not any(path.endswith('/12/cancel') or path.endswith('/13/cancel') for path,body in f.posts)
+    assert f.t.entry_blocker()
