@@ -10,7 +10,7 @@ import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-VERSION = 'directional-hybrid-v1'
+VERSION = 'directional-hybrid-v1.1-entry-only'
 FIELDS = ('market_thesis', 'liquidity_objective', 'entry_quality',
           'structural_invalidation', 'nearest_opposing_liquidity',
           'rr_assessment', 'conditional_management_plan')
@@ -251,6 +251,8 @@ def budget_reason(rows, external, kind, cap=12):
 def schema(base, setup):
     import copy
     value=copy.deepcopy(base)
+    for side in ('long_scenario','short_scenario'):
+        value['properties'][side]['properties']['permission']['enum']=['ALLOW','WAIT','REJECT']
     string={'type':'string'}; ids={'type':'array','items':string}
     field=dict(type='object',properties=dict(assessment=string,evidence_ids=ids,missing=ids),
                required=['assessment','evidence_ids','missing'],additionalProperties=False)

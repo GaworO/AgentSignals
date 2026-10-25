@@ -1,0 +1,59 @@
+Directional fixed structural SL / 2R gross / exact HYBRID review
+Base 65bfeb5. Engineering release; no execution flag changes or order tests.
+
+Original scanner, original LIMIT, structural SL and fixed 2R gross geometry are
+preserved. No 1-point stop, no risk-fitting stop changes. Pilot cap remains1 MNQ.
+Existing account sizing floors quantity under strategy budget, drawdown/buffer,
+daily allowance, margin and provider/local caps. Unknown risk rejects even1 MNQ.
+Sizing log now records original entry/SL/TP, directional stop distance, per-contract
+stop and cost-inclusive risk, selected quantity and exact gross2R target.
+
+AI timeout correction
+Production23Oct HYBRID context attempt exceeded the old synchronous60s timeout.
+New foreground SSE transport retains store=false and the configured model. One
+POST only, no automatic retry; terminal response object required (never deltas).
+Hard monotonic transport budget=min90s, review remaining validity. Exact original
+SSE events and completed structured output are persisted. All existing expiry,
+geometry, structure, risk, budget and post-response validations remain.
+A finished ambiguous HYBRID attempt remains unknown/non-authorizing and consumes
+its allocation, but no longer starves unrelated setups all day. Same setup/request
+is not retried, running requests still block, 3/7/2 and total12 remain unchanged.
+Legacy non-hybrid retry policy unchanged. REJECT is explicit in new HYBRID schema;
+legacy stored VETO records remain historical. Prompt version directional-hybrid-v1.1-entry-only.
+The AI management-plan text is constrained to original native SL/TP/OCO and existing
+emergency recovery; no partials, break-even, trailing, runner or discretionary exits.
+
+Tests:574 passed +44 subtests; original detector10 +13 subtests. One existing
+utcnow deprecation warning. No paid AI or real broker test orders. New transport
+uses mocked SSE, including completion after60s, hard expiry, mismatch, disconnect,
+partial output, REJECT and seven failed setup attempts consuming all seven slots.
+Official transport documentation:
+https://developers.openai.com/api/docs/guides/streaming-responses
+
+Production proof limitations
+No qualifying Sunday NY setup, so no new genuine production response can be
+claimed. Historical exact-setup ALLOW21Oct is expired and predates HYBRID; the
+23Oct HYBRID attempt timed out. The production worker will use the corrected path
+for the next genuinely eligible in-session setup; success must be verified from
+that newly saved request/response, not inferred from mock tests or this release.
+
+Preserved production safeguards
+A/B shadow. EXEC_MAX_QTY=1. V3_EXIT_MODE=shadow, V3_EXIT_REAL_EXECUTION=false,
+V3_RUNNER_ENABLED=false. M3 shadow observations have no broker-writing authority.
+EXEC_KILL_SWITCH=true, V3_ENTRY_ARMED=0, Directional direction flags0,
+AB_V3_MODE=SHADOW, AUTO_SUBMIT=0. LIVE_EXECUTION_ENABLED=true preserves existing
+emergency recovery capability but does not arm new entries. Quote gate unchanged.
+
+Remaining dependencies:explicit separately approved candle-only resting-LIMIT
+admission implementation or verified BBO; current bound MFFU risk rules/history/
+margin proof; provider clarification of current historical lifecycle GET400;
+fresh exact HYBRID setup response; final user-controlled activation.
+
+Activation/rollback
+Keep kill=true/entryarm0 while resolving policy and account evidence. Preserve
+native brackets,1-MNQ cap, one-loss daily stop, no simultaneous position, fixed2R,
+A/B shadow, advanced writes off. Verify source/effective flags and fresh flat broker
+state, then present final activation for explicit authorization. Rollback:kill new
+entries and disarm, reconcile pending parents and any protected position, retain
+broker sync and recovery; deploy previous exact release only when flat/reconciled.
+Never restore an old DB over newer broker fills. No activation by this release.

@@ -170,8 +170,15 @@ def capacity(snapshot, binding, order, now_ms, cost_per_contract, budget):
     External evidence is loaded once and reused for all checks in this decision.
     Existing exposure is rejected (the original single-position strategy).
     """
-    result=dict(allowed=False,max_quantity=0,order_id=order.get('order_id'),reason='account_capacity_unknown')
+    result=dict(allowed=False,max_quantity=0,order_id=order.get('order_id'),reason='account_capacity_unknown',
+                direction=order.get('direction'),entry_price=order.get('entry_price'),
+                stop_price=order.get('stop_price'),target_price=order.get('target_price'))
     try:
+        sign={'LONG':1,'SHORT':-1}[order['direction']]
+        distance=sign*(order['entry_price']-order['stop_price'])
+        if not math.isfinite(distance) or distance<=0:return dict(result,reason='structural_stop_invalid')
+        result.update(stop_distance_points=distance,stop_risk_usd=distance*2,
+                      gross_2r_target=order['entry_price']+sign*2*distance)
         proof=read_evidence()
         if type(budget) not in (int,float) or not math.isfinite(budget) or budget<=0:
             return dict(result,reason='strategy_risk_budget_unknown')

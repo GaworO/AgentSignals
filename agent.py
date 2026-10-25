@@ -282,6 +282,14 @@ def _exec_order(x, text=None):
         if _strict_risk and qty < 1:
             return {"sent": False, "reason": "risk_budget_below_one_contract", "qty": 0}
         qty = max(1, int(qty))
+        if _account_qty_cap is not None:
+            import execution_trace
+            execution_trace.record(x['_continuation_order_id'],'directional_entry_sizing',
+                direction=x['dir'],entry=e,structural_sl=sl,sl_distance_points=R,
+                stop_risk_per_contract_usd=R*2,
+                cost_inclusive_risk_per_contract_usd=_sizing['risk_per_contract_usd'],
+                selected_quantity=qty,gross_2r_tp=tp,
+                original_target=x.get('TP'),account_capacity=_sizing)
         _tk = float(os.environ.get('EXEC_TICK', '0.25') or 0)   # tick-align prices before the broker
         def _t(p):                                                 # sees them (OTE math emits 29043.43;
             return round(round(p / _tk) * _tk, 6) if _tk > 0 else round(p, 2)   # MNQ trades in 0.25s)

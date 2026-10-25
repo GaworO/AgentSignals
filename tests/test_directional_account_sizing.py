@@ -172,7 +172,7 @@ def test_executor_cannot_increase_account_cap_with_legacy_override(native,monkey
         now_ms=lambda:int(f.now*1000),record_quantity=Mock())
     send=Mock(return_value={'sent':True})
     monkeypatch.setattr(risk.builder_crosstrade,'submit',send)
-    monkeypatch.setattr(risk,'size_for_entry',lambda s:dict(allowed=allowed,max_quantity=1 if allowed else 0,reason=None if allowed else 'account_capacity_unknown'))
+    monkeypatch.setattr(risk,'size_for_entry',lambda s:dict(allowed=allowed,max_quantity=1 if allowed else 0,risk_per_contract_usd=21.9,reason=None if allowed else 'account_capacity_unknown'))
     monkeypatch.setenv('SESSION_SIZE_MULT','');monkeypatch.setenv('PRICE_OFFSET','0')
     ns=dict(os=os,dt=dt,builder_crosstrade=risk.builder_crosstrade,ab_v3_live=api,requests=Mock(),
         execution_policy=SimpleNamespace(entry_blocker=lambda x:None,mode=lambda:'V3_ONLY'),

@@ -84,7 +84,7 @@ IDS = dict(type='array', items=STRING)
 INVALIDATION = dict(anyOf=[dict(type='null'), obj(dict(evidence_id=STRING,
     field=dict(type='string', enum=['open','high','low','close','price','lower','upper']),
     price=dict(type='number'), relation=dict(type='string', enum=['above','below'])))])
-SCENARIO = obj(dict(permission=dict(type='string',enum=['ALLOW','WAIT','VETO']),
+SCENARIO = obj(dict(permission=dict(type='string',enum=['ALLOW','WAIT','VETO','REJECT']),
     thesis=dict(type='string',enum=['continuation','reversal','range','uncertain']),
     reason_pl=STRING, evidence_ids=IDS, contrary_evidence_pl=STRING, invalidation=INVALIDATION))
 SCHEMA = obj(dict(packet_id=STRING, long_scenario=SCENARIO, short_scenario=SCENARIO,
@@ -239,6 +239,12 @@ class ContextSupport:
         key = self.config.get('OPENAI_API_KEY','')
         if not key:
             raise ValueError('missing_api_key')
+        if payload.get('stream'):
+            import directional_ai_transport
+            packet=json.loads(payload['input'][1]['content'])
+            remaining=packet['review_expires_at']-self.clock()
+            if remaining<=0:raise ValueError('ai_deadline_expired_before_send')
+            return directional_ai_transport.request(payload,key,min(90.,remaining))
         return request_json('https://api.openai.com/v1/responses',
             {'Authorization':'Bearer '+key,'Content-Type':'application/json'}, payload, capture_raw=True)
 
@@ -516,6 +522,9 @@ class ContextSupport:
             payload['text']['format']['schema'] = hybrid.schema(payload['text']['format']['schema'], job is not None)
             payload['text']['format']['name'] = 'directional_hybrid_v1'
             payload['max_output_tokens'] = 5000
+            payload['stream'] = True
+            payload['input'][0]['content'] = instructions.replace('VETO','REJECT') + '\nBe concise: one or two sentences per assessment, retain evidence IDs and missing evidence. Entry selection only: fixed structural SL and 2R gross TP. Do not recommend partials, break-even, trailing, runners or discretionary position exits; the conditional management plan is original native SL/TP/OCO plus existing emergency recovery only.'
+            instructions = payload['input'][0]['content']
         if not payload['model'] or not self.config.get('OPENAI_API_KEY'):
             self.status = 'API_NOT_CONFIGURED'
             return False
@@ -541,7 +550,12 @@ class ContextSupport:
                         db.execute("UPDATE setup_requests SET state='budget_blocked' WHERE order_id=? AND state='queued'",(job['order_id'],))
                         db.execute('INSERT INTO setup_review_events(order_id,at,event,detail) VALUES(?,?,?,?)',(job['order_id'],self.clock(),'budget_blocked',encode(dict(reason=budget_block))))
                     return False
-            if any(r['status'] in ('running','unknown') for r in today):
+            # Never resend an ambiguous request or lend it an approval. A
+            # completed transport failure still consumes its allocation, but
+            # must not starve unrelated HYBRID setups for the entire NY day.
+            # Running requests (including an interrupted process) still block.
+            if any(r['status']=='running' or
+                   (r['status']=='unknown' and self.trigger!='HYBRID') for r in today):
                 self.status = 'PENDING_OR_UNKNOWN_NO_RETRY'
                 return False
             if self.trigger == 'PERIODIC' and today and now-today[0]['started'] < self.minutes*60:
@@ -577,7 +591,7 @@ class ContextSupport:
             with self.connect() as db:
                 db.execute('UPDATE reviews SET response_received_at=? WHERE id=?',(self.clock(),p['packet_id']))
             response_body=getattr(raw,'response_text',None)
-            body_format='original_http_utf8' if response_body is not None else 'transport_json_reserialized'
+            body_format=getattr(raw,'response_body_format',None) or ('original_http_utf8' if response_body is not None else 'transport_json_reserialized')
             response_body=response_body if response_body is not None else encode(raw)
             response_model=raw.get('model')
             status = 'rejected';usage = raw.get('usage',{})
