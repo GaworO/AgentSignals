@@ -48,9 +48,9 @@ def structural_check(order, source, rows, now_ms):
 class ThesisValidator:
     def __init__(self, *, clock=time.time):self.clock=clock
 
-    def __call__(self, order):
+    def __call__(self, order, *, pending=False):
         import execution_validation
-        p=execution_validation.policy()
+        p=execution_validation.policy() if not pending else {'thesis_rule_version':VERSION}
         proof=dict(order_id=order['order_id'],valid=False,checked_ms=int(self.clock()*1000))
         if p.get('thesis_rule_version')!=VERSION:
             return dict(proof,reason='validated_thesis_rule_required')

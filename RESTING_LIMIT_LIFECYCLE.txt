@@ -1,0 +1,93 @@
+Directional resting LIMIT lifecycle repair — engineering release, NOT activation
+Base: 15c999f3c90dbad0e4599b6ef5e04d3464a123c2
+
+Scope
+Existing native CrossTrade/Tradovate adapter only. No new strategy, service,
+subscription, market-price fallback, broker endpoint, or execution permission.
+A/B remains shadow. The quote admission gate still blocks without its existing
+approved executable-quote policy. Pending monitoring cannot authorize submission.
+
+Repairs
+A. Durable cancel attempts: reconcile exact account/contract/parent/clOrdId before
+retry; 30-second transport backoff; process lock plus SQLite reservation; do not
+retry PendingCancel or unresolved provider Cancel commands. A timeout/ACK is never
+terminal. Retry only the same entry ID. Never create a replacement entry.
+B. Persist a partial ACK's original entry ID; recover via clOrdId when ACK is lost.
+Read parent first, cancel independently of unavailable child data. Children are
+cancelled only on a terminal unfilled parent with verified flat account. A filled
+position's protection is not cancelled just to cancel its remaining entry.
+C. Persist broker exposure before child reads. Native-verified late fills are
+accepted as broker facts even after setup/AI expiry. No new setup approval is
+created. Protected late fills remain under their original native bracket. Missing
+protection queues the existing exact-owned-position recovery, never a blind
+account flatten. Refresh stale account snapshots after slow child reads. Contradictory
+account/contract/OCO evidence and malformed lifecycle packets still block writes.
+D. Native-owned favorable fills are valid inside the original structural stop.
+Record actual entry, stop distance/USD risk, target distance and gross RR. Preserve
+the original approved limit, stop and target. Broker P&L uses actual executions.
+E. Pending validator checks closed M1 freshness, original setup/geometry/BOS and
+invalidation, same AI review/expiry, current risk evidence, account inventory,
+quantity/risk cap, Guard/news/session and entry permissions. It cancels ineligible
+remaining entries and continues reconciliation. Only independently owned pending
+orders are excluded from prospective flat-account risk calculations; foreign
+orders or any open exposure veto waiting. Partial remainder is conservatively
+cancelled when the pending validator sees exposure; no protective resizing added.
+
+Persistence and alerts
+Additive native_order_phase and native_operator_alerts tables on existing SQLite.
+PREPARED -> SUBMITTED -> ACKNOWLEDGED -> WORKING / PARTIALLY_FILLED / FILLED;
+CANCEL_PENDING / EXPIRED_PENDING until terminal evidence; RECOVERY overlay on
+uncertainty; TERMINAL keeps costs unresolved until accounting agrees. Existing
+native_orders economic states remain backward-compatible. Dashboard/Guard health
+surfaces unresolved recovery alerts; logs record transitions. Entries remain
+blocked until native exposure, orders, actions and costs are reconciled.
+
+Test evidence
+546 focused tests and 44 subtests passed, including existing AI, risk, quote,
+manager and broker suites. Test broker responses and AI are MOCKS, not provider
+certification. Tests cover cancellation timeout/fill races, restart, missing
+children/partial ACK, better fills, partial cancellation, feed/risk changes,
+late GTD, disconnects, unexpected exposure, missing/rejected stop, safe recovery,
+unchanged quote admission and shadow-route isolation. One pre-existing datetime
+utcnow deprecation warning remains. Not a claim that every repository research
+suite passes; standalone research detector tests require absent detcore.a_cont_v2.
+
+Cloud-only policy proposal — NOT IMPLEMENTED OR APPROVED
+Keep the original Directional scanner, frozen geometry and minimum gross 2R.
+For a future explicitly authorized RESTING LIMIT admission policy, current spread,
+BBO freshness and immediate marketability must remain UNKNOWN, not 'passed'.
+Admission instead requires complete current closed-candle context, exact setup AI,
+current account/fees/risk proof, original price/stop/target, max 1 MNQ, no parallel
+position/scale-in, one-loss stop, native bracket evidence and monitored cancellation.
+Deadline is min(original setup expiry, original cancellation window, AI expiry).
+Reuse the existing 75-second closed-M1 freshness bound; it is not a quote bound.
+No market conversion, price chasing or silent stop/target movement.
+
+Residual risks requiring explicit policy approval
+Unknown spread/current intrabar price, adverse selection, stale-within-M1 thesis,
+fill/cancel race, delayed provider GTD enforcement, provider/network outage,
+OSO activation/rejection exposure, stop slippage beyond estimated risk. A LIMIT
+bounds entry price, not loss or execution time. CrossTrade documents that demo/prop
+GTD enforcement depends on its watcher, not autonomous Tradovate expiry.
+Provider: https://crosstrade.io/docs/tradovate/order-types-and-exits
+
+Pilot conditions (NOT activated)
+Account-specific current floor, daily policy, 40-micro maximum and margin rules,
+complete account-history/flat-anchor risk evidence; fresh reconciled inventory;
+explicit approval and separate tested implementation of the no-BBO admission
+policy OR a verified quote source; no unresolved broker actions/protection issues;
+original native 1-MNQ SL/TP/OCO with advanced manager monitor-only; final explicit
+activation authorization. Historical A/B bracket evidence is limited evidence,
+not proof of this release's new recovery behavior. No separate paper account is
+made mandatory, but untested provider behavior must remain labelled as such.
+
+Deployment/rollback
+Back up and quick_check SQLite. Verify same saved/effective execution/risk flags,
+flat broker, no pending native actions. Deploy exact archive to existing Agent50k;
+change only release SHA metadata. Verify actual file hashes, migrations, journals,
+health and flags. Existing kill switch remains true; V3 armed=0, directions=0,
+AB_V3_MODE=SHADOW. Emergency entry kill must not disable protective recovery via
+LIVE_EXECUTION_ENABLED=false. With pending orders, reconcile exact cancellations
+and open protection before any rollback. With flat/reconciled account, deploy the
+prior 15c999f archive with identical flags; do not restore old DB over newer fills.
+Additive tables are safe for old code to ignore, but old lifecycle defects return.

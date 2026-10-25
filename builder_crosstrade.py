@@ -29,6 +29,13 @@ ACTIVE = {'Working','Suspended','Accepted','PendingNew','PendingReplace','Pendin
 _API = None
 _TRANSPORT = None
 _LOCK = threading.RLock()
+CANCEL_RETRY_SECONDS = 30  # transport backoff, not a trading parameter
+
+def pending_blocker(order, snapshot, owned_ids):
+    validator = execution_validation._SOURCES.get('pending')
+    if validator is None:return 'pending_validator_unavailable'
+    try:return validator(order, snapshot, owned_ids)
+    except Exception:return 'pending_validation_unavailable'
 
 
 def provider():
@@ -132,10 +139,99 @@ class Transport:
                 CREATE TABLE IF NOT EXISTS native_lifecycles(
                     binding TEXT,broker_id INTEGER,observed_ms INTEGER,payload_json TEXT,
                     PRIMARY KEY(binding,broker_id));
+                CREATE TABLE IF NOT EXISTS native_order_phase(
+                    binding TEXT,order_id TEXT,phase TEXT,recovery INTEGER,
+                    exposure_json TEXT,reason TEXT,updated_ms INTEGER,
+                    PRIMARY KEY(binding,order_id));
+                CREATE TABLE IF NOT EXISTS native_operator_alerts(
+                    binding TEXT,order_id TEXT,reason TEXT,created_ms INTEGER,
+                    resolved INTEGER DEFAULT 0,PRIMARY KEY(binding,order_id,reason));
                 CREATE TABLE IF NOT EXISTS native_exit_requests(
                     binding TEXT,order_id TEXT,reason TEXT,created_ms INTEGER,
                     PRIMARY KEY(binding,order_id));
             ''')
+
+    def phase(self, row, phase, *, recovery=False, exposure=None, reason=None):
+        with self.api.connect() as c:
+            previous=c.execute('SELECT * FROM native_order_phase WHERE binding=? AND order_id=?',
+                               (self.binding,row['order_id'])).fetchone()
+            encoded=encode(exposure) if exposure is not None else (previous['exposure_json'] if previous else '{}')
+            changed=not previous or (previous['phase'],previous['recovery'],previous['exposure_json'],previous['reason'])!=(phase,int(recovery),encoded,reason)
+            c.execute('INSERT OR REPLACE INTO native_order_phase VALUES(?,?,?,?,?,?,?)',
+                      (self.binding,row['order_id'],phase,int(recovery),encoded,reason,int(self.clock()*1000)))
+            if changed:self.audit(c,row['order_id'],'LIFECYCLE_PHASE',dict(phase=phase,recovery=recovery,exposure=json.loads(encoded),reason=reason))
+            if recovery:
+                c.execute('INSERT OR IGNORE INTO native_operator_alerts(binding,order_id,reason,created_ms) VALUES(?,?,?,?)',
+                          (self.binding,row['order_id'],reason or 'broker_recovery',int(self.clock()*1000)))
+            if phase=='TERMINAL' and not recovery:
+                c.execute('UPDATE native_operator_alerts SET resolved=1 WHERE binding=? AND order_id=?',(self.binding,row['order_id']))
+        if changed and recovery:
+            print('[native-recovery]',row['order_id'],reason or 'broker_recovery','additional entries blocked',flush=True)
+
+    def entry_identity(self,row,receipt,*,strict=True):
+        """Fresh parent proof independent of child IDs / protection availability."""
+        command=json.loads(row['command_json']);order=command['order']
+        entry=self.lifecycle(receipt['orderId'])
+        if not any(c.get('commandType')=='New' and c.get('clOrdId')==row['client_id'] for c in entry['commands']):
+            raise TransportError('ENTRY_CLIENT_ID_NOT_RECONCILED')
+        if strict and (str(entry['order'].get('action','')).lower()!=command['body']['action']
+                or entry['version'].get('orderQty')!=command['body']['qty']
+                or str(entry['version'].get('orderType','')).lower()!='limit'
+                or entry['version'].get('price')!=order['entry_price']):
+            raise TransportError('BROKER_ENTRY_GEOMETRY_CHANGED')
+        return entry
+
+    def exposure_fact(self,row,receipt,entry,snapshot):
+        """Persist observed exposure before any child lookup can fail.
+
+        Raw position is always visible; attributable is stronger and required
+        for liquidation. Never infer ownership merely from account net position.
+        """
+        command=json.loads(row['command_json']);ids=set(receipt.values())
+        with self.api.connect() as c:
+            replies=c.execute("SELECT response_json FROM native_actions WHERE binding=? AND order_id=? AND operation='close'",(self.binding,row['order_id'])).fetchall()
+        for r in replies:
+            oid=json.loads(r[0] or '{}').get('response',{}).get('orderId')
+            if numeric(oid):ids.add(oid)
+        fills=self.fills(ids,snapshot,row['created_ms'])
+        ins=[x for x in fills if x['orderId']==receipt['orderId']]
+        outs=[x for x in fills if x['orderId']!=receipt['orderId']]
+        eq=sum(x['qty'] for x in ins);xq=sum(x['qty'] for x in outs)
+        sign=1 if command['body']['action']=='buy' else -1
+        positions=snapshot['positions'];own=[x for x in positions if x.get('contractId')==self.contract_id]
+        foreign=any(x.get('orderId') not in ids and x.get('contractId')==self.contract_id and stamp(x['timestamp'])>=row['created_ms'] for x in snapshot['fills'])
+        attributable=(0<eq<=command['body']['qty'] and 0<=xq<=eq and not foreign
+            and all(x['action'].lower()==command['body']['action'] for x in ins)
+            and all(x['action'].lower()!=command['body']['action'] for x in outs)
+            and len(positions)==len(own)==1 and own[0].get('netPos')==sign*(eq-xq) and eq>xq)
+        fact=dict(entry_quantity=eq,exit_quantity=xq,remaining_quantity=max(0,eq-xq),
+            entry_status=entry['order']['ordStatus'],broker_positions=positions,
+            attributable=attributable,protection_verified=False,
+            late_fill=any(stamp(x['timestamp'])>=row['expiry_ms'] for x in ins),
+            setup_expired_fill=any(stamp(x['timestamp'])>=command['order']['expiry_ms'] for x in ins))
+        if eq:
+            avg=sum(x['price']*x['qty'] for x in ins)/eq
+            fact.update(actual_entry_price=avg,actual_stop_distance=sign*(avg-command['order']['stop_price']),
+                actual_target_distance=sign*(command['order']['target_price']-avg),
+                stop_price=command['order']['stop_price'],target_price=command['order']['target_price'])
+        self.phase(row,'PARTIALLY_FILLED' if eq and entry['order']['ordStatus'] in ACTIVE else 'FILLED' if eq else 'WORKING',exposure=fact)
+        return fact
+
+    def monitor_parent(self,row,receipt,entry,snapshot,fact):
+        if entry['order']['ordStatus'] not in ACTIVE:return
+        now=int(self.clock()*1000);order=json.loads(row['command_json'])['order']
+        reason='entry_expired' if now>=row['expiry_ms'] else None
+        if not reason and fact['entry_quantity']<json.loads(row['command_json'])['body']['qty']:
+            reason=pending_blocker(order,snapshot,set(receipt.values()))
+        with self.api.connect() as c:
+            queued=c.execute('SELECT reason FROM native_exit_requests WHERE binding=? AND order_id=?',(self.binding,row['order_id'])).fetchone()
+            prior=c.execute("SELECT 1 FROM native_actions WHERE binding=? AND order_id=? AND operation='cancel'",(self.binding,row['order_id'])).fetchone()
+        if int(self.clock()*1000)>=row['expiry_ms']:reason='entry_expired'
+        if not reason and queued:reason=queued[0]
+        if not reason and prior:reason='cancellation_still_pending'
+        if reason:
+            self.phase(row,'EXPIRED_PENDING' if now>=row['expiry_ms'] else 'CANCEL_PENDING',exposure=fact,reason=reason)
+            self.cancel_owned_order(row,receipt['orderId'],'cancel','parent-cancel-'+row['order_id'])
 
     def _request(self, method, path, body=None):
         if method == 'POST' and not execution_safety.writes_enabled():
@@ -269,6 +365,9 @@ class Transport:
                 raise TransportError(ai_reason)
             if review is not None:
                 order['ai_review_at_native_dispatch'] = review
+                if type(review.get('expires_at')) in (int,float):
+                    expiry=min(expiry,int(review['expires_at']*1000))
+                    if expiry<=int(self.clock()*1000):raise TransportError('AI_APPROVAL_EXPIRED')
         client='b50-'+hashlib.sha256((self.binding+'|'+oid).encode()).hexdigest()[:56]
         body=dict(instrument=order['contract'][:-4]+order['contract'][-1],action=action,qty=quantity,
             orderType='limit',limitPrice=entry,takeProfit=target,stopLoss=stop,tif='gtd',
@@ -286,6 +385,7 @@ class Transport:
             c.execute('INSERT INTO native_orders VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                 (self.binding,oid,client,now,expiry,'SENDING',encode(command),None,None,None,now))
             self.audit(c,oid,'ENTRY_RESERVED',body)
+        self.phase(self.row(oid),'PREPARED')
         # Final validation is after account refresh and durable idempotency claim.
         # Failure here proves no POST was made; UNKNOWN is reserved for an actual
         # possibly delivered request.
@@ -313,13 +413,20 @@ class Transport:
                 c.execute("UPDATE native_orders SET state='NO_FILL',error=?,updated_ms=? WHERE binding=? AND order_id=?",
                           (reason,int(self.clock()*1000),self.binding,oid))
                 self.audit(c,oid,'ENTRY_REVALIDATION_BLOCKED',dict(reason=reason))
+            self.phase(self.row(oid),'TERMINAL',reason=reason)
             return dict(sent=False,submission_unknown=False,accepted_any=False,provider='crosstrade',
                         reason=reason,qty=quantity,status=422)
         state='UNKNOWN';receipt=None;error='SUBMISSION_OUTCOME_UNKNOWN_NO_RETRY'
+        self.phase(self.row(oid),'SUBMITTED')
         try:
             execution_trace.record(oid,'order_submission',at_ms=int(self.clock()*1000))
             reply=self.request('POST',self.prefix+'/orders/place',body)
             ids=reply.get('response',{})
+            if (reply.get('success') is True and reply.get('destination')=='tradovate'
+                    and reply.get('account')==self.sync.name and reply.get('instrument')==body['instrument']
+                    and reply.get('api')=='place_with_brackets' and isinstance(ids,dict) and numeric(ids.get('orderId'))):
+                receipt={'orderId':ids['orderId']}
+                error='NATIVE_BRACKET_IDS_INCOMPLETE'
             if (reply.get('success') is True and reply.get('destination')=='tradovate'
                     and reply.get('account')==self.sync.name and reply.get('instrument')==body['instrument']
                     and reply.get('api')=='place_with_brackets' and not reply.get('warning')
@@ -334,6 +441,7 @@ class Transport:
             c.execute("UPDATE native_orders SET state=?,receipt_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=? AND state='SENDING'",
                 (state,encode(receipt) if receipt else None,error,int(self.clock()*1000),self.binding,oid))
             self.audit(c,oid,state,receipt or dict(error=error))
+        self.phase(self.row(oid),'ACKNOWLEDGED' if state=='WAITING_BROKER_FILL' else 'RECOVERY',recovery=state=='UNKNOWN',reason=error)
         return dict(sent=state=='WAITING_BROKER_FILL',submission_unknown=state=='UNKNOWN',
             accepted_any=receipt is not None,status=200 if receipt else None,provider='crosstrade',
             reason=error or 'native_oso_accepted_not_filled',broker_ids=receipt,client_id=client,
@@ -384,21 +492,27 @@ class Transport:
         if len(candidates)>20:raise TransportError('UNKNOWN_SUBMISSION_RECOVERY_LIMIT_REQUIRES_REVIEW')
         matches=[]
         for order in candidates:
-            if not numeric(order.get('id')):continue
+            if not numeric(order.get('id')) or numeric(order.get('parentId')) or numeric(order.get('ocoId')):continue
             life=self.lifecycle(order['id'])
             if any(c.get('commandType')=='New' and c.get('clOrdId')==row['client_id'] for c in life['commands']):
                 matches.append(order)
         if len(matches)!=1:raise TransportError('UNKNOWN_SUBMISSION_REQUIRES_EXACT_CLIENT_ID')
-        entry=matches[0];anchors=[r for r in candidates if r.get('parentId')==entry['id']]
+        entry=matches[0]
+        # Keep proven parent identity even when subsequent child reads fail.
+        with self.api.connect() as c:
+            c.execute('UPDATE native_orders SET receipt_json=? WHERE binding=? AND order_id=?',(encode({'orderId':entry['id']}),self.binding,row['order_id']))
+        anchors=[r for r in candidates if r.get('parentId')==entry['id']]
         anchor_ids={r['id'] for r in anchors};peer_ids={r.get('ocoId') for r in anchors}
         children=[r for r in candidates if r['id'] in anchor_ids or r['id'] in peer_ids or r.get('ocoId') in anchor_ids or (numeric(r.get('ocoId')) and r.get('ocoId') in peer_ids)]
         legs={}
         for child in children:
-            life=self.lifecycle(child['id']);kind=str(life['version'].get('orderType','')).lower()
+            try:life=self.lifecycle(child['id'])
+            except Exception:return dict(orderId=entry['id'])
+            kind=str(life['version'].get('orderType','')).lower()
             if kind in legs:raise TransportError('AMBIGUOUS_NATIVE_CHILDREN')
             legs[kind]=child
         if (set(legs)!={'limit','stop'} or not oco_linked(legs['limit'],legs['stop'])):
-            raise TransportError('NATIVE_BRACKET_IDS_NOT_RECOVERED')
+            return dict(orderId=entry['id'])
         return dict(orderId=entry['id'],oso1Id=legs['limit']['id'],oso2Id=legs['stop']['id'])
 
     def fills(self, ids, snapshot, since):
@@ -424,14 +538,34 @@ class Transport:
             c.execute('UPDATE native_orders SET state=?,receipt_json=?,observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=?',
                 (state,encode(receipt),encode(observation),error,int(self.clock()*1000),self.binding,row['order_id']))
             self.audit(c,row['order_id'],state,observation)
+        if state in ('NO_FILL','CLOSED','CLOSED_PENDING_COSTS'):
+            self.phase(row,'TERMINAL',recovery=state=='CLOSED_PENDING_COSTS',exposure=observation,reason='costs_pending' if state=='CLOSED_PENDING_COSTS' else None)
 
     def reconcile_one(self,row,snapshot):
         command=json.loads(row['command_json']);order=command['order'];receipt=json.loads(row['receipt_json'] or 'null')
         if receipt is None:receipt=self.recover_receipt(row)
+        try:entry=self.entry_identity(row,receipt)
+        except TransportError as exc:
+            if str(exc)=='BROKER_ENTRY_GEOMETRY_CHANGED':
+                self.cancel_owned_order(row,receipt['orderId'],'cancel','geometry-cancel-'+row['order_id'])
+            raise
+        fact=self.exposure_fact(row,receipt,entry,snapshot)
+        self.monitor_parent(row,receipt,entry,snapshot,fact)
+        if snapshot['positions'] and not fact['attributable'] and not fact['entry_quantity']:
+            raise TransportError('UNATTRIBUTED_ACCOUNT_EXPOSURE')
+        if set(receipt)!={'orderId','oso1Id','oso2Id'}:
+            recovered=self.recover_receipt(row)
+            if recovered.get('orderId')!=receipt['orderId']:raise TransportError('ENTRY_RECOVERY_CHANGED')
+            receipt=recovered
+            with self.api.connect() as c:
+                c.execute('UPDATE native_orders SET receipt_json=? WHERE binding=? AND order_id=?',(encode(receipt),self.binding,row['order_id']))
         ids=set(receipt.values())
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            jobs={oid:pool.submit(self.lifecycle,oid) for oid in ids}
+        if set(receipt)!={'orderId','oso1Id','oso2Id'}:
+            raise TransportError('NATIVE_BRACKET_IDS_NOT_RECOVERED')
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            jobs={oid:pool.submit(self.lifecycle,oid) for oid in ids if oid!=receipt['orderId']}
             lives={oid:job.result() for oid,job in jobs.items()}
+        lives[receipt['orderId']]=entry
         # Share this exact read with the observation-only ICT manager; no
         # additional API requests or assumption that working orders are cached.
         if not hasattr(self,'_ict_lifecycles'):self._ict_lifecycles={}
@@ -484,7 +618,9 @@ class Transport:
                 c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND order_id=? AND operation='cancel'",(at,self.binding,row['order_id']))
             for child in (receipt['oso1Id'],receipt['oso2Id']):
                 if lives[child]['order'].get('ordStatus') in TERMINAL:
-                    c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND action_id=?",(at,self.binding,'child-cancel-'+str(child)))
+                    for action in c.execute("SELECT action_id,payload_json FROM native_actions WHERE binding=? AND order_id=? AND operation='child_cancel'",(self.binding,row['order_id'])).fetchall():
+                        if action['action_id']=='child-cancel-'+str(child) or json.loads(action['payload_json']).get('broker_id')==child:
+                            c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND action_id=?",(at,self.binding,action['action_id']))
         base=dict(order_id=row['order_id'],route_id=order['route_id'],contract=order['contract'],account_label=order['account_label'],
             event_ms=at,source='crosstrade-native-reconciliation',broker_ids=receipt)
         observation=dict(observed_at=snapshot['observed_at'],entry_quantity=eq,exit_quantity=xq,
@@ -549,7 +685,7 @@ class Transport:
                     local=c.execute('SELECT state,position_json FROM orders WHERE order_id=?',(row['order_id'],)).fetchone()
                 previous=json.loads(local['position_json'] or '{}') if local else {}
                 if previous.get('event_ms',-1)<at:
-                    self.api.broker_event(body)
+                    self.api.broker_event(body,native_verified=True)
             # Protection is proved for actual remaining fills, including partials.
             # A partial is never promoted to the legacy full-size manager.
             observation.update(protection_verified=protected,remaining_quantity=remaining,
@@ -558,12 +694,16 @@ class Transport:
                                target_price=order['target_price'],oco_verified=oco_linked(legs[0]['order'],legs[1]['order']))
             limit_respected=(float(average)-order['entry_price'])*(1 if order['direction']=='LONG' else -1)<=1e-9
             state=('OPEN' if eq==command['body']['qty'] else 'PARTIAL_OPEN') if protected and limit_respected else 'RECONCILIATION_REQUIRED'
-            if not protected or not limit_respected:
+            geometry_valid=(float(average)-order['stop_price'])*(1 if order['direction']=='LONG' else -1)>0
+            if not geometry_valid:state='RECONCILIATION_REQUIRED'
+            if not protected or not limit_respected or not geometry_valid:
                 # Existing protective exit path: cancel the remaining entry,
                 # prove terminal status, then liquidate only attributed fills.
                 # No replacement bracket or discretionary manager is created.
                 self.queue_exit(row['order_id'],'PROTECTION_OR_LIMIT_NOT_VERIFIED')
+            observation.update(late_fill=fact['late_fill'],setup_expired_fill=fact['setup_expired_fill'],actual_stop_distance=fact.get('actual_stop_distance'),actual_target_distance=fact.get('actual_target_distance'))
             self.store_resolution(row,state,observation,receipt)
+            self.phase(row,'PARTIALLY_FILLED' if eq<command['body']['qty'] else 'FILLED',recovery=state=='RECONCILIATION_REQUIRED',exposure=observation,reason='protection_or_geometry_unverified' if state=='RECONCILIATION_REQUIRED' else None)
             return
         if not snapshot['positions'] and entry_status in ACTIVE:
             # A target/stop can flatten the first partial fill while the
@@ -634,6 +774,7 @@ class Transport:
                     # Persist recovery even when the packet is too incomplete
                     # to reach the normal protection check. Recovery still must
                     # re-prove ownership; it never blindly flattens an account.
+                    self.phase(row,'RECOVERY',recovery=True,reason=error)
                     self.queue_exit(row['order_id'],'BROKER_PROTECTION_RECONCILIATION_FAILED')
             self.reconcile_costs(snapshot)
             self.drain_exits(snapshot)
@@ -773,9 +914,29 @@ class Transport:
         previous=json.loads(row['observation_json'] or '{}')
         # A new read can share a clock timestamp with the previous snapshot.
         # Re-prove exact owned quantity immediately before every mutation.
-        self.reconcile_one(row,snapshot)
-        row=self.row(oid);observation=json.loads(row['observation_json'] or '{}')
         receipt=json.loads(row['receipt_json']);command=json.loads(row['command_json'])
+        entry=self.entry_identity(row,receipt,strict=operation!='cancel')
+        if operation=='cancel':
+            if entry['order']['ordStatus'] in TERMINAL:return dict(success=True,already_terminal=True)
+            return self.cancel_owned_order(row,receipt['orderId'],'cancel',action_id)
+        try:
+            self.reconcile_one(row,snapshot)
+            row=self.row(oid);observation=json.loads(row['observation_json'] or '{}')
+        except Exception as exc:
+            if isinstance(exc,TransportError) and str(exc) not in ('NATIVE_BRACKET_IDS_NOT_RECOVERED','COMPLETE_BROKER_READ_REQUIRED','BROKER_REQUEST_OUTCOME_UNKNOWN','BROKER_RESPONSE_INVALID') and not str(exc).startswith('BROKER_HTTP_'):
+                raise
+            # Missing/rejected protection must not deadlock emergency closure.
+            # Only independently attributed, terminal-entry exposure qualifies.
+            observation=self.exposure_fact(row,receipt,entry,snapshot)
+            if not observation['attributable']:raise TransportError('EXACT_OWNED_EXPOSURE_REQUIRED')
+            self.phase(row,'RECOVERY',recovery=True,exposure=observation,reason='protection_read_failed')
+        if not 0<=self.clock()-snapshot['observed_at']<=3:
+            # Child timeouts must not consume every recovery snapshot. Refresh
+            # account + exact parent/fills without repeating the failed child read.
+            if not self.sync.poll(wait=True):raise TransportError('FRESH_BROKER_READ_REQUIRED')
+            snapshot=self.sync.snapshot();entry=self.entry_identity(row,receipt)
+            observation=self.exposure_fact(row,receipt,entry,snapshot)
+            if not observation['attributable']:raise TransportError('EXACT_OWNED_EXPOSURE_REQUIRED')
         if operation=='cancel':
             if observation.get('entry_status') in TERMINAL:return dict(success=True,already_terminal=True)
             path=self.prefix+'/orders/'+str(receipt['orderId'])+'/cancel';body={}
@@ -836,25 +997,47 @@ class Transport:
         return self.cancel_owned_order(row,child,'child_cancel','child-cancel-'+str(child))
 
     def cancel_owned_order(self,row,child,operation,aid):
-        # Private helper: caller has just proved native identity and ownership.
-        if not execution_safety.writes_enabled():return
+        """Retry only a reconciled still-working exact order, never a new entry.
+
+        Durable attempt reservation serializes concurrent callers/restarts.
+        PendingCancel or an unresolved provider Cancel command is not retried.
+        """
+        if not execution_safety.writes_enabled():return dict(success=False,reason='writes_disabled')
         if operation not in ('cancel','child_cancel'):raise TransportError('INVALID_CANCEL_OPERATION')
-        with self.api.connect() as c:
-            c.execute('BEGIN IMMEDIATE')
-            if c.execute('SELECT 1 FROM native_actions WHERE binding=? AND action_id=?',(self.binding,aid)).fetchone():return
-            if operation=='cancel' and c.execute("SELECT 1 FROM native_actions WHERE binding=? AND order_id=? AND operation='cancel'",(self.binding,row['order_id'])).fetchone():return
-            c.execute('INSERT INTO native_actions VALUES(?,?,?,?,?,?,?,?)',
-                      (self.binding,aid,row['order_id'],operation,'SENDING','{}',None,int(self.clock()*1000)))
-        reply={};state='UNKNOWN'
-        try:
-            reply=self.request('POST',self.prefix+'/orders/'+str(child)+'/cancel',{})
-            if (reply.get('success') is True and reply.get('account')==self.sync.name
-                and reply.get('destination')=='tradovate' and reply.get('api')=='cancel_order' and not reply.get('warning')):
-                state='ACKNOWLEDGED'
-        except Exception:pass
-        with self.api.connect() as c:
-            c.execute('UPDATE native_actions SET state=?,response_json=?,updated_ms=? WHERE binding=? AND action_id=?',
-                      (state,encode(reply),int(self.clock()*1000),self.binding,aid))
+        with _LOCK:
+            life=self.entry_identity(row,{'orderId':child},strict=False) if operation=='cancel' else self.lifecycle(child)
+            status=life['order'].get('ordStatus');now=int(self.clock()*1000)
+            if status in TERMINAL:
+                with self.api.connect() as c:
+                    c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND order_id=? AND operation=?",(now,self.binding,row['order_id'],operation)) if operation=='cancel' else None
+                return dict(success=True,already_terminal=True)
+            if status not in ('Working','Suspended','Accepted','PartFilled','PartiallyFilled'):
+                return dict(success=False,reason='broker_cancel_pending')
+            cancels=[x for x in life['commands'] if x.get('commandType')=='Cancel']
+            if cancels and any(x.get('commandStatus') not in ('Rejected','ExecutionStopped','Completed','Canceled','Cancelled') for x in cancels):
+                return dict(success=False,reason='broker_cancel_command_unresolved')
+            key='cancel:'+str(child)
+            with self.api.connect() as c:
+                c.execute('BEGIN IMMEDIATE')
+                old=c.execute("SELECT * FROM native_actions WHERE binding=? AND order_id=? AND operation=? ORDER BY updated_ms DESC",(self.binding,row['order_id'],operation)).fetchall()
+                old=[x for x in old if operation=='cancel' or json.loads(x['payload_json']).get('broker_id')==child or x['action_id']=='child-cancel-'+str(child)]
+                if old and now-old[0]['updated_ms']<CANCEL_RETRY_SECONDS*1000:
+                    return dict(success=False,reason='cancel_reconciliation_backoff')
+                attempt=len(old)+1;action_id=key+':'+str(attempt)
+                c.execute('INSERT INTO native_actions VALUES(?,?,?,?,?,?,?,?)',
+                    (self.binding,action_id,row['order_id'],operation,'SENDING',encode({'broker_id':child,'attempt':attempt}),None,now))
+            reply={};state='UNKNOWN'
+            try:
+                reply=self.request('POST',self.prefix+'/orders/'+str(child)+'/cancel',{})
+                if (reply.get('success') is True and reply.get('account')==self.sync.name
+                    and reply.get('destination')=='tradovate' and reply.get('api')=='cancel_order' and not reply.get('warning')):state='ACKNOWLEDGED'
+            except Exception:pass
+            with self.api.connect() as c:
+                c.execute('UPDATE native_actions SET state=?,response_json=?,updated_ms=? WHERE binding=? AND action_id=?',
+                          (state,encode(reply),int(self.clock()*1000),self.binding,action_id))
+                self.audit(c,row['order_id'],'CANCEL_ATTEMPT',dict(broker_id=child,attempt=attempt,state=state))
+            self.phase(row,'EXPIRED_PENDING' if now>=row['expiry_ms'] else 'CANCEL_PENDING',recovery=state=='UNKNOWN',reason='cancel_outcome_unknown' if state=='UNKNOWN' else 'awaiting_broker_terminal')
+            return dict(success=state=='ACKNOWLEDGED',state=state,filled=False)
 
     def queue_exit(self,oid,reason):
         with self.api.connect() as c:
@@ -871,6 +1054,9 @@ class Transport:
                     c.execute('DELETE FROM native_exit_requests WHERE binding=? AND order_id=?',(self.binding,oid))
                 continue
             try:
+                if not 0<=self.clock()-snapshot['observed_at']<=3:
+                    if not self.sync.poll(wait=True):raise TransportError('FRESH_BROKER_READ_REQUIRED')
+                    snapshot=self.sync.snapshot()
                 self.action(oid,'cancel','guard-cancel-'+oid,snapshot=snapshot)
                 self.action(oid,'close','guard-close-'+oid,snapshot=snapshot)
             except Exception as exc:
@@ -959,7 +1145,9 @@ def status():
         counts={r[0]:r[1] for r in c.execute('SELECT state,count(*) FROM native_orders WHERE binding=? GROUP BY state',(_TRANSPORT.binding,))}
         pending=[dict(r) for r in c.execute("SELECT order_id,state,error,updated_ms FROM native_orders WHERE binding=? AND state NOT IN ('NO_FILL','CLOSED') ORDER BY created_ms LIMIT 20",(_TRANSPORT.binding,))]
         recovery=[dict(r) for r in c.execute('SELECT order_id,reason,created_ms FROM native_exit_requests WHERE binding=? ORDER BY created_ms LIMIT 20',(_TRANSPORT.binding,))]
-    return dict(provider='crosstrade',enabled=True,route_id=route_id(),orders_by_state=counts,pending=pending,entry_blocker=_TRANSPORT.entry_blocker(),
+        phases=[dict(r) for r in c.execute('SELECT order_id,phase,recovery,reason,updated_ms FROM native_order_phase WHERE binding=?',(_TRANSPORT.binding,))]
+        alerts=[dict(r) for r in c.execute('SELECT order_id,reason,created_ms FROM native_operator_alerts WHERE binding=? AND resolved=0',(_TRANSPORT.binding,))]
+    return dict(lifecycle_phases=phases,operator_alerts=alerts,provider='crosstrade',enabled=True,route_id=route_id(),orders_by_state=counts,pending=pending,entry_blocker=_TRANSPORT.entry_blocker(),
         recovery_requests=recovery,
         note='Accepted native order IDs are not fills. Unknown submissions are reconciled and never resent.')
 

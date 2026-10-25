@@ -292,7 +292,7 @@ def record_dispatch(order, result):
 
 
 
-def broker_event(body, current=None):
+def broker_event(body, current=None, *, native_verified=False):
     """Trusted bridge protocol: full position snapshots, not a TP receipt.
 
     Snapshots assert sole ownership of this route/contract and order attribution.
@@ -342,7 +342,7 @@ def broker_event(body, current=None):
                 if qty != body["quantity"] or qty <= 0: raise ValueError("invalid quantity")
                 fill = int(body["fill_ms"])
                 avg = float(body["entry_price"])
-                if not math.isfinite(avg) or not order["activation_ms"] <= fill <= at or fill >= order["expiry_ms"]:
+                if not math.isfinite(avg) or not order["activation_ms"] <= fill <= at or (fill >= order["expiry_ms"] and not native_verified):
                     raise ValueError("invalid fill timestamp/price")
                 if not body.get("position_id") or body.get("direction") != order["direction"]:
                     raise ValueError("position identity/direction mismatch")
@@ -353,12 +353,19 @@ def broker_event(body, current=None):
                 other = c.execute("SELECT COUNT(*) FROM orders WHERE order_id<>? AND state IN ('ASSUMED_OPEN','BROKER_CONFIRMED_OPEN','GUARD_EXIT_PENDING','OPEN','EXIT_PENDING','EXIT_UNKNOWN','OWNERSHIP_MISMATCH')", (oid,)).fetchone()[0]
                 fill_sign = 1 if order['direction'] == 'LONG' else -1
                 fill_compatible = (avg == order['entry_price'] or
-                    (order.get('lifecycle') == 'AB_NATIVE_MANAGED_V1'
+                    ((native_verified or order.get('lifecycle') == 'AB_NATIVE_MANAGED_V1')
                      and fill_sign * (avg - order['entry_price']) <= 0
                      and fill_sign * (avg - order['stop_price']) > 0))
                 compatible = (body.get("exclusive") is True and not other and qty == order.get("quantity")
                     and fill_compatible and body.get("stop_price") == order["stop_price"]
                     and body.get("target_price") == order["target_price"])
+                if native_verified:
+                    body=dict(body,late_fill=fill>=order['expiry_ms'],
+                              actual_risk_points=fill_sign*(avg-order['stop_price']),
+                              actual_reward_points=fill_sign*(order['target_price']-avg),
+                              actual_stop_risk_usd=fill_sign*(avg-order['stop_price'])*qty*2,
+                              actual_gross_rr=(fill_sign*(order['target_price']-avg)/(fill_sign*(avg-order['stop_price']))) if fill_sign*(avg-order['stop_price'])>0 else None,
+                              approved_limit=order['entry_price'])
                 state = row["state"] if row["state"] in {"EXIT_PENDING", "EXIT_UNKNOWN", "EXIT_REJECTED", "GUARD_EXIT_PENDING"} else ("BROKER_CONFIRMED_OPEN" if order.get("lifecycle") in (position_manager.LIFECYCLE, "AB_NATIVE_MANAGED_V1") else "OPEN") if compatible else "OWNERSHIP_MISMATCH"
             else:
                 if int(body.get("quantity", -1)) != 0: raise ValueError("terminal event needs quantity zero")

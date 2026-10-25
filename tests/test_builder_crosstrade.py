@@ -36,6 +36,7 @@ class NativeTests(unittest.TestCase):
             AB_V3_DETECTOR_CONTRACT_VERIFIED='1',AB_V3_EXCLUSIVE_ROUTE='1', DATA_DIR=self.tmp.name,
             AB_V3_DB=str(Path(self.tmp.name)/'v3.sqlite3'))).start()
         # Protocol unit tests isolate the independently tested final market gate.
+        self.pending_gate = patch.object(native, 'pending_blocker', return_value=None).start()
         self.final_gate = patch.object(execution_validation, 'check', return_value=None).start()
         self.api=types.SimpleNamespace()
         ns=dict(Path=Path,os=os,sqlite3=sqlite3,HERE=Path(self.tmp.name),json=json,hashlib=hashlib,math=__import__('math'))

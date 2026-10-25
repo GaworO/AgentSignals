@@ -29,7 +29,7 @@ def configure_sources(*, market, thesis, risk):
 
 
 def register_source(name, validator):
-    if name not in ('market', 'thesis', 'risk') or not callable(validator):
+    if name not in ('market', 'thesis', 'risk', 'pending') or not callable(validator):
         raise ValueError('server_side_validator_required')
     _SOURCES[name] = validator
 

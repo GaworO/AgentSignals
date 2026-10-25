@@ -1444,7 +1444,7 @@ def _reserved_entry_blocker(x, reservation_id, state):
     return None
 
 
-def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None, *, reservation_id=None):
+def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=None, *, reservation_id=None, _pending_owned=False):
     """(True,'ok') to allow staging, else (False,'<reason>'). FAIL-CLOSED on any error."""
     try:
         beat(feed_age_min, market_open)              # stamp liveness + last feed age for /guard/health
@@ -1455,7 +1455,7 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
             if reservation_reason: return (False, reservation_reason)
         broker_reason = (builder_broker_sync.entry_blocker(pending_order_id=x['_continuation_order_id'])
                          if reservation_id is not None else builder_broker_sync.entry_blocker())
-        if broker_reason: return (False, broker_reason)
+        if broker_reason and not _pending_owned: return (False, broker_reason)
         if market_open is False:                return (False, 'market_closed')
         if stale_abort(feed_age_min):           return (False, 'stale_data')   # abort on old bars (non-latching, auto-resumes)
         if _env('NEWS_GUARD', '1') == '1':
@@ -1500,7 +1500,7 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         ep = eval_progress()                                          # eval over? stop trading it
         if ep['passed']:   _latch('target_hit_6pct', hard=True);  return (False, 'target_hit')
         if ep['breached']: _latch('dd_breached', hard=True);      return (False, 'dd_breached')
-        if is_duplicate(x):                     return (False, 'duplicate')   # one setup = one order (silent, no dup alert)
+        if not _pending_owned and is_duplicate(x): return (False, 'duplicate')   # one setup = one order (silent, no dup alert)
         if _env('GUARD_SKIP_DIB', '0') == '1' and 'DIB' in str(x.get('cat', '')):
             return (False, 'class_b_dib')   # class-B tier: excluded from the audited premium tier (T4);
                                             # went 0W/4L in the 2026 Feb-Jun forward sim. Opt-in gate.
@@ -1789,6 +1789,8 @@ def health(feed_age_min=None, market_open=None):
             transport=builder_crosstrade.status()
             add('broker_order_transport','warn' if transport.get('entry_blocker') else 'ok',
                 transport.get('entry_blocker') or 'CrossTrade native IDs; broker fills and closure reconciliation')
+            if transport.get('operator_alerts'):
+                add('broker_recovery','critical','; '.join(a['order_id']+': '+a['reason'] for a in transport['operator_alerts'][:5]))
         if broker.get('enabled'):
             add('broker_account', 'ok' if broker.get('current') else 'critical',
                 ('CrossTrade current: %s positions, %s working orders' %
