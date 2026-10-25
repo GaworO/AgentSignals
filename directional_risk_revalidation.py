@@ -100,6 +100,9 @@ class RiskValidator:
                 return dict(proof,reason='cost_contract_mismatch')
             costs=execution_validation.costs(parameters)
             cost_per_contract=costs['round_trip_usd']+costs['stop_slippage_ticks']*.5
+            budget=directional_account_limits.trade_budget(snapshot,budget)
+            signal['_risk_budget_usd']=budget
+            signal['_planned_group_risk_usd']=budget
             if amount+qty*cost_per_contract>budget:
                 return dict(proof,reason='cost_inclusive_trade_risk_budget')
             reason=directional_account_limits.check(snapshot,sync.binding,order,

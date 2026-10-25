@@ -164,6 +164,30 @@ def check(snapshot, binding, order, now_ms, cost_per_contract, *, evidence=None)
         return 'mffu_allowances_unavailable'
 
 
+def equity_percent_mode():
+    mode=os.environ.get('AB_DIRECTIONAL_RISK_MODE','FIXED_USD')
+    if mode not in ('FIXED_USD','EQUITY_PERCENT'):
+        raise ValueError('directional_risk_mode_unknown')
+    return mode=='EQUITY_PERCENT'
+
+
+def trade_budget(snapshot, legacy_budget):
+    """Server-configured percentage of current equity; includes all trade costs.
+
+    Snapshot freshness/account reconciliation must still pass the caller's
+    existing checks. Never use start balance, webhook values or a cached cap.
+    """
+    if not equity_percent_mode():return legacy_budget
+    equity=snapshot['account']['balance']['netLiq']
+    if type(equity) not in (int,float) or not math.isfinite(equity) or equity<=0:
+        raise ValueError('current_equity_unknown')
+    pct=Decimal(os.environ['AB_DIRECTIONAL_RISK_PCT'])
+    if not pct.is_finite() or not Decimal('0')<pct<=Decimal('0.5'):
+        raise ValueError('directional_risk_percent_invalid')
+    # Floor cents: displayed/authorized budget never rounds above 0.5%.
+    return float((Decimal(str(equity))*pct/100).quantize(Decimal('.01'),rounding=ROUND_FLOOR))
+
+
 def capacity(snapshot, binding, order, now_ms, cost_per_contract, budget):
     """Exact cost-inclusive cap, never a minimum-one override or a stop change.
 
@@ -180,6 +204,7 @@ def capacity(snapshot, binding, order, now_ms, cost_per_contract, budget):
         result.update(stop_distance_points=distance,stop_risk_usd=distance*2,
                       gross_2r_target=order['entry_price']+sign*2*distance)
         proof=read_evidence()
+        budget=trade_budget(snapshot,budget)
         if type(budget) not in (int,float) or not math.isfinite(budget) or budget<=0:
             return dict(result,reason='strategy_risk_budget_unknown')
         minimum=dict(order,quantity=1)
@@ -204,6 +229,8 @@ def capacity(snapshot, binding, order, now_ms, cost_per_contract, budget):
         qty=min(capacities.values())
         result.update(risk_per_contract_usd=float(per),stop_risk_usd=float(per-dec(cost_per_contract)),
             costs_and_slippage_usd=cost_per_contract,strategy_budget_usd=budget,
+            risk_basis='CURRENT_EQUITY_PERCENT' if equity_percent_mode() else 'FIXED_USD',
+            risk_equity_usd=b['netLiq'],
             minimum_balance=floor,reserve_usd=reserve,usable_headroom_usd=float(room),
             daily_loss_policy='NONE' if daily is None else 'LIMITED',daily_remaining_usd=float(daily_room),
             caps=capacities,checked_ms=int(snapshot['read_started_at']*1000),account_binding=binding)

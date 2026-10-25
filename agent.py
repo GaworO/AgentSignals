@@ -218,6 +218,7 @@ def _exec_order(x, text=None):
             if not _sizing['allowed']:
                 return dict(sent=False,reason=_sizing['reason'],qty=0,risk_sizing=_sizing)
             _account_qty_cap = _sizing['max_quantity']
+            _risk_budget_usd = _sizing.get('strategy_budget_usd',_risk_budget_usd)
         if _strict_risk:
             try:
                 _sf = (live_emit.size_for_budget(e, sl, _risk_budget_usd)
@@ -849,6 +850,15 @@ def _continuation_live_budget(profile):
 
 def _directional_live_budget(profile):
     """Separate capped risk switch for A/B Directional; never borrows Continuation config."""
+    import directional_account_limits
+    try:
+        if directional_account_limits.equity_percent_mode():
+            sync=builder_broker_sync.instance()
+            if not sync.enabled or not sync.poll(wait=True) or not sync.state()['current']:
+                return 0.0
+            return directional_account_limits.trade_budget(sync.snapshot(),None)
+    except Exception:
+        return 0.0
     is_50k = profile.get('plan') in ('builder50', 'rapid_eod50')
     ceiling = 250.0 if is_50k else 500.0
     key = 'AB_DIRECTIONAL_RISK_USD_50K' if is_50k else 'AB_DIRECTIONAL_RISK_USD_100K'

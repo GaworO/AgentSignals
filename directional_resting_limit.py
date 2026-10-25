@@ -28,12 +28,12 @@ def validate_policy(p):
             or not p.get('validation_reference') or not p.get('residual_risk_acceptance_reference')
             or set(p.get('accepted_residual_risks', [])) != set(RISKS)):
         raise ValueError('resting_limit_policy_not_explicitly_accepted')
-    if (p.get('max_quantity') != 1 or type(p.get('max_quantity')) is not int
+    if (type(p.get('max_quantity')) is not int or not 1 <= p['max_quantity'] <= 40
             or p.get('max_positions') != 1 or type(p.get('max_positions')) is not int
             or p.get('allow_scale_in') is not False or p.get('advanced_writes') is not False
             or p.get('original_limit_only') is not True or p.get('fixed_gross_rr') != 2
             or p.get('min_rr') != 2 or p.get('thesis_rule_version') != 'original_bos_bracket_ai_v1'):
-        raise ValueError('resting_limit_one_contract_original_bracket_required')
+        raise ValueError('resting_limit_quantity_cap_original_bracket_required')
     if not re.fullmatch(r'MNQ[HMUZ]20\d{2}', str(p.get('contract', ''))):
         raise ValueError('explicit_mnq_contract_required')
     if (type(p.get('contract_last_trade_ms')) is not int or p['contract_last_trade_ms'] <= 0
@@ -51,8 +51,8 @@ def validate_policy(p):
 
 
 def observation_check(order, observation, p, now):
-    if type(order.get('quantity')) is not int or order['quantity'] != 1:
-        return 'resting_limit_pilot_quantity'
+    if type(order.get('quantity')) is not int or not 1 <= order['quantity'] <= p['max_quantity']:
+        return 'resting_limit_quantity_cap'
     if (observation.get('source') != SOURCE or observation.get('order_id') != order['order_id']
             or observation.get('contract') != order['contract']
             or observation.get('closed') is not True or not observation.get('evidence_id')):

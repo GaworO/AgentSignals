@@ -1,0 +1,19 @@
+{
+  "status": "PREPARED_NOT_ACTIVATED",
+  "risk_basis": "CURRENT_BROKER_EQUITY",
+  "percent": 0.5,
+  "estimated_costs_in_budget": true,
+  "environment": {
+    "AB_DIRECTIONAL_RISK_MODE": "EQUITY_PERCENT",
+    "AB_DIRECTIONAL_RISK_PCT": "0.5",
+    "EXEC_MAX_QTY": "40"
+  },
+  "policy_changes": {
+    "max_quantity": 40
+  },
+  "constraints": [
+    "Margin and verified account contract limits can reduce quantity.",
+    "Existing historical broker acceptance is scoped to one contract; this change does not claim multi-contract broker verification or remove that gate.",
+    "No production settings or order permissions changed."
+  ]
+}

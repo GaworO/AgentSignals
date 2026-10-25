@@ -43,8 +43,8 @@ def test_waiting_limit_not_required_to_be_immediately_executable(direction):
 
 
 @pytest.mark.parametrize('index,key,value,reason',[
- (0,'quantity',2,'resting_limit_pilot_quantity'),
- (0,'quantity',True,'resting_limit_pilot_quantity'),
+ (0,'quantity',2,'resting_limit_quantity_cap'),
+ (0,'quantity',True,'resting_limit_quantity_cap'),
  (0,'expiry_ms',1000000,'signal_expired'),
  (0,'activation_ms',800000,'signal_too_old'),
  (0,'contract','MNQH2027','contract_mismatch'),
@@ -95,7 +95,7 @@ def test_missing_review_stale_candles_and_rollover_are_not_revived():
 
 @pytest.mark.parametrize('key,value',[
  ('approved',False),('accepted_residual_risks',[]),('account_binding',None),
- ('max_quantity',2),('advanced_writes',True),('allow_scale_in',True),('fixed_gross_rr',3),
+ ('max_quantity',41),('advanced_writes',True),('allow_scale_in',True),('fixed_gross_rr',3),
  ('quote_source','collective'),('max_account_age_ms',3001),('max_closed_m1_age_ms',75001),
  ('max_signal_age_ms',120001),('max_pending_lifetime_sec',601),
  ('execution_model','typo'),('max_thesis_age_ms',float('nan'))])
