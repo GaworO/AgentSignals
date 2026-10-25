@@ -126,7 +126,8 @@ def schema_check(value, schema):
         raise ValueError('invalid_nullable_value')
     kind = schema['type']
     valid = {'object':type(value) is dict, 'array':type(value) is list, 'string':type(value) is str,
-             'null':value is None, 'number':type(value) in (int,float) and math.isfinite(value)}
+             'null':value is None, 'number':type(value) in (int,float) and math.isfinite(value),
+             'integer':type(value) is int}
     if not valid[kind] or 'enum' in schema and value not in schema['enum']:
         raise ValueError('schema_mismatch')
     if kind == 'object':
