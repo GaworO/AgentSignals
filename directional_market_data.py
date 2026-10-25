@@ -257,6 +257,12 @@ class QuoteClient:
 
 
 def monitor_once():
+    import execution_validation, directional_resting_limit
+    try:
+        if execution_validation.policy().get('execution_model') == directional_resting_limit.MODEL:
+            return None  # No NT8 polling for the explicit cloud-only policy.
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
     if os.environ.get('DIRECTIONAL_QUOTE_MONITOR_ENABLED')!='true':return None
     client=QuoteClient();latest=client.latest()
     if latest and latest['observation_age_ms']<MONITOR_INTERVAL_SECONDS*1000:return latest
@@ -283,13 +289,17 @@ def start_monitor():
 
 
 class MarketSource:
-    def __init__(self, *, clock=time.time, reader=None):
+    def __init__(self, *, clock=time.time, reader=None, market_open=None):
+        self.market_open=market_open
         self.clock=clock
         self.client=QuoteClient(clock=clock,reader=reader)
 
     def __call__(self, order):
         import execution_validation
         p=execution_validation.policy()
+        import directional_resting_limit
+        if p.get('execution_model') == directional_resting_limit.MODEL:
+            return directional_resting_limit.CandleSource(clock=self.clock, market_open=self.market_open)(order)
         if p.get('quote_source') != 'crosstrade_nt8':
             raise ValueError('quote_provider_not_supported')
         n=p.get('volatility_window_bars')

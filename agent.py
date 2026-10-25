@@ -2056,7 +2056,7 @@ import execution_validation
 from directional_risk_revalidation import RiskValidator
 from directional_market_data import MarketSource, start_monitor
 from directional_thesis import ThesisValidator
-execution_validation.register_source('market', MarketSource())
+execution_validation.register_source('market', MarketSource(market_open=_market_open_now))
 start_monitor()
 execution_validation.register_source('thesis', ThesisValidator())
 execution_validation.register_source('risk', RiskValidator(

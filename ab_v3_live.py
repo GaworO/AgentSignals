@@ -437,6 +437,35 @@ def native_bracket_readiness():
     try:
         p=execution_validation.policy()
         proof=p.get('broker_workflow_verification',{})
+        if proof.get('evidence_kind') == 'ACCOUNT_HISTORY_CONTROLLED_PILOT':
+            # Explicit operator acceptance of a one-contract pilot, NOT a
+            # claim that mocked restart/late-fill recovery was broker-verified.
+            # Per-fill native SL/TP/OCO reconciliation remains unchanged.
+            import directional_resting_limit
+            identity=[os.environ.get(k,'') for k in ('BUILDER_BROKER_ACCOUNT_ID',
+                'BUILDER_BROKER_ACCOUNT_NAME','BUILDER_BROKER_ENVIRONMENT')]
+            binding=hashlib.sha256(builder_broker_sync.encode(identity).encode()).hexdigest()
+            ids=proof.get('broker_order_ids')
+            if (p.get('execution_model') != directional_resting_limit.MODEL
+                    or not all(identity) or p.get('account_binding') != binding
+                    or proof.get('account_binding') != binding or proof.get('contract') != contract()
+                    or proof.get('provider') != 'CrossTrade' or proof.get('surface') != 'tradovate'
+                    or proof.get('historical_native_oso_oco_verified') is not True
+                    or proof.get('current_directional_broker_run_verified') is not False
+                    or proof.get('recovery_evidence_kind') != 'DETERMINISTIC_TESTS_NOT_PROVIDER_VERIFIED'
+                    or not proof.get('recovery_evidence_reference') or not proof.get('historical_evidence_reference')
+                    or not proof.get('operator_pilot_acceptance_reference')
+                    or not isinstance(ids,list) or len(ids)<3
+                    or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids)
+                    or os.environ.get('EXEC_MAX_QTY') != '1'
+                    or os.environ.get('EXEC_STRATEGY_POLICY') != 'V3_ONLY'
+                    or os.environ.get('AB_ENTRY_ARMED','0') != '0'
+                    or os.environ.get('AB_MANAGER_MODE','shadow').lower() != 'shadow'
+                    or os.environ.get('V3_EXIT_MODE','shadow').lower() != 'shadow'
+                    or os.environ.get('V3_EXIT_REAL_EXECUTION','false').lower() != 'false'
+                    or os.environ.get('V3_RUNNER_ENABLED','false').lower() != 'false'):
+                return 'native_bracket_controlled_pilot_scope_unverified'
+            return None
         if (proof.get('verified') is not True or proof.get('simulator_only') is not False
                 or proof.get('provider')!='CrossTrade' or proof.get('surface')!='tradovate'
                 or proof.get('contract')!=contract()

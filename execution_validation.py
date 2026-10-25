@@ -2,7 +2,8 @@
 
 There is deliberately no candle-to-quote fallback. CrossTrade collective
 quotes are monitored but cannot authorize orders without source verification.
-Registered adapters still require verified quote access, account allowances,
+An explicitly approved RESTING_LIMIT_CLOSED_M1_V1 policy uses closed candles
+without claiming executable quotes. Both policies still require account allowances,
 complete current thesis evidence and approved execution parameters.
 Policy values must come from an explicitly documented and approved strategy
 validation; none are inferred from observed trades or the AI response.
@@ -15,6 +16,7 @@ import time
 from pathlib import Path
 
 import execution_trace
+import directional_resting_limit as resting
 
 _SOURCES = {}
 LIMITS = ('max_signal_age_ms', 'max_quote_age_ms', 'entry_zone_points',
@@ -41,19 +43,23 @@ def policy():
     value = json.loads(Path(path).read_text())
     if (value.get('approved') is not True or not value.get('validation_reference')
             or value.get('strategy') != 'AB_DIRECTIONAL'
-            or not value.get('volatility_definition')):
+            or (value.get('execution_model') != resting.MODEL and not value.get('volatility_definition'))):
         raise ValueError('validated_execution_policy_missing')
-    for key in LIMITS:
-        number = value.get(key)
-        if type(number) not in (int, float) or not math.isfinite(number) or number <= 0:
-            raise ValueError('execution_parameter_missing:' + key)
-    if value['min_rr'] < 2:
-        raise ValueError('directional_minimum_2r_required')
-    if value['max_account_age_ms'] > 30000:
-        raise ValueError('account_age_exceeds_existing_sync_limit')
-    validate_quote_parameters(value)
+    validate_parameters(value)
     costs(value)
     return value
+
+
+def validate_parameters(parameters):
+    model = parameters.get('execution_model', 'EXECUTABLE_BBO_V1')
+    if model == resting.MODEL:
+        resting.validate_policy(parameters)
+    elif model == 'EXECUTABLE_BBO_V1':
+        validate_quote_parameters(parameters)
+        if parameters['max_account_age_ms'] > 30000:
+            raise ValueError('account_age_exceeds_existing_sync_limit')
+    else:
+        raise ValueError('unsupported_execution_model')
 
 
 def validate_quote_parameters(parameters):
@@ -136,7 +142,8 @@ def reward_risk(order, parameters):
 def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
     """Pure validation, also exercised by the offline broker simulator."""
     try:
-        validate_quote_parameters(parameters)
+        validate_parameters(parameters)
+        candle_policy = parameters.get("execution_model") == resting.MODEL
         if (not order.get('order_id') or order.get('strategy') != 'AB_DIRECTIONAL'
                 or str(order.get('order_type', 'LIMIT')).upper() != 'LIMIT'):
             return 'exact_directional_limit_setup_required'
@@ -148,45 +155,62 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
             return 'signal_expired'
         if now_ms-order['activation_ms'] > parameters['max_signal_age_ms']:
             return 'signal_too_old'
-        if quote.get('contract') != contract or parameters.get('contract') != contract:
+        if parameters.get('contract') != contract:
             return 'contract_mismatch'
         if now_ms >= parameters['contract_last_trade_ms']:
             return 'contract_expired'
-        if quote.get('market_open') is not True:
-            return 'market_closed_or_unknown'
-        if (quote.get('source') != 'crosstrade_nt8'
-                or quote.get('execution_eligible') is not True
-                or quote.get('timestamp_semantics_verified') is not True):
-            return 'quote_source_unverified'
-        if quote.get('source') != parameters.get('quote_source') or not quote.get('source'):
-            return 'quote_source_unverified'
-        if not 0 <= now_ms-quote['as_of_ms'] <= parameters['max_quote_age_ms']:
-            return 'quote_stale_or_future'
-        latency = quote.get('request_latency_ms')
-        if (type(latency) not in (int, float) or not math.isfinite(latency) or latency < 0
-                or latency > parameters.get('max_quote_latency_ms', parameters['max_quote_age_ms'])):
-            return 'quote_request_latency_exceeded_or_unknown'
-        proof_end = quote.get('provenance_expires_at_ms')
-        if proof_end is not None and now_ms >= proof_end:
-            return 'quote_verification_expired'
-        bid, ask, volatility = (float(quote[k]) for k in ('bid', 'ask', 'volatility_points'))
-        if (not all(math.isfinite(v) and v > 0 for v in (entry, stop, target, bid, ask))
-                or not math.isfinite(volatility) or volatility < 0 or bid > ask):
-            return 'invalid_market_or_bracket'
-        if any(abs(v/tick-round(v/tick)) > 1e-8 for v in (entry, stop, target, bid, ask)):
-            return 'off_tick_price'
-        px = ask if sign == 1 else bid
-        if abs(px-entry) > parameters['entry_zone_points']:
-            return 'outside_validated_entry_zone'
-        if (ask-bid)/tick > parameters['max_spread_ticks']:
-            return 'spread_limit'
-        if max(0, sign*(px-entry))/tick > parameters['max_slippage_ticks']:
-            return 'slippage_limit'
-        if (quote.get('volatility_definition') != parameters['volatility_definition']
-                or volatility > parameters['max_volatility_points']):
-            return 'volatility_limit_or_definition'
-        if sign*(px-entry) > 1e-9:
-            return 'original_limit_exceeded'
+        if candle_policy:
+            if not all(math.isfinite(v) and v > 0 for v in (entry, stop, target)):
+                return 'invalid_market_or_bracket'
+            if any(abs(v/tick-round(v/tick)) > 1e-8 for v in (entry, stop, target)):
+                return 'off_tick_price'
+            if sign*(entry-stop) <= 0 or sign*(target-entry) <= 0:
+                return 'bracket_invalidated'
+            if abs(sign*(target-entry)-2*sign*(entry-stop)) > 1e-8:
+                return 'original_fixed_2r_required'
+            reason = resting.observation_check(order, quote, parameters, now_ms)
+            if reason:return reason
+            if risk.get('account_binding') != parameters['account_binding']:
+                return 'resting_limit_account_binding_mismatch'
+            px = entry  # Worst permitted LIMIT; not a claimed live market price.
+        else:
+            if quote.get('contract') != contract:
+                return 'contract_mismatch'
+            if quote.get('market_open') is not True:
+                return 'market_closed_or_unknown'
+            if (quote.get('source') != 'crosstrade_nt8'
+                    or quote.get('execution_eligible') is not True
+                    or quote.get('timestamp_semantics_verified') is not True):
+                return 'quote_source_unverified'
+            if quote.get('source') != parameters.get('quote_source') or not quote.get('source'):
+                return 'quote_source_unverified'
+            if not 0 <= now_ms-quote['as_of_ms'] <= parameters['max_quote_age_ms']:
+                return 'quote_stale_or_future'
+            latency = quote.get('request_latency_ms')
+            if (type(latency) not in (int, float) or not math.isfinite(latency) or latency < 0
+                    or latency > parameters.get('max_quote_latency_ms', parameters['max_quote_age_ms'])):
+                return 'quote_request_latency_exceeded_or_unknown'
+            proof_end = quote.get('provenance_expires_at_ms')
+            if proof_end is not None and now_ms >= proof_end:
+                return 'quote_verification_expired'
+            bid, ask, volatility = (float(quote[k]) for k in ('bid', 'ask', 'volatility_points'))
+            if (not all(math.isfinite(v) and v > 0 for v in (entry, stop, target, bid, ask))
+                    or not math.isfinite(volatility) or volatility < 0 or bid > ask):
+                return 'invalid_market_or_bracket'
+            if any(abs(v/tick-round(v/tick)) > 1e-8 for v in (entry, stop, target, bid, ask)):
+                return 'off_tick_price'
+            px = ask if sign == 1 else bid
+            if abs(px-entry) > parameters['entry_zone_points']:
+                return 'outside_validated_entry_zone'
+            if (ask-bid)/tick > parameters['max_spread_ticks']:
+                return 'spread_limit'
+            if max(0, sign*(px-entry))/tick > parameters['max_slippage_ticks']:
+                return 'slippage_limit'
+            if (quote.get('volatility_definition') != parameters['volatility_definition']
+                    or volatility > parameters['max_volatility_points']):
+                return 'volatility_limit_or_definition'
+            if sign*(px-entry) > 1e-9:
+                return 'original_limit_exceeded'
         # The order is a LIMIT; an adverse fill beyond entry is not authorized.
         # Test both the original bracket and the current executable side.
         for price in (entry, px):
@@ -245,7 +269,10 @@ def check(order, review, *, clock=time.time):
             if blocked or not review or latest.get('review_id') != review.get('review_id'):
                 raise ValueError(blocked or 'hybrid_review_changed')
             review = latest
-        evidence['price_assessment'] = price_assessment(order, evidence['market'], parameters, int(clock()*1000))
+        evidence['execution_model'] = parameters.get('execution_model', 'EXECUTABLE_BBO_V1')
+        evidence['price_assessment'] = (resting.assessment(order, evidence['market'], parameters)
+            if parameters.get('execution_model') == resting.MODEL else
+            price_assessment(order, evidence['market'], parameters, int(clock()*1000)))
         reason = evaluate(order, evidence['market'], evidence['thesis'], evidence['risk'],
                           review or {}, parameters, int(clock()*1000))
     except Exception as exc:
@@ -264,9 +291,10 @@ def check(order, review, *, clock=time.time):
 
 def status():
     try:
-        policy()
+        parameters = policy()
         policy_error = None
     except Exception as exc:
+        parameters = {}
         policy_error = str(exc) if isinstance(exc, ValueError) else 'execution_policy_unreadable'
     missing = [name for name in ('market', 'thesis', 'risk') if name not in _SOURCES]
     access=[]
@@ -274,14 +302,15 @@ def status():
     if ab_v3_live.native_fixed_bracket():
         blocker=ab_v3_live.native_bracket_readiness()
         if blocker:access.append(blocker)
-    if 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
+    candle_policy = parameters.get('execution_model') == resting.MODEL
+    if not candle_policy and 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
             or not (os.environ.get('DIRECTIONAL_QUOTE_API_TOKEN') or os.environ.get('BUILDER_BROKER_API_TOKEN'))):
         access.append('executable_quote_access_not_configured')
     if 'risk' in _SOURCES and not os.environ.get('MFFU_RISK_EVIDENCE_FILE'):
         access.append('mffu_current_allowances_missing')
     from directional_market_data import QuoteClient
     try:
-        last=QuoteClient().latest()
+        last=None if candle_policy else QuoteClient().latest()
         if last and last.get('quote',{}).get('execution_eligible') is False:
             access.append('quote_source_suitability_unverified')
         quote_status=None if not last else {k:last.get(k) for k in ('observed_ms','observation_age_ms','reason','quote','request_latency_ms')}
@@ -289,4 +318,7 @@ def status():
         quote_status={'reason':'quote_monitor_unavailable'}
     return dict(quote_monitor=quote_status, ready=policy_error is None and not missing and not access, policy_error=policy_error,
                 access_blockers=access,
-                missing_validators=missing, candle_quote_fallback=False)
+                missing_validators=missing, candle_quote_fallback=False,
+                execution_model=parameters.get('execution_model', 'EXECUTABLE_BBO_V1'),
+                executable_quotes_required=not candle_policy,
+                residual_risks=list(resting.RISKS) if candle_policy else [])

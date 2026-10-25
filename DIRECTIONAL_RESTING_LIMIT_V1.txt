@@ -1,0 +1,91 @@
+Directional LIVE V1 — explicit closed-candle resting LIMIT policy
+
+Scope and authorization (2026-10-25)
+The user selected TradingView closed candles + Railway + CrossTrade cloud
+Tradovate, maximum 1 MNQ, original Directional LONG/SHORT, structural SL and
+exactly 2R gross at the approved original LIMIT. A/B stays shadow. No new
+strategy, NO-FILL recovery, subscription, runner or advanced manager writes.
+The user accepted the controlled MFFU pilot based on historical broker
+protection plus deterministic recovery tests. These tests are not represented
+as independent broker verification. Financial submission remains unarmed.
+
+Policy selection
+DIRECTIONAL_EXECUTION_POLICY_FILE=/app/directional_resting_limit_policy.json
+execution_model=RESTING_LIMIT_CLOSED_M1_V1
+Absent or unknown policy blocks. Existing EXECUTABLE_BBO_V1 behavior remains
+unchanged: it never falls back to candles automatically. Closed M1 observations
+have no bid, ask, spread or executable price. Unsupported NT8 polling is skipped
+only while the explicitly selected resting policy is valid.
+
+Admission
+- Exact contract/account and quantity 1; no simultaneous positions or scale-in.
+- Original tick-valid LIMIT and structural SL; target = entry +/-2*SL distance.
+- Closed immutable authenticated M1, last complete minute, maximum age 75s.
+  Source timestamps and receipt time retained; no incomplete/future bars.
+- Original BOS evidence and complete post-setup bars; touched bracket, changed
+  structure/liquidity, changed geometry and expired setup remain blocking.
+- Setup age <=120s, exact setup-specific unexpired genuine AI ALLOW, existing
+  12/day 3/7/2 budget. WAIT/REJECT/missing/timeout do not dispatch.
+- Fresh account and thesis <=3s, existing Guard/news/session/one-loss/day rules.
+- Missing account rules/coverage/margin still blocks. The policy never invents
+  these values and does not substitute a balance for an account allowance.
+- LIMIT/GTD deadline=min(original setup, AI validity, cancelAfter,
+  dispatch time +600s). Final delayed validation cannot outlive this deadline.
+
+Cost-inclusive sizing
+LONG distance=entry-SL; SHORT distance=SL-entry; per-contract stop risk=2*distance.
+Add configured RT cost estimate $2.24 and proposed/accepted 2 ticks x$0.50=$1
+stop-slippage allowance. This assumption is not calibrated and is not a bound
+on losses or slippage. Floor quantity by the tightest strategy risk budget,
+remaining drawdown after reserve, daily allowance, known margin and contract
+capacity, then cap at 1. If even 1 exceeds risk, quantity=0 and reject.
+Do not tighten/loosen the stop to fit size. Original sizing is logged.
+
+After a confirmed better fill
+Keep original absolute structural stop and target. Persist actual fill distance,
+gross/net estimated risk and remaining quantity using the cost assumptions
+frozen at dispatch. Actual gross RR may exceed 2 because the approved original
+target does not move. Actual realized fees remain reconciled separately; an
+estimate is not an actual charge. A fill beyond the SL or worse than the LIMIT
+uses the existing owned emergency recovery, never a replacement bracket.
+
+Protection evidence and limits
+Historical MFFU A/B parent641664660720 filled, stop641664660722 filled,
+target641664660721 canceled; archived records show reciprocal OCO and clOrdId.
+User-accepted ACCOUNT_HISTORY_CONTROLLED_PILOT is bound to the exact account,
+contract, quantity1, A/Bshadow and advanced-writes-off configuration.
+current_directional_broker_run_verified=false.
+Recovery evidence remains DETERMINISTIC_TESTS_NOT_PROVIDER_VERIFIED.
+The normal per-fill stop/target IDs, quantities, OCO and ownership checks remain
+mandatory. ACK is not fill; uncertain cancel is not terminal. Existing restart,
+late-fill, missing-protection and disconnect recovery is unchanged. Entry kill
+does not cancel protective children. No new NO-FILL recovery was implemented.
+
+Residual risks explicitly disclosed
+Unknown live spread and immediate marketability; a LIMIT can fill immediately.
+Intrabar invalidation and adverse selection before the next closed candle.
+Cancel/fill races, delayed cancellation and fills after requested expiry.
+Gap and stop-market slippage can exceed the assumed allowance and headroom.
+Broker/provider disconnection can delay observation and recovery. CrossTrade's
+demo/prop GTD watcher is not a hard exchange-enforced expiration guarantee.
+
+Activation and rollback
+No arming permission is changed by this release. V3_ENTRY_ARMED remains0.
+Before user activation: fresh account rules/coverage/margin, flat account/no
+working orders/unresolved intents, current feed/session and all Guard gates.
+A new setup still needs its own actual unexpired ALLOW. Never preapprove one.
+User-only final switch: V3_ENTRY_ARMED=1 after every required gate passes.
+Emergency entry stop: EXEC_KILL_SWITCH=true and V3_ENTRY_ARMED=0. Keep
+LIVE_EXECUTION_ENABLED=true for existing owned protective recovery; retain
+native SL/TP/OCO. Reconcile/cancel owned pending entries and confirm outcomes.
+Rollback code only while flat/reconciled with a fresh backup, preserving journals.
+Do not deploy obsolete ancestor d0d2c83 without the resting lifecycle fixes.
+
+Tests
+New policy tests cover explicit selection, old BBO fail-closed behavior,
+LONG/SHORT with exact mock ALLOW, WAIT/REJECT/timeout, identity/expiry/changed
+geometry, missing/stale/future candles, contract/auth checks, unchanged risk
+and native-protection barriers, max1 scope, GTD cap, improved fills and
+native simulated ACK->fill->SL/TP/OCO->exit->cost reconciliation.
+Existing lifecycle/risk/AI/Guard/isolation tests remain required. No paid AI
+request or broker order is made by tests.

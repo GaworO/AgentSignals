@@ -359,6 +359,14 @@ class Transport:
         if self.sync.entry_blocker(refresh=True):raise TransportError('FRESH_FLAT_ACCOUNT_REQUIRED')
         snapshot=self.sync.snapshot();now=int(self.clock()*1000)
         expiry=min(order['expiry_ms'],now+int(payload.get('cancelAfter',60))*1000)
+        if order.get('strategy') == 'AB_DIRECTIONAL' and os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE'):
+            # Freeze cost assumptions for later actual-fill accounting; never
+            # reinterpret an old fill using a subsequently changed policy.
+            p = execution_validation.policy()
+            order = dict(order, execution_costs_at_dispatch=dict(execution_validation.costs(p)),
+                         execution_model_at_dispatch=p.get('execution_model', 'EXECUTABLE_BBO_V1'))
+            if p.get('execution_model') == execution_validation.resting.MODEL:
+                expiry=min(expiry, now+int(p['max_pending_lifetime_sec']*1000))
         if expiry<=now or now>=order['expiry_ms']:raise TransportError('ENTRY_EXPIRED')
         if order.get('strategy') != 'A/B':
             ai_reason, review = directional_ai_review.check(order.get('direction'), oid + ':native')
@@ -702,7 +710,18 @@ class Transport:
                 # prove terminal status, then liquidate only attributed fills.
                 # No replacement bracket or discretionary manager is created.
                 self.queue_exit(row['order_id'],'PROTECTION_OR_LIMIT_NOT_VERIFIED')
-            observation.update(late_fill=fact['late_fill'],setup_expired_fill=fact['setup_expired_fill'],actual_stop_distance=fact.get('actual_stop_distance'),actual_target_distance=fact.get('actual_target_distance'))
+            fee_estimate=command['order'].get('execution_costs_at_dispatch')
+            actual_risk=None
+            if fee_estimate is not None and geometry_valid:
+                # Re-evaluate against the confirmed average fill. Absolute
+                # structural SL and approved target never move for better fills.
+                actual_risk=execution_validation.reward_risk(
+                    dict(order,entry_price=float(average)),
+                    dict(contract=order['contract'],costs=fee_estimate))
+                actual_risk.update(quantity=remaining,total_estimated_stop_loss_usd=remaining*actual_risk['net_loss_usd'],
+                                   costs_are_estimates=True,original_limit=order['entry_price'])
+            observation.update(actual_fill_risk=actual_risk,
+                               late_fill=fact['late_fill'],setup_expired_fill=fact['setup_expired_fill'],actual_stop_distance=fact.get('actual_stop_distance'),actual_target_distance=fact.get('actual_target_distance'))
             self.store_resolution(row,state,observation,receipt)
             self.phase(row,'PARTIALLY_FILLED' if eq<command['body']['qty'] else 'FILLED',recovery=state=='RECONCILIATION_REQUIRED',exposure=observation,reason='protection_or_geometry_unverified' if state=='RECONCILIATION_REQUIRED' else None)
             return
