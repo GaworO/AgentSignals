@@ -20,6 +20,8 @@ def rig(tmp_path,monkeypatch,market):
     def connect():
         db=sqlite3.connect(path);db.row_factory=sqlite3.Row;return db
     now=[T+616000];calls=[];posts=[];events=[]
+    import ab_v3_live
+    monkeypatch.setattr(ab_v3_live,'record_dispatch',lambda order,result:events.append(('native_dispatch_recorded',result)))
     service=SimpleNamespace(connect=connect,config=dict(CONFIG),clock=lambda:now[0]/1000,
         reader=lambda:copy.deepcopy(packet),packet=lambda source,now:source,
         event=lambda *args,**kw:events.append((args,kw)))
@@ -242,3 +244,25 @@ def test_deployed_draft_files_load_but_cannot_authorize_orders(monkeypatch):
     with pytest.raises(ValueError,match='validated_execution_policy_missing'):gate.policy()
     assert risk.read_static_evidence()['verified'] is False
     assert risk.read_static_evidence()['max_micro_contracts'] is None
+
+
+def test_parent_proof_owns_reconciliation_lock_before_account_refresh(monkeypatch):
+    import threading,builder_crosstrade
+    lock=threading.Lock();called=[]
+    def poll(**kw):
+        assert lock.locked();called.append('poll');return True
+    t=SimpleNamespace(poll_lock=lock,sync=SimpleNamespace(poll=poll,snapshot=lambda:dict(positions=[],orders=[])),
+        row=lambda oid:dict(state='NO_FILL',error=None,observation_json=json.dumps(dict(observed_at=1,
+           entry_quantity=0,entry_status='Canceled',native_active=[],no_fill_verified_since_ms=0)),
+           receipt_json=json.dumps(dict(orderId=1,oso1Id=2,oso2Id=3))),
+        reconcile_one=lambda row,snapshot:called.append('reconcile'))
+    monkeypatch.setattr(builder_crosstrade,'_TRANSPORT',t)
+    assert runtime.broker_proof('P')['verified']
+    assert called==['poll','reconcile'] and not lock.locked()
+
+
+def test_guard_rejection_is_terminal_and_recorded_without_retry(rig):
+    assert rig.run(dispatcher=lambda row:dict(state='BLOCKED',reason='MOCK_GUARD'))
+    with rig.connect() as db:assert db.execute('SELECT state FROM nofill_opportunities').fetchone()[0]=='REJECTED'
+    rig.run();assert len(rig.calls)==1 and not rig.posts
+    assert any(e[0]=='native_dispatch_recorded' for e in rig.events)

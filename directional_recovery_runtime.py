@@ -148,9 +148,12 @@ def selections(original, packet, *, stop_buffer_points=.25):
 def broker_proof(oid):
     import builder_crosstrade
     t=builder_crosstrade._TRANSPORT
-    if t is None or not t.sync.poll(wait=True):raise ValueError('BROKER_REFRESH_UNAVAILABLE')
+    if t is None:raise ValueError('BROKER_REFRESH_UNAVAILABLE')
     if not t.poll_lock.acquire(blocking=False):raise ValueError('BROKER_RECONCILIATION_BUSY')
     try:
+        # Own reconciliation before polling: its asynchronous after_poll hook
+        # must skip this pass, not race parent proof or the reserved child.
+        if not t.sync.poll(wait=True):raise ValueError('BROKER_REFRESH_UNAVAILABLE')
         snapshot=t.sync.snapshot();row=t.row(oid)
         if not row:raise ValueError('ORIGINAL_NATIVE_INTENT_MISSING')
         t.reconcile_one(row,snapshot)  # Existing cancellation/protection ownership rules.
@@ -264,9 +267,18 @@ def process(service, packet, external_calls, *, proof_reader=broker_proof,
                     fn=dispatcher or continuation_live._DISPATCHER
                     outcome=fn(source) if fn else dict(state='BLOCKED',reason='dispatcher_unavailable')
                 except Exception:outcome=dict(state='SUBMISSION_UNKNOWN',reason='RECOVERY_DISPATCH_UNCERTAIN_NO_RETRY')
+                # Use the same native ownership transition as original entries.
+                # SENT is WAITING_BROKER_FILL, never a synthetic position.
+                try:
+                    import ab_v3_live
+                    ab_v3_live.record_dispatch(source,outcome)
+                except Exception:
+                    service.event(oid,'recovery_dispatch_audit_unknown',reason='RECONCILE_NATIVE_INTENT_NO_RETRY')
                 continuation_live._finish(plan['order_id'],outcome,stamp)
                 with service.connect() as db:
                     journal.event(db,oid,int(service.clock()*1000),'REPLACEMENT_DISPATCH',outcome)
+                    if outcome.get('state') in ('BLOCKED','DISABLED','SHADOW'):
+                        db.execute("UPDATE nofill_opportunities SET state='REJECTED',updated_ms=? WHERE opportunity_id=? AND state='REPLACEMENT_RESERVED'",(int(service.clock()*1000),oid))
                 return True
             except Exception as exc:
                 service.event(oid,'recovery_blocked',reason=str(exc) if isinstance(exc,ValueError) else type(exc).__name__)

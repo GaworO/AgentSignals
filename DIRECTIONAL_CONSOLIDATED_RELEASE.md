@@ -61,7 +61,7 @@ At illustrative equity48721.05, budget243.60. SHORT29108/SL29135/TP29054:
 SL29735.75/TP29988.50:168.50+3.24=171.74, budget-only1. Both require all other
 gates; actual allowed quantity is zero until missing evidence is resolved.
 
-876 tests +36 subtests: broker protection, fill/cancel/restart races, exact AI,
+878 tests +36 subtests: broker protection, fill/cancel/restart races, exact AI,
 account/risk, policy, Guard and recovery runtime. Additional isolated scanner
 suite:18 tests +13 subtests. One pre-existing dashboard navigation assertion
 (dolrevmgr alias absence) is obsolete and not an execution check; recorded,
