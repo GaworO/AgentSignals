@@ -243,7 +243,11 @@ def test_deployed_draft_files_load_but_cannot_authorize_orders(monkeypatch):
     assert files['DIRECTIONAL_EXECUTION_POLICY_FILE']['max_quantity']==40
     with pytest.raises(ValueError,match='validated_execution_policy_missing'):gate.policy()
     assert risk.read_static_evidence()['verified'] is False
-    assert risk.read_static_evidence()['max_micro_contracts'] is None
+    proof=risk.read_static_evidence()
+    assert proof['max_micro_contracts']==40
+    assert proof['max_micro_contracts_source'].startswith('USER_CONFIRMED')
+    assert proof['margin_policy']['verified'] is False
+    assert proof['reconciliation_anchor']['verified'] is False
 
 
 def test_parent_proof_owns_reconciliation_lock_before_account_refresh(monkeypatch):

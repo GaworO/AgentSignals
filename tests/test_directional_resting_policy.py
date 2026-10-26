@@ -270,3 +270,29 @@ def test_history_pilot_does_not_authorize_other_accounts_or_advanced_writes(monk
 def test_pilot_evidence_scope_cannot_be_forged_by_ordinary_flags(monkeypatch,key,value):
     p=accepted_pilot(monkeypatch);p['broker_workflow_verification'][key]=value
     assert ab_v3_live.native_bracket_readiness()=='native_bracket_controlled_pilot_scope_unverified'
+
+
+def test_draft_candle_policy_diagnostics_do_not_claim_bbo_required(monkeypatch,tmp_path):
+    p=policy();p['approved']=False
+    path=tmp_path/'draft.json';path.write_text(json.dumps(p))
+    monkeypatch.setenv('DIRECTIONAL_EXECUTION_POLICY_FILE',str(path))
+    monkeypatch.setattr(gate,'_SOURCES',{'market':lambda _:None,'thesis':lambda _:None,'risk':lambda _:None})
+    monkeypatch.setattr(ab_v3_live,'native_fixed_bracket',lambda:False)
+    s=gate.status()
+    assert s['execution_model']==resting.MODEL
+    assert s['configured_execution_model']==resting.MODEL
+    assert s['policy_validated'] is False and s['ready'] is False
+    assert s['policy_error']=='validated_execution_policy_missing'
+    assert s['executable_quotes_required'] is None
+    assert 'executable_quote_access_not_configured' not in s['access_blockers']
+    with pytest.raises(ValueError,match='validated_execution_policy_missing'):gate.policy()
+
+
+def test_invalid_candle_parameters_remain_blocked_in_diagnostics(monkeypatch,tmp_path):
+    p=policy();p['max_quantity']=0
+    path=tmp_path/'invalid.json';path.write_text(json.dumps(p))
+    monkeypatch.setenv('DIRECTIONAL_EXECUTION_POLICY_FILE',str(path))
+    monkeypatch.setattr(ab_v3_live,'native_fixed_bracket',lambda:False)
+    s=gate.status()
+    assert not s['ready'] and not s['policy_validated'] and s['policy_error']
+    with pytest.raises(ValueError):gate.policy()

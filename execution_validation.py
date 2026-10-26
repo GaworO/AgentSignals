@@ -290,6 +290,14 @@ def check(order, review, *, clock=time.time):
 
 
 def status():
+    configured_model = None
+    try:
+        path = os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')
+        configured = json.loads(Path(path).read_text()) if path else {}
+        if isinstance(configured, dict):
+            configured_model = configured.get('execution_model')
+    except (OSError, ValueError, TypeError):
+        pass
     try:
         parameters = policy()
         policy_error = None
@@ -303,14 +311,17 @@ def status():
         blocker=ab_v3_live.native_bracket_readiness()
         if blocker:access.append(blocker)
     candle_policy = parameters.get('execution_model') == resting.MODEL
-    if not candle_policy and 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
+    # An unapproved candle policy is blocked, not a request to switch to BBO.
+    # This affects diagnostics only; check()/policy() still reject it.
+    blocked_candle_policy = policy_error is not None and configured_model == resting.MODEL
+    if not candle_policy and not blocked_candle_policy and 'market' in _SOURCES and (os.environ.get('DIRECTIONAL_QUOTE_SOURCE')!='crosstrade_nt8'
             or not (os.environ.get('DIRECTIONAL_QUOTE_API_TOKEN') or os.environ.get('BUILDER_BROKER_API_TOKEN'))):
         access.append('executable_quote_access_not_configured')
     if 'risk' in _SOURCES and not os.environ.get('MFFU_RISK_EVIDENCE_FILE'):
         access.append('mffu_current_allowances_missing')
     from directional_market_data import QuoteClient
     try:
-        last=None if candle_policy else QuoteClient().latest()
+        last=None if candle_policy or blocked_candle_policy else QuoteClient().latest()
         if last and last.get('quote',{}).get('execution_eligible') is False:
             access.append('quote_source_suitability_unverified')
         quote_status=None if not last else {k:last.get(k) for k in ('observed_ms','observation_age_ms','reason','quote','request_latency_ms')}
@@ -319,9 +330,11 @@ def status():
     return dict(quote_monitor=quote_status, ready=policy_error is None and not missing and not access, policy_error=policy_error,
                 access_blockers=access,
                 missing_validators=missing, candle_quote_fallback=False,
-                execution_model=parameters.get('execution_model', 'EXECUTABLE_BBO_V1'),
-                executable_quotes_required=not candle_policy,
-                residual_risks=list(resting.RISKS) if candle_policy else [])
+                execution_model=parameters.get('execution_model', configured_model or 'EXECUTABLE_BBO_V1'),
+                configured_execution_model=configured_model,
+                policy_validated=policy_error is None,
+                executable_quotes_required=None if blocked_candle_policy else not candle_policy,
+                residual_risks=list(resting.RISKS) if candle_policy or blocked_candle_policy else [])
 
 
 def configuration_files():

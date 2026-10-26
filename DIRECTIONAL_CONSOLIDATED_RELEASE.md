@@ -34,8 +34,8 @@ DIRECTIONAL_EXECUTION_POLICY_FILE=/app/directional_live_policy.json
 MFFU_RISK_EVIDENCE_FILE=/app/mffu_account_evidence.json
 
 Both files are intentionally blocking drafts: approved=false / verified=false.
-The policy's 40 ceiling is not a verified provider entitlement. Verified capacity
-is UNKNOWN in account evidence. The historical one-contract broker acceptance
+The policy's 40 ceiling is not a verified provider entitlement. Account capacity40 is recorded as user-confirmed; provider/margin verification
+is incomplete in account evidence. The historical one-contract broker acceptance
 cannot be converted into verified 40-contract protection by editing a number.
 No artificial fixed-one quantity is used in the risk calculation; incomplete
 account/broker evidence currently permits zero new entries.
@@ -72,9 +72,9 @@ All AI and broker order operations in tests are mocks. Real API checks are GET.
 ## Activation and rollback
 
 Current saved user switches may already read LIVE/armed. They are not evidence
-of authorization: policy/account/broker checks remain closed. After all current
-account rules, accounting coverage and broker scope are verified, present the
-complete reviewed policy and ask for final activation approval. Do not approve
+of authorization: policy/account/broker checks remain closed. User acceptance of dynamic0.5% risk and candle-only architecture is recorded.
+After current account rules, accounting coverage and broker scope are verified,
+follow DIRECTIONAL_OPERATOR_ACTIVATION.txt for user-controlled activation. Do not approve
 JSON or enable recovery as part of code deployment. A fresh exact ALLOW is still
 required at each genuine original/recovery opportunity.
 

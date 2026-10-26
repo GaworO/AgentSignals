@@ -2,7 +2,7 @@
   "execution_model": "RESTING_LIMIT_CLOSED_M1_V1",
   "approved": false,
   "validation_reference": "Consolidation 2026-10-26 deterministic tests; not authorization to submit orders",
-  "residual_risk_acceptance_reference": "Earlier one-contract policy acceptance retained historically; dynamic sizing and recovery policy not activated",
+  "residual_risk_acceptance_reference": "User confirmed cloud-only TradingView closed-candle LIMIT/GTD policy and later replaced the initial 1-MNQ pilot with 0.5% equity structural-stop sizing; authorization reiterated 2026-10-26. Acceptance is recorded separately from technical verification.",
   "accepted_residual_risks": [
     "unknown_spread",
     "unknown_immediate_executability",
@@ -51,16 +51,17 @@
     "historical_evidence_reference": "DIRECTIONAL_RESTING_LIMIT_V1.txt; saved MFFU A/B order720 Filled, stop722 Filled, target721 Canceled; reciprocal OCO and clOrdId",
     "recovery_evidence_kind": "DETERMINISTIC_TESTS_NOT_PROVIDER_VERIFIED",
     "recovery_evidence_reference": "tests/test_resting_limit_lifecycle.py; tests/test_broker_protection_v1.py; tests/test_directional_resting_policy.py",
-    "operator_pilot_acceptance_reference": "User 2026-10-25: accepts existing MFFU 1-MNQ pilot and does not require independent broker recovery verification. No financial activation performed.",
-    "max_quantity": 1
+    "operator_pilot_acceptance_reference": "User superseded the original 1-MNQ pilot with 0.5% equity sizing and maximum 40 MNQ. This acceptance does not extend the independently verified broker quantity scope.",
+    "max_quantity": 1,
+    "historical_operator_pilot_acceptance_reference": "User 2026-10-25: accepts existing MFFU 1-MNQ pilot and does not require independent broker recovery verification. No financial activation performed."
   },
-  "broker_evidence_note": "Historical A/B 5-MNQ fills and OCO evidence; previous operator acceptance only scoped to 1-MNQ pilot. No new Directional/recovery multi-contract workflow is certified.",
-  "approval_status": "DRAFT_DYNAMIC_CAPACITY_AND_RECOVERY_REQUIRES_FINAL_APPROVAL",
+  "broker_evidence_note": "The desired configuration is dynamic 0.5% equity sizing, not a fixed 1-MNQ pilot. Nested broker_workflow_verification.max_quantity=1 retains the legacy evidence scope; it is not the requested position size. Historical A/B 5-MNQ evidence does not certify the current Directional/recovery workflow.",
+  "approval_status": "USER_ACCEPTANCE_RECORDED_TECHNICAL_VERIFICATION_INCOMPLETE",
   "quantity_cap_evidence": {
-    "status": "UNVERIFIED_ACCOUNT_CAPACITY",
+    "status": "USER_CONFIRMED_PROVIDER_VERIFICATION_INCOMPLETE",
     "technical_ceiling": 40,
     "provider_verified_maximum": null,
-    "source": "User reported 40; account-specific provider rule and margin still required"
+    "source": "User explicitly confirmed minimum 1 and maximum 40 MNQ for the existing account; margin rule and broker workflow scope remain separate."
   },
   "risk": {
     "mode": "EQUITY_PERCENT",
@@ -79,5 +80,14 @@
     "max_replacements": 1,
     "requires_confirmed_cancel_and_zero_exposure": true,
     "terminal_on_wait_reject_timeout": true
+  },
+  "operator_requested_configuration": {
+    "source": "User instructions in this conversation, reconfirmed 2026-10-26",
+    "risk_mode": "EQUITY_PERCENT",
+    "risk_percent": 0.5,
+    "fixed_one_contract_pilot": false,
+    "maximum_mnq": 40,
+    "recovery_requested": true,
+    "execution_activation_performed": false
   }
 }

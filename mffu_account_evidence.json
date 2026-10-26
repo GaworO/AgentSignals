@@ -11,7 +11,7 @@
   "source_reference": "User account statements and authenticated CrossTrade read 2026-10-26; incomplete provider rules",
   "minimum_balance": 48161.9,
   "minimum_balance_source": "USER_CONFIRMED_NOT_CURRENT_PROVIDER_API",
-  "max_micro_contracts": null,
+  "max_micro_contracts": 40,
   "user_reported_max_micro_contracts": 40,
   "daily_loss_policy": "NONE",
   "daily_loss_limit_usd": null,
@@ -51,9 +51,17 @@
     "complete_account_history_verified": false
   },
   "required_evidence": [
-    "current account-specific capacity/rule version",
+    "account-specific rule provenance/version and validity interval; floor and maximum already user-confirmed",
     "margin rule: per-contract or contract-cap-only",
-    "current floor validity interval",
     "flat accounting checkpoint and complete capture coverage"
-  ]
+  ],
+  "max_micro_contracts_source": "USER_CONFIRMED_ACCOUNT_SPECIFIC; not independently provider-verified",
+  "user_confirmed_rules": {
+    "source": "User statements in this conversation, reconfirmed 2026-10-26",
+    "minimum_balance": 48161.9,
+    "minimum_micro_contracts": 1,
+    "maximum_micro_contracts": 40,
+    "provider_daily_loss_policy": "NONE",
+    "margin_rule_confirmed": false
+  }
 }

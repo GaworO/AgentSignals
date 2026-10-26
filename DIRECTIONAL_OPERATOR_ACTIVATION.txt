@@ -1,0 +1,161 @@
+Agent50k operator-controlled activation — 2026-10-26
+
+This release does not arm orders, enable recovery, or certify missing evidence.
+The intended settings are original Directional LONG/SHORT, exact ICT AI review,
+0.5% current equity risk, original structural SL, fixed 2R gross, LIMIT/GTD,
+A/B shadow, and no discretionary management writes. No fixed 1-MNQ sizing cap.
+
+What is implemented and tested
+Original scanner -> exact setup request -> shared HYBRID AI journal -> immutable
+ALLOW -> post-response context/expiry validation -> current account sizing/Guard
+-> CrossTrade LIMIT/native OSO -> ACK separate from fill -> per-fill stop/target/
+OCO verification -> closure/cost reconciliation. Account, policy, broker evidence
+and entry switches all remain independently required. ALLOW never bypasses them.
+
+Recovery registers only eligible original native intents while its flag is on;
+it does not resurrect arbitrary historical BLOCKED/NO_FILL rows. At minute 10,
+confirm broker cancellation, zero fills/positions/working orders, and settlement
+before reserving one review. Original setup reviews have priority. FIBO_50 uses
+old impulse anchors without the entry offset. DEEP_FVG uses 50% of a confirmed
+gap and its first candle's wick; NEW_BOS_FVG uses an eligible original-scanner
+BOS/FVG and the new impulse's structural swing. Unavailable evidence is UNKNOWN.
+AI chooses a deterministic plan or WAIT/REJECT/CANCEL; it cannot edit geometry.
+One replacement maximum; hard deadline 20 minutes from original activation.
+Timeout, changed structure/geometry, expiry, unknown cancellation, a late fill,
+or lost reconciliation prevents replacement. Restart never retries an uncertain
+AI call or submission. A late fill is reconciled as exposure, not as NO_FILL.
+
+Budget: shared SQLite, 12/day America/New_York, fixed CONTEXT=3 / SETUP=7 /
+POSITION=2, no transfers. Recovery consumes SETUP capacity, not another budget.
+Reservations/unknown responses consume capacity; unknown external usage blocks.
+A recovery review is not guaranteed if the seven setup slots are exhausted.
+No paid AI or real broker writes are used by the execution-critical test suite.
+
+Risk calculation
+budget = floor_to_cents(verified current broker equity * 0.005)
+per_MNQ = abs(original entry - structural SL)*2 + round-trip costs + stop allowance
+quantity = floor(min(all risk/capacity allowances)/per_MNQ), further constrained
+by verified contract/margin caps, max_quantity, exposure and broker scope.
+Zero quantity rejects. LONG TP = entry+2*(entry-SL); SHORT TP = entry-2*(SL-entry).
+The structural stop is not moved to fit quantity. Better fills do not loosen it.
+Current estimate: round trip $2.24 + two MNQ ticks ($1) stop allowance, not a loss
+bound. At equity $48,721.05: budget $243.60; 30-point SL costs $63.24/MNQ and
+permits at most 3 under this budget alone. Actual quantity requires all gates.
+Floor $48,161.90 means $559.15 gross headroom/$459.15 after $100 reserve.
+Provider NONE daily limit does not disable local DAY_LOSS_USD=550 or DAY_LOSS_N=1.
+
+Mandatory evidence before activation (do not fabricate these fields)
+1. mffu_account_evidence.json: account_binding, provider=MFFU, source_reference,
+   observed_at_ms and expires_at_ms must describe actual dated account rules.
+   Floor 48161.90, max_micro_contracts=40, daily_loss_policy=NONE are user-confirmed.
+   verified=true is a claim about evidence, not a substitute for verification.
+2. margin_policy: verified, source_reference, contract, observed_at_ms,
+   expires_at_ms and mode=CONTRACT_CAP_ONLY only if that exact account rule is
+   established; otherwise FIXED_PER_CONTRACT plus actual usd_per_contract.
+   Zero used margin does not prove capacity or lack of margin requirements.
+3. reconciliation_anchor: verified, flat=true, account_binding, source_reference,
+   cash, at_ms (at/before current NY midnight), capture_complete_since_ms
+   (at/before anchor), coverage_reference, consecutive_losses and, if nonzero,
+   last_loss_closed_ms. Prove no omitted fills/fees/transfers since the anchor.
+   Do not simply declare today's balance a complete historical checkpoint.
+4. broker_workflow_verification: existing max_quantity=1 records the legacy
+   evidence scope, NOT the desired sizing rule. With EXEC_MAX_QTY=40 the current
+   scope validator requires verified protection evidence covering that cap:
+   quantity_scope_verified, quantity_scope_reference and observed_protected_quantity
+   >= max_quantity. Do not set observed quantity to 40 based on an account limit.
+   Historical A/B 5-MNQ OCO does not prove Directional/recovery at 40. This is an
+   explicit remaining technical acceptance restriction, not missing user consent.
+5. Approved candle policy: RESTING_LIMIT_CLOSED_M1_V1, correct account/contract,
+   original LIMIT, original geometry and gross2R, dated validation references.
+   Unknown spread, immediate executable price, intrabar movement, delayed cancel,
+   late fills, stop slippage and disconnect risks remain. Current accepted limits:
+   closed M1 <=75s; signal <=120s; account/thesis <=3s; initial pending <=600s.
+   These limits are configured assumptions, not statistically calibrated BBO bounds.
+
+User actions in Railway — existing hearty-freedom / production / Agent50k only
+A. Establish a safe preparation state yourself FIRST: stage both
+   EXEC_KILL_SWITCH=true and V3_ENTRY_ARMED=0 and deploy together.
+   Verify /execution/readiness shows execution_kill_switch=true, entry_armed=false.
+   Keep LIVE_EXECUTION_ENABLED=true for existing native recovery/protection.
+   Do not edit evidence to approved while current entry switches remain armed.
+B. After evidence checks pass, maintain operator-owned files on persistent volume.
+   In Railway SSH, copy the release drafts once to a NEW versioned directory under
+   /data/builder50/operator-config/; never overwrite earlier evidence or journals.
+   Fill the verified evidence values listed above and review the complete policy.
+   Set DIRECTIONAL_EXECUTION_POLICY_FILE and MFFU_RISK_EVIDENCE_FILE to these exact
+   absolute paths in Agent50k Variables. /app defaults are release-owned drafts;
+   editing them interactively is not durable across deployment. Do not paste
+   credentials into evidence. approved/verified only change after actual checks.
+C. While entries remain stopped, verify saved AND effective settings:
+   BUILDER_ORDER_PROVIDER=crosstrade
+   EXEC_STRATEGY_POLICY=V3_ONLY
+   AB_V3_EXCLUSIVE_ROUTE=1
+   AB_V3_MODE=LIVE
+   AB_DIRECTIONAL_LIVE_LONG=1
+   AB_DIRECTIONAL_LIVE_SHORT=1
+   EXEC_MODE=auto
+   AUTO_SUBMIT=1
+   LIVE_EXECUTION_ENABLED=true
+   AB_ENTRY_ARMED=0
+   AB_MANAGER_MODE=shadow
+   AB_DIRECTIONAL_RISK_MODE=EQUITY_PERCENT
+   AB_DIRECTIONAL_RISK_PCT=0.5
+   EXEC_MAX_QTY=40 (only with corresponding verified account/broker scope)
+   AB_AI_ENABLED=true
+   AB_AI_OWNER=AB_DIRECTIONAL
+   AB_AI_TRIGGER=HYBRID
+   AB_AI_MAX_CALLS_PER_DAY=12
+   V3_AI_REVIEW_REQUIRED=true
+   V3_EXIT_MODE=shadow
+   V3_EXIT_REAL_EXECUTION=false
+   V3_RUNNER_ENABLED=false
+   DAY_LOSS_N=1; DAY_LOSS_USD=550; DD_BUFFER=100; MAX_TRADES_DAY=3
+   Leave Guard, news checks, sessions, account binding and broker credentials intact.
+D. Only after all mandatory checks pass, stage in ONE deployment:
+   AB_DIRECTIONAL_NO_FILL_RECOVERY=true
+   EXEC_KILL_SWITCH=false
+   V3_ENTRY_ARMED=1
+   This is the user-controlled activation; no agent performs it in this task.
+   If any mandatory check is UNKNOWN/FAIL, do not proceed to D.
+E. Verify the running commit, not just deployment status or a saved variable:
+   GET https://agent-50k-production.up.railway.app/execution/readiness
+     configuration_files must show the intended paths/hashes, validated policy,
+     RESTING_LIMIT_CLOSED_M1_V1 and no technical access blockers. An unapproved
+     candle policy shows policy_validated=false and quotes_required=null; this
+     is not fallback authorization and not a demand for a new BBO subscription.
+   GET https://agent-50k-production.up.railway.app/execution/account-risk
+     verified=true, missing=[], fresh observed_at_ms, current equity/exposure,
+     reconciled fees and current controls. This is separate from service health.
+   GET https://agent-50k-production.up.railway.app/ab/ai-context
+     trigger HYBRID, cap12, shared 3/7/2, nofill_recovery.enabled=true, source live.
+   Also inspect the Guard dashboard/news/session/feed state. A green /health is
+   not trade permission. Observe the next genuine eligible setup; no forced signal.
+   Require saved exact request/response/order binding and final gate results.
+   A historical ALLOW is not an activation prerequisite and cannot be reused.
+   Record parent clOrdId, actual broker IDs/fills and stop/target/OCO quantities.
+   Recovery's real response/lifecycle is not verified until a genuine event occurs.
+
+Emergency stop and rollback (operator actions)
+Set EXEC_KILL_SWITCH=true and V3_ENTRY_ARMED=0; deploy, confirm effective values.
+Railway deployment latency means this is NOT an instantaneous broker cancel.
+Check the broker directly for owned pending entries and fills during the change.
+Cancel only identified unfilled ENTRY parents if needed; reconcile cancel/late
+fill before doing anything else. Never blanket Cancel All or delete SL/TP children.
+Keep LIVE_EXECUTION_ENABLED=true, broker sync, native transport and persistent
+journals running so protective recovery remains available. Existing confirmed
+native SL/TP/OCO remain broker-side; protection already missing cannot be repaired
+by a configuration switch during a provider outage. Inspect it at the broker.
+After no pending/unknown entries remain, recovery can be disabled by the operator.
+A process restart cannot undo a fill. Prefer code rollback while flat/reconciled;
+never restore an old DB over current fills/AI reservations. Use a known consolidated
+release and preserved config paths, with entry kill still on. Do not reconnect
+obsolete codex/directional-readiness-20261020. Revalidate runtime hashes, policies,
+journals, broker state and all gates before reactivation.
+
+Current result
+Code-path tests prove logic with mocked AI/broker responses; they do not prove a
+new genuine review or new provider execution. Recovery stays disabled in this
+integration-only deployment. User-confirmed rules are recorded without certifying
+missing provider data. Account reconciliation and broker quantity-scope evidence
+remain external acceptance dependencies. They need evidence/configuration, not
+another strategy or development architecture.
