@@ -16,6 +16,9 @@ from test_directional_setup_review import service, order
 def test_outside_session_root_cause_is_saved_and_never_spends(service):
     f=service
     f.now=1792529911.0  # Actual historical decision time: Oct 20, 16:58:31 NY.
+    # Reproduce the old NY-only policy explicitly; current configured PM_AH
+    # is now eligible for request-driven review.
+    f.support.config['SKIP_SESSIONS']='ASIA,LO,PREM,NYL,PM_AH'
     row=order(f)
     result=f.support.queue_setup(row)
     assert result==dict(state='OUTSIDE_AB_SESSIONS')

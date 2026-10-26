@@ -135,7 +135,7 @@ def attach(packet, setup, fingerprint):
     minute=local.hour*60+local.minute
     ev[session_id]=dict(kind='directional_session',symbol='MNQ',available_at=cutoff,
         source=dict(path='America/New_York calendar; existing AB session windows'),
-        value=dict(time_ny=local.isoformat(),session='NYAM' if 570<=minute<660 else 'NYPM' if 810<=minute<960 else 'OUTSIDE_AB_SESSIONS'))
+        value=dict(time_ny=local.isoformat(),session='PREM' if 300<=minute<570 else 'NYAM' if 570<=minute<660 else 'NYPM' if 810<=minute<960 else 'PM_AH' if 960<=minute<1080 else 'OUTSIDE_AB_SESSIONS'))
     topics['ny_session']=field(windows+[session_id])
     p.update(setup=setup,setup_fingerprint=fingerprint,
              ict_context=dict(version=VERSION,as_of=cutoff,topics=topics,

@@ -170,6 +170,9 @@ def broker_proof(oid):
 def annotation(service, oid, direction):
     unavailable=dict(owner='AB_DIRECTIONAL',order_id=oid,state='UNAVAILABLE',executable=False)
     if not journal.enabled(service.config):return unavailable
+    from ab_ai_context import session_at
+    if session_at(service.clock(),service.config) is None:
+        return dict(unavailable,state='OUTSIDE_AB_SESSIONS')
     with service.connect() as db:
         journal.init(db)
         row=db.execute('SELECT * FROM nofill_opportunities WHERE replacement_id=?',(oid,)).fetchone()
@@ -186,6 +189,8 @@ def annotation(service, oid, direction):
 def validate_entry(service, order, *, pending=False):
     """Fresh thesis and immutable AI binding, used by the existing final gate."""
     if not journal.enabled(service.config):raise ValueError('NO_FILL_RECOVERY_DISABLED')
+    from ab_ai_context import session_at
+    if session_at(service.clock(),service.config) is None:raise ValueError('OUTSIDE_AB_SESSIONS')
     with service.connect() as db:
         journal.init(db)
         row=db.execute('SELECT * FROM nofill_opportunities WHERE replacement_id=?',(order['order_id'],)).fetchone()

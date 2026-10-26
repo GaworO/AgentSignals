@@ -25,6 +25,15 @@ Timeout, changed structure/geometry, expiry, unknown cancellation, a late fill,
 or lost reconciliation prevents replacement. Restart never retries an uncertain
 AI call or submission. A late fill is reconciled as exposure, not as NO_FILL.
 
+Review scheduling: one initial CONTEXT attempt per allowed PREM/NYAM/NYPM session,
+on the first eligible fresh packet; no hourly or material-event context calls.
+Original setup and confirmed-NO_FILL Recovery requests have priority. Failed
+opening attempts consume their reservation and are not retried in that session,
+including after restart. SKIP_SESSIONS and MONDAY_MODE are respected; the current
+MONDAY_MODE=nyam still excludes Monday PREM. PM_AH supports requested reviews only
+when allowed; it does not receive a fourth opening-context call. Session-end
+expiry applies to original and recovery reviews. Old missed setups are not replayed.
+
 Budget: shared SQLite, 12/day America/New_York, fixed CONTEXT=3 / SETUP=7 /
 POSITION=2, no transfers. Recovery consumes SETUP capacity, not another budget.
 Reservations/unknown responses consume capacity; unknown external usage blocks.
@@ -154,8 +163,8 @@ journals, broker state and all gates before reactivation.
 
 Current result
 Code-path tests prove logic with mocked AI/broker responses; they do not prove a
-new genuine review or new provider execution. Recovery stays disabled in this
-integration-only deployment. User-confirmed rules are recorded without certifying
+new genuine review or new provider execution. This scheduling release does not change the Recovery switch; read its effective
+value from the running service. User-confirmed rules are recorded without certifying
 missing provider data. Account reconciliation and broker quantity-scope evidence
 remain external acceptance dependencies. They need evidence/configuration, not
 another strategy or development architecture.

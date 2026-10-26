@@ -63,21 +63,28 @@ def reason(service, packet, setup=None):
     return None
 
 
-def context_due(service, packet, session, day):
-    """At most one session opening review plus one material-event review/day.
+def opening_available(rows, session_name):
+    """Check durable reservations, including failed/unknown attempts."""
+    from ab_ai_context import CONTEXT_OPEN_SESSIONS
+    if session_name not in CONTEXT_OPEN_SESSIONS or len(rows)>=3:return False
+    try:
+        packets=[json.loads(json.loads(r['request'])['input'][1]['content']) for r in rows]
+        if any(p.get('hybrid_session') not in CONTEXT_OPEN_SESSIONS for p in packets):return False
+    except (ValueError,TypeError,KeyError,IndexError):return False
+    return not any(p['hybrid_session']==session_name for p in packets)
 
-    A setup gets priority. Valid context is reusable as advice only; a setup
-    still needs its own exact review. No hourly spending loop.
+
+def context_due(service, packet, session, day):
+    """One initial context attempt per allowed PREM/NYAM/NYPM window.
+
+    Opening means the first eligible fresh packet in that session. Restarts,
+    auth failures and material events never trigger a second context attempt.
+    Exact setup/recovery reviews remain on demand and have priority.
     """
+    if not session:return False
     with service.connect() as db:
         rows=db.execute("SELECT * FROM reviews WHERE day=? AND review_kind='CONTEXT' ORDER BY started",(day,)).fetchall()
-    if len(rows)>=3:return False
-    packets=[json.loads(json.loads(r['request'])['input'][1]['content']) for r in rows]
-    if not any(p.get('hybrid_session')==session['name'] for p in packets):return True
-    last=packets[-1]
-    return (not any(p.get('hybrid_context_reason')=='MATERIAL_EVENT' for p in packets)
-            and any(e['available_at']>last['as_of'] and e['symbol'] in ('NQ','MNQ')
-                    for e in context.build(packet)['structure_events']['value']))
+    return opening_available(rows,session['name'])
 
 
 def reusable_context(service, packet):

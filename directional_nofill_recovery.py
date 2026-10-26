@@ -177,7 +177,8 @@ def prepare_review(db, oid, packet, selections, external_calls, now, *, config):
     if not enabled(config):return dict(allowed=False, reason='NO_FILL_RECOVERY_DISABLED')
     if config.get('AB_AI_ENABLED','false')!='true' or config.get('AB_AI_OWNER')!='AB_DIRECTIONAL':
         return dict(allowed=False,reason='DIRECTIONAL_AI_DISABLED_OR_WRONG_OWNER')
-    if session_at(now/1000) is None:return dict(allowed=False,reason='OUTSIDE_AB_SESSIONS')
+    session=session_at(now/1000, config)
+    if session is None:return dict(allowed=False,reason='OUTSIDE_AB_SESSIONS')
     if not db.in_transaction:raise ValueError('atomic_review_transaction_required')
     row=db.execute('SELECT * FROM nofill_opportunities WHERE opportunity_id=?',(oid,)).fetchone()
     if not row:return dict(allowed=False,reason='OPPORTUNITY_UNKNOWN')
@@ -188,6 +189,12 @@ def prepare_review(db, oid, packet, selections, external_calls, now, *, config):
     candidates=[plans.build(original,packet,s,now,stop_buffer_points=buffer) for s in selections]
     try:payload=review.request(original,packet,candidates,config.get('OPENAI_MODEL'))
     except ValueError as exc:return dict(allowed=False,reason=str(exc),candidates=candidates)
+    context=review.unpack(payload)
+    context['review_session']=session['name']
+    context['review_expires_at']=min(context['review_expires_at'],session['ends_at'])
+    context.pop('request_id')
+    context['request_id']=plans.digest(context)
+    payload['input'][1]['content']=encode(context)
     reserved=reserve_review(db,oid,payload,external_calls,now,config=config)
     return dict(reserved,request=payload if reserved['allowed'] else None,candidates=candidates)
 

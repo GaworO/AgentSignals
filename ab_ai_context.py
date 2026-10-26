@@ -24,20 +24,34 @@ from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
 INSTANCE = None
 SESSIONS = (('NYAM', 570, 660), ('NYPM', 810, 960))
+DIRECTIONAL_SESSIONS = (('PREM', 300, 570), ('NYAM', 570, 660),
+                        ('NYPM', 810, 960), ('PM_AH', 960, 1080))
+CONTEXT_OPEN_SESSIONS = ('PREM', 'NYAM', 'NYPM')
 
 
-def session_at(timestamp):
+def session_windows(config=None):
+    if not config or config.get('AB_AI_OWNER') != 'AB_DIRECTIONAL':
+        return SESSIONS
+    skip = {s.strip() for s in config.get('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL').split(',')}
+    return tuple(w for w in DIRECTIONAL_SESSIONS if w[0] not in skip)
+
+
+def session_at(timestamp, config=None):
     local = datetime.fromtimestamp(timestamp, NY)
     if local.weekday() < 5:
         minute = local.hour * 60 + local.minute
-        for name, start, end in SESSIONS:
+        for name, start, end in session_windows(config):
             if start <= minute < end:
+                if config and config.get('AB_AI_OWNER') == 'AB_DIRECTIONAL' and local.weekday() == 0:
+                    monday = config.get('MONDAY_MODE', 'nyam').lower()
+                    if monday == 'skip' or (monday == 'nyam' and name == 'PREM'):
+                        return None
                 return dict(name=name, ends_at=local.replace(hour=end//60, minute=end%60, second=0, microsecond=0).timestamp())
     return None
 
 
-def expires_at(cutoff, minutes):
-    session = session_at(cutoff)
+def expires_at(cutoff, minutes, config=None):
+    session = session_at(cutoff, config)
     return min(cutoff + minutes*60, session['ends_at']) if session else cutoff
 
 
@@ -165,6 +179,9 @@ def validate(decision, packet):
 
 
 class ContextSupport:
+    def session_at(self, timestamp):
+        return session_at(timestamp, self.config)
+
     def __init__(self, config, *, reader=None, transport=None, clock=time.time):
         self.config = dict(config)
         self.clock = clock
@@ -310,7 +327,7 @@ class ContextSupport:
                     if any(order.get(k)!=saved[k] for k in ('direction','entry_price','stop_price','target_price','activation_ms','expiry_ms')):
                         db.execute("UPDATE setup_requests SET state='superseded' WHERE order_id=?",(str(order.get('order_id')),))
                         return dict(state='SETUP_CHANGED')
-        if session_at(now) is None:
+        if self.session_at(now) is None:
             return dict(state='OUTSIDE_AB_SESSIONS')
         setup = directional_setup_review.describe(order, self.config.get('AB_V3_CONTRACT'))
         import ab_directional_entry_rules
@@ -323,7 +340,7 @@ class ContextSupport:
             if reason:
                 return dict(state='INELIGIBLE',reason=reason)
         expiry = min(setup['expiry_ms']/1000, setup['activation_ms']/1000+self.setup_max_age,
-                     session_at(now)['ends_at'])
+                     self.session_at(now)['ends_at'])
         if not setup['activation_ms']/1000 <= now < expiry:
             return dict(state='EXPIRED')
         fingerprint = digest(setup)
@@ -357,7 +374,7 @@ class ContextSupport:
             if setup['direction'] != direction or digest(setup) != job['fingerprint']:
                 return dict(result, state='SETUP_MISMATCH')
             now = self.clock()
-            if now >= job['expires'] or not session_at(now):
+            if now >= job['expires'] or not self.session_at(now):
                 return dict(result, state='EXPIRED')
             if job['state'] in ('superseded','invalidated','budget_blocked'):
                 return dict(result,state=job['state'].upper())
@@ -440,7 +457,7 @@ class ContextSupport:
         if not self.enabled:
             return False
         now = self.clock();local = datetime.fromtimestamp(now,NY)
-        if session_at(now) is None:
+        if self.session_at(now) is None:
             self.status = 'OUTSIDE_AB_SESSIONS'
             self.last_source = None
             return False
@@ -467,7 +484,7 @@ class ContextSupport:
             return False
         if type(source.get('calls_today')) is int and source['calls_today'] >= 0:
             self.source_usage = dict(day=local.date().isoformat(), calls=source['calls_today'])
-        if not session_at(p['as_of']) or session_at(p['as_of'])['name'] != session_at(now)['name']:
+        if not self.session_at(p['as_of']) or self.session_at(p['as_of'])['name'] != self.session_at(now)['name']:
             self.status = 'WAITING_FOR_SESSION_DATA'
             return False
         self.last_source = p;self.last_source_at = now
@@ -482,7 +499,7 @@ class ContextSupport:
             return False
         if self.trigger == 'HYBRID':
             hybrid_lifecycle.refresh(self, p)
-            if job is None and not hybrid_lifecycle.context_due(self, p, session_at(now), local.date().isoformat()):
+            if job is None and not hybrid_lifecycle.context_due(self, p, self.session_at(now), local.date().isoformat()):
                 self.status = 'WAITING_FOR_SETUP'
                 return False
         instructions = prompt_for(self.owner)
@@ -506,12 +523,10 @@ class ContextSupport:
             instructions = directional_setup_review.ict_prompt(instructions)
         if self.trigger == 'HYBRID':
             p['hybrid_context'] = hybrid.build(p, json.loads(job['setup']) if job else None)
-            p['hybrid_session'] = session_at(now)['name']
+            p['hybrid_session'] = self.session_at(now)['name']
             if job is None:
-                with self.connect() as db:
-                    prior=db.execute("SELECT request FROM reviews WHERE day=? AND review_kind='CONTEXT'",(local.date().isoformat(),)).fetchall()
-                p['hybrid_context_reason'] = ('MATERIAL_EVENT' if any(json.loads(json.loads(r[0])['input'][1]['content']).get('hybrid_session')==p['hybrid_session'] for r in prior) else 'SESSION_OPEN')
-                p['review_expires_at'] = min(p['as_of']+900,session_at(now)['ends_at'])
+                p['hybrid_context_reason'] = 'SESSION_OPEN'
+                p['review_expires_at'] = min(p['as_of']+900,self.session_at(now)['ends_at'])
             else:
                 p['cached_context_review'] = hybrid_lifecycle.reusable_context(self,p)
             instructions += '\nHybrid v1: use deterministic hybrid_context as mechanical observations, not trader confirmation. Return hybrid_assessment with market_thesis, liquidity_objective, entry_quality, structural_invalidation, nearest_opposing_liquidity, rr_assessment and conditional_management_plan. Cite evidence IDs and mark unavailable facts UNKNOWN in missing. Management is advice only; no position manager is enabled by this response. Never change setup geometry. If setup exists, copy its entry_price, stop_price, target_price and expiry_ms exactly into approved_geometry. Net RR is UNKNOWN without verified costs and executable quotes; do not certify execution. Context reviews cannot authorize an entry.'
@@ -543,8 +558,8 @@ class ContextSupport:
         if not payload['model'] or not self.config.get('OPENAI_API_KEY'):
             self.status = 'API_NOT_CONFIGURED'
             return False
-        dispatch_session = session_at(self.clock())
-        if not dispatch_session or dispatch_session['name'] != session_at(now)['name']:
+        dispatch_session = self.session_at(self.clock())
+        if not dispatch_session or dispatch_session['name'] != self.session_at(now)['name']:
             self.status = 'OUTSIDE_AB_SESSIONS'
             return False
         day = local.date().isoformat()
@@ -558,6 +573,10 @@ class ContextSupport:
                     db.execute('INSERT INTO setup_review_events(order_id,at,event,detail) VALUES(?,?,?,?)',(job['order_id'],self.clock(),'budget_blocked',encode(dict(reason='DAILY_LIMIT_REACHED'))))
                 return False
             if self.trigger == 'HYBRID':
+                if job is None and not hybrid_lifecycle.opening_available(
+                        [r for r in today if r['review_kind']=='CONTEXT'],p['hybrid_session']):
+                    self.status='WAITING_FOR_SETUP'
+                    return False
                 budget_block = hybrid.budget_reason(today,source['calls_today'],'SETUP' if job else 'CONTEXT',self.cap)
                 if budget_block:
                     self.status=budget_block
@@ -675,12 +694,12 @@ class ContextSupport:
             if (self.enabled and self.trigger == 'PERIODIC' and owner == self.owner and signal.get('dir') in ('LONG','SHORT')
                     and row and review_owner(row) == owner
                     and 'setup' not in json.loads(json.loads(row['request'])['input'][1]['content'])
-                    and session_at(now) and row['finished'] <= now < expires_at(row['cutoff'], self.minutes)
+                    and self.session_at(now) and row['finished'] <= now < expires_at(row['cutoff'], self.minutes, self.config)
                     and self.last_source is not None and 0 <= now-self.last_source_at <= 120
                     and 0 <= now-self.last_source['as_of'] <= 120):
                 decision = json.loads(row['decision'])
                 result.update(review_id=row['id'],cutoff=row['cutoff'],available_at=row['finished'],
-                    expires_at=expires_at(row['cutoff'], self.minutes),
+                    expires_at=expires_at(row['cutoff'], self.minutes, self.config),
                     state='INVALIDATED' if side in json.loads(row['invalidated']) else decision[side]['permission'],
                     scenario=decision[side],target_2r_3r_pl=decision['target_2r_3r_pl'])
             if record:
@@ -745,7 +764,12 @@ def register(app):
         trigger = INSTANCE.trigger if INSTANCE else os.environ.get('AB_AI_TRIGGER', 'PERIODIC')
         if trigger in ('SETUP','HYBRID'):
             context_mode = 'DIRECTIONAL_HYBRID_REVIEW' if trigger=='HYBRID' else 'DIRECTIONAL_SETUP_REVIEW_SHADOW'
-        schedule = dict(timezone='America/New_York', windows=[dict(name=n,start=f'{s//60:02d}:{s%60:02d}',end=f'{e//60:02d}:{e%60:02d}') for n,s,e in SESSIONS])
+        schedule_config = INSTANCE.config if INSTANCE else os.environ
+        schedule = dict(timezone='America/New_York', windows=[dict(name=n,start=f'{s//60:02d}:{s%60:02d}',end=f'{e//60:02d}:{e%60:02d}') for n,s,e in session_windows(schedule_config)],
+                        monday_mode=schedule_config.get('MONDAY_MODE','nyam'),
+                        context_open_sessions=list(CONTEXT_OPEN_SESSIONS),
+                        context_review_policy='ONCE_PER_ALLOWED_SESSION_NO_EVENT_RETRY',
+                        setup_review_policy='ON_DEMAND', recovery_review_policy='ON_DEMAND_AFTER_CONFIRMED_NO_FILL')
         if INSTANCE is None:
             return jsonify(owner=os.environ.get('AB_AI_OWNER','A/B'),mode=context_mode,trigger=trigger,status='DISABLED',executable=False,execution=execution,schedule=schedule)
         now = INSTANCE.clock()
@@ -768,7 +792,7 @@ def register(app):
                 packet = {}
             del row['request']
             row['setup'] = packet.get('setup')
-            row['expires_at'] = packet.get('review_expires_at', expires_at(row['cutoff'], INSTANCE.minutes))
+            row['expires_at'] = packet.get('review_expires_at', expires_at(row['cutoff'], INSTANCE.minutes, INSTANCE.config))
             row['latency_seconds'] = row['finished']-row['started'] if row['finished'] is not None else None
             row['response_latency_seconds'] = (row['response_received_at']-row['requested_at']
                 if row['response_received_at'] is not None and row['requested_at'] is not None else None)
@@ -778,7 +802,7 @@ def register(app):
             row['payload'] = json.loads(row['payload'])
         source_calls = INSTANCE.source_usage['calls'] if INSTANCE.source_usage and INSTANCE.source_usage['day']==day else None
         return jsonify(owner=INSTANCE.owner,mode=context_mode,trigger=trigger,status=INSTANCE.status,executable=False,execution=execution,schedule=schedule,
-                       active_session=session_at(now),source_calls_today=source_calls,
+                       active_session=INSTANCE.session_at(now),source_calls_today=source_calls,
                        remaining_calls=max(0,INSTANCE.cap-calls-source_calls) if source_calls is not None else None,
                        hybrid_budget=dict(policy='FIXED_3_7_2_NO_TRANSFERS',allocations=dict(CONTEXT=3,SETUP=7,POSITION=2),used=budget_counts,position_reviews_enabled=True,position_reviews_advisory_only=True) if trigger=='HYBRID' else None,
                        calls_today=calls,daily_cap=INSTANCE.cap,interval_minutes=INSTANCE.minutes,
