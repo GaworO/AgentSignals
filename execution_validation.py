@@ -322,3 +322,23 @@ def status():
                 execution_model=parameters.get('execution_model', 'EXECUTABLE_BBO_V1'),
                 executable_quotes_required=not candle_policy,
                 residual_risks=list(resting.RISKS) if candle_policy else [])
+
+
+def configuration_files():
+    """Read actual policy paths for diagnostics; loading is never approval."""
+    import hashlib
+    result={}
+    for key,fields in {
+        'DIRECTIONAL_EXECUTION_POLICY_FILE':('approved','execution_model','max_quantity','risk','recovery','approval_status'),
+        'MFFU_RISK_EVIDENCE_FILE':('verified','account_controls_source','max_micro_contracts','required_evidence'),
+    }.items():
+        path=os.environ.get(key);item=dict(path=path,loaded=False)
+        try:
+            raw=Path(path).read_bytes() if path else b''
+            value=json.loads(raw)
+            if not isinstance(value,dict):raise ValueError('object required')
+            item.update(loaded=True,sha256=hashlib.sha256(raw).hexdigest(),
+                        **{f:value.get(f) for f in fields})
+        except (OSError,ValueError,TypeError):item['error']='FILE_MISSING_OR_INVALID'
+        result[key]=item
+    return result

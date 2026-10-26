@@ -407,6 +407,17 @@ class Transport:
             reason = execution_safety.entry_blocker() or self.directional_permission(order) or self.runner_entry_blocker(order)
         if not reason and int(self.clock()*1000) >= expiry:
             reason = 'ENTRY_EXPIRED_DURING_REVALIDATION'
+        if not reason and order.get('recovery_version') == 2:
+            import directional_recovery_runtime
+            try:
+                why=directional_recovery_runtime.journal.broker_reason(
+                    directional_recovery_runtime.broker_proof(order['parent_opportunity_id']),
+                    order['parent_opportunity_id'],int(self.clock()*1000))
+                if why:reason=why
+            except Exception:reason='RECOVERY_PARENT_NOT_RECONCILED'
+            if not reason:
+                reason=execution_safety.entry_blocker() or self.directional_permission(order)
+            if not reason and int(self.clock()*1000)>=expiry:reason='RECOVERY_EXPIRED_BEFORE_POST'
         if not reason:
             with self.api.connect() as c:
                 local = c.execute('SELECT state FROM orders WHERE order_id=?', (oid,)).fetchone()

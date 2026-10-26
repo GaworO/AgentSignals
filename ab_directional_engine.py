@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import ab_directional_entry_rules as entry_rules
+import directional_recovery_runtime
 
 from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline as base
 
@@ -88,10 +89,13 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
         if fill_i is None:
             reasons["UNFILLED_WITHIN_10_MINUTES"] += 1
         candidates.append(row)
+        recovery_context = directional_recovery_runtime.capture(raw, row)
+        row['recovery_context'] = recovery_context
         orders.append({
             "order_id": base.stable_id("ORDER_ABDIR_" + side, candidate_id, activation, entry, stop),
             "candidate_id": candidate_id, "strategy": "AB_DIRECTIONAL", "direction": side,
             "setup_category": row["cat"], "entry_rules": evidence,
+            "recovery_context": recovery_context,
             "chronological_index": n, "trading_day": row["trading_day"],
             "instrument_id": int(row["instrument_id"]), "epoch": int(row["epoch"]),
             "activation_timestamp": row["entry_activation_timestamp"],

@@ -1,0 +1,83 @@
+{
+  "execution_model": "RESTING_LIMIT_CLOSED_M1_V1",
+  "approved": false,
+  "validation_reference": "Consolidation 2026-10-26 deterministic tests; not authorization to submit orders",
+  "residual_risk_acceptance_reference": "Earlier one-contract policy acceptance retained historically; dynamic sizing and recovery policy not activated",
+  "accepted_residual_risks": [
+    "unknown_spread",
+    "unknown_immediate_executability",
+    "intrabar_movement",
+    "cancel_latency_and_late_fills",
+    "stop_slippage",
+    "broker_disconnects"
+  ],
+  "strategy": "AB_DIRECTIONAL",
+  "contract": "MNQZ2026",
+  "contract_last_trade_ms": 1797604200000,
+  "contract_reference": "CME Chapter361 third-Friday/primary-market-open rule; December18 2026 09:30NY; broker contract id4470324/MNQZ6 verified read-only 2026-10-25",
+  "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+  "max_quantity": 40,
+  "max_positions": 1,
+  "allow_scale_in": false,
+  "advanced_writes": false,
+  "original_limit_only": true,
+  "fixed_gross_rr": 2,
+  "min_rr": 2,
+  "thesis_rule_version": "original_bos_bracket_ai_v1",
+  "max_signal_age_ms": 120000,
+  "max_closed_m1_age_ms": 75000,
+  "max_account_age_ms": 3000,
+  "max_thesis_age_ms": 3000,
+  "max_pending_lifetime_sec": 600,
+  "costs": {
+    "contract": "MNQZ2026",
+    "round_trip_usd": 2.24,
+    "stop_slippage_ticks": 2,
+    "validation_reference": "Existing configured RT estimate and prior proposed 2-tick allowance accepted for implementation; assumptions, not statistical calibration or a loss bound."
+  },
+  "broker_workflow_verification": {
+    "evidence_kind": "ACCOUNT_HISTORY_CONTROLLED_PILOT",
+    "provider": "CrossTrade",
+    "surface": "tradovate",
+    "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "contract": "MNQZ2026",
+    "historical_native_oso_oco_verified": true,
+    "current_directional_broker_run_verified": false,
+    "broker_order_ids": [
+      641664660720,
+      641664660721,
+      641664660722
+    ],
+    "historical_evidence_reference": "DIRECTIONAL_RESTING_LIMIT_V1.txt; saved MFFU A/B order720 Filled, stop722 Filled, target721 Canceled; reciprocal OCO and clOrdId",
+    "recovery_evidence_kind": "DETERMINISTIC_TESTS_NOT_PROVIDER_VERIFIED",
+    "recovery_evidence_reference": "tests/test_resting_limit_lifecycle.py; tests/test_broker_protection_v1.py; tests/test_directional_resting_policy.py",
+    "operator_pilot_acceptance_reference": "User 2026-10-25: accepts existing MFFU 1-MNQ pilot and does not require independent broker recovery verification. No financial activation performed.",
+    "max_quantity": 1
+  },
+  "broker_evidence_note": "Historical A/B 5-MNQ fills and OCO evidence; previous operator acceptance only scoped to 1-MNQ pilot. No new Directional/recovery multi-contract workflow is certified.",
+  "approval_status": "DRAFT_DYNAMIC_CAPACITY_AND_RECOVERY_REQUIRES_FINAL_APPROVAL",
+  "quantity_cap_evidence": {
+    "status": "UNVERIFIED_ACCOUNT_CAPACITY",
+    "technical_ceiling": 40,
+    "provider_verified_maximum": null,
+    "source": "User reported 40; account-specific provider rule and margin still required"
+  },
+  "risk": {
+    "mode": "EQUITY_PERCENT",
+    "percent": 0.5,
+    "basis": "CURRENT_VERIFIED_BROKER_EQUITY",
+    "round_down_whole_contracts": true,
+    "include_costs_and_slippage": true,
+    "unknown_account_limits_block": true
+  },
+  "recovery": {
+    "enabled_by_default": false,
+    "flag": "AB_DIRECTIONAL_NO_FILL_RECOVERY",
+    "initial_wait_seconds": 600,
+    "hard_entry_deadline_seconds": 1200,
+    "max_re_reviews": 1,
+    "max_replacements": 1,
+    "requires_confirmed_cancel_and_zero_exposure": true,
+    "terminal_on_wait_reject_timeout": true
+  }
+}

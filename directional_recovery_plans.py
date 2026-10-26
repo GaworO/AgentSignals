@@ -12,8 +12,9 @@ import os
 import re
 from decimal import Decimal
 
-VERSION = 'directional-recovery-wick-v2'
+VERSION = 'directional-recovery-wick-v3'
 SOURCE_POLICY = 'FIRST_FVG_CANDLE_WICK_V1'
+SWING_POLICY = 'CONFIRMED_SCANNER_SWING_V1'
 KINDS = ('FIBO_50_LIMIT', 'DEEP_FVG_LIMIT', 'NEW_BOS_FVG_RETEST')
 GEOMETRY = ('order_id', 'direction', 'contract', 'entry_price', 'stop_price',
             'target_price', 'activation_ms', 'expiry_ms')
@@ -66,6 +67,17 @@ def closed_path(packet, contract, start_ms):
                    if e.get('kind') == 'bar' and e.get('symbol') == 'MNQ'
                    and e.get('contract') == contract and e.get('timeframe') == 1
                    and e.get('time', -1) >= start_ms // 1000), key=lambda e:e['time'])
+    # The market packet and native journal may cite the same candle using
+    # different evidence IDs. Deduplicate only identical, fully validated bars.
+    unique={}
+    for e in rows:
+        previous=unique.get(e['time'])
+        if previous and any(previous.get(k)!=e.get(k) for k in
+                            ('available_at','open','high','low','close')):
+            raise ValueError('CONFLICTING_MARKET_CANDLE')
+        bar(dict(packet,evidence={'path':e}),'path',contract)
+        unique[e['time']]=e
+    rows=list(unique.values())
     expected = list(range(start_ms // 1000, packet['as_of'] // 60 * 60, 60))
     if [e['time'] for e in rows] != expected:
         raise ValueError('POST_SETUP_HISTORY_INCOMPLETE')
@@ -125,20 +137,27 @@ def build(original, packet, selection, now_ms, *, stop_buffer_points):
         low, high = (number(a['high']), number(c['low'])) if sign == 1 else (number(c['high']), number(a['low']))
         if low >= high:
             raise ValueError('DIRECTIONAL_FVG_NOT_PRESENT')
+        policy=selection.get('source_policy',SOURCE_POLICY)
         anchor = refs[0]
+        if policy==SWING_POLICY and kind=='NEW_BOS_FVG_RETEST':
+            event=packet['evidence'].get(selection.get('structure_event_id'),{})
+            anchor=event.get('confirmed_swing_candle_id')
+            if not anchor or event.get('source')!='ORIGINAL_DIRECTIONAL_SCANNER':
+                raise ValueError('CONFIRMED_SWING_SOURCE_UNKNOWN')
         if ('source_candle_id' in selection and selection['source_candle_id'] != anchor
-                or 'source_policy' in selection and selection['source_policy'] != SOURCE_POLICY):
+                or policy not in (SOURCE_POLICY,SWING_POLICY)
+                or policy==SWING_POLICY and kind!='NEW_BOS_FVG_RETEST'):
             raise ValueError('FVG_SOURCE_POLICY_MISMATCH')
         selection = copy.deepcopy(selection)
-        selection.update(source_candle_id=anchor, source_policy=SOURCE_POLICY,
-                         source_association_reference=SOURCE_POLICY)
-        source = a
+        selection.update(source_candle_id=anchor, source_policy=policy,
+                         source_association_reference=policy)
+        source = bar(packet,anchor,contract)
         buffer = number(stop_buffer_points)
         if buffer <= 0 or buffer % TICK:
             raise ValueError('WICK_BUFFER_INVALID')
         wick = number(source['low' if sign == 1 else 'high'])
         stop = wick - sign * buffer
-        all_refs = list(refs)
+        all_refs = list(refs)+[anchor]
         if kind == 'FIBO_50_LIMIT':
             anchors = original.get('recovery_anchors')
             if not isinstance(anchors, dict) or anchors.get('order_id') != original['order_id']:
@@ -188,7 +207,7 @@ def build(original, packet, selection, now_ms, *, stop_buffer_points):
                     stop_distance_points=float(distance), stop_risk_usd_per_contract=float(distance*2),
                     gross_r=2., activation_ms=now_ms, expiry_ms=original['activation_ms']+1200000,
                     fvg=dict(lower=float(low), upper=float(high), candle_ids=refs, available_at=c['available_at']),
-                    stop_anchor=dict(candle_id=anchor, source_policy=SOURCE_POLICY,
+                    stop_anchor=dict(candle_id=anchor, source_policy=policy,
                         wick_field='low' if sign==1 else 'high',
                         wick_price=float(wick), buffer_points=float(buffer),
                         candle=copy.deepcopy(source), association_reference=selection['source_association_reference']),
@@ -210,13 +229,21 @@ def verify_plan(plan):
     anchor = plan.get('stop_anchor', {})
     selection = plan.get('selection', {})
     refs = plan.get('fvg', {}).get('candle_ids', [])
-    if (len(refs) != 3 or anchor.get('source_policy') != SOURCE_POLICY
-            or anchor.get('candle_id') != refs[0]
-            or selection.get('source_policy') != SOURCE_POLICY
-            or selection.get('source_candle_id') != refs[0]
+    policy=anchor.get('source_policy')
+    expected=refs[0] if refs else None
+    if policy==SWING_POLICY:
+        event=plan.get('evidence',{}).get(selection.get('structure_event_id'),{})
+        expected=event.get('confirmed_swing_candle_id')
+        if (plan.get('kind')!='NEW_BOS_FVG_RETEST' or not expected
+                or event.get('source')!='ORIGINAL_DIRECTIONAL_SCANNER'):
+            raise ValueError('CONFIRMED_SWING_SOURCE_UNKNOWN')
+    if (len(refs) != 3 or policy not in (SOURCE_POLICY,SWING_POLICY)
+            or anchor.get('candle_id') != expected
+            or selection.get('source_policy') != policy
+            or selection.get('source_candle_id') != expected
             or selection.get('fvg_candle_ids') != refs
-            or anchor.get('association_reference') != SOURCE_POLICY
-            or selection.get('source_association_reference') != SOURCE_POLICY):
+            or anchor.get('association_reference') != policy
+            or selection.get('source_association_reference') != policy):
         raise ValueError('FVG_SOURCE_POLICY_MISMATCH')
 
 

@@ -219,6 +219,9 @@ class ContextSupport:
                     db.execute('ALTER TABLE reviews ADD COLUMN '+name+' REAL')
 
             hybrid_lifecycle.init(db)
+            import directional_nofill_recovery
+            directional_nofill_recovery.init(db)
+            directional_nofill_recovery.recover_on_start(db,int(self.clock()*1000))
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=5)
@@ -339,6 +342,9 @@ class ContextSupport:
 
     def setup_annotation(self, order_id, direction):
         """Exact saved setup review; never reuse another setup's ALLOW."""
+        if ':recovery:2:' in order_id:
+            import directional_recovery_runtime
+            return directional_recovery_runtime.annotation(self,order_id,direction)
         result = dict(owner='AB_DIRECTIONAL', order_id=order_id,
                       state='UNAVAILABLE', executable=False)
         if not self.enabled or self.owner != 'AB_DIRECTIONAL' or self.trigger not in ('SETUP', 'HYBRID'):
@@ -446,7 +452,7 @@ class ContextSupport:
                 job = db.execute("SELECT * FROM setup_requests WHERE state='queued' ORDER BY expires,created,order_id LIMIT 1").fetchone()
             for oid in expired:
                 self.event(oid,'review_expired',reason='expired_before_request')
-            if job is None and self.trigger != 'HYBRID':
+            if job is None and self.trigger != 'HYBRID' and not (self.owner == 'AB_DIRECTIONAL' and self.config.get('AB_DIRECTIONAL_NO_FILL_RECOVERY') == 'true'):
                 self.status = 'WAITING_FOR_SETUP'
                 return False
         try:
@@ -466,6 +472,14 @@ class ContextSupport:
             return False
         self.last_source = p;self.last_source_at = now
         self.invalidate(p)
+        if job is None and self.owner == 'AB_DIRECTIONAL':
+            import directional_recovery_runtime
+            if directional_recovery_runtime.process(self,p,source['calls_today']):
+                self.status='RECOVERY_REVIEW_PROCESSED'
+                return True
+        if job is None and self.trigger == 'SETUP':
+            self.status='WAITING_FOR_SETUP'
+            return False
         if self.trigger == 'HYBRID':
             hybrid_lifecycle.refresh(self, p)
             if job is None and not hybrid_lifecycle.context_due(self, p, session_at(now), local.date().isoformat()):
@@ -743,6 +757,7 @@ def register(app):
             calls = db.execute('SELECT COUNT(*) FROM reviews WHERE day=?',(day,)).fetchone()[0]
             setups = [dict(r) for r in db.execute('SELECT order_id,created,expires,state,review_id FROM setup_requests ORDER BY created DESC LIMIT 40')]
             events = [dict(r) for r in db.execute('SELECT * FROM setup_review_events ORDER BY id DESC LIMIT 40')]
+            recovery_rows=[dict(r) for r in db.execute('SELECT opportunity_id,state,activation_ms,deadline_ms,review_id,replacement_id,updated_ms FROM nofill_opportunities ORDER BY updated_ms DESC LIMIT 40')]
         for event in events:
             event['detail']=json.loads(event['detail'])
         for row in rows:
@@ -769,6 +784,8 @@ def register(app):
                        calls_today=calls,daily_cap=INSTANCE.cap,interval_minutes=INSTANCE.minutes,
                        reviews=rows,annotations=annotations,setup_requests=setups,
                        setup_review_events=events,
+                       nofill_recovery=dict(enabled=INSTANCE.config.get('AB_DIRECTIONAL_NO_FILL_RECOVERY')=='true',
+                           opportunities=recovery_rows,shared_setup_budget=True,original_priority=True,maximum_reviews_per_opportunity=1),
                        setup_max_age_seconds=INSTANCE.setup_max_age)
 
     def setup_export(order_id):

@@ -1,0 +1,59 @@
+{
+  "provider": "MFFU",
+  "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+  "account_suffix": "5021",
+  "account_stage": "Evaluation",
+  "stage_source": "User account dashboard",
+  "plan_variant": "UNKNOWN",
+  "verified": false,
+  "observed_at_ms": 1792993517813,
+  "expires_at_ms": null,
+  "source_reference": "User account statements and authenticated CrossTrade read 2026-10-26; incomplete provider rules",
+  "minimum_balance": 48161.9,
+  "minimum_balance_source": "USER_CONFIRMED_NOT_CURRENT_PROVIDER_API",
+  "max_micro_contracts": null,
+  "user_reported_max_micro_contracts": 40,
+  "daily_loss_policy": "NONE",
+  "daily_loss_limit_usd": null,
+  "daily_loss_source_reference": "USER_CONFIRMED_NO_PROVIDER_DAILY_LIMIT; exact rule version unverified",
+  "account_controls_source": "CROSSTRADE_RECONCILED",
+  "margin_policy": {
+    "verified": false,
+    "mode": "UNKNOWN",
+    "contract": "MNQZ2026",
+    "source_reference": null
+  },
+  "reconciliation_anchor": {
+    "verified": false,
+    "source_reference": null,
+    "reason": "Historical flat cash checkpoint and provider history coverage not independently established"
+  },
+  "observed_broker": {
+    "at_ms": 1792993517813,
+    "cash": 48721.05,
+    "equity": 48721.05,
+    "positions": 0,
+    "orders": 0,
+    "realized_pnl": 0,
+    "unrealized_pnl": 0
+  },
+  "historical_costs": {
+    "source": "CrossTrade GET /fills/history",
+    "observed_at_ms": 1792993579108,
+    "fill_ids": [
+      641664660727,
+      641664660743,
+      641664660751
+    ],
+    "gross_pnl_usd": -231,
+    "fees_usd": 9.5,
+    "net_pnl_usd": -240.5,
+    "complete_account_history_verified": false
+  },
+  "required_evidence": [
+    "current account-specific capacity/rule version",
+    "margin rule: per-contract or contract-cap-only",
+    "current floor validity interval",
+    "flat accounting checkpoint and complete capture coverage"
+  ]
+}

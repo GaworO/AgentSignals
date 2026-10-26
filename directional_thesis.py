@@ -52,6 +52,12 @@ class ThesisValidator:
         import execution_validation
         p=execution_validation.policy() if not pending else {'thesis_rule_version':VERSION}
         proof=dict(order_id=order['order_id'],valid=False,checked_ms=int(self.clock()*1000))
+        if order.get('recovery_version') == 2:
+            try:
+                import directional_recovery_runtime
+                return directional_recovery_runtime.validate_entry(ab_ai_context.INSTANCE,order,pending=pending)
+            except Exception as exc:
+                return dict(proof,reason=str(exc) if isinstance(exc,ValueError) else 'recovery_thesis_unavailable')
         if p.get('thesis_rule_version')!=VERSION:
             return dict(proof,reason='validated_thesis_rule_required')
         try:

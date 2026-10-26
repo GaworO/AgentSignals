@@ -2036,6 +2036,7 @@ def _execution_readiness():
         commit=os.environ.get('RAILWAY_GIT_COMMIT_SHA'),
         deployment=os.environ.get('RAILWAY_DEPLOYMENT_ID'),
         execution=execution,
+        configuration_files=__import__('execution_validation').configuration_files(),
         position_manager=directional_management_status.status(builder_crosstrade._TRANSPORT),
         traces=execution_trace.recent(),
         note='ALLOW and configured switches are not proof of broker execution or live readiness.')

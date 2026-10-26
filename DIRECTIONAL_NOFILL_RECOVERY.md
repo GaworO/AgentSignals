@@ -1,10 +1,9 @@
 # Directional recovery: confirmed FVG wick rule
 
-This is local, disabled-by-default implementation work. The plan calculator and
-durable review journal are tested; the production scanner capture, automatic
-NO-FILL worker and replacement submission path are not connected yet. No live
-recovery, deployment, paid review or execution permission change is established
-by these tests.
+The scanner captures causal anchors; the existing AI worker coordinates cancellation
+proof, one paid review reservation and a unique replacement through the existing
+Guard/native route. Recovery remains disabled by default and needs separate final
+activation after account and broker checks. Tests use mock AI and broker responses.
 
 ## Stop source
 
@@ -18,11 +17,12 @@ timeframe and physical MNQ contract, and available at the review cutoff.
 - Explicit second/third-candle mappings are rejected, not silently corrected.
 - Missing candle proof stays UNKNOWN. `fvg_bar` alone is insufficient.
 - New BOS/FVG also requires the original scanner's causal BOS/displacement and
-  structural-source evidence matching the selected first candle.
+  structural-source evidence. CONFIRMED_SCANNER_SWING_V1 binds the new impulse
+  swing instead of the first FVG candle. Missing evidence rejects the alternative.
 
 AI evaluates whether that frozen invalidation and entry are justified. It can
 ALLOW, WAIT or REJECT; it cannot choose a different stop candle or price geometry.
-Plan and prompt versions are v2; saved v1 plans cannot be reused as v2 approvals.
+Plan and prompt versions are v3; older saved plans cannot be reused as new approvals.
 
 ## Prices and sizing
 
@@ -74,5 +74,6 @@ are terminal. Selection is advice, never authorization to submit.
 The hard entry deadline remains original activation + 20 minutes. A late/partial
 fill takes precedence over the deadline and requires protection/reconciliation.
 AI response binding, fresh context and all account, Guard, broker and execution
-policy gates must still be validated at eventual replacement dispatch. Runtime
-wiring and deployment remain outstanding; keep recovery disabled meanwhile.
+policy gates must still be validated at eventual replacement dispatch. Runtime wiring is present in directional_recovery_runtime.py. A restart consumes an
+interrupted review without replay; uncertain dispatch is never retried. All original
+entry gates remain mandatory. The 20-minute deadline does not close filled trades.

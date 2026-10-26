@@ -44,6 +44,14 @@ def event(db,oid,now,kind,detail):
                (oid,now,kind,encode(detail)))
 
 
+def recover_on_start(db, now):
+    """An interrupted paid call remains consumed but cannot block later reviews."""
+    for row in db.execute("SELECT opportunity_id,review_id FROM nofill_opportunities WHERE state='REVIEW_RESERVED'").fetchall():
+        db.execute("UPDATE nofill_opportunities SET state='REVIEW_UNKNOWN',updated_ms=? WHERE opportunity_id=?",(now,row['opportunity_id']))
+        db.execute("UPDATE reviews SET status='recovery_interrupted',finished=? WHERE id=? AND status='running'",(now/1000,row['review_id']))
+        event(db,row['opportunity_id'],now,'REVIEW_INTERRUPTED_NO_RETRY',dict(review_id=row['review_id']))
+
+
 def register(db,order,now):
     """Only called for an authenticated original native intent, not backtest rows."""
     if order.get('strategy')!='AB_DIRECTIONAL' or order.get('recovery_version'):
@@ -131,6 +139,12 @@ def reserve_review(db,oid,request,external_calls,now,*,config):
     # A reserved request is counted even if transport never returns. No automatic retries.
     db.execute('INSERT INTO reviews(id,day,started,cutoff,status,request,review_kind) VALUES(?,?,?,?,?,?,?)',
                (rid,day,now/1000,now//1000,'running',encode(request),'SETUP'))
+    columns={r[1] for r in db.execute('PRAGMA table_info(reviews)')}
+    metadata=dict(requested_at=now/1000)
+    if request.get('input'):
+        metadata.update(prompt_version=json.loads(request['input'][1]['content'])['prompt_version'],model=request.get('model'))
+    for key,value in metadata.items():
+        if key in columns:db.execute('UPDATE reviews SET '+key+'=? WHERE id=?',(value,rid))
     db.execute("UPDATE nofill_opportunities SET state='REVIEW_RESERVED',review_id=?,updated_ms=? WHERE opportunity_id=?",
                (rid,now,oid))
     event(db,oid,now,'REVIEW_RESERVED',dict(review_id=rid))
@@ -215,6 +229,8 @@ def complete_review(db, oid, review_id, response_body, fresh_packet, broker_proo
         payload=json.loads(saved['request']);selected=review.validate(decision,payload)
         if now>=row['deadline_ms']:
             state='EXPIRED';raise ValueError('RECOVERY_EXPIRED')
+        if now/1000>=review.unpack(payload)['review_expires_at']:
+            raise ValueError('RECOVERY_AI_RESPONSE_TOO_LATE')
         if selected is None:
             state=decision['decision']
         else:
@@ -233,5 +249,10 @@ def complete_review(db, oid, review_id, response_body, fresh_packet, broker_proo
     db.execute('UPDATE nofill_opportunities SET state=?,decision=?,last_broker=?,updated_ms=? WHERE opportunity_id=?',
         (state,encode(dict(ai=decision,selected_plan=selected,error=error)),encode(broker_proof),now,oid))
     db.execute('UPDATE reviews SET status=?,finished=? WHERE id=?',(state.lower(),now/1000,review_id))
+    columns={r[1] for r in db.execute('PRAGMA table_info(reviews)')}
+    metadata=dict(decision=encode(decision),response_received_at=now/1000,
+                  response_model=response_body.get('model') if isinstance(response_body,dict) else None)
+    for key,value in metadata.items():
+        if key in columns:db.execute('UPDATE reviews SET '+key+'=? WHERE id=?',(value,review_id))
     event(db,oid,now,'REVIEW_RESULT',dict(state=state,error=error,plan_id=selected['plan_id'] if selected else None))
     return dict(state=state,reason=error,selected_plan=selected,execution_authorized=False)

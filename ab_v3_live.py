@@ -267,6 +267,8 @@ def prepare(order, claim=False):
     value['target_price'] = entry_target(order)
     value['runner_enabled'] = value['target_price'] != value['baseline_target_price']
     value['ai_review'] = order.get('_directional_ai_review')
+    for key in ('recovery_version','parent_opportunity_id','recovery_plan_id'):
+        if key in order:value[key]=order[key]
     with connect() as c:
         if claim and mode() == 'LIVE':
             c.execute('BEGIN IMMEDIATE')
@@ -274,6 +276,9 @@ def prepare(order, claim=False):
                 raise ValueError('exclusive route already owned')
         c.execute("INSERT OR IGNORE INTO orders VALUES(?,?,?,?,?)",
                   (order["order_id"],"PREPARED",dump(value),None,now_ms()))
+    if not order.get('recovery_version'):
+        import directional_recovery_runtime
+        directional_recovery_runtime.register_prepared(value, source)
 
 
 def record_quantity(order_id, quantity):
@@ -427,6 +432,18 @@ def native_fixed_bracket():
     return builder_crosstrade.selected() and not runner_enabled() and exit_mode()=='shadow'
 
 
+def broker_quantity_scope(proof):
+    """Legacy one-contract evidence is not a verified multi-contract scope."""
+    cap=proof.get('max_quantity',1)
+    if type(cap) is not int or not 1<=cap<=40:return False
+    if cap>1 and (proof.get('quantity_scope_verified') is not True
+                  or not proof.get('quantity_scope_reference')
+                  or type(proof.get('observed_protected_quantity')) is not int
+                  or proof['observed_protected_quantity']<cap):return False
+    try:return 0<int(os.environ.get('EXEC_MAX_QTY','0'))<=cap
+    except ValueError:return False
+
+
 def native_bracket_readiness():
     """Fixed native protection requires broker evidence, not M3/runner parity.
 
@@ -457,7 +474,7 @@ def native_bracket_readiness():
                     or not proof.get('operator_pilot_acceptance_reference')
                     or not isinstance(ids,list) or len(ids)<3
                     or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids)
-                    or os.environ.get('EXEC_MAX_QTY') != '1'
+                    or not broker_quantity_scope(proof)
                     or os.environ.get('EXEC_STRATEGY_POLICY') != 'V3_ONLY'
                     or os.environ.get('AB_ENTRY_ARMED','0') != '0'
                     or os.environ.get('AB_MANAGER_MODE','shadow').lower() != 'shadow'
@@ -484,8 +501,7 @@ def native_bracket_readiness():
                     or not proof.get('evidence_reference')
                     or not isinstance(ids,list) or len(ids)<3
                     or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids)
-                    or type(proof.get('max_quantity')) is not int or proof['max_quantity']!=1
-                    or os.environ.get('EXEC_MAX_QTY')!='1'):
+                    or not broker_quantity_scope(proof)):
                 return 'native_bracket_history_scope_unverified'
         elif kind in (None,'PROVIDER_PAPER'):
             # Preserve the existing proof format for already validated users.

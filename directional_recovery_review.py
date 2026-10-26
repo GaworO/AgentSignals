@@ -10,13 +10,17 @@ import math
 import directional_ict_context
 import directional_recovery_plans as plans
 
-PROMPT_VERSION = 'directional-recovery-ict-wick-v2'
+PROMPT_VERSION = 'directional-recovery-ict-wick-v3'
 PROMPT = '''Review one existing Directional opportunity after its original LIMIT
 expired unfilled. Select at most ONE supplied eligible plan or return WAIT/REJECT.
 Do not create a setup, choose another candle, change LIMIT/SL/TP, quantity or expiry.
 The source candle is the FIRST chronological candle of each selected three-candle
 FVG, explicitly bound by FIRST_FVG_CANDLE_WICK_V1. LONG stop is below its low wick,
 SHORT stop above its high wick, using the supplied server buffer.
+For a NEW_BOS_FVG_RETEST explicitly bound to CONFIRMED_SCANNER_SWING_V1, use
+the supplied confirmed swing candle of that new impulse instead. Both anchors
+are deterministic candidates: ALLOW only if the cited extreme actually represents
+structural invalidation, otherwise WAIT/REJECT. Never invent a substitute anchor.
 Do not substitute the gap edge, third confirmation candle, old stop, or a fixed
 one-point stop. If the supplied source candle is not a valid ICT invalidation
 anchor, return WAIT or REJECT and explain why. FIBO_50 uses the ORIGINAL anchors
@@ -32,7 +36,8 @@ Confidence is subjective model confidence, NOT a win probability. Historical
 OHLC touches do not establish executable quotes, fills or cancellation. You do
 not certify account risk or broker protection. No future candles are available.
 Copy the exact request ID, opportunity ID, plan version and selected plan binding.
-WAIT or REJECT uses null selected_plan. Return only the requested JSON schema.'''
+WAIT, REJECT or CANCEL uses null selected_plan. CANCEL means the original
+opportunity is no longer valid. Return only the requested JSON schema.'''
 
 
 def obj(fields):
@@ -47,7 +52,7 @@ def schema():
     binding = obj(dict(plan_id=text, **{k:dict(type='integer') if k.endswith('_ms') else
         number if k.endswith('_price') else text for k in plans.GEOMETRY}))
     return obj(dict(request_id=text, opportunity_id=text, plan_version=dict(type='integer', enum=[2]),
-        decision=dict(type='string', enum=['ALLOW','WAIT','REJECT']),
+        decision=dict(type='string', enum=['ALLOW','WAIT','REJECT','CANCEL']),
         selected_plan=dict(anyOf=[binding, dict(type='null')]), reason_pl=text,
         confidence=dict(anyOf=[dict(type='number',minimum=0,maximum=1),dict(type='null')]),
         ict_assessment=obj({topic:copy.deepcopy(assessment) for topic in directional_ict_context.TOPICS})))
@@ -79,11 +84,13 @@ def request(original, packet, candidates, model):
     market = {k:copy.deepcopy(packet[k]) for k in ('as_of','evidence','ict_context','hybrid_context') if k in packet}
     market['hybrid_context'] = derived
     context = dict(prompt_version=PROMPT_VERSION, opportunity_id=original['order_id'],
+                   review_expires_at=min(min(p['activation_ms'] for p in eligible)/1000+90,
+                                         original['activation_ms']/1000+1200),
                    plan_version=2, original=plans.original_view(original), market=market,
                    plans=eligible, unavailable_plans=[dict(kind=c['kind'], reason=c['reason'])
                        for c in candidates if c['status'] != 'ELIGIBLE_FOR_AI'])
     context['request_id'] = plans.digest(context)
-    return dict(model=model, input=[dict(role='system',content=PROMPT),
+    return dict(model=model,stream=True,store=False,input=[dict(role='system',content=PROMPT),
         dict(role='user',content=json.dumps(context,sort_keys=True,allow_nan=False))],
         text=dict(format=dict(type='json_schema',name='directional_recovery',strict=True,schema=schema())))
 
