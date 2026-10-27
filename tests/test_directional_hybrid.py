@@ -133,7 +133,7 @@ def test_scheduled_context_reused_only_while_valid(h):
 def test_old_allow_invalidated_by_later_market_event_without_new_ai(h):
     h.support.queue_setup(candidate(h));h.support.process_one();assert gate.check('LONG','one')[0] is None
     h.now+=60;life.refresh(h.support,h.support.packet(h.source(),h.now))
-    with h.support.connect() as db:db.execute('INSERT INTO hybrid_events VALUES(?,?,?)',('bos',h.now,json.dumps(dict(kind='MSS',symbol='MNQ'))))
+    with h.support.connect() as db:db.execute('INSERT INTO hybrid_events VALUES(?,?,?)',('bos',h.now,json.dumps(dict(kind='MSS',symbol='MNQ',direction='DOWN'))))
     assert gate.check('LONG','one')[0]=='v3_ai:hybrid_new_structure_event'
 
 

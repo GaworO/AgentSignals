@@ -133,8 +133,9 @@ def validate(decision, payload):
 
 
 def revalidate(plan, payload, fresh_packet, now_ms):
-    """A saved ALLOW cannot resurrect expiry, revised candles or new structure."""
+    """A saved ALLOW cannot resurrect expiry, revised candles or opposition."""
     import directional_hybrid_context
+    from directional_hybrid_lifecycle import structure_event_reason
     ctx=unpack(payload); plans.verify_plan(plan)
     if binding(plan) not in [binding(p) for p in ctx['plans']]:
         raise ValueError('RECOVERY_PLAN_NOT_REVIEWED')
@@ -145,12 +146,13 @@ def revalidate(plan, payload, fresh_packet, now_ms):
     for key,e in old['evidence'].items():
         if key not in fresh_packet['evidence'] or fresh_packet['evidence'][key]!=e:
             raise ValueError('RECOVERY_CONTEXT_REVISED_OR_MISSING')
-    # Match the original hybrid worker: any newer structural event invalidates
-    # cached reasoning. Never let an ALLOW override a contradictory later event.
+    # Use the same direction-aware rule as the original setup review.
     fresh=directional_hybrid_context.build(fresh_packet)
-    if any(e['available_at']>old['as_of'] and e.get('symbol') in ('MNQ','NQ')
-           for e in fresh['structure_events']['value']):
-        raise ValueError('RECOVERY_NEW_STRUCTURE_EVENT')
+    blocked=structure_event_reason(
+        [e for e in fresh['structure_events']['value'] if e['available_at']>old['as_of']],
+        plan['direction'])
+    if blocked:
+        raise ValueError(blocked.replace('HYBRID_', 'RECOVERY_', 1))
     rebuilt=plans.build(ctx['original'],fresh_packet,plan['selection'],now_ms,
                         stop_buffer_points=plan['stop_anchor']['buffer_points'])
     if rebuilt['status']!='ELIGIBLE_FOR_AI':raise ValueError(rebuilt['reason'])

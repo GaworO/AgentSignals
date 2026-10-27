@@ -3,6 +3,33 @@ import json
 import directional_hybrid_context as context
 
 
+def structure_event_reason(events, direction=None):
+    """Invalidate exact setups on opposition, not merely newer evidence.
+
+    Direction is the event's resulting bias (an inverted bearish FVG is UP).
+    Context-only reviews cover both sides, so any relevant event still expires
+    that cache. Unknown semantics and data revisions never become permissions.
+    """
+    relevant = [e for e in events if e.get('symbol') in ('NQ', 'MNQ', None)]
+    if any(e.get('kind') == 'DATA_REVISION' for e in relevant):
+        return 'HYBRID_DATA_REVISED'
+    if not relevant:
+        return None
+    if direction is None:
+        return 'HYBRID_NEW_STRUCTURE_EVENT'
+    known = {'MSS', 'BOS', 'STRUCTURE_BREAK', 'SWEEP_RECLAIM',
+             'IFVG', 'OBSERVED_LIQUIDITY_TAKEN'}
+    if direction not in ('LONG', 'SHORT') or any(
+        e.get('symbol') not in ('NQ', 'MNQ') or e.get('kind') not in known
+        or e.get('direction') not in ('UP', 'DOWN') for e in relevant
+    ):
+        return 'HYBRID_STRUCTURE_EVENT_UNCLASSIFIED'
+    opposite = 'DOWN' if direction == 'LONG' else 'UP'
+    if any(e['direction'] == opposite for e in relevant):
+        return 'HYBRID_NEW_STRUCTURE_EVENT'
+    return None
+
+
 def init(db):
     db.execute('CREATE TABLE IF NOT EXISTS hybrid_market(id INTEGER PRIMARY KEY CHECK(id=1), observed REAL, packet TEXT, derived TEXT)')
     db.execute('CREATE TABLE IF NOT EXISTS hybrid_events(id TEXT PRIMARY KEY, available REAL, payload TEXT)')
@@ -43,11 +70,13 @@ def reason(service, packet, setup=None):
         if current['as_of']<packet['as_of']:return 'HYBRID_SOURCE_REGRESSED'
         if current['as_of']==packet['as_of'] and current['source_packet_id']!=packet['source_packet_id']:
             return 'HYBRID_DATA_REVISED'
-        # Any later structural event is a conservative invalidator of cached
-        # reasoning; no model is allowed to ignore a new contradictory event.
+        # Keep aligned events; an opposing event invalidates the exact setup.
+        # Context-only reviews remain conservative because they cover both sides.
         events=db.execute('SELECT payload FROM hybrid_events WHERE available>? AND available<=?',(packet['as_of'],current['as_of'])).fetchall()
-        if any(json.loads(r[0]).get('symbol') in ('NQ','MNQ',None) for r in events):
-            return 'HYBRID_NEW_STRUCTURE_EVENT'
+        blocked=structure_event_reason([json.loads(r[0]) for r in events],
+                                       setup.get('direction', 'UNKNOWN') if setup is not None else None)
+        if blocked:
+            return blocked
         # Data revision can share the original cutoff.
         if db.execute("SELECT 1 FROM hybrid_events WHERE available=? AND payload LIKE '%DATA_REVISION%'",(packet['as_of'],)).fetchone():
             return 'HYBRID_DATA_REVISED'

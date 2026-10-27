@@ -210,12 +210,16 @@ def test_future_htf_context_is_rejected_even_when_price_geometry_is_causal(marke
     with pytest.raises(ValueError,match='future'):payload(market)
 
 
-def test_new_structure_after_ai_invalidates_approval(market,monkeypatch):
+@pytest.mark.parametrize('direction,blocked',[('DOWN',True),('UP',False)])
+def test_new_structure_after_ai_checks_direction(market,monkeypatch,direction,blocked):
     import directional_hybrid_context
     req=payload(market);p=review.validate(answer(req),req)
     monkeypatch.setattr(directional_hybrid_context,'build',lambda packet:dict(structure_events=dict(
-        value=[dict(available_at=packet['as_of']+1,symbol='MNQ',kind='MSS')])) )
-    with pytest.raises(ValueError,match='NEW_STRUCTURE'):review.revalidate(p,req,market[1],T+620000)
+        value=[dict(available_at=packet['as_of']+1,symbol='MNQ',kind='MSS',direction=direction)])) )
+    if blocked:
+        with pytest.raises(ValueError,match='NEW_STRUCTURE'):review.revalidate(p,req,market[1],T+620000)
+    else:
+        assert review.revalidate(p,req,market[1],T+620000)==p
 
 
 def test_saved_plan_mutation_is_detected_before_risk_sizing(market):
