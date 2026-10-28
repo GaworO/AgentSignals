@@ -222,6 +222,61 @@ class NativeTests(unittest.TestCase):
         snap,net=self.complete(winning=False);self.t.reconcile_one(self.t.row('order-one'),snap);self.t.reconcile_costs(snap)
         self.assertEqual(self.t.resolution('order-one')['outcome'],'loss');self.assertAlmostEqual(self.t.resolution('order-one')['net'],net)
 
+    def test_later_external_roundtrip_is_not_a_fee_revision_of_owned_trade(self):
+        self.submit();snap,net=self.complete(winning=False)
+        self.t.reconcile_one(self.t.row('order-one'),snap)
+        self.now+=60
+        later=[self.fill(201,21,1,29468,'Buy',offset=4),
+               self.fill(202,22,1,29467.5,'Sell',offset=1)]
+        self.history.extend(dict(fillId=f['id'],orderId=f['orderId'],accountId=2214,
+            accountName='Builder account',environment='demo',instrument='MNQ 12-26',
+            qty=f['qty'],price=f['price'],action=f['action'],timestamp=f['timestamp'],
+            commission=.39,fees=.56) for f in later)
+        self.account['balance'].update(totalCashValue=48961.55+net-2.9,netLiq=48961.55+net-2.9)
+        snap=self.snapshot([*snap['fills'],*later]);posts=len(self.posts)
+        self.t.reconcile_costs(snap)
+        row=self.t.row('order-one');obs=json.loads(row['observation_json'])
+        self.assertEqual(row['state'],'CLOSED');self.assertAlmostEqual(obs['net_usd'],net)
+        self.assertEqual(obs['later_account_cash_bridge']['external_fill_ids'],[201,202])
+        self.assertAlmostEqual(obs['later_account_cash_bridge']['closed_groups'][0]['net_usd'],-2.9)
+        self.assertFalse(obs['later_account_cash_bridge']['account_risk_verified'])
+        self.assertEqual(self.t.entry_blocker(),'broker:external_account_activity_requires_reconciliation')
+        self.assertEqual(len(self.posts),posts)
+        with self.api.connect() as c:
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM native_operator_alerts WHERE resolved=0').fetchone()[0],0)
+        # Tomorrow's empty session fills do not silently waive external activity.
+        self.snapshot([])
+        self.assertEqual(self.t.entry_blocker(),'broker:external_account_activity_requires_reconciliation')
+
+    def test_unexplained_cash_delta_still_blocks_cost_reconciliation(self):
+        self.submit();snap,net=self.complete()
+        self.t.reconcile_one(self.t.row('order-one'),snap)
+        self.account['balance']['totalCashValue']-=2.9
+        self.t.reconcile_costs(self.snapshot(snap['fills']))
+        self.assertEqual(self.t.row('order-one')['state'],'CLOSED_PENDING_COSTS')
+
+    def test_incomplete_or_conflicting_external_history_cannot_settle_old_trade(self):
+        self.submit();snap,net=self.complete(winning=False)
+        self.t.reconcile_one(self.t.row('order-one'),snap)
+        original_history=copy.deepcopy(self.history);self.now+=60
+        later=[self.fill(201,21,1,29468,'Buy',offset=4),self.fill(202,22,1,29467.5,'Sell',offset=1)]
+        extras=[dict(fillId=f['id'],orderId=f['orderId'],accountId=2214,accountName='Builder account',
+            environment='demo',instrument='MNQ 12-26',qty=f['qty'],price=f['price'],action=f['action'],
+            timestamp=f['timestamp'],commission=.39,fees=.56) for f in later]
+        self.account['balance'].update(totalCashValue=48961.55+net-2.9,netLiq=48961.55+net-2.9)
+        for case in ('missing_exit','unknown_fees','unknown_multiplier','overlap','live_conflict'):
+            with self.subTest(case=case):
+                x=copy.deepcopy(extras)
+                if case=='missing_exit':x=x[:1]
+                if case=='unknown_fees':x[0]['fees']=None
+                if case=='unknown_multiplier':x[0]['instrument']='ES 12-26'
+                if case=='overlap':x[0]['timestamp']=original_history[0]['timestamp']
+                if case=='live_conflict':x[0]['price']+=.25
+                self.history=copy.deepcopy(original_history)+x;self.now+=61
+                self.t.reconcile_costs(self.snapshot([*snap['fills'],*later]))
+                self.assertEqual(self.t.row('order-one')['state'],'CLOSED_PENDING_COSTS')
+                self.assertIsNotNone(self.t.entry_blocker())
+
     def test_history_fill_core_or_missing_costs_cannot_certify_pnl(self):
         self.submit();snap,net=self.complete();self.t.reconcile_one(self.t.row('order-one'),snap)
         self.history[0]['qty']=20;self.t.reconcile_costs(snap)

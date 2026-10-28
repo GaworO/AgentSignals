@@ -144,7 +144,11 @@ def account_profile():
             warnings.append('DD_FLOOR must be the verified current Builder floor within 48000..50100')
         if risk > 500.0 + 0.01:
             warnings.append('SETUP_GROUP_RISK_USD %.0f exceeds the reviewed $500 Builder budget' % risk)
-        if leg_cap * 2 > 40:
+        # V3_ONLY excludes A/B sibling orders at the routing boundary. Keep
+        # the actual single-order cap check; do not invent a second live leg.
+        if leg_cap > 40:
+            warnings.append('EXEC_MAX_QTY exceeds Builder limit 40 MNQ')
+        elif not execution_policy.shadow_family('A/B') and leg_cap * 2 > 40:
             warnings.append('two A/B sibling legs could exceed Builder limit 40 MNQ')
         started_on = _env('ACCOUNT_STARTED_ON', '').strip()
         try:
@@ -178,6 +182,9 @@ def account_profile():
                      daily_soft_pause=None, max_micros=60, consistency='50% during evaluation',
                      min_trading_days=2, inactivity_days=_envi('INACTIVITY_DAYS', 0))
     return dict(plan=plan, label=label, phase=phase, rules=rules,
+                execution_label=('Directional LIMIT / structural SL / 2R; A/B shadow'
+                    if execution_policy.mode()=='V3_ONLY' else 'all strategies shadow'
+                    if execution_policy.mode()=='SHADOW_ALL' else 'resting-limit A/B + Shallow'),
                 configured_group_risk=round(risk, 2), per_leg_contract_cap=leg_cap,
                 internal_day_loss_usd=_envf('DAY_LOSS_USD', 1000.0),
                 internal_day_loss_n=_envi('DAY_LOSS_N', 2),
@@ -1790,7 +1797,12 @@ def health(feed_age_min=None, market_open=None):
             add('broker_order_transport','warn' if transport.get('entry_blocker') else 'ok',
                 transport.get('entry_blocker') or 'CrossTrade native IDs; broker fills and closure reconciliation')
             if transport.get('operator_alerts'):
-                add('broker_recovery','critical','; '.join(a['order_id']+': '+a['reason'] for a in transport['operator_alerts'][:5]))
+                alerts=transport['operator_alerts']
+                accounting_only=all(a.get('reason')=='costs_pending' for a in alerts)
+                detail='; '.join(a['order_id']+': '+a['reason'] for a in alerts[:5])
+                if accounting_only:
+                    detail='Closed-trade costs/cash reconciliation unresolved; new entries blocked. '+detail
+                add('broker_accounting' if accounting_only else 'broker_recovery','critical',detail)
         if broker.get('enabled'):
             add('broker_account', 'ok' if broker.get('current') else 'critical',
                 ('CrossTrade current: %s positions, %s working orders' %
@@ -2260,7 +2272,7 @@ td{padding:5px;border-bottom:1px solid #232322;font-variant-numeric:tabular-nums
 .fillp{height:100%;border-radius:5px;min-width:3px}
 .bn{padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700}</style></head><body>
 <h1>Auto-Executor — <span id=account_name>Account</span> <span id=mode class=pill></span> <span id=kill class=pill></span> <span id=health class=pill></span></h1>
-<div class=sub><span id=account_sub></span> · resting-limit A/B + Shallow · fail-closed · MANUAL = review only / no broker orders · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN</span></div>
+<div class=sub><span id=account_sub></span> · <span id=strategy_sub></span> · fail-closed · MANUAL = review only / no broker orders · <span id=day></span> · <span class=g>sync real equity: /guard/sync?equity=NNNNN</span></div>
 <div id=healthbar class=sub style="margin:-6px 0 12px;font-weight:600"></div>
 <div id=rulebar class=rulebar></div>
 <div class=modebar>
@@ -2320,6 +2332,7 @@ async function load(){
  let p=d.profile||{},rules=p.rules||{},ia=d.inactivity||{},ts=d.trade_summary||{},ls=d.loss_streak||{};
  document.getElementById('account_name').textContent=p.label||'Account';
  document.getElementById('account_sub').textContent='MFF '+(p.label||'account')+' · '+(p.phase||'evaluation');
+ document.getElementById('strategy_sub').textContent=p.execution_label||'execution policy unavailable';
  let active=(p.active_sessions||[]).map(function(s){return s.code+' '+s.description;}).join(' · ')||'none configured';
  let warns=(p.config_warnings||[]);
  let ic=ia.status=='due'||ia.status=='critical'?'bad':ia.status=='warn'||ia.status=='unknown'?'warn':'good';

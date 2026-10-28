@@ -145,8 +145,13 @@ def directional_health():
     if os.environ.get('AB_V3_MODE','SHADOW').upper()!='LIVE':reasons.append('directional_mode_not_live')
     directions=[side for side in ('LONG','SHORT') if os.environ.get('AB_DIRECTIONAL_LIVE_'+side,'0')=='1']
     if not directions:reasons.append('direction_not_enabled')
-    if revalidation.get('policy_error'):reasons.append(revalidation['policy_error'])
-    reasons.extend(revalidation.get('access_blockers') or [])
+    if revalidation.get('policy_error'):
+        reasons.append(revalidation.get('policy_detail') or revalidation['policy_error'])
+    for blocker in revalidation.get('access_blockers') or []:
+        # This is the same dependency, not evidence of an unprotected position.
+        if blocker=='native_bracket_execution_policy_unavailable' and revalidation.get('policy_error'):
+            continue
+        reasons.append(blocker)
     reasons.extend('missing_validator:'+x for x in (revalidation.get('missing_validators') or []))
     if revalidation.get('ready') is not True and not reasons:reasons.append('execution_revalidation_not_ready')
     return dict(ready=not reasons,blockers=list(dict.fromkeys(reasons)),enabled_directions=directions,

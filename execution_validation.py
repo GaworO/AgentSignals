@@ -291,6 +291,7 @@ def check(order, review, *, clock=time.time):
 
 def status():
     configured_model = None
+    configured = {}
     try:
         path = os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')
         configured = json.loads(Path(path).read_text()) if path else {}
@@ -304,6 +305,10 @@ def status():
     except Exception as exc:
         parameters = {}
         policy_error = str(exc) if isinstance(exc, ValueError) else 'execution_policy_unreadable'
+    policy_detail = policy_error
+    if (policy_error == 'validated_execution_policy_missing' and isinstance(configured, dict)
+            and configured.get('execution_model') and configured.get('approved') is not True):
+        policy_detail = 'execution policy loaded; technical verification incomplete (approved=false)'
     missing = [name for name in ('market', 'thesis', 'risk') if name not in _SOURCES]
     access=[]
     import ab_v3_live
@@ -328,6 +333,7 @@ def status():
     except Exception:
         quote_status={'reason':'quote_monitor_unavailable'}
     return dict(quote_monitor=quote_status, ready=policy_error is None and not missing and not access, policy_error=policy_error,
+                policy_detail=policy_detail,
                 access_blockers=access,
                 missing_validators=missing, candle_quote_fallback=False,
                 execution_model=parameters.get('execution_model', configured_model or 'EXECUTABLE_BBO_V1'),

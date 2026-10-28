@@ -876,11 +876,39 @@ class Transport:
             net=Decimal(str(observation['gross_usd']))-sum(costs)
             unrelated=[f for f in snapshot['fills'] if f['id'] not in set(command['before_fill_ids'])|set(ids)]
             cash=Decimal(str(snapshot['account']['balance']['totalCashValue']))
-            if unrelated or snapshot['positions']:continue
-            if abs(cash-Decimal(str(command['before_cash']))-net)>Decimal('.01'):
+            if snapshot['positions'] or snapshot['orders']:continue
+            # Later account trades are not fee revisions of this owned trade.
+            # Reconstruct a cash bridge only; this never adopts external orders
+            # or certifies account-history coverage / permission for new entries.
+            extra=[f for f in by_id.values() if f['fillId'] not in set(command['before_fill_ids'])|set(ids)
+                   and stamp(f.get('timestamp'))>=row['created_ms']]
+            bridge=None
+            expected_cash=Decimal(str(command['before_cash']))+net
+            if extra:
+                try:
+                    from directional_account_reconciliation import reconstruct
+                    closed_ms=observation['exit_fill_ms']
+                    if any(stamp(f.get('timestamp'))<=closed_ms or
+                           any(type(f.get(k)) not in (int,float) or not math.isfinite(f[k]) or f[k]<0
+                               for k in ('commission','fees')) or f['commission']+f['fees']<=0
+                           for f in extra):continue
+                    extras={f['fillId']:f for f in extra}
+                    if any(f['id'] not in extras or any(f.get(k)!=extras[f['id']].get(k)
+                           for k in ('orderId','qty','price','action','timestamp')) for f in unrelated):continue
+                    ledger=reconstruct(extra,dict(cash=float(expected_cash),at_ms=closed_ms,
+                        consecutive_losses=0),int(snapshot['observed_at']*1000))
+                    expected_cash=Decimal(str(ledger['cash']))
+                    bridge=dict(source='CROSSTRADE_CAPTURED_FILL_HISTORY',
+                        observed_at=snapshot['observed_at'],cash=float(expected_cash),
+                        external_fill_ids=sorted(extras),closed_groups=ledger['closed_groups'],
+                        account_risk_verified=False,ownership='EXTERNAL_NOT_ADOPTED')
+                except (ValueError,KeyError,TypeError,OverflowError):continue
+            elif unrelated:continue
+            if abs(cash-expected_cash)>Decimal('.01'):
                 if row['state']=='CLOSED':self.store_resolution(row,'CLOSED_PENDING_COSTS',observation,json.loads(row['receipt_json']),'BROKER_CASH_OR_COST_REVISION_PENDING')
                 continue
             observation.update(net_usd=float(net),captured_cost_usd=float(sum(costs)),costs_reconciled=True,fees_final=False)
+            if bridge:observation['later_account_cash_bridge']=bridge
             self.store_resolution(row,'CLOSED',observation,json.loads(row['receipt_json']))
             with self.api.connect() as c:
                 c.execute('UPDATE exit_trades SET exit_pnl=?,fill_price=?,fill_time=?,updated_ms=? WHERE trade_id=?',
@@ -923,6 +951,9 @@ class Transport:
             for row in close_replies:
                 value=json.loads(row[0] or '{}').get('response',{}).get('orderId')
                 if numeric(value):known.add(value)
+            if any(json.loads(row['observation_json'] or '{}').get('later_account_cash_bridge',{}).get('external_fill_ids')
+                   for row in native):
+                return 'broker:external_account_activity_requires_reconciliation'
             if any(f.get('orderId') not in known for f in snapshot['fills']):
                 return 'broker:unattributed_account_fill_requires_reconciliation'
             if native and native[-1]['state']=='CLOSED':
