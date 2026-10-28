@@ -20,6 +20,8 @@ def check(direction, candidate_id):
         review = (ab_ai_context.INSTANCE.setup_annotation(oid, direction)
                   if ab_ai_context.INSTANCE is not None else
                   dict(owner='AB_DIRECTIONAL', state='UNAVAILABLE', executable=False))
+        if review.get('owner') != 'AB_DIRECTIONAL':
+            return 'v3_ai:owner_mismatch', review
         return (None if review['state'] == 'ALLOW' else 'v3_ai:' + review['state'].lower()), review
     flag = os.environ.get('V3_AI_REVIEW_REQUIRED', 'false')
     if flag == 'false':

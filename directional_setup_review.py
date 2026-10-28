@@ -10,6 +10,11 @@ PROMPT_VERSION = 'directional-ict-setup-v2'
 def describe(order, contract):
     if order.get('strategy') != 'AB_DIRECTIONAL':
         raise ValueError('directional_setup_required')
+    return describe_geometry(order, contract)
+
+
+def describe_geometry(order, contract):
+    """Shared geometry serialization; strategy-specific callers validate eligibility."""
     direction = order['direction']
     if direction not in ('LONG', 'SHORT'):
         raise ValueError('invalid_setup_direction')
@@ -30,7 +35,7 @@ def describe(order, contract):
     snapshot = payload.get('v3_snapshot') or {}
     # Whitelist causal fields. No account, fills, replay outcomes or whole ledger.
     result = dict(order_id=str(order['order_id']), candidate_id=str(order['candidate_id']),
-                  strategy='AB_DIRECTIONAL', direction=direction, contract=contract,
+                  strategy=order['strategy'], direction=direction, contract=contract,
                   activation_ms=activation, expiry_ms=expiry, **levels,
                   risk_points=risk, target_r=reward/risk,
                   alternative_2r=levels['entry_price']+sign*2*risk,

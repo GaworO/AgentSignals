@@ -52,6 +52,8 @@ def ref(contract, at):return f'{contract}:M1:{at}'
 
 
 def original_record(order, context):
+    if order.get('strategy') != 'AB_DIRECTIONAL':
+        raise ValueError('RECOVERY_DIRECTIONAL_ONLY')
     value=plans.original_view(order)
     if context.get('status')!='RECORDED':raise ValueError('SCANNER_RECOVERY_ANCHORS_UNAVAILABLE')
     sign=1 if order['direction']=='LONG' else -1
@@ -64,6 +66,9 @@ def original_record(order, context):
 
 
 def register_prepared(order, source):
+    # Q1/original A/B has one entry attempt; shared AI and broker infrastructure
+    # never grants it Directional's minute-10 recovery behavior.
+    if order.get('strategy') != 'AB_DIRECTIONAL':return
     import ab_ai_context
     service=ab_ai_context.INSTANCE
     if not service or not journal.enabled(service.config) or order.get('recovery_version'):return
@@ -231,6 +236,13 @@ def process(service, packet, external_calls, *, proof_reader=broker_proof,
         for row in rows:
             if now<row['activation_ms']+600000:continue
             oid=row['opportunity_id'];original=json.loads(row['original'])
+            if original.get('strategy') != 'AB_DIRECTIONAL':
+                # Reject corrupt/legacy cross-strategy recovery rows before
+                # market/provider reads, budget reservation or any dispatch.
+                with service.connect() as db:
+                    db.execute("UPDATE nofill_opportunities SET state='REJECTED',updated_ms=? WHERE opportunity_id=?",(now,oid))
+                    journal.event(db,oid,now,'RECOVERY_DIRECTIONAL_ONLY',dict(strategy=original.get('strategy')))
+                continue
             try:
                 proof=proof_reader(row['replacement_id'] or oid)
                 with service.connect() as db:

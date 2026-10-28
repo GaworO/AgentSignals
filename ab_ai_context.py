@@ -15,6 +15,7 @@ import sqlite3
 import threading
 import time
 import directional_setup_review
+import ab_q1_review
 import directional_ict_context
 import directional_hybrid_context as hybrid
 import directional_hybrid_lifecycle as hybrid_lifecycle
@@ -179,7 +180,9 @@ def validate(decision, packet):
 
 
 class ContextSupport:
-    def session_at(self, timestamp):
+    def session_at(self, timestamp, strategy=None):
+        if strategy == 'A/B':
+            return ab_q1_review.session_at(timestamp, self.config)
         return session_at(timestamp, self.config)
 
     def __init__(self, config, *, reader=None, transport=None, clock=time.time):
@@ -287,6 +290,15 @@ class ContextSupport:
         import execution_validation
         setup=json.loads(job['setup'])
         review=self.setup_annotation(job['order_id'],setup['direction'])
+        if setup.get('strategy') == 'A/B':
+            report=dict(order_id=job['order_id'],strategy='A/B',quality='Q1',
+                ai_state=review['state'],executable=False,
+                blocking_reason='Q1_SHARED_EXECUTION_ROUTE_NOT_IMPLEMENTED',
+                note='Exact review only; Directional policy cannot authorize original A/B geometry.')
+            with self.connect() as db:
+                db.execute('INSERT OR REPLACE INTO setup_review_observations VALUES(?,?,?,?)',
+                           (job['review_id'],job['order_id'],self.clock(),encode(report)))
+            return
         dispatch=None
         path=Path(self.config.get('CONTINUATION_LIVE_DB',self.path.parent/'continuation_live.sqlite3'))
         if path.is_file():
@@ -327,20 +339,27 @@ class ContextSupport:
                     if any(order.get(k)!=saved[k] for k in ('direction','entry_price','stop_price','target_price','activation_ms','expiry_ms')):
                         db.execute("UPDATE setup_requests SET state='superseded' WHERE order_id=?",(str(order.get('order_id')),))
                         return dict(state='SETUP_CHANGED')
-        if self.session_at(now) is None:
+        is_q1 = order.get('strategy') == 'A/B'
+        if is_q1 and (not ab_q1_review.enabled(self.config) or self.trigger != 'HYBRID'):
+            return dict(state='DISABLED')
+        session = self.session_at(now, 'A/B' if is_q1 else None)
+        if session is None:
             return dict(state='OUTSIDE_AB_SESSIONS')
-        setup = directional_setup_review.describe(order, self.config.get('AB_V3_CONTRACT'))
-        import ab_directional_entry_rules
-        reason = ab_directional_entry_rules.dispatch_blocker(order)
-        if reason:
-            return dict(state='INELIGIBLE', reason=reason)
-        if self.trigger == 'HYBRID':
-            import continuation_live
-            reason = continuation_live._v3_entry_filter(order)
+        if is_q1:
+            setup = ab_q1_review.describe(order, self.config.get('AB_V3_CONTRACT'))
+        else:
+            setup = directional_setup_review.describe(order, self.config.get('AB_V3_CONTRACT'))
+            import ab_directional_entry_rules
+            reason = ab_directional_entry_rules.dispatch_blocker(order)
             if reason:
-                return dict(state='INELIGIBLE',reason=reason)
+                return dict(state='INELIGIBLE', reason=reason)
+            if self.trigger == 'HYBRID':
+                import continuation_live
+                reason = continuation_live._v3_entry_filter(order)
+                if reason:
+                    return dict(state='INELIGIBLE',reason=reason)
         expiry = min(setup['expiry_ms']/1000, setup['activation_ms']/1000+self.setup_max_age,
-                     self.session_at(now)['ends_at'])
+                     session['ends_at'])
         if not setup['activation_ms']/1000 <= now < expiry:
             return dict(state='EXPIRED')
         fingerprint = digest(setup)
@@ -371,10 +390,14 @@ class ContextSupport:
             if not job:
                 return result
             setup = json.loads(job['setup'])
+            if setup.get('strategy') == 'A/B':
+                result['owner'] = 'A/B'
+                if not ab_q1_review.enabled(self.config):
+                    return dict(result,state='DISABLED')
             if setup['direction'] != direction or digest(setup) != job['fingerprint']:
                 return dict(result, state='SETUP_MISMATCH')
             now = self.clock()
-            if now >= job['expires'] or not self.session_at(now):
+            if now >= job['expires'] or not self.session_at(now, setup.get('strategy')):
                 return dict(result, state='EXPIRED')
             if job['state'] in ('superseded','invalidated','budget_blocked'):
                 return dict(result,state=job['state'].upper())
@@ -390,7 +413,7 @@ class ContextSupport:
                 blocked=hybrid_lifecycle.reason(self,packet,setup)
                 if blocked:
                     return dict(result,state=blocked)
-            if packet.get('setup') != setup or packet.get('owner') != self.owner:
+            if packet.get('setup') != setup or packet.get('owner') != result['owner']:
                 return dict(result, state='SETUP_MISMATCH')
             side = 'long_scenario' if direction == 'LONG' else 'short_scenario'
             decision = json.loads(row['decision'])
@@ -457,21 +480,29 @@ class ContextSupport:
         if not self.enabled:
             return False
         now = self.clock();local = datetime.fromtimestamp(now,NY)
-        if self.session_at(now) is None:
-            self.status = 'OUTSIDE_AB_SESSIONS'
-            self.last_source = None
-            return False
         job = None
         if self.trigger in ('SETUP', 'HYBRID'):
             with self.connect() as db:
                 expired=[r['order_id'] for r in db.execute("SELECT order_id FROM setup_requests WHERE state='queued' AND expires<=?",(now,))]
                 db.execute("UPDATE setup_requests SET state='expired' WHERE state='queued' AND expires<=?", (now,))
-                job = db.execute("SELECT * FROM setup_requests WHERE state='queued' ORDER BY expires,created,order_id LIMIT 1").fetchone()
+                queued = db.execute("SELECT * FROM setup_requests WHERE state='queued' ORDER BY expires,created,order_id").fetchall()
+                # Existing Directional candidates have priority; Q1 shares the
+                # same seven SETUP slots and the same twelve-attempt ledger.
+                eligible = [r for r in queued if self.session_at(now, json.loads(r['setup']).get('strategy'))
+                            and (json.loads(r['setup']).get('strategy') != 'A/B' or ab_q1_review.enabled(self.config))]
+                eligible.sort(key=lambda r:(json.loads(r['setup']).get('strategy')=='A/B',r['expires'],r['created'],r['order_id']))
+                job = eligible[0] if eligible else None
             for oid in expired:
                 self.event(oid,'review_expired',reason='expired_before_request')
             if job is None and self.trigger != 'HYBRID' and not (self.owner == 'AB_DIRECTIONAL' and self.config.get('AB_DIRECTIONAL_NO_FILL_RECOVERY') == 'true'):
                 self.status = 'WAITING_FOR_SETUP'
                 return False
+        strategy = json.loads(job['setup']).get('strategy') if job else None
+        current_session = lambda stamp: self.session_at(stamp, strategy)
+        if current_session(now) is None:
+            self.status = 'OUTSIDE_AB_SESSIONS'
+            self.last_source = None
+            return False
         try:
             source = self.reader()
             p = self.packet(source, now)
@@ -484,7 +515,7 @@ class ContextSupport:
             return False
         if type(source.get('calls_today')) is int and source['calls_today'] >= 0:
             self.source_usage = dict(day=local.date().isoformat(), calls=source['calls_today'])
-        if not self.session_at(p['as_of']) or self.session_at(p['as_of'])['name'] != self.session_at(now)['name']:
+        if not current_session(p['as_of']) or current_session(p['as_of'])['name'] != current_session(now)['name']:
             self.status = 'WAITING_FOR_SESSION_DATA'
             return False
         self.last_source = p;self.last_source_at = now
@@ -499,10 +530,13 @@ class ContextSupport:
             return False
         if self.trigger == 'HYBRID':
             hybrid_lifecycle.refresh(self, p)
-            if job is None and not hybrid_lifecycle.context_due(self, p, self.session_at(now), local.date().isoformat()):
+            if job is None and not hybrid_lifecycle.context_due(self, p, current_session(now), local.date().isoformat()):
                 self.status = 'WAITING_FOR_SETUP'
                 return False
-        instructions = prompt_for(self.owner)
+        review_owner = 'A/B' if strategy == 'A/B' else self.owner
+        p['owner'] = review_owner
+        p.pop('packet_id',None);p['packet_id']=digest(p)
+        instructions = prompt_for(review_owner)
         if job is not None:
             setup = json.loads(job['setup'])
             if p['as_of'] < setup['activation_ms']/1000:
@@ -521,12 +555,14 @@ class ContextSupport:
                 self.status='SOURCE_NOT_READY'
                 return False
             instructions = directional_setup_review.ict_prompt(instructions)
+            if strategy == 'A/B':
+                instructions += '\nReview the original A/B Q1 setup, not Directional. Q1 is exactly one passed quality check, not ICT confirmation. Assess the actual supplied original target, including SWING targets; do not substitute fixed 2R or change entry/SL/TP. ALLOW applies to this exact setup only.'
         if self.trigger == 'HYBRID':
             p['hybrid_context'] = hybrid.build(p, json.loads(job['setup']) if job else None)
-            p['hybrid_session'] = self.session_at(now)['name']
+            p['hybrid_session'] = current_session(now)['name']
             if job is None:
                 p['hybrid_context_reason'] = 'SESSION_OPEN'
-                p['review_expires_at'] = min(p['as_of']+900,self.session_at(now)['ends_at'])
+                p['review_expires_at'] = min(p['as_of']+900,current_session(now)['ends_at'])
             else:
                 p['cached_context_review'] = hybrid_lifecycle.reusable_context(self,p)
             instructions += '\nHybrid v1: use deterministic hybrid_context as mechanical observations, not trader confirmation. Return hybrid_assessment with market_thesis, liquidity_objective, entry_quality, structural_invalidation, nearest_opposing_liquidity, rr_assessment and conditional_management_plan. Cite evidence IDs and mark unavailable facts UNKNOWN in missing. Management is advice only; no position manager is enabled by this response. Never change setup geometry. If setup exists, copy its entry_price, stop_price, target_price and expiry_ms exactly into approved_geometry. Net RR is UNKNOWN without verified costs and executable quotes; do not certify execution. Context reviews cannot authorize an entry.'
@@ -544,6 +580,7 @@ class ContextSupport:
                 return False
         prompt_version = directional_setup_review.PROMPT_VERSION if job is not None else 'ab-advisory-context-v1'
         if self.trigger == 'HYBRID': prompt_version = hybrid.VERSION
+        if strategy == 'A/B': prompt_version = ab_q1_review.VERSION
         payload = dict(model=self.config.get('OPENAI_MODEL',''),store=False,max_output_tokens=3000,
             reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=encode(p))],
             text={'format':dict(type='json_schema',name='directional_ict_setup_v2' if job is not None else 'ab_advisory_context_v1',
@@ -554,12 +591,14 @@ class ContextSupport:
             payload['max_output_tokens'] = 5000
             payload['stream'] = True
             payload['input'][0]['content'] = instructions.replace('VETO','REJECT') + '\nBe concise: one or two sentences per assessment, retain evidence IDs and missing evidence. Entry selection only: fixed structural SL and 2R gross TP. Do not recommend partials, break-even, trailing, runners or discretionary position exits; the conditional management plan is original native SL/TP/OCO plus existing emergency recovery only.'
+            if strategy == 'A/B':
+                payload['input'][0]['content'] = payload['input'][0]['content'].replace('fixed structural SL and 2R gross TP', 'original structural SL and original supplied target')
             instructions = payload['input'][0]['content']
         if not payload['model'] or not self.config.get('OPENAI_API_KEY'):
             self.status = 'API_NOT_CONFIGURED'
             return False
-        dispatch_session = self.session_at(self.clock())
-        if not dispatch_session or dispatch_session['name'] != self.session_at(now)['name']:
+        dispatch_session = current_session(self.clock())
+        if not dispatch_session or dispatch_session['name'] != current_session(now)['name']:
             self.status = 'OUTSIDE_AB_SESSIONS'
             return False
         day = local.date().isoformat()
@@ -808,6 +847,11 @@ def register(app):
                        calls_today=calls,daily_cap=INSTANCE.cap,interval_minutes=INSTANCE.minutes,
                        reviews=rows,annotations=annotations,setup_requests=setups,
                        setup_review_events=events,
+                       q1_review=dict(enabled=ab_q1_review.enabled(INSTANCE.config),
+                           sessions=INSTANCE.config.get('AB_Q1_AI_SESSIONS',ab_q1_review.DEFAULT_SESSIONS).split(','),
+                           active_session=INSTANCE.session_at(now,'A/B'),mandatory_allow=True,
+                           shared_setup_budget=True,execution_route_available=False,
+                           nofill_recovery_allowed=False,maximum_entry_attempts=1),
                        nofill_recovery=dict(enabled=INSTANCE.config.get('AB_DIRECTIONAL_NO_FILL_RECOVERY')=='true',
                            opportunities=recovery_rows,shared_setup_budget=True,original_priority=True,maximum_reviews_per_opportunity=1),
                        setup_max_age_seconds=INSTANCE.setup_max_age)

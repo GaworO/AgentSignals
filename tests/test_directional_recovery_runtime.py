@@ -270,3 +270,26 @@ def test_guard_rejection_is_terminal_and_recorded_without_retry(rig):
     with rig.connect() as db:assert db.execute('SELECT state FROM nofill_opportunities').fetchone()[0]=='REJECTED'
     rig.run();assert len(rig.calls)==1 and not rig.posts
     assert any(e[0]=='native_dispatch_recorded' for e in rig.events)
+
+
+def test_ab_q1_never_registers_directional_recovery(rig,monkeypatch):
+    import ab_ai_context
+    from unittest.mock import Mock
+    monkeypatch.setattr(ab_ai_context,'INSTANCE',rig.service)
+    register=Mock(side_effect=AssertionError('Q1 must not register'))
+    monkeypatch.setattr(runtime.journal,'register',register)
+    runtime.register_prepared(dict(rig.original,strategy='A/B'),{'recovery_context':{'status':'RECORDED'}})
+    register.assert_not_called()
+
+
+def test_corrupt_ab_recovery_row_never_spends_or_dispatches(rig):
+    from unittest.mock import Mock
+    with rig.connect() as db:
+        original=dict(rig.original,strategy='A/B')
+        db.execute('UPDATE nofill_opportunities SET original=?',(json.dumps(original),))
+    proof_read=Mock(side_effect=AssertionError('no provider read for Q1 recovery'))
+    assert not rig.run(proof_reader=proof_read)
+    proof_read.assert_not_called()
+    assert not rig.calls and not rig.posts
+    with rig.connect() as db:
+        assert db.execute('SELECT state FROM nofill_opportunities').fetchone()[0]=='REJECTED'

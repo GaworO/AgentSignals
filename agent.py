@@ -1070,6 +1070,10 @@ def _process_new(now_ms=None, gap_min=None):
         except Exception as _aqe:
             print('[ab-quality] classification error', _aqe, flush=True)
         if execution_policy.signal_family(repx) == 'A/B':
+            # Opt-in exact Q1 review on the existing shared worker. This does
+            # not change routing or submit anything from the detector.
+            import ab_q1_review
+            repx['_ab_q1_review'] = ab_q1_review.queue_signal(repx, live_emit.key(repx), ab_ai_context.INSTANCE)
             repx['_ab_ai_context'] = ab_ai_context.annotate(repx, live_emit.key(repx))
             ab_position_manager.plan_signal(repx, repx['_ab_ai_context'], _time.time())
         # The human-facing alert is built before the floor-aware group is

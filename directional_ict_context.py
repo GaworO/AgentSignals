@@ -59,23 +59,25 @@ def attach(packet, setup, fingerprint):
     if activation > cutoff:
         raise ValueError('setup_context_before_activation')
     frozen_ids = {}
+    is_q1 = setup.get('strategy') == 'A/B'
+    prefix = 'AB_Q1:' if is_q1 else 'DIRECTIONAL:'
     for name, node in setup.get('frozen_context', {}).items():
         if node['status'] != 'RECORDED':
             continue
         at = node['available_at_ms'] / 1000
         if at > activation or at > cutoff:
             raise ValueError('future_setup_evidence')
-        key = 'DIRECTIONAL:' + setup['order_id'] + ':' + name
-        ev[key] = dict(kind='directional_frozen_observation', symbol='MNQ',
+        key = prefix + setup['order_id'] + ':' + name
+        ev[key] = dict(kind='ab_q1_frozen_observation' if is_q1 else 'directional_frozen_observation', symbol='MNQ',
                        available_at=int(at), value=node['value'], source=node['source'],
                        convention='Recorded detector observation, not independently verified ICT fact')
         frozen_ids[name] = key
-    geometry_id = 'DIRECTIONAL:' + setup['order_id'] + ':geometry'
-    ev[geometry_id] = dict(kind='directional_geometry', symbol='MNQ', available_at=int(activation),
-        source=dict(order_id=setup['order_id'], path='continuation_orders'),
+    geometry_id = prefix + setup['order_id'] + ':geometry'
+    ev[geometry_id] = dict(kind='ab_q1_geometry' if is_q1 else 'directional_geometry', symbol='MNQ', available_at=int(activation),
+        source=dict(order_id=setup['order_id'], path='original_ab_scanner' if is_q1 else 'continuation_orders'),
         value={k:setup[k] for k in ('order_id','direction','contract','entry_price','stop_price',
                                    'target_price','activation_ms','expiry_ms')})
-    bos_id = 'DIRECTIONAL:' + setup['order_id'] + ':entry_rules'
+    bos_id = prefix + setup['order_id'] + ':entry_rules'
     rules = setup.get('entry_rules') or {}
     if rules and rules.get('bos_available_ms', float('inf')) <= cutoff * 1000:
         ev[bos_id] = dict(kind='directional_entry_rules', symbol='MNQ', available_at=int(activation),
@@ -131,11 +133,11 @@ def attach(packet, setup, fingerprint):
         topics['atr_expansion'] = field([key] + [r['evidence_id'] for r in topics['atr_expansion']['references']],
             ['ATR is not ICT confirmation; check completeness, definition and session before inference.'])
     local = datetime.fromtimestamp(cutoff,ZoneInfo('America/New_York'))
-    session_id='DIRECTIONAL:'+setup['order_id']+':session'
+    session_id=prefix+setup['order_id']+':session'
     minute=local.hour*60+local.minute
     ev[session_id]=dict(kind='directional_session',symbol='MNQ',available_at=cutoff,
         source=dict(path='America/New_York calendar; existing AB session windows'),
-        value=dict(time_ny=local.isoformat(),session='PREM' if 300<=minute<570 else 'NYAM' if 570<=minute<660 else 'NYPM' if 810<=minute<960 else 'PM_AH' if 960<=minute<1080 else 'OUTSIDE_AB_SESSIONS'))
+        value=dict(time_ny=local.isoformat(),session='ASIA' if is_q1 and (minute>=1080 or minute<120) else 'PREM' if 300<=minute<570 else 'NYAM' if 570<=minute<660 else 'NYPM' if 810<=minute<960 else 'PM_AH' if 960<=minute<1080 else 'OUTSIDE_AB_SESSIONS'))
     topics['ny_session']=field(windows+[session_id])
     p.update(setup=setup,setup_fingerprint=fingerprint,
              ict_context=dict(version=VERSION,as_of=cutoff,topics=topics,
