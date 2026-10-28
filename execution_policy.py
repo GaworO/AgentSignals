@@ -12,13 +12,14 @@ import execution_safety
 
 def mode():
     value = os.environ.get('EXEC_STRATEGY_POLICY', 'LEGACY').strip().upper()
-    return value if value in {'LEGACY', 'V3_ONLY', 'AB_ONLY', 'SHADOW_ALL'} else 'INVALID'
+    return value if value in {'LEGACY', 'V3_ONLY', 'AB_ONLY', 'DIRECTIONAL_Q1_ONLY', 'SHADOW_ALL'} else 'INVALID'
 
 
 def shadow_family(strategy):
     value = mode()
     return (value == 'SHADOW_ALL' or (value == 'V3_ONLY' and strategy != 'AB_DIRECTIONAL')
-            or (value == 'AB_ONLY' and strategy != 'A/B'))
+            or (value == 'AB_ONLY' and strategy != 'A/B')
+            or (value == 'DIRECTIONAL_Q1_ONLY' and strategy not in ('AB_DIRECTIONAL', 'A/B')))
 
 
 def signal_family(signal):
@@ -45,6 +46,12 @@ def entry_blocker(signal):
         return 'shadow_strategy:' + value
     if value == 'AB_ONLY':
         return ab_entry_blocker(signal)
+    if value == 'DIRECTIONAL_Q1_ONLY' and signal_family(signal) == 'A/B':
+        import ab_q1_execution
+        order = signal.get('_q1_order')
+        if not order or any(signal.get(k) != order.get(v) for k,v in (('dir','direction'),('entry','entry_price'),('SL','stop_price'),('TP','target_price'))):
+            return 'q1_prepared_signal_required'
+        return ab_q1_execution.permission(order)
     if os.environ.get('V3_ENTRY_ARMED', '0') != '1':
         return 'v3_entry_not_armed'
     if len(os.environ.get('GUARD_TOKEN', '')) < 32:
@@ -125,7 +132,7 @@ def ab_entry_blocker(signal):
 
 def status():
     import execution_validation
-    return dict(policy=mode(), live_execution_enabled=execution_safety.writes_enabled(),
+    return dict(policy=mode(), q1_execution=__import__('ab_q1_execution').status(), live_execution_enabled=execution_safety.writes_enabled(),
                 revalidation=execution_validation.status(),
                 execution_kill_switch=os.environ.get('EXEC_KILL_SWITCH','false') != 'false',
                 entry_armed=os.environ.get('AB_ENTRY_ARMED' if mode() == 'AB_ONLY' else 'V3_ENTRY_ARMED', '0') == '1',
@@ -137,7 +144,7 @@ def status():
 
 def directional_health():
     """Static execution blockers for Guard's display, not order authorization."""
-    if mode()!='V3_ONLY':return None
+    if mode() not in ('V3_ONLY','DIRECTIONAL_Q1_ONLY'):return None
     s=status();revalidation=s['revalidation'];reasons=[]
     if not s['live_execution_enabled']:reasons.append('live_execution_disabled')
     if s['execution_kill_switch']:reasons.append('execution_kill_switch')

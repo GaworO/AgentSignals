@@ -444,7 +444,7 @@ def broker_quantity_scope(proof):
     except ValueError:return False
 
 
-def native_bracket_readiness():
+def native_bracket_readiness(parameters=None):
     """Fixed native protection requires broker evidence, not M3/runner parity.
 
     This is an evidence requirement in the existing approved execution policy,
@@ -452,8 +452,10 @@ def native_bracket_readiness():
     """
     import execution_validation
     try:
-        p=execution_validation.policy()
+        p=execution_validation.policy() if parameters is None else parameters
         proof=p.get('broker_workflow_verification',{})
+        if os.environ.get('EXEC_STRATEGY_POLICY') == 'DIRECTIONAL_Q1_ONLY' and set(proof.get('execution_strategies', [])) != {'AB_DIRECTIONAL', 'A/B:Q1'}:
+            return 'native_bracket_shared_strategy_scope_unverified'
         if proof.get('evidence_kind') == 'ACCOUNT_HISTORY_CONTROLLED_PILOT':
             # Explicit operator acceptance of a one-contract pilot, NOT a
             # claim that mocked restart/late-fill recovery was broker-verified.
@@ -475,7 +477,7 @@ def native_bracket_readiness():
                     or not isinstance(ids,list) or len(ids)<3
                     or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids)
                     or not broker_quantity_scope(proof)
-                    or os.environ.get('EXEC_STRATEGY_POLICY') != 'V3_ONLY'
+                    or os.environ.get('EXEC_STRATEGY_POLICY') not in ('V3_ONLY','DIRECTIONAL_Q1_ONLY')
                     or os.environ.get('AB_ENTRY_ARMED','0') != '0'
                     or os.environ.get('AB_MANAGER_MODE','shadow').lower() != 'shadow'
                     or os.environ.get('V3_EXIT_MODE','shadow').lower() != 'shadow'

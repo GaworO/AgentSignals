@@ -19,7 +19,10 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
     score = quality.get("score")
     qmode = str(quality.get("mode") or ("SHADOW_ONLY" if tier != "N/A" else "N/A"))
 
-    if strategy == "DOL_DELIVERY_REVERSAL":
+    if candidate.get('_q1_order',{}).get('strategy') == 'A/B' and str(candidate.get('_q1_order',{}).get('order_id','')).startswith('ABQ1_'):
+        family,setup,manager,tier,qmode='AB-Q1','ORIGINAL A/B Q1 BRACKET','NONE','Q1','EXACT_SETUP_AI_REQUIRED'
+        label='AB-Q1 · NATIVE BRACKET'
+    elif strategy == "DOL_DELIVERY_REVERSAL":
         family = "DOL-REVERSAL"
         setup = "DOL REVERSAL"
         manager = "NONE"
@@ -66,6 +69,10 @@ def candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
 
 def continuation_order(row: Dict[str, Any]) -> Dict[str, Any]:
     direction = str(row.get("direction") or "").upper()
+    if row.get('strategy') == 'A/B' and str(row.get('order_id','')).startswith('ABQ1_'):
+        return dict(version=VERSION,family='AB-Q1',setup_class='ORIGINAL A/B Q1 BRACKET',
+            quality_tier='Q1',quality_score=1,quality_mode='EXACT_SETUP_AI_REQUIRED',manager_mode='NONE',
+            dol_id=None,label='AB-Q1 · ORIGINAL BRACKET · '+str(row.get('state','PENDING')))
     is_abdir = str(row.get("strategy") or "").upper() == "AB_DIRECTIONAL"
     family = (("AB-DIR-L" if direction == "LONG" else "AB-DIR-S") if is_abdir else
               ("CONT-L" if direction == "LONG" else "CONT-S"))

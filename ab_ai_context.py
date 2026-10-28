@@ -293,7 +293,7 @@ class ContextSupport:
         if setup.get('strategy') == 'A/B':
             report=dict(order_id=job['order_id'],strategy='A/B',quality='Q1',
                 ai_state=review['state'],executable=False,
-                blocking_reason='Q1_SHARED_EXECUTION_ROUTE_NOT_IMPLEMENTED',
+                blocking_reason='Q1_REQUIRES_INDEPENDENT_EXECUTION_GATES',
                 note='Exact review only; Directional policy cannot authorize original A/B geometry.')
             with self.connect() as db:
                 db.execute('INSERT OR REPLACE INTO setup_review_observations VALUES(?,?,?,?)',
@@ -850,7 +850,8 @@ def register(app):
                        q1_review=dict(enabled=ab_q1_review.enabled(INSTANCE.config),
                            sessions=INSTANCE.config.get('AB_Q1_AI_SESSIONS',ab_q1_review.DEFAULT_SESSIONS).split(','),
                            active_session=INSTANCE.session_at(now,'A/B'),mandatory_allow=True,
-                           shared_setup_budget=True,execution_route_available=False,
+                           shared_setup_budget=True,execution_route_available=True,
+                           execution=__import__('ab_q1_execution').status(),
                            nofill_recovery_allowed=False,maximum_entry_attempts=1),
                        nofill_recovery=dict(enabled=INSTANCE.config.get('AB_DIRECTIONAL_NO_FILL_RECOVERY')=='true',
                            opportunities=recovery_rows,shared_setup_budget=True,original_priority=True,maximum_reviews_per_opportunity=1),

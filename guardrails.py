@@ -148,7 +148,7 @@ def account_profile():
         # the actual single-order cap check; do not invent a second live leg.
         if leg_cap > 40:
             warnings.append('EXEC_MAX_QTY exceeds Builder limit 40 MNQ')
-        elif not execution_policy.shadow_family('A/B') and leg_cap * 2 > 40:
+        elif execution_policy.mode() != 'DIRECTIONAL_Q1_ONLY' and not execution_policy.shadow_family('A/B') and leg_cap * 2 > 40:
             warnings.append('two A/B sibling legs could exceed Builder limit 40 MNQ')
         started_on = _env('ACCOUNT_STARTED_ON', '').strip()
         try:
@@ -183,7 +183,8 @@ def account_profile():
                      min_trading_days=2, inactivity_days=_envi('INACTIVITY_DAYS', 0))
     return dict(plan=plan, label=label, phase=phase, rules=rules,
                 execution_label=('Directional LIMIT / structural SL / 2R; A/B shadow'
-                    if execution_policy.mode()=='V3_ONLY' else 'all strategies shadow'
+                    if execution_policy.mode()=='V3_ONLY' else 'Directional + A/B Q1 · exact AI · single native bracket'
+                    if execution_policy.mode()=='DIRECTIONAL_Q1_ONLY' else 'all strategies shadow'
                     if execution_policy.mode()=='SHADOW_ALL' else 'resting-limit A/B + Shallow'),
                 configured_group_risk=round(risk, 2), per_leg_contract_cap=leg_cap,
                 internal_day_loss_usd=_envf('DAY_LOSS_USD', 1000.0),
@@ -1179,7 +1180,7 @@ def inactivity_status(rows=None, now=None):
     confirmed = [r for r in rows if r.get('decision') == 'sent'
                  and r.get('outcome') in ('win', 'loss', 'timeout')]
     native_ab = (execution_policy.mode() == 'AB_ONLY' or
-                 execution_policy.mode() == 'V3_ONLY' and builder_crosstrade.selected())
+                 execution_policy.mode() in ('V3_ONLY','DIRECTIONAL_Q1_ONLY') and builder_crosstrade.selected())
     if native_ab:
         # A shadow/model outcome is not account activity. This local ledger
         # also cannot prove the absence of trades made elsewhere on the account.
@@ -1442,8 +1443,10 @@ def _reserved_entry_blocker(x, reservation_id, state):
     pg = _active_pending_group(state)
     if reservation_id is None:
         return 'group_pending' if pg else None
-    expected = 'ab_directional_' + str(x.get('_continuation_order_id') or '')
-    if (not pg or not x.get('_continuation_order_id') or x.get('_v3_directional') is not True
+    import ab_q1_execution
+    q1 = ab_q1_execution.is_order(x.get('_q1_order') or {})
+    expected = ('ab_q1_' if q1 else 'ab_directional_') + str(x.get('_continuation_order_id') or '')
+    if (not pg or not x.get('_continuation_order_id') or (x.get('_v3_directional') is not True and not q1)
             or reservation_id != expected or pg.get('group_id') != expected
             or pg.get('strats') != [x.get('_strat')] or pg.get('accepted') != []
             or pg.get('planned_risk_usd') != x.get('_planned_group_risk_usd')):
@@ -1515,7 +1518,14 @@ def guard_ok(x, feed_age_min=None, market_open=None, news_hard=None, cal_age_h=N
         # default now matches the documented intent (green sessions = NYAM/NYPM/PM_AH):
         # PREM + NYL were auto-firing on the old 'LO,ASIA' default. Env still overrides.
         skip = [w.strip() for w in _env('SKIP_SESSIONS', 'LO,ASIA,PREM,NYL').split(',') if w.strip()]
-        if sess in skip:                        return (False, 'session:' + sess)   # London/Asia (+NYL) excluded by firing time
+        import ab_q1_execution
+        q1_order = x.get('_q1_order') or {}
+        if ab_q1_execution.is_order(q1_order):
+            # Q1's explicitly configured sessions differ from Directional's;
+            # retain every account-wide time cutoff / Monday / news rule.
+            session = ab_q1_execution.review.session_at(_now_ms()/1000, os.environ)
+            if not session or session['name'] != sess:return (False, 'q1_session:' + sess)
+        elif sess in skip:return (False, 'session:' + sess)
         mm = _env('MONDAY_MODE', 'nyam').lower()                              # nyam=Monday starts at NYAM (skip PREM) | skip | quarter | full
         if _wd(x) == 0:
             if mm == 'skip':                    return (False, 'monday_skip')

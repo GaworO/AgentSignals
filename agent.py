@@ -1074,6 +1074,9 @@ def _process_new(now_ms=None, gap_min=None):
             # not change routing or submit anything from the detector.
             import ab_q1_review
             repx['_ab_q1_review'] = ab_q1_review.queue_signal(repx, live_emit.key(repx), ab_ai_context.INSTANCE)
+            import ab_q1_execution
+            if not (_rskip and _rcolor == 'red'):
+                ab_q1_execution.observe(repx, live_emit.key(repx), ab_ai_context.INSTANCE)
             repx['_ab_ai_context'] = ab_ai_context.annotate(repx, live_emit.key(repx))
             ab_position_manager.plan_signal(repx, repx['_ab_ai_context'], _time.time())
         # The human-facing alert is built before the floor-aware group is
@@ -1109,7 +1112,8 @@ def _process_new(now_ms=None, gap_min=None):
             txt += f"\n🔗 Konfluencja {len(members)}× ({' + '.join(cats)}) — jeden trade, nie {len(members)} osobne"
         if PUBLIC_URL: txt += '  📊 ' + PUBLIC_URL.rstrip('/') + '/chart?key=' + live_emit.key(rep).replace('|','%7C').replace(' ','%20').replace(':','%3A')
         if fl: txt += '  ⚠ ' + ', '.join(fl)
-        _policy_shadow = execution_policy.shadow_family(execution_policy.signal_family(repx))
+        _policy_shadow = (execution_policy.shadow_family(execution_policy.signal_family(repx))
+                          or execution_policy.mode() == 'DIRECTIONAL_Q1_ONLY')  # Q1 has its own exact-review dispatch; legacy A/B stays shadow.
         if not _policy_shadow and _rskip and _rcolor=='red':  # live regime gate; retain shadow observations
             print('CHOP-SKIP', txt, flush=True); _save_db(repx, txt+' [CHOP-SKIP]', 'chop-skip')
             for kk in allkeys: sentn.add(kk)
@@ -2057,7 +2061,7 @@ def _continuation_live_dashboard():
     from flask import Response
     return Response(r'''<!doctype html><meta charset="utf-8"><title>Continuation LIVE</title>
 <style>*{box-sizing:border-box}body{margin:0;padding:18px;background:#0b0e14;color:#e6e9ef;font:13px system-ui}.cards{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.card{background:#111827;border:1px solid #263248;border-radius:9px;padding:10px 14px;min-width:145px}.mut{color:#94a3b8}.ok{color:#4ade80}.bad{color:#f87171}.wrap{overflow:auto;border:1px solid #263248;border-radius:10px}table{border-collapse:collapse;width:100%;font:12px ui-monospace,monospace}th,td{padding:8px 9px;border-bottom:1px solid #202b40;text-align:left;white-space:nowrap}th{color:#94a3b8;background:#111827;position:sticky;top:0}</style>
-<h2>Continuation + A/B Directional · LIVE dispatch</h2><div class="mut">A/B Directional ma osobną klasę FIXED 2R i osobne przełączniki LONG/SHORT. Każdy wariant przechodzi przez ten sam account-local Guard.</div><div id="cards" class="cards"></div><div class="wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
+<h2>Directional + A/B Q1 · execution decisions</h2><div class="mut">A/B Directional ma osobną klasę FIXED 2R i osobne przełączniki LONG/SHORT. Każdy wariant przechodzi przez ten sam account-local Guard.</div><div id="cards" class="cards"></div><div class="wrap"><table><thead><tr id="head"></tr></thead><tbody id="body"></tbody></table></div>
 <script>const C=['activation_ms','classification','setup_class','strategy','direction','state','guard_reason','account_label','quantity','route_id','order_id'];const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));function load(){fetch('/continuation/live',{cache:'no-store'}).then(r=>r.json()).then(x=>{const s=x.status||{},d=x.decisions||[];cards.innerHTML=[['Continuation LONG',s.long_enabled],['Continuation SHORT',s.short_enabled],['A/B Dir LONG',s.ab_directional_long_enabled],['A/B Dir SHORT',s.ab_directional_short_enabled],['Dispatcher',s.dispatcher_ready],['Armed after',s.armed_after_ms],['Counts',JSON.stringify(s.counts||{})]].map(v=>'<div class="card"><b>'+esc(v[0])+'</b><br><span class="'+(v[1]===false?'bad':'ok')+'">'+esc(v[1])+'</span></div>').join('');head.innerHTML=C.map(k=>'<th>'+esc(k)+'</th>').join('');body.innerHTML=d.map(r=>'<tr>'+C.map(k=>'<td>'+esc(k==='activation_ms'&&r[k]?new Date(r[k]).toISOString():r[k])+'</td>').join('')+'</tr>').join('')||'<tr><td colspan="11" class="mut">Brak nowych decyzji LIVE. Pierwszy skan tylko uzbraja adapter i nie wysyła historii.</td></tr>'}).catch(e=>{body.innerHTML='<tr><td class="bad">'+esc(e)+'</td></tr>'})}load();setInterval(load,15000)</script>''',mimetype='text/html')
 
 if HEARTBEAT:
@@ -2066,7 +2070,15 @@ if HEARTBEAT:
 
 # Advisory context owns its own bounded worker, independent of order dispatch.
 ab_ai_context.register(app)
-ab_ai_context.SETUP_COMPLETE_CALLBACK = continuation_live.resume_reviews
+import ab_q1_execution
+def _dispatch_q1_live(order):
+    return ab_q1_execution.dispatch(order, budget_builder=_directional_live_budget,
+        feed_age=_feed_age_min, market_open=_market_open_now, news_flags=flags_for, calendar_age=_cal_age_h)
+def _resume_all_reviews():
+    continuation_live.resume_reviews()
+    ab_q1_execution.resume(_dispatch_q1_live, ab_ai_context.INSTANCE)
+ab_ai_context.SETUP_COMPLETE_CALLBACK = _resume_all_reviews
+continuation_shadow.register_scan_listener(lambda *_: ab_q1_execution.resume(_dispatch_q1_live, ab_ai_context.INSTANCE))
 import execution_validation
 from directional_risk_revalidation import RiskValidator
 from directional_market_data import MarketSource, start_monitor

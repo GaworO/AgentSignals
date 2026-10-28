@@ -1,0 +1,69 @@
+Q1 native route: implemented, opt-in, no activation by this release
+
+The existing original A/B scanner may register only complete, recomputed Q1
+setups. Other A/B tiers and the shallow sibling continue in shadow. A new
+DIRECTIONAL_Q1_ONLY routing mode permits Directional and exact Q1 orders;
+it does not permit two concurrent account positions. The existing native
+account reservation, flat-account check and Guard serialize both strategies.
+
+Every Q1 setup needs its own exact HYBRID ALLOW. Q1 shares the existing seven
+setup slots and the overall 12-call / 3-7-2 budget. It has one original entry
+attempt, at most ten minutes, no minute-10 review, no replacement, no partials,
+runner or trailing. Directional recovery is unchanged. No new broker API is
+introduced: both use the existing CrossTrade cloud Tradovate LIMIT/GTD/OSO
+transport, durable clOrdId, fill/protection/OCO reconciliation and cost ledger.
+ACK is not fill. Unknown submissions are never replayed, including restart.
+
+Before AI review, normalize the original A/B decimal prices onto MNQ's 0.25
+price grid: floor entry/SL/TP for LONG; ceil entry/SL/TP for SHORT. This never
+worsens the original limit; the stop stays outside its raw structural level,
+and the target rounds toward entry. Store all original raw prices. AI reviews
+and binds the final executable geometry; nothing reprices after ALLOW. Q1's
+original target is preserved, not replaced by Directional's exact 2R target.
+The final gate still requires >=2R gross and reports net RR including costs.
+
+Sizing uses the existing equity-percent account budget and actual structural
+SL distance plus costs; account margin/headroom/contract limits can reduce it.
+There is no hardcoded one-contract cap in this route. A verified policy cap
+and EXEC_MAX_QTY still apply. Unknown equity, account rules, costs, exposure,
+margin, fees, market evidence, expiry or broker protection block submission.
+
+Configuration contract (not changed automatically):
+- EXEC_STRATEGY_POLICY=DIRECTIONAL_Q1_ONLY: selects the combined routing code.
+- AB_Q1_ENTRY_ARMED: independent Q1 entry permission; default 0.
+- Existing Directional V3_ENTRY_ARMED, AB_V3_MODE and side flags remain required.
+- AB_Q1_AI_REVIEW_ENABLED=true and sessions ASIA,PREM,NYAM,NYPM.
+- AB_ENTRY_ARMED=0: keeps the legacy general A/B entry route disarmed.
+- AB_Q1_EXECUTION_POLICY_FILE: separate validated policy for strategy A/B,
+  quality Q1, target_rule ORIGINAL_AB_TARGET, fixed_gross_rr null, min_rr 2,
+  execution_model RESTING_LIMIT_CLOSED_M1_V1. Same complete freshness, costs,
+  account-binding, contract, residual-risk and broker-proof requirements as
+  Directional. Do not copy an approval to a different strategy by relabeling it.
+- For shared routing, both policies' broker_workflow_verification must explicitly
+  scope execution_strategies to [AB_DIRECTIONAL,A/B:Q1], with evidence supporting
+  the applicable bracket and quantity scope. Existing account risk evidence is
+  shared; it is never reset or weakened.
+- AB_MANAGER_MODE=shadow, V3_EXIT_MODE=shadow, V3_EXIT_REAL_EXECUTION=false,
+  V3_RUNNER_ENABLED=false. Global live/kill switches remain independent.
+
+Q1's own allowed sessions replace Directional's session skip list only for
+verified Q1 records. Account-wide late-entry/close cutoffs, Monday restrictions,
+news, one-loss daily stop, feed freshness and emergency controls still apply.
+
+Operator verification, before any separate activation:
+GET /execution/readiness and GET /ab/ai-context. q1_review.execution reports
+implementation separately from selected mode, arming and static blockers.
+A fresh exact review and account/market/broker gates are still required for
+each order. Missing policy or native proof remains a block, not a TODO stub.
+No historical review or scanner record is automatically caught up on startup.
+
+Stop new Q1 entries: AB_Q1_ENTRY_ARMED=0. An already owned pending Q1 order is
+cancelled by the existing watchdog; ambiguous cancellation/late fill remains
+owned until broker reconciliation. Global emergency stop also blocks entries.
+Neither switch cancels protective children of a confirmed open position.
+For routing rollback, V3_ONLY returns Q1 to shadow; retain native journals and
+pending/position reconciliation until all owned exposure is settled. Never
+roll back code while a Q1 order or fill remains unresolved.
+
+All acceptance tests use mocked AI/provider data. They prove code paths,
+not a real Q1 broker fill. No production policy is approved by these tests.

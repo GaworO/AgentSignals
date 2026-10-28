@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 import ab_quality
 
-VERSION = 'ab-q1-exact-ict-review-v1'
+VERSION = 'ab-q1-exact-ict-review-v2'
 NY = ZoneInfo('America/New_York')
 DEFAULT_SESSIONS = 'ASIA,PREM,NYAM,NYPM'
 GEOMETRY = ('direction','entry_price','stop_price','target_price','activation_ms','expiry_ms')
@@ -66,6 +66,11 @@ def candidate(signal, candidate_id, config):
     identity=json.dumps([contract,str(candidate_id)],separators=(',',':'))
     # Only original scanner fields; never serialize signal's outcomes/account fields.
     frozen={k:signal.get(k) for k in ('model','cat','s','u','bos_bar','bos_ms','fvg_lo','fvg_hi','atr5','signal_close','_signal_close')}
+    frozen['original_levels'] = dict(entry=entry, SL=stop, TP=target)
+    align = math.floor if direction == 'LONG' else math.ceil
+    entry, stop, target = (align(v*4)/4 for v in (entry, stop, target))
+    if sign*(entry-stop)<=0 or sign*(target-entry)<=0:
+        raise ValueError('q1_tick_geometry_invalid')
     return dict(order_id='ABQ1_'+hashlib.sha256(identity.encode()).hexdigest(),candidate_id=str(candidate_id),
         strategy='A/B',direction=direction,entry_price=entry,stop_price=stop,target_price=target,
         activation_ms=activation,expiry_ms=expiry,contract=contract,
@@ -82,7 +87,7 @@ def describe(order, contract):
             or order.get('maximum_entry_attempts') != 1):
         raise ValueError('q1_recovery_not_permitted')
     source=order['q1_source']
-    signal=dict(source,_strat='A/B',dir=order['direction'],entry=order['entry_price'],SL=order['stop_price'],TP=order['target_price'],_ab_quality=order['q1_quality'])
+    signal=dict(source,_strat='A/B',dir=order['direction'],**source['original_levels'],_ab_quality=order['q1_quality'])
     # Recompute Q1 against the original recorded inputs, including pre-offset
     # classification source fields, rather than accepting a supplied tier string.
     expected=candidate(signal,order['candidate_id'],dict(AB_V3_CONTRACT=contract,

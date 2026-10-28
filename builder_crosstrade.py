@@ -302,8 +302,11 @@ class Transport:
 
     def directional_permission(self, order):
         import execution_policy
+        if order.get('strategy') == 'A/B' and execution_policy.mode() == 'DIRECTIONAL_Q1_ONLY':
+            import ab_q1_execution
+            return ab_q1_execution.permission(order)
         if order.get('strategy')!='AB_DIRECTIONAL':return None
-        if execution_policy.mode()!='V3_ONLY':return 'DIRECTIONAL_EXCLUSIVE_POLICY_REQUIRED'
+        if execution_policy.mode() not in ('V3_ONLY','DIRECTIONAL_Q1_ONLY'):return 'DIRECTIONAL_EXCLUSIVE_POLICY_REQUIRED'
         if os.environ.get('AB_V3_MODE','SHADOW').upper()!='LIVE':return 'DIRECTIONAL_MODE_NOT_LIVE'
         if os.environ.get('V3_ENTRY_ARMED','0')!='1':return 'DIRECTIONAL_ENTRY_NOT_ARMED'
         if os.environ.get('AB_DIRECTIONAL_LIVE_'+order['direction'],'0')!='1':return 'DIRECTION_NOT_ENABLED'
@@ -325,9 +328,15 @@ class Transport:
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
+        import ab_q1_execution
+        q1 = ab_q1_execution.is_order(order)
+        if execution_policy.mode() == 'DIRECTIONAL_Q1_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL' and not q1:
+            raise TransportError('EXACT_Q1_NATIVE_ROUTE_REQUIRED')
+        if q1 and execution_policy.mode() != 'DIRECTIONAL_Q1_ONLY':
+            raise TransportError('Q1_SHARED_POLICY_REQUIRED')
         permission=self.directional_permission(order) or self.runner_entry_blocker(order)
         if permission:raise TransportError(permission)
-        if order.get('strategy') == 'A/B':
+        if order.get('strategy') == 'A/B' and not q1:
             check = dict(_strat='A/B',dir=order['direction'],entry=order['entry_price'],SL=order['stop_price'],TP=order['target_price'])
             if execution_policy.mode() != 'AB_ONLY' or execution_policy.entry_blocker(check):
                 raise TransportError('AB_NATIVE_ROUTE_NOT_ARMED')
@@ -359,17 +368,21 @@ class Transport:
         if self.sync.entry_blocker(refresh=True):raise TransportError('FRESH_FLAT_ACCOUNT_REQUIRED')
         snapshot=self.sync.snapshot();now=int(self.clock()*1000)
         expiry=min(order['expiry_ms'],now+int(payload.get('cancelAfter',60))*1000)
-        if order.get('strategy') == 'AB_DIRECTIONAL' and os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE'):
+        if q1 or (order.get('strategy') == 'AB_DIRECTIONAL' and os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')):
             # Freeze cost assumptions for later actual-fill accounting; never
             # reinterpret an old fill using a subsequently changed policy.
-            p = execution_validation.policy()
+            p = execution_validation.policy_for(order)
             order = dict(order, execution_costs_at_dispatch=dict(execution_validation.costs(p)),
                          execution_model_at_dispatch=p.get('execution_model', 'EXECUTABLE_BBO_V1'))
             if p.get('execution_model') == execution_validation.resting.MODEL:
                 expiry=min(expiry, now+int(p['max_pending_lifetime_sec']*1000))
         if expiry<=now or now>=order['expiry_ms']:raise TransportError('ENTRY_EXPIRED')
-        if order.get('strategy') != 'A/B':
-            ai_reason, review = directional_ai_review.check(order.get('direction'), oid + ':native')
+        if q1 or order.get('strategy') != 'A/B':
+            if q1:
+                import ab_q1_review, ab_ai_context
+                ai_reason, review = ab_q1_review.check(order, ab_ai_context.INSTANCE)
+            else:
+                ai_reason, review = directional_ai_review.check(order.get('direction'), oid + ':native')
             if ai_reason:
                 raise TransportError(ai_reason)
             if review is not None:
@@ -399,7 +412,7 @@ class Transport:
         # Failure here proves no POST was made; UNKNOWN is reserved for an actual
         # possibly delivered request.
         reason = execution_safety.entry_blocker()
-        if not reason and order.get('strategy') != 'A/B':
+        if not reason and (q1 or order.get('strategy') != 'A/B'):
             reason = execution_validation.check(order, order.get('ai_review_at_native_dispatch'))
         # A slow revalidation must not outlive the entry or override a cancel /
         # Guard request made while account or market evidence was being read.

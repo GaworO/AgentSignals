@@ -40,10 +40,12 @@ class RiskValidator:
                 return dict(proof, reason=reason)
             if guardrails.exec_mode() != 'auto' or os.environ.get('AUTO_SUBMIT') != '1':
                 return dict(proof, reason='automatic_entries_disabled')
-            if order.get('strategy') != 'AB_DIRECTIONAL' or not builder_crosstrade.selected():
+            import ab_q1_execution
+            q1 = ab_q1_execution.is_order(order)
+            if (order.get('strategy') != 'AB_DIRECTIONAL' and not q1) or not builder_crosstrade.selected():
                 return dict(proof, reason='directional_native_route_required')
             if ab_v3_live.native_fixed_bracket():
-                reason=ab_v3_live.native_bracket_readiness()
+                reason=ab_v3_live.native_bracket_readiness(execution_validation.policy_for(order)) if q1 else ab_v3_live.native_bracket_readiness()
                 if reason:return dict(proof,reason=reason)
             with continuation_live._connect() as db:
                 dispatch = db.execute('SELECT state,source_json FROM live_dispatches WHERE order_id=?',
@@ -51,11 +53,11 @@ class RiskValidator:
             if not dispatch or dispatch['state'] != 'DISPATCHING':
                 return dict(proof, reason='owned_forward_dispatch_required')
             source = json.loads(dispatch['source_json'])
-            signal = self.signal_builder(source)
+            signal = ab_q1_execution.signal(source) if q1 else self.signal_builder(source)
             if any(signal.get(k) != order.get(v) for k,v in
                    (('dir','direction'),('entry','entry_price'),('SL','stop_price'),('TP','target_price'))):
                 return dict(proof, reason='dispatch_geometry_changed')
-            if (source.get('strategy') != 'AB_DIRECTIONAL' or source.get('order_id') != order['order_id']
+            if (source.get('strategy') != order.get('strategy') or source.get('order_id') != order['order_id']
                     or source.get('activation_ms') != order['activation_ms']
                     or source.get('expiry_ms') != order['expiry_ms']):
                 return dict(proof, reason='dispatch_identity_changed')
@@ -95,7 +97,7 @@ class RiskValidator:
                 return dict(proof,reason='broker:account_snapshot_not_current')
             proof.update(account_binding=sync.binding,
                          checked_ms=int(snapshot['read_started_at']*1000))
-            parameters=execution_validation.policy()
+            parameters=execution_validation.policy_for(order)
             if parameters.get('contract')!=order.get('contract'):
                 return dict(proof,reason='cost_contract_mismatch')
             costs=execution_validation.costs(parameters)
@@ -117,7 +119,7 @@ class RiskValidator:
             allowed, reason = guardrails.guard_ok(
                 signal, feed_age_min=self.feed_age(), market_open=self.market_open(),
                 news_hard=news_hard, cal_age_h=self.calendar_age(),
-                reservation_id='ab_directional_'+order['order_id'])
+                reservation_id=('ab_q1_' if q1 else 'ab_directional_')+order['order_id'])
             return dict(proof, allowed=allowed, reason=None if allowed else reason)
         except Exception:
             return proof  # No exception text may expose account/provider credentials.
@@ -131,10 +133,12 @@ def _size_for_entry(signal, *, clock=time.time):
     order_id=signal.get('_continuation_order_id')
     result=dict(allowed=False,max_quantity=0,order_id=order_id,reason='account_capacity_unknown')
     try:
-        if not signal.get('_v3_directional') or not order_id or not builder_crosstrade.selected():
+        import ab_q1_execution
+        q1 = ab_q1_execution.is_order(signal.get('_q1_order') or {})
+        if (not signal.get('_v3_directional') and not q1) or not order_id or not builder_crosstrade.selected():
             return dict(result,reason='directional_native_route_required')
         try:
-            p=execution_validation.policy();fees=execution_validation.costs(p)
+            p=execution_validation.policy_for(signal['_q1_order']) if q1 else execution_validation.policy();fees=execution_validation.costs(p)
         except (OSError,ValueError,TypeError,KeyError):
             return dict(result,reason='execution_policy_or_costs_unavailable')
         contract=os.environ.get('AB_V3_CONTRACT')

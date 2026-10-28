@@ -36,15 +36,26 @@ def register_source(name, validator):
     _SOURCES[name] = validator
 
 
-def policy():
-    path = os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')
+def policy_for(order):
+    if order.get('strategy') == 'A/B':
+        import ab_q1_execution
+        if not ab_q1_execution.is_order(order):
+            raise ValueError('exact_q1_order_required')
+        return policy('A/B')
+    return policy()
+
+
+def policy(strategy='AB_DIRECTIONAL'):
+    path = os.environ.get('AB_Q1_EXECUTION_POLICY_FILE' if strategy == 'A/B' else 'DIRECTIONAL_EXECUTION_POLICY_FILE')
     if not path:
         raise ValueError('validated_execution_policy_missing')
     value = json.loads(Path(path).read_text())
     if (value.get('approved') is not True or not value.get('validation_reference')
-            or value.get('strategy') != 'AB_DIRECTIONAL'
+            or value.get('strategy') != strategy
             or (value.get('execution_model') != resting.MODEL and not value.get('volatility_definition'))):
         raise ValueError('validated_execution_policy_missing')
+    if strategy == 'A/B' and (value.get('quality') != 'Q1' or value.get('target_rule') != 'ORIGINAL_AB_TARGET' or value.get('execution_model') != resting.MODEL):
+        raise ValueError('q1_original_bracket_policy_required')
     validate_parameters(value)
     costs(value)
     return value
@@ -144,7 +155,11 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
     try:
         validate_parameters(parameters)
         candle_policy = parameters.get("execution_model") == resting.MODEL
-        if (not order.get('order_id') or order.get('strategy') != 'AB_DIRECTIONAL'
+        import ab_q1_execution
+        q1 = ab_q1_execution.is_order(order)
+        if (order.get('strategy') == 'A/B' and (not q1 or parameters.get('strategy') != 'A/B' or parameters.get('quality') != 'Q1')):
+            return 'exact_q1_policy_required'
+        if (not order.get('order_id') or (order.get('strategy') != 'AB_DIRECTIONAL' and not q1)
                 or str(order.get('order_type', 'LIMIT')).upper() != 'LIMIT'):
             return 'exact_directional_limit_setup_required'
         sign = {'LONG': 1, 'SHORT': -1}[order['direction']]
@@ -166,7 +181,7 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
                 return 'off_tick_price'
             if sign*(entry-stop) <= 0 or sign*(target-entry) <= 0:
                 return 'bracket_invalidated'
-            if abs(sign*(target-entry)-2*sign*(entry-stop)) > 1e-8:
+            if not q1 and abs(sign*(target-entry)-2*sign*(entry-stop)) > 1e-8:
                 return 'original_fixed_2r_required'
             reason = resting.observation_check(order, quote, parameters, now_ms)
             if reason:return reason
@@ -254,7 +269,7 @@ def check(order, review, *, clock=time.time):
     started = int(clock()*1000)
     evidence = {}
     try:
-        parameters = policy()
+        parameters = policy_for(order)
         evidence['reward_risk']=reward_risk(order,parameters)
         # Fetch executable quotes last, after the slower account/context reads.
         for name in ('risk', 'thesis', 'market'):
@@ -265,7 +280,11 @@ def check(order, review, *, clock=time.time):
         if (os.environ.get('AB_AI_TRIGGER') == 'HYBRID' or
                 getattr(ab_ai_context.INSTANCE,'trigger',None) == 'HYBRID'):
             import directional_ai_review
-            blocked, latest = directional_ai_review.check(order['direction'],order['order_id'])
+            if order.get('strategy') == 'A/B':
+                import ab_q1_review
+                blocked, latest = ab_q1_review.check(order, ab_ai_context.INSTANCE)
+            else:
+                blocked, latest = directional_ai_review.check(order['direction'],order['order_id'])
             if blocked or not review or latest.get('review_id') != review.get('review_id'):
                 raise ValueError(blocked or 'hybrid_review_changed')
             review = latest

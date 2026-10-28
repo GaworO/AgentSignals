@@ -50,8 +50,11 @@ class ThesisValidator:
 
     def __call__(self, order, *, pending=False):
         import execution_validation
-        p=execution_validation.policy() if not pending else {'thesis_rule_version':VERSION}
+        p=execution_validation.policy_for(order) if not pending else {'thesis_rule_version':VERSION}
         proof=dict(order_id=order['order_id'],valid=False,checked_ms=int(self.clock()*1000))
+        if order.get('strategy') == 'A/B':
+            import ab_q1_execution
+            return ab_q1_execution.thesis(order, self.clock, pending=pending)
         if order.get('recovery_version') == 2:
             try:
                 import directional_recovery_runtime

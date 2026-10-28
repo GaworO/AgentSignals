@@ -75,7 +75,7 @@ def test_mutated_geometry_revokes_q1_review(h):
     o=order(h);h.support.queue_setup(o);h.support.process_one()
     assert q1.check(o,h.support)[0] is None
     changed=dict(o,target_price=140.)
-    assert q1.check(changed,h.support)[0]=='q1_ai_setup_changed'
+    assert q1.check(changed,h.support)[0]=='q1_setup_invalid'
     assert h.support.queue_setup(changed)['state']=='SETUP_CHANGED'
     assert q1.check(o,h.support)[0]=='q1_ai:superseded'
 
@@ -150,7 +150,7 @@ def test_q1_payload_has_own_evidence_namespace_and_no_outcomes(h):
     with h.support.connect() as db:
         obs=json.loads(db.execute('SELECT payload FROM setup_review_observations').fetchone()[0])
         assert obs['executable'] is False
-        assert obs['blocking_reason']=='Q1_SHARED_EXECUTION_ROUTE_NOT_IMPLEMENTED'
+        assert obs['blocking_reason']=='Q1_REQUIRES_INDEPENDENT_EXECUTION_GATES'
 
 
 def test_existing_directional_only_broker_permission_is_unchanged(monkeypatch):

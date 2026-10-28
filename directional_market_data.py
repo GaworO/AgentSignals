@@ -296,7 +296,7 @@ class MarketSource:
 
     def __call__(self, order):
         import execution_validation
-        p=execution_validation.policy()
+        p=execution_validation.policy_for(order)
         import directional_resting_limit
         if p.get('execution_model') == directional_resting_limit.MODEL:
             return directional_resting_limit.CandleSource(clock=self.clock, market_open=self.market_open)(order)

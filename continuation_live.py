@@ -252,6 +252,8 @@ def resume_reviews():
         pending = [dict(r) for r in con.execute("SELECT * FROM live_dispatches WHERE state='WAITING_AI'")]
     for item in pending:
         row = json.loads(item['source_json'])
+        if row.get('strategy') == 'A/B':
+            continue
         reason, review = directional_ai_review.check(row['direction'], row['order_id'] + ':candidate')
         if reason == 'v3_ai:pending':
             continue

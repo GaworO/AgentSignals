@@ -24,14 +24,16 @@ def finite(value):
 
 
 def validate_policy(p):
-    if (p.get('strategy') != 'AB_DIRECTIONAL' or p.get('approved') is not True
+    q1 = p.get('strategy') == 'A/B' and p.get('quality') == 'Q1' and p.get('target_rule') == 'ORIGINAL_AB_TARGET'
+    if ((p.get('strategy') != 'AB_DIRECTIONAL' and not q1) or p.get('approved') is not True
             or not p.get('validation_reference') or not p.get('residual_risk_acceptance_reference')
             or set(p.get('accepted_residual_risks', [])) != set(RISKS)):
         raise ValueError('resting_limit_policy_not_explicitly_accepted')
     if (type(p.get('max_quantity')) is not int or not 1 <= p['max_quantity'] <= 40
             or p.get('max_positions') != 1 or type(p.get('max_positions')) is not int
             or p.get('allow_scale_in') is not False or p.get('advanced_writes') is not False
-            or p.get('original_limit_only') is not True or p.get('fixed_gross_rr') != 2
+            or p.get('original_limit_only') is not True or (not q1 and p.get('fixed_gross_rr') != 2)
+            or (q1 and p.get('fixed_gross_rr') is not None)
             or p.get('min_rr') != 2 or p.get('thesis_rule_version') != 'original_bos_bracket_ai_v1'):
         raise ValueError('resting_limit_quantity_cap_original_bracket_required')
     if not re.fullmatch(r'MNQ[HMUZ]20\d{2}', str(p.get('contract', ''))):
@@ -98,7 +100,7 @@ class CandleSource:
     def __call__(self, order):
         import ab_v3_live
         import execution_validation
-        p = execution_validation.policy()
+        p = execution_validation.policy_for(order)
         now = int(self.clock()*1000); end = now // 60000 * 60000
         if (p.get('execution_model') != MODEL or order['contract'] != p['contract']
                 or os.environ.get('AB_V3_CONTRACT') != order['contract']
