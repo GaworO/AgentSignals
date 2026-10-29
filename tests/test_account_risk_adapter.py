@@ -88,6 +88,53 @@ def test_fee_revision_reconciles_only_after_cash_matches():
     assert ar.assess(*a)['verified']
 
 
+def test_cash_bridge_explains_costs_without_certifying_capture():
+    a=fixture();a[3]['reconciliation_anchor']['verified']=False
+    r=ar.assess(*a);bridge=r['cash_bridge']
+    assert bridge['matches_current_cash'] and bridge['reconstructed_cash']==978
+    assert bridge['captured_closed_groups'][0]['gross_usd']==-20
+    assert bridge['captured_closed_groups'][0]['costs_usd']==2
+    assert bridge['captured_closed_groups'][0]['fill_ids']==[1,2]
+    assert bridge['authorizes_entries'] is False
+    assert bridge['capture_completeness_verified'] is False
+    assert 'consecutive_losses' not in bridge
+    assert not r['verified'] and r['controls'] is None
+    assert 'account_history_coverage_and_flat_anchor_missing' in r['missing']
+
+
+def test_cash_bridge_reports_difference_and_fee_revisions():
+    a=fixture();a[1][1]['fees']=1.5
+    bridge=ar.cash_bridge(a[1],a[3]['reconciliation_anchor'],978,a[-1])
+    assert not bridge['matches_current_cash']
+    assert bridge['unexplained_difference_usd']==1
+    assert bridge['captured_closed_groups'][0]['costs_usd']==3
+
+
+@pytest.mark.parametrize('change',['future_anchor','unknown_cash','future_fill','duplicate_fill','open_position'])
+def test_cash_bridge_invalid_input_cannot_be_used_as_evidence(change):
+    a=fixture();anchor=a[3]['reconciliation_anchor']
+    if change=='future_anchor':anchor['at_ms']=a[-1]+1
+    if change=='unknown_cash':anchor['cash']=None
+    if change=='future_fill':a[1][1]['timestamp']='2027-01-01T00:00:00Z'
+    if change=='duplicate_fill':a[1].append(copy.deepcopy(a[1][0]))
+    if change=='open_position':a[1].pop()
+    bridge=ar.cash_bridge(a[1],anchor,978,a[-1])
+    assert not bridge['matches_current_cash'] and not bridge['authorizes_entries']
+
+
+def test_missing_coverage_is_not_inferred_from_matching_balance():
+    a=fixture();a[3]['reconciliation_anchor'].pop('coverage_reference')
+    r=ar.assess(*a)
+    assert r['cash_bridge']['matches_current_cash']
+    assert not r['verified'] and r['controls'] is None
+
+
+def test_duplicate_direct_ledger_rows_are_rejected():
+    a=fixture();a[1].append(copy.deepcopy(a[1][0]))
+    with pytest.raises(ValueError,match='duplicate'):
+        ar.reconstruct(a[1],a[3]['reconciliation_anchor'],a[-1])
+
+
 def test_streak_and_daily_limit_preserved():
     a=fixture();a[3]['reconciliation_anchor'].update(consecutive_losses=2,last_loss_closed_ms=a[3]['observed_at_ms']-1000)
     a[3].update(daily_loss_policy='LIMITED',daily_loss_limit_usd=100.)

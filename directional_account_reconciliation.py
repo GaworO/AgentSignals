@@ -83,7 +83,12 @@ def reconstruct(rows, anchor, now_ms):
     cash, positions, closed = Decimal(str(anchor['cash'])), {}, []
     last_loss = anchor.get('last_loss_closed_ms')
     streak = anchor['consecutive_losses']
+    seen = set()
     for f in sorted(rows, key=lambda x: (millis(x['timestamp']), x['fillId'])):
+        identity = f['fillId']
+        if type(identity) is not int or identity <= 0 or identity in seen:
+            raise ValueError('account_history_duplicate_or_invalid_fill')
+        seen.add(identity)
         at = millis(f['timestamp'])
         if at > now_ms:
             raise ValueError('history_future_fill')
@@ -103,12 +108,13 @@ def reconstruct(rows, anchor, now_ms):
             raise ValueError('account_fill_or_fees_unknown')
         sign = 1 if f['action'] == 'Buy' else -1
         fees = Decimal(str(f['commission'])) + Decimal(str(f['fees']))
-        pos = positions.setdefault(symbol, dict(qty=0, pnl=Decimal(0), fees=Decimal(0)))
+        pos = positions.setdefault(symbol, dict(qty=0, pnl=Decimal(0), fees=Decimal(0), fill_ids=[]))
         if pos['qty']*sign < 0 and qty > abs(pos['qty']):
             raise ValueError('account_history_reversal_requires_reconciliation')
         pos['qty'] += sign*qty
         pos['pnl'] -= sign*qty*Decimal(str(price))*2
         pos['fees'] += fees
+        pos['fill_ids'].append(identity)
         if not pos['qty']:
             net = pos['pnl'] - pos['fees']
             cash += net
@@ -116,14 +122,42 @@ def reconstruct(rows, anchor, now_ms):
             streak = streak+1 if loss else 0
             if loss:
                 last_loss = at
-            closed.append(dict(closed_ms=at, instrument=symbol, net_usd=float(net), loss=loss))
-            pos.update(pnl=Decimal(0), fees=Decimal(0))
+            closed.append(dict(closed_ms=at, instrument=symbol, net_usd=float(net), loss=loss,
+                               gross_usd=float(pos['pnl']), costs_usd=float(pos['fees']),
+                               fill_ids=list(pos['fill_ids'])))
+            pos.update(pnl=Decimal(0), fees=Decimal(0), fill_ids=[])
     if any(p['qty'] for p in positions.values()):
         raise ValueError('account_history_not_flat')
     day = datetime.fromtimestamp(now_ms/1000, NY).date()
     losses = sum(r['loss'] for r in closed if datetime.fromtimestamp(r['closed_ms']/1000, NY).date() == day)
     return dict(cash=float(cash), losses_today=losses, consecutive_losses=streak,
                 last_loss_closed_ms=last_loss, closed_groups=closed)
+
+
+def cash_bridge(rows, checkpoint, current_cash, now_ms):
+    """Numerical cash explanation only; never certifies capture or grants controls.
+
+    A matching balance can conceal omitted offsetting trades/transfers. Neither
+    the diagnostic nor its seed establishes a prior streak or complete history.
+    """
+    result = dict(scope='NUMERICAL_CASH_BRIDGE_ONLY', authorizes_entries=False,
+                  capture_completeness_verified=False, matches_current_cash=False)
+    if (not isinstance(checkpoint, dict) or not number(checkpoint.get('cash'))
+            or type(checkpoint.get('at_ms')) is not int
+            or not 0 < checkpoint['at_ms'] <= now_ms or not number(current_cash)):
+        return dict(result, reason='cash_checkpoint_unavailable')
+    try:
+        # Zero is an internal arithmetic seed, not a claimed historical streak.
+        ledger = reconstruct(rows, dict(checkpoint, consecutive_losses=0,
+                                        last_loss_closed_ms=None), now_ms)
+        difference = Decimal(str(current_cash)) - Decimal(str(ledger['cash']))
+        return dict(result, checkpoint_cash=checkpoint['cash'], checkpoint_ms=checkpoint['at_ms'],
+                    reconstructed_cash=ledger['cash'], current_cash=current_cash,
+                    unexplained_difference_usd=float(difference),
+                    matches_current_cash=abs(difference) <= Decimal('.01'),
+                    captured_closed_groups=ledger['closed_groups'])
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return dict(result, reason='cash_bridge_inputs_invalid')
 
 
 def assess(snapshot, rows, margin, proof, binding, contract, now_ms):
@@ -181,6 +215,7 @@ def assess(snapshot, rows, margin, proof, binding, contract, now_ms):
             missing.append('live_and_durable_fill_conflict')
             break
     anchor = proof.get('reconciliation_anchor', {})
+    result['cash_bridge'] = cash_bridge(rows, anchor, b.get('totalCashValue'), now_ms)
     day_start = int(datetime.fromtimestamp(now_ms/1000, NY).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()*1000)
     valid_anchor = (isinstance(anchor, dict) and anchor.get('verified') is True
         and anchor.get('flat') is True and anchor.get('account_binding') == binding

@@ -1,0 +1,34 @@
+Account reconciliation release, 2026-10-29
+
+Actual independent evidence: authenticated Tradovate Cash History (59 rows) and
+Fills (13 rows), October1 through October29, no report filters. Five fills after
+the Oct19 flat checkpoint exactly match CrossTrade durable history. Cash chain
+and captured fees reconcile to48718.15. Oct26 gross-1.00 and costs1.90 explain
+-2.90. Anchor streak1 includes MES loss; current streak3, last loss Oct26,
+zero losses Oct29 and the existing24h cooldown elapsed at observation.
+
+Broker evidence proves historical cash/fees, not the account plan rules.
+Floor48161.90, max40MNQ, no provider daily limit, contract-cap-only margin are
+explicit ACCOUNT_HOLDER_ATTESTATION. They are not labelled provider verified.
+
+mffu_account_evidence.json remains the unapproved default (verified=false).
+It records the confirmed margin mode and independently verified accounting
+checkpoint. Existing approvals, arming flags, sizing0.5%, broker protections,
+account one-loss rule and strategy behavior are unchanged by this release.
+
+mffu_risk_operator_candidate_20261029.json is NOT automatically loaded. Selecting
+it through MFFU_RISK_EVIDENCE_FILE is an operator-controlled activation action
+because both execution policies are already approved. It is valid only until
+2026-10-29 15:55 America/New_York (the existing flatten time). Do not extend its
+expiry by editing a date without refreshing account rules/evidence. Fresh30s
+broker checks still run at each order. New positions/orders, unknown fees,
+missing captured fills, changed cash, one-loss or drawdown breaches block.
+
+Candidate risk check passed in isolated replay using a real broker snapshot;
+LONG/SHORT example geometries are synthetic and no order was submitted.
+The deployed default remains blocked until an operator selects valid evidence.
+Do not relabel this replay as a full live trade or a fresh exact AI approval.
+
+Current evidence scope for basic native brackets remains max5contracts, not
+account maximum40. A larger proposed quantity still needs appropriate evidence.
+Source artifacts and tests: audit/integrated_live_20261022/account_reconciliation_20261029/

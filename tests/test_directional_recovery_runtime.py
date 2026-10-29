@@ -249,7 +249,13 @@ def test_deployed_draft_files_load_but_cannot_authorize_orders(monkeypatch):
     assert proof['max_micro_contracts']==40
     assert proof['max_micro_contracts_source'].startswith('USER_CONFIRMED')
     assert proof['margin_policy']['verified'] is False
-    assert proof['reconciliation_anchor']['verified'] is False
+    # Independently reconciled accounting does not approve account rules or
+    # activate entries. The shipped default retains its global closed gate.
+    assert proof['reconciliation_anchor']['verified'] is True
+    assert proof['accounting_verification']['verified'] is True
+    assert proof['reconciliation_anchor']['coverage_verified_through_ms'] > proof['reconciliation_anchor']['at_ms']
+    assert proof['margin_policy']['mode'] == 'CONTRACT_CAP_ONLY'
+    assert proof['user_confirmed_rules']['margin_rule_confirmed'] is True
 
 
 def test_parent_proof_owns_reconciliation_lock_before_account_refresh(monkeypatch):

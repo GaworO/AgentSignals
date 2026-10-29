@@ -1,0 +1,101 @@
+{
+  "provider": "MFFU",
+  "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+  "account_suffix": "5021",
+  "account_stage": "Evaluation",
+  "stage_source": "User account dashboard",
+  "plan_variant": "UNKNOWN",
+  "verified": true,
+  "observed_at_ms": 1793299058807,
+  "expires_at_ms": 1793303700000,
+  "source_reference": "Account holder confirmed floor48161.90, cap40MNQ, no provider daily loss limit and contract-cap-only margin; independent broker accounting reconciliation 2026-10-29",
+  "minimum_balance": 48161.9,
+  "minimum_balance_source": "USER_CONFIRMED_NOT_CURRENT_PROVIDER_API",
+  "max_micro_contracts": 40,
+  "user_reported_max_micro_contracts": 40,
+  "daily_loss_policy": "NONE",
+  "daily_loss_limit_usd": null,
+  "daily_loss_source_reference": "USER_CONFIRMED_NO_PROVIDER_DAILY_LIMIT; exact rule version unverified",
+  "account_controls_source": "CROSSTRADE_RECONCILED",
+  "margin_policy": {
+    "verified": true,
+    "mode": "CONTRACT_CAP_ONLY",
+    "contract": "MNQZ2026",
+    "source_reference": "ACCOUNT_HOLDER_CONFIRMED: no separate per-contract margin; maximum40MNQ",
+    "confirmation_source": "ACCOUNT_HOLDER",
+    "independently_provider_verified": false,
+    "recorded_at_ms": 1793298066678,
+    "observed_at_ms": 1793299058807,
+    "expires_at_ms": 1793303700000,
+    "verification_method": "ACCOUNT_HOLDER_ATTESTATION_NOT_PROVIDER_VERIFICATION"
+  },
+  "reconciliation_anchor": {
+    "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "flat": true,
+    "at_ms": 1792385905601,
+    "cash": 48961.55,
+    "consecutive_losses": 1,
+    "last_loss_closed_ms": 1792065985324,
+    "capture_complete_since_ms": 1792385905601,
+    "source_reference": "Authenticated CrossTrade archived flat account snapshot, cross-checked against Tradovate Cash History",
+    "coverage_reference": "Tradovate Fills and Cash History: unfiltered 2026-10-01 through 2026-10-29; exact5/5fill match since checkpoint",
+    "verified": true,
+    "coverage_verified_through_ms": 1793298910455,
+    "evidence_sha256": {
+      "tradovate_cash_history.csv": "f75795d7181468852bd1f5ae2436e789c9c76a720a8ee529cc7e56086cc287d6",
+      "tradovate_fills.csv": "c4adc110788564e9e25ac7ecc394acb58908d0b154a326184aae56428fcc76c6",
+      "broker_read.json": "185350d08b67bbc8d74c0b4fec3dca2faaa5093639f7a61607f207ac5a8357d3"
+    }
+  },
+  "observed_broker": {
+    "at_ms": 1792993517813,
+    "cash": 48721.05,
+    "equity": 48721.05,
+    "positions": 0,
+    "orders": 0,
+    "realized_pnl": 0,
+    "unrealized_pnl": 0
+  },
+  "historical_costs": {
+    "source": "CrossTrade GET /fills/history",
+    "observed_at_ms": 1792993579108,
+    "fill_ids": [
+      641664660727,
+      641664660743,
+      641664660751
+    ],
+    "gross_pnl_usd": -231,
+    "fees_usd": 9.5,
+    "net_pnl_usd": -240.5,
+    "complete_account_history_verified": false
+  },
+  "required_evidence": [],
+  "max_micro_contracts_source": "USER_CONFIRMED_ACCOUNT_SPECIFIC; not independently provider-verified",
+  "user_confirmed_rules": {
+    "source": "Account holder statements in this conversation; no separate margin requirement confirmed 2026-10-29",
+    "minimum_balance": 48161.9,
+    "minimum_micro_contracts": 1,
+    "maximum_micro_contracts": 40,
+    "provider_daily_loss_policy": "NONE",
+    "margin_rule_confirmed": true,
+    "margin_mode": "CONTRACT_CAP_ONLY",
+    "recorded_at_ms": 1793298066678,
+    "independently_provider_verified": false
+  },
+  "accounting_verification": {
+    "verified": true,
+    "source": "Authenticated Tradovate Fills and Cash History reports + CrossTrade account snapshot",
+    "observed_at_ms": 1793298910455,
+    "sources_sha256": {
+      "tradovate_cash_history.csv": "f75795d7181468852bd1f5ae2436e789c9c76a720a8ee529cc7e56086cc287d6",
+      "tradovate_fills.csv": "c4adc110788564e9e25ac7ecc394acb58908d0b154a326184aae56428fcc76c6",
+      "broker_read.json": "185350d08b67bbc8d74c0b4fec3dca2faaa5093639f7a61607f207ac5a8357d3"
+    },
+    "coverage_through_ms": 1793298910455,
+    "scope": "Historical checkpoint, not future capture guarantee or a live account snapshot"
+  },
+  "rule_authority": "ACCOUNT_HOLDER_ATTESTATION",
+  "provider_rules_independently_verified": false,
+  "approval_status": "OPERATOR_INSTALLATION_REQUIRED_DO_NOT_AUTOLOAD",
+  "validity_note": "Session-limited verification: expires at existing 15:55 New York flatten time on2026-10-29. Does not assert that account rules changed or that future fill capture is complete."
+}

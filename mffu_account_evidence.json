@@ -19,14 +19,30 @@
   "account_controls_source": "CROSSTRADE_RECONCILED",
   "margin_policy": {
     "verified": false,
-    "mode": "UNKNOWN",
+    "mode": "CONTRACT_CAP_ONLY",
     "contract": "MNQZ2026",
-    "source_reference": null
+    "source_reference": "ACCOUNT_HOLDER_CONFIRMED: no separate per-contract margin; maximum40MNQ",
+    "confirmation_source": "ACCOUNT_HOLDER",
+    "independently_provider_verified": false,
+    "recorded_at_ms": 1793298066678
   },
   "reconciliation_anchor": {
-    "verified": false,
-    "source_reference": null,
-    "reason": "Historical flat cash checkpoint and provider history coverage not independently established"
+    "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "flat": true,
+    "at_ms": 1792385905601,
+    "cash": 48961.55,
+    "consecutive_losses": 1,
+    "last_loss_closed_ms": 1792065985324,
+    "capture_complete_since_ms": 1792385905601,
+    "source_reference": "Authenticated CrossTrade archived flat account snapshot, cross-checked against Tradovate Cash History",
+    "coverage_reference": "Tradovate Fills and Cash History: unfiltered 2026-10-01 through 2026-10-29; exact5/5fill match since checkpoint",
+    "verified": true,
+    "coverage_verified_through_ms": 1793298910455,
+    "evidence_sha256": {
+      "tradovate_cash_history.csv": "f75795d7181468852bd1f5ae2436e789c9c76a720a8ee529cc7e56086cc287d6",
+      "tradovate_fills.csv": "c4adc110788564e9e25ac7ecc394acb58908d0b154a326184aae56428fcc76c6",
+      "broker_read.json": "185350d08b67bbc8d74c0b4fec3dca2faaa5093639f7a61607f207ac5a8357d3"
+    }
   },
   "observed_broker": {
     "at_ms": 1792993517813,
@@ -51,17 +67,30 @@
     "complete_account_history_verified": false
   },
   "required_evidence": [
-    "account-specific rule provenance/version and validity interval; floor and maximum already user-confirmed",
-    "margin rule: per-contract or contract-cap-only",
-    "flat accounting checkpoint and complete capture coverage"
+    "Operator acceptance of account-holder-attested rules with session-limited validity; accounting checkpoint independently reconciled against broker reports"
   ],
   "max_micro_contracts_source": "USER_CONFIRMED_ACCOUNT_SPECIFIC; not independently provider-verified",
   "user_confirmed_rules": {
-    "source": "User statements in this conversation, reconfirmed 2026-10-26",
+    "source": "Account holder statements in this conversation; no separate margin requirement confirmed 2026-10-29",
     "minimum_balance": 48161.9,
     "minimum_micro_contracts": 1,
     "maximum_micro_contracts": 40,
     "provider_daily_loss_policy": "NONE",
-    "margin_rule_confirmed": false
+    "margin_rule_confirmed": true,
+    "margin_mode": "CONTRACT_CAP_ONLY",
+    "recorded_at_ms": 1793298066678,
+    "independently_provider_verified": false
+  },
+  "accounting_verification": {
+    "verified": true,
+    "source": "Authenticated Tradovate Fills and Cash History reports + CrossTrade account snapshot",
+    "observed_at_ms": 1793298910455,
+    "sources_sha256": {
+      "tradovate_cash_history.csv": "f75795d7181468852bd1f5ae2436e789c9c76a720a8ee529cc7e56086cc287d6",
+      "tradovate_fills.csv": "c4adc110788564e9e25ac7ecc394acb58908d0b154a326184aae56428fcc76c6",
+      "broker_read.json": "185350d08b67bbc8d74c0b4fec3dca2faaa5093639f7a61607f207ac5a8357d3"
+    },
+    "coverage_through_ms": 1793298910455,
+    "scope": "Historical checkpoint, not future capture guarantee or a live account snapshot"
   }
 }
