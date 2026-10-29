@@ -4,7 +4,8 @@
 This module deliberately applies no HTF-thesis or DOL eligibility gate.  It
 converts an already causal LONG/SHORT liquidity -> displacement/FVG ->
 pullback/hold/BOS output into the predeclared fixed-2R resting order. The V3
-entry variant excludes DIB and requires a closed directional BOS body >=50%.
+entry variant defaults to excluding DIB; an explicit opt-in applies 50% Fibonacci
+before mandatory exact AI review. Both require a closed directional BOS body >=50%.
 """
 from __future__ import annotations
 
@@ -15,11 +16,12 @@ import numpy as np
 import pandas as pd
 import ab_directional_entry_rules as entry_rules
 import directional_recovery_runtime
+import directional_dib_policy as dib_policy
 
 from MNQ_CONTINUATION_HTF_CANONICAL_BASELINE_V1_OUTCOME_FREE_FREEZE.source import freeze_baseline as base
 
 
-IDENTITY = "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_NO_DIB_BOS50_V1"
+IDENTITY = "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_BOS50_DIB_OPT_IN_V2"
 ORDER_EXPIRY_MS = 10 * 60_000
 
 
@@ -39,9 +41,18 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
         decision_ms = int(row["entry_ms"])
         entry = base.tick(float(row["entry"]) + (1.0 if side == "LONG" else -1.0))
         stop = base.tick(float(row["SL"]))
+        dib_evidence, dib_error = None, None
+        if dib_policy.is_dib(row.get('cat')) and dib_policy.enabled():
+            try:
+                dib_evidence = dib_policy.derive(raw, row, side)
+                entry = dib_evidence['geometry']['entry_price']
+            except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
+                dib_error = str(exc) if isinstance(exc, ValueError) else 'DIB_PRICE_EVIDENCE_UNAVAILABLE'
         risk = round((entry - stop) if side == "LONG" else (stop - entry), 8)
         candidate_id = base.stable_id("ABDIR_" + side, row["instrument_id"], row["bos_ms"],
                                       row["cat"], row["fvg_bar"], row["entry"])
+        if dib_evidence:
+            candidate_id = base.stable_id('ABDIR_' + side, candidate_id, dib_policy.VERSION, entry, stop)
         row.update(candidate_id=candidate_id, chronological_index=n,
                    trading_day=base.trading_day_at(row["bos_ms"]),
                    strategy="AB_DIRECTIONAL", research_identity=IDENTITY,
@@ -54,6 +65,10 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
         matches = np.flatnonzero(iid[lo:hi] == int(row["instrument_id"]))
         bos = raw.iloc[lo + int(matches[0])] if len(matches) == 1 else None
         evidence = entry_rules.evaluate(row.get("cat"), side, bos, bos_ms, decision_ms)
+        if dib_evidence:
+            evidence['dib_entry'] = dib_evidence
+        if dib_error:
+            evidence.update(eligible=False, rejection_reason=dib_error)
         row["entry_rules"] = evidence
         if not evidence["eligible"]:
             row["rejection_reason"] = evidence["rejection_reason"]
@@ -111,7 +126,8 @@ def build_manifests(raw: pd.DataFrame, outputs: list[dict[str, Any]], direction:
     return candidates, orders, {
         "identity": IDENTITY, "direction": side, "canonical_outputs": len(outputs),
         "entry_rules_version": entry_rules.VERSION,
-        "dib_enabled": False, "min_directional_bos_body_fraction": entry_rules.MIN_BODY_FRACTION,
+        "dib_enabled": dib_policy.enabled(), "dib_entry_policy": dib_policy.VERSION if dib_policy.enabled() else "DISABLED",
+        "min_directional_bos_body_fraction": entry_rules.MIN_BODY_FRACTION,
         "valid_geometry": sum(bool(x.get("eligible")) for x in candidates),
         "resting_orders": len(orders), "estimated_fills": sum(bool(x["estimated_fill"]) for x in orders),
         "physical_geometry_duplicates_removed": reasons.get("DUPLICATE_PHYSICAL_GEOMETRY", 0),

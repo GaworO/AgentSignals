@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import math
+import directional_dib_policy as dib_policy
 
 VERSION = "AB_DIRECTIONAL_NO_DIB_BOS50_V1"
+DIB_RULE_VERSION = 'AB_DIRECTIONAL_DIB50_BOS50_V2'
 MIN_BODY_FRACTION = 0.50
 
 
@@ -20,11 +22,11 @@ def _integer(value):
 def evaluate(category, direction, ohlc, bos_ms, activation_ms):
     """Use only the identified, completed BOS candle, symmetrically by side.
 
-    DIB is an excluded setup family, not disabled inside the detector. Keeping
+    DIB defaults to excluded; its opt-in geometry policy does not alter the detector. Keeping
     the detector unchanged prevents generating a replacement non-DIB chain.
     Returned evidence travels with the order and is checked again at dispatch.
     """
-    result = dict(version=VERSION, category=category, direction=direction,
+    result = dict(version=DIB_RULE_VERSION if dib_policy.is_dib(category) and dib_policy.enabled() else VERSION, category=category, direction=direction,
                   bos_ms=None, activation_ms=None, bos_available_ms=None,
                   bos_ohlc=None, bos_body_fraction=None,
                   min_bos_body_fraction=MIN_BODY_FRACTION,
@@ -36,7 +38,7 @@ def evaluate(category, direction, ohlc, bos_ms, activation_ms):
 
     if not isinstance(category, str) or not category.strip():
         return reject('V3_SETUP_CATEGORY_MISSING')
-    if 'DIB' in {part.strip().upper() for part in category.split('+')}:
+    if dib_policy.is_dib(category) and not dib_policy.enabled():
         return reject('V3_DIB_DISABLED')
     if direction not in {'LONG', 'SHORT'}:
         return reject('V3_DIRECTION_INVALID')
@@ -81,7 +83,7 @@ def dispatch_blocker(order):
         if not isinstance(payload, dict):
             return 'v3_entry:missing_evidence'
         evidence = payload.get('entry_rules')
-        if not isinstance(evidence, dict) or evidence.get('version') != VERSION:
+        if not isinstance(evidence, dict) or evidence.get('version') not in (VERSION, DIB_RULE_VERSION):
             return 'v3_entry:missing_or_old_evidence'
         if evidence.get('direction') != order.get('direction'):
             return 'v3_entry:direction_mismatch'
@@ -94,8 +96,14 @@ def dispatch_blocker(order):
                            order.get('activation_ms'))
         if not checked['eligible']:
             return 'v3_entry:' + checked['rejection_reason']
+        if evidence.get('version') != checked['version']:
+            return 'v3_entry:missing_or_old_evidence'
         if evidence.get('eligible') is not True:
             return 'v3_entry:evidence_rejected'
+        if dib_policy.is_dib(evidence.get('category')):
+            reason = dib_policy.dispatch_blocker(order, evidence)
+            if reason:
+                return 'v3_entry:' + reason
     except (ValueError, TypeError, KeyError, OverflowError):
         return 'v3_entry:invalid_evidence'
     return None

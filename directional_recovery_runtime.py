@@ -43,7 +43,9 @@ def capture(raw, candidate):
             raise ValueError('scanner_gap_not_contiguous')
         return dict(status='RECORDED',source='ORIGINAL_DIRECTIONAL_SCANNER',
                     origin=bar(origin),extreme=bar(extreme),fvg=rows,
-                    bos_ms=int(candidate['bos_ms']),direction=side,instrument_id=iid)
+                    bos_ms=int(candidate['bos_ms']),direction=side,instrument_id=iid,
+                    **({'dib_entry_policy': candidate['entry_rules']['dib_entry']['version']}
+                       if candidate.get('entry_rules',{}).get('dib_entry') else {}))
     except (KeyError,ValueError,TypeError,IndexError,AttributeError):
         return dict(status='UNKNOWN',reason='SCANNER_RECOVERY_ANCHORS_UNAVAILABLE')
 
@@ -58,6 +60,8 @@ def original_record(order, context):
     if context.get('status')!='RECORDED':raise ValueError('SCANNER_RECOVERY_ANCHORS_UNAVAILABLE')
     sign=1 if order['direction']=='LONG' else -1
     value['recovery_context']=copy.deepcopy(context)
+    if context.get('dib_entry_policy'):
+        value['dib_entry_policy']=context['dib_entry_policy']
     value['recovery_anchors']=dict(order_id=order['order_id'])
     for name in ('origin','extreme'):
         b=context[name];field=('low' if sign==1 else 'high') if name=='origin' else ('high' if sign==1 else 'low')
@@ -206,6 +210,9 @@ def validate_entry(service, order, *, pending=False):
     if any(order.get(k)!=plan[k] for k in plans.GEOMETRY):raise ValueError('RECOVERY_DISPATCH_GEOMETRY_CHANGED')
     if order.get('parent_opportunity_id')!=row['opportunity_id']:raise ValueError('RECOVERY_PARENT_CHANGED')
     original=json.loads(row['original'])
+    if original.get('dib_entry_policy'):
+        import directional_dib_policy
+        if not directional_dib_policy.enabled():raise ValueError('DIB_DISABLED')
     fresh=market_packet(service,service.packet(service.reader(),service.clock()),original)
     review.revalidate(plan,json.loads(saved['request']),fresh,int(service.clock()*1000))
     if not pending:
@@ -243,6 +250,12 @@ def process(service, packet, external_calls, *, proof_reader=broker_proof,
                     db.execute("UPDATE nofill_opportunities SET state='REJECTED',updated_ms=? WHERE opportunity_id=?",(now,oid))
                     journal.event(db,oid,now,'RECOVERY_DIRECTIONAL_ONLY',dict(strategy=original.get('strategy')))
                 continue
+            if original.get('dib_entry_policy'):
+                import directional_dib_policy
+                if not directional_dib_policy.enabled():
+                    # Stop new recovery work only. Existing broker protection is not touched.
+                    service.event(oid,'recovery_blocked',reason='DIB_DISABLED')
+                    continue
             try:
                 proof=proof_reader(row['replacement_id'] or oid)
                 with service.connect() as db:

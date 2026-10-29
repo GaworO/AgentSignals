@@ -38,7 +38,7 @@ def on_tick(value):
 
 def original_view(original):
     """Only causal geometry/anchors enter AI; never the broker or replay ledger."""
-    keys = (*GEOMETRY, 'strategy', 'recovery_anchors')
+    keys = (*GEOMETRY, 'strategy', 'recovery_anchors', 'dib_entry_policy')
     return {k:copy.deepcopy(original[k]) for k in keys if k in original}
 
 

@@ -1,19 +1,28 @@
 {
-  "identity": "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_NO_DIB_BOS50_V1",
+  "identity": "AB_DIRECTIONAL_CAUSAL_CHAIN_FIXED_2R_BOS50_DIB_OPT_IN_V2",
   "engine_path": "ab_directional_engine.py",
-  "engine_sha256": "532e8e4ee5b6c05ea0cd6174693e76327d19458968dbe4d9254da64a30b36b6f",
+  "engine_sha256": "916351b8b46619e93bcf3aa188e5a180daa465e44cb5d484ea64cd49af7f3202",
   "long_detector": "immutable Continuation LONG freeze",
   "short_detector": "CONTINUATION_SHORT_SOURCE_LOCK.json",
   "outcome_derived_parameter_search": true,
   "entry_rule_dependencies": {
-    "ab_directional_entry_rules.py": "c0da5e799d2b34d8fddf24a013375643e18b3ff7f2b35c6cfe01d89f549d1ba4"
+    "ab_directional_entry_rules.py": "1fdc6eee4e4dad06e4042fcc95de0f4f4adf891dc7cb44d4aeec5fe06cc0e444",
+    "directional_dib_policy.py": "1bbd8427704c68782d7730d0b561631b3c3be23801c82c70ec957189c9bab369"
   },
   "entry_policy": {
     "version": "AB_DIRECTIONAL_NO_DIB_BOS50_V1",
     "exclude_category_token": "DIB",
     "min_directional_bos_body_fraction": 0.5,
     "bar_required_closed": true,
-    "manager_enabled_by_this_patch": false
+    "manager_enabled_by_this_patch": false,
+    "opt_in_dib_policy": {
+      "flag": "DIRECTIONAL_DIB_FIBO50_ENABLED",
+      "default": "false",
+      "version": "DIRECTIONAL_DIB_FIBO50_EXACT_AI_V1",
+      "fraction": 0.5,
+      "mandatory_exact_setup_ai": true,
+      "saved_stop_preserved": true
+    }
   },
   "validation_status": "USER_REQUESTED_RESEARCH_VARIANT_NOT_PROVEN_PROFITABLE_WITH_GUARD"
 }
