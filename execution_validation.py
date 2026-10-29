@@ -270,6 +270,9 @@ def check(order, review, *, clock=time.time):
     evidence = {}
     try:
         parameters = policy_for(order)
+        import ab_v3_live
+        quantity_reason=ab_v3_live.native_order_quantity_blocker(order,parameters)
+        if quantity_reason:raise ValueError(quantity_reason)
         evidence['reward_risk']=reward_risk(order,parameters)
         # Fetch executable quotes last, after the slower account/context reads.
         for name in ('risk', 'thesis', 'market'):

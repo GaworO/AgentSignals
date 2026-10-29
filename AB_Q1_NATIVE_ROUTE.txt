@@ -67,3 +67,14 @@ roll back code while a Q1 order or fill remains unresolved.
 
 All acceptance tests use mocked AI/provider data. They prove code paths,
 not a real Q1 broker fill. No production policy is approved by these tests.
+
+Technical configuration correction, 2026-10-29:
+Account capacity EXEC_MAX_QTY is not the evidence-verified order quantity.
+Static readiness validates the documented scope without demanding an order at
+the full account ceiling. The final native execution gate separately checks
+the actual integer quantity against both account capacity and evidence scope.
+Archived 5-MNQ entry/stop/target lifecycles support basic historical protection;
+they do not prove a new Q1 fill, partial-fill repair or restart recovery.
+Both policies stay approved=false until separately accepted. Their explicit
+shared-strategy list describes tested code applicability of the same native
+transport, not a claim that both strategies have already traded.

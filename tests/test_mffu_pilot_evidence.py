@@ -48,8 +48,8 @@ def test_history_must_bind_account_and_one_contract_scope(proof,field,value):
     assert v3.native_bracket_readiness()=='native_bracket_history_scope_unverified'
 
 
-@pytest.mark.parametrize('cap',['0','2','15','auto',''])
-def test_pilot_evidence_cannot_authorize_larger_configured_positions(proof,monkeypatch,cap):
+@pytest.mark.parametrize('cap',['0','41','auto',''])
+def test_invalid_account_capacity_blocks_static_readiness(proof,monkeypatch,cap):
     monkeypatch.setenv('EXEC_MAX_QTY',cap)
     assert v3.native_bracket_readiness()=='native_bracket_history_scope_unverified'
 
@@ -57,3 +57,12 @@ def test_pilot_evidence_cannot_authorize_larger_configured_positions(proof,monke
 def test_unknown_evidence_kind_is_not_a_paper_fallback(proof):
     proof.update(evidence_kind='simulation',paper_evidence_reference='fake')
     assert v3.native_bracket_readiness()=='native_bracket_evidence_kind_unsupported'
+
+
+@pytest.mark.parametrize('cap',['2','15','40'])
+def test_larger_account_ceiling_does_not_authorize_unverified_actual_quantity(proof,monkeypatch,cap):
+    monkeypatch.setenv('EXEC_MAX_QTY',cap)
+    assert v3.native_bracket_readiness() is None
+    p=dict(broker_workflow_verification=proof)
+    assert v3.native_order_quantity_blocker({'quantity':1},p) is None
+    assert v3.native_order_quantity_blocker({'quantity':2},p)=='native_order_quantity_scope_unverified'

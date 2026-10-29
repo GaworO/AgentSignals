@@ -256,7 +256,7 @@ def test_operator_accepted_history_is_not_misrepresented_as_independent_recovery
 
 
 @pytest.mark.parametrize('key,value',[
- ('EXEC_MAX_QTY','2'),('EXEC_STRATEGY_POLICY','AB_ONLY'),('AB_ENTRY_ARMED','1'),('AB_MANAGER_MODE','live'),
+ ('EXEC_MAX_QTY','41'),('EXEC_STRATEGY_POLICY','AB_ONLY'),('AB_ENTRY_ARMED','1'),('AB_MANAGER_MODE','live'),
  ('V3_EXIT_MODE','real'),('V3_EXIT_REAL_EXECUTION','true'),('V3_RUNNER_ENABLED','true'),('BUILDER_BROKER_ACCOUNT_ID','2')])
 def test_history_pilot_does_not_authorize_other_accounts_or_advanced_writes(monkeypatch,key,value):
     accepted_pilot(monkeypatch);monkeypatch.setenv(key,value)

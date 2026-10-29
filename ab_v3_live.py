@@ -432,16 +432,29 @@ def native_fixed_bracket():
     return builder_crosstrade.selected() and not runner_enabled() and exit_mode()=='shadow'
 
 
-def broker_quantity_scope(proof):
-    """Legacy one-contract evidence is not a verified multi-contract scope."""
+def broker_quantity_scope(proof, quantity=None):
+    """Validate evidence separately from account capacity; check actual qty at entry."""
     cap=proof.get('max_quantity',1)
     if type(cap) is not int or not 1<=cap<=40:return False
     if cap>1 and (proof.get('quantity_scope_verified') is not True
                   or not proof.get('quantity_scope_reference')
                   or type(proof.get('observed_protected_quantity')) is not int
                   or proof['observed_protected_quantity']<cap):return False
-    try:return 0<int(os.environ.get('EXEC_MAX_QTY','0'))<=cap
-    except ValueError:return False
+    try:maximum=int(os.environ.get('EXEC_MAX_QTY','0'))
+    except (ValueError,TypeError):return False
+    if not 1<=maximum<=40:return False
+    if quantity is None:return True  # Static readiness cannot know the future SL-sized qty.
+    return type(quantity) is int and 0<quantity<=min(cap,maximum)
+
+
+def native_order_quantity_blocker(order, parameters):
+    """Order-time evidence scope; an account's 40-MNQ ceiling is not the order qty."""
+    proof=parameters.get('broker_workflow_verification',{})
+    if proof.get('evidence_kind') not in ('ACCOUNT_HISTORY_CONTROLLED_PILOT','ACCOUNT_BROKER_HISTORY'):
+        return None  # Existing provider-paper verification has its own acceptance contract.
+    if type(order.get('quantity')) is not int or not broker_quantity_scope(proof, order['quantity']):
+        return 'native_order_quantity_scope_unverified'
+    return None
 
 
 def native_bracket_readiness(parameters=None):

@@ -143,7 +143,9 @@ def test_scanner_capture_uses_actual_extreme_not_confirmation_bar(market):
 def test_quantity_scope_is_evidence_based_not_an_invented_one_contract_cap(monkeypatch):
     import ab_v3_live
     monkeypatch.setenv('EXEC_MAX_QTY','4')
-    assert not ab_v3_live.broker_quantity_scope({})
+    assert ab_v3_live.broker_quantity_scope({})  # static one-contract evidence shape
+    assert not ab_v3_live.broker_quantity_scope({},4)
+    assert ab_v3_live.broker_quantity_scope({},1)
     assert not ab_v3_live.broker_quantity_scope(dict(max_quantity=4))
     assert ab_v3_live.broker_quantity_scope(dict(max_quantity=4,quantity_scope_verified=True,
         quantity_scope_reference='MOCK_BROKER_RECORD',observed_protected_quantity=4))
