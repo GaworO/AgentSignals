@@ -302,6 +302,9 @@ class Transport:
 
     def directional_permission(self, order):
         import execution_policy
+        if order.get('strategy') == 'ICT_AI':
+            import ict_execution
+            return ict_execution.permission(order, clock=self.clock)
         if order.get('strategy') == 'A/B' and execution_policy.mode() == 'DIRECTIONAL_Q1_ONLY':
             import ab_q1_execution
             return ab_q1_execution.permission(order)
@@ -324,13 +327,15 @@ class Transport:
         import execution_policy
         if execution_policy.mode() in ('INVALID','SHADOW_ALL'):
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
-        if execution_policy.mode() == 'V3_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL':
+        import ict_execution
+        ict=ict_execution.is_order(order)
+        if execution_policy.mode() == 'V3_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL' and not ict:
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         if execution_policy.mode() == 'AB_ONLY' and order.get('strategy') != 'A/B':
             raise TransportError('SHADOW_STRATEGY_NATIVE_SUBMISSION_BLOCKED')
         import ab_q1_execution
         q1 = ab_q1_execution.is_order(order)
-        if execution_policy.mode() == 'DIRECTIONAL_Q1_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL' and not q1:
+        if execution_policy.mode() == 'DIRECTIONAL_Q1_ONLY' and order.get('strategy') != 'AB_DIRECTIONAL' and not q1 and not ict:
             raise TransportError('EXACT_Q1_NATIVE_ROUTE_REQUIRED')
         if q1 and execution_policy.mode() != 'DIRECTIONAL_Q1_ONLY':
             raise TransportError('Q1_SHARED_POLICY_REQUIRED')
@@ -368,7 +373,7 @@ class Transport:
         if self.sync.entry_blocker(refresh=True):raise TransportError('FRESH_FLAT_ACCOUNT_REQUIRED')
         snapshot=self.sync.snapshot();now=int(self.clock()*1000)
         expiry=min(order['expiry_ms'],now+int(payload.get('cancelAfter',60))*1000)
-        if q1 or (order.get('strategy') == 'AB_DIRECTIONAL' and os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')):
+        if ict or q1 or (order.get('strategy') == 'AB_DIRECTIONAL' and os.environ.get('DIRECTIONAL_EXECUTION_POLICY_FILE')):
             # Freeze cost assumptions for later actual-fill accounting; never
             # reinterpret an old fill using a subsequently changed policy.
             p = execution_validation.policy_for(order)
@@ -378,7 +383,9 @@ class Transport:
                 expiry=min(expiry, now+int(p['max_pending_lifetime_sec']*1000))
         if expiry<=now or now>=order['expiry_ms']:raise TransportError('ENTRY_EXPIRED')
         if q1 or order.get('strategy') != 'A/B':
-            if q1:
+            if ict:
+                ai_reason, review = ict_execution.review_check(order, clock=self.clock)
+            elif q1:
                 import ab_q1_review, ab_ai_context
                 ai_reason, review = ab_q1_review.check(order, ab_ai_context.INSTANCE)
             else:

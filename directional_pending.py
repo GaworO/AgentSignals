@@ -33,12 +33,17 @@ class PendingValidator:
             if guardrails.exec_mode()!='auto' or os.environ.get('AUTO_SUBMIT')!='1':return 'automatic_entries_disabled'
             import ab_q1_execution, ab_q1_review, ab_ai_context
             q1=ab_q1_execution.is_order(order)
+            import ict_execution
+            ict=ict_execution.is_order(order)
+            if ict:
+                reason=ict_execution.permission(order,clock=self.clock)
+                if reason:return reason
             if execution_policy.mode() not in ('V3_ONLY','DIRECTIONAL_Q1_ONLY'):return 'pending_execution_policy_changed'
-            if order.get('strategy')!='AB_DIRECTIONAL' and not q1:return 'pending_strategy_not_directional'
+            if order.get('strategy')!='AB_DIRECTIONAL' and not q1 and not ict:return 'pending_strategy_not_directional'
             if q1:
                 reason=ab_q1_execution.permission(order)
                 if reason:return reason
-            if not q1 and (os.environ.get('AB_V3_MODE','SHADOW').upper()!='LIVE' or os.environ.get('V3_ENTRY_ARMED')!='1'
+            if not q1 and not ict and (os.environ.get('AB_V3_MODE','SHADOW').upper()!='LIVE' or os.environ.get('V3_ENTRY_ARMED')!='1'
                     or os.environ.get('AB_DIRECTIONAL_LIVE_'+order['direction'])!='1'):return 'pending_direction_not_armed'
             if not order['activation_ms']<=now<order['expiry_ms']:return 'pending_setup_expired'
             if snapshot['positions']:return 'pending_account_exposure'
@@ -51,7 +56,7 @@ class PendingValidator:
                 if any(original.get(k)!=order.get(k) for k in ('direction','contract','quantity','entry_price','stop_price','target_price','expiry_ms')):
                     return 'pending_geometry_changed'
                 if not ab_v3_live.m1_fresh(db,order['contract'],now):return 'pending_m1_not_fresh'
-            why,review=(ab_q1_review.check(order,ab_ai_context.INSTANCE) if q1 else directional_ai_review.check(order['direction'],order['order_id']))
+            why,review=(ict_execution.review_check(order,clock=self.clock) if ict else ab_q1_review.check(order,ab_ai_context.INSTANCE) if q1 else directional_ai_review.check(order['direction'],order['order_id']))
             if why:return why
             prior=order.get('ai_review_at_native_dispatch')
             if not prior or not review or review.get('review_id')!=prior.get('review_id'):return 'pending_review_changed'
@@ -73,6 +78,7 @@ class PendingValidator:
             cost=fees['round_trip_usd']+fees['stop_slippage_ticks']*.5
             profile=guardrails.account_profile()
             budget=self.budget_builder(profile)
+            if ict:budget=min(budget,ict_execution.equity_budget(snapshot))
             amount=order['quantity']*(abs(order['entry_price']-order['stop_price'])*2+cost)
             if not profile.get('config_ok') or not 0<amount<=budget:return 'pending_strategy_risk_budget'
             if order['quantity']>int(os.environ['EXEC_MAX_QTY']):return 'pending_quantity_cap'
@@ -81,7 +87,7 @@ class PendingValidator:
             with continuation_live._connect() as db:
                 dispatch=db.execute('SELECT source_json FROM live_dispatches WHERE order_id=?',(order['order_id'],)).fetchone()
             if not dispatch:return 'pending_dispatch_missing'
-            signal=ab_q1_execution.signal(json.loads(dispatch[0])) if q1 else self.signal_builder(json.loads(dispatch[0]))
+            signal=ict_execution.signal(json.loads(dispatch[0])) if ict else ab_q1_execution.signal(json.loads(dispatch[0])) if q1 else self.signal_builder(json.loads(dispatch[0]))
             _,news_hard=self.news_flags(signal)
             allowed,why=guardrails.guard_ok(signal,feed_age_min=self.feed_age(),market_open=self.market_open(),
                 news_hard=news_hard,cal_age_h=self.calendar_age(),_pending_owned=True)

@@ -1,0 +1,68 @@
+ICT Observatory — independent SHADOW worker, 2026-10-30
+
+URL: https://agent-50k-production.up.railway.app/ict-shadow
+Authentication: existing Tanja dashboard username tanja and password, served
+only from the server environment. The API has GET-only routes; there are no
+broker callbacks or controls. Exact prompts and responses are private.
+
+Hosting: existing Agent50k Gunicorn process; a daemon thread runs every 30s.
+A shared-volume flock prevents duplicate workers. The user's laptop and this
+Codex chat are not the scheduler. Market data still depends on the existing
+TradingView/Tanja cloud feed, internet, Railway and valid API credentials.
+ICT_SHADOW_ENABLED=true enables ONLY this research worker. False pauses it;
+it changes no existing trading permission. Never use execution flags to pause
+this independent research feature.
+
+October 30: user explicitly approved four further event-triggered shadow
+reviews after all eight dedicated attempts were used. Today's limit is twelve
+total, within the same 8USD scanner ceiling, before 16:00 New York. Preserve
+all existing IDs/costs. Production borrowing remains disabled. The cloud
+scheduler alone invokes AI; local heartbeat retrieves results only.
+
+Subsequent weekdays: NYAM09:30–11:00, NYPM13:30–16:00 America/New_York;
+DST follows zoneinfo. At most16 attempts/day, at most8/session, at most3 per
+rolling30minutes, minimum90s separation. Opening assessment after first closed
+M1; M1+ structure events and fresh closed MNQ FVG formation trigger reassessment; otherwise a20minute fallback.
+Production queued/busy reviews take priority. These are conservative initial
+sampling limits, not evidence that all profitable setups will be detected.
+
+Spending: independent research has an8USD/day API ceiling, before tax; this
+is a conservative starting point for the user's approximate10EUR goal, not a
+promise about exchange rates or total OpenAI/hosting invoices. Production is
+separate. Price schedule: GPT-6.1Sol standard, input2USD/M, cache-write2.50/M,
+cache-read0.10/M, output10/M, official model documentation checked2026-10-30:
+https://developers.openai.com/api/docs/models/gpt-6.1-sol
+Only this model and default service tier are priced. Payload UTF-8 bytes plus
+2048 overhead conservatively bound input tokens; requests exceeding272000
+are blocked. Reserve worst-case cache-write input plus5000 output tokens and
+10% cushion before sending. Missing usage or unknown outcome retains full
+reserve. Failed calls consume call capacity. No automatic request retry.
+The cost database is durable; a crash between reservation and request burns
+that slot. Old research usage is imported once. No budget resets on deploy.
+
+Input is a compact subset of authenticated closed-candle evidence. Keep32
+MNQ bars per timeframe,32 ES/NQ H1/H4 bars,16 other ES/NQ bars, four latest
+items per non-bar type/timeframe, and recursively retain cited dependencies.
+ES/NQ M2/M3 raw history is omitted unless needed by cited observations.
+All omissions are explicit; missing evidence is UNKNOWN. Raw original source
+and exact transmitted packet have different IDs. Prior ideas are limited to
+three summaries/plans and never become broker positions. This is not cached
+approval: every new proposal is validated against its exact current packet.
+
+Outcome column: conservative M1 simulation only. Start with first full bar
+AFTER response, require one-tick fill-through, unknown gaps, ambiguous when
+entry/stop/target order is unknowable. Pre-fill target/stop touch invalidates
+an idea. Free-form AI invalidation text is not machine-simulated. Outcomes
+exclude fees/stop slippage, never prove fills or a statistically valid PF.
+Initial fixed-exit baseline is never rewritten by later AI advice.
+
+Verification: inspect /ict-shadow/state (authenticated) worker.at advancement,
+worker.commit, enabled flag, last_check, costs and durable reviews. A fresh
+worker heartbeat outside sessions means waiting, not a paid review. API errors,
+stale source/calendar or packet-integrity failures block calls and appear
+explicitly. No production AI approval or real trade is claimed by this page.
+
+Rollback: set ONLY ICT_SHADOW_ENABLED=false and deploy. Existing research and
+cost ledgers remain on /data/builder50/research. Restore prior release if needed
+with all execution/risk flags unchanged. Existing production order protection
+is untouched. Do not refund unknown requests or reset the research ledger.

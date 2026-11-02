@@ -1,0 +1,85 @@
+ICT automatic CrossTrade route — operator runbook
+
+IMPLEMENTED
+Fresh ICT cloud response -> exact saved input/output validator -> fixed 2R LIMIT
+and original structural SL -> independent ICT permission/policy -> shared account
+sizing/Guard -> native CrossTrade LIMIT/GTD + OSO -> ACK (not fill) -> broker
+fill/protective SL/TP/OCO reconciliation -> actual close/cost reconciliation.
+
+Uses ICT_AI identity and existing native broker journal, not Directional or Q1
+impersonation. Entry risk is <=0.5% current equity including estimated round-trip
+cost and stop slippage, rounded down contracts. Tighter account, margin, drawdown,
+quantity-evidence and Guard limits still apply. No scale-ins, parallel account
+positions, partial-exit strategy, trailing, runner or model management writes.
+A broker partial fill is reconciled/protected; it is not a discretionary partial exit.
+
+Forward-only: ICT_EXECUTION_ARMED_AFTER_MS must be a positive UTC epoch in
+milliseconds. The request must have started AFTER it. Expired/missing/changed
+responses cannot trade. One durable opportunity claim per contract/direction/FVG;
+restart, duplicate review or unknown POST outcome never retries entry. Shared
+pending validator cancels invalid/expired unfilled parents through the existing
+ownership-checked transport. Cancellation ACK is not terminal cancellation;
+late fills remain owned exposure and are reconciled/protected/recovered.
+
+AI DECISION CONTRACT
+New cloud requests explicitly assess fixed 2R execution and report
+invalidation_mode=ict_bracket_opposing_structure_v1. Old research/preview records
+are not replayed. Unsupported additional discretionary invalidation stays shadow.
+Before submission and while pending, original SL/TP touch, expiry, post-review
+opposing structural events, revised/missing/stale evidence invalidate the idea.
+Aligned events alone do not. Closed candles do not establish live spread,
+intrabar path, immediate executability, cancellation speed or bounded stop loss.
+AI has no execution authority; operator permissions are independent of its proposal.
+
+DEPLOYMENT DOES NOT ARM ICT
+Default ICT_EXECUTION_ENABLED=false (unset is false). Existing Directional/Q1
+permissions cannot arm it. Dashboard reads are non-ordering. Broker orders and
+native states appear separately from simulated shadow P&L/PF.
+Existing scanner daily dollar/call caps and production review budget are unchanged.
+
+USER-CONTROLLED ACTIVATION (only after mandatory checks pass)
+1. Confirm deployed release/hashes, empty reconciled broker inventory, current
+   MFFU evidence (not expired), Guard equity/news/feed status, and broker quantity
+   scope. Do not edit dates/flags to fabricate current account evidence.
+2. With ICT off, run inside the existing service:
+   python ict_operator.py --draft-output /data/builder50/ict_execution_policy.draft.json
+   It copies verified account/contract/cost references from the existing accepted
+   resting-LIMIT policy, preserves historical proof limits, and sets approved=false.
+   No permission is changed. Inspect this file; do not overwrite the Directional file.
+3. After reviewing the tests and historical-vs-simulated broker limitations,
+   the operator must record their actual acceptance reference in
+   residual_risk_acceptance_reference and
+   broker_workflow_verification.ict_operator_acceptance_reference, and set
+   approved=true. Keep current_ict_broker_run_verified=false until actual evidence
+   exists. Retain the six named accepted_residual_risks and all independent guards.
+4. Railway Agent50k variables (operator action):
+   ICT_EXECUTION_POLICY_FILE=/data/builder50/ict_execution_policy.draft.json
+   ICT_EXECUTION_ARMED_AFTER_MS=<fresh UTC epoch milliseconds at activation>
+   ICT_EXECUTION_ENABLED=true (last)
+   Leave existing shared risk, global permissions and other strategies unchanged.
+   Publishing changed variables can use an OLD GitHub source: deploy/restart ONLY
+   the verified integrated release, then compare running SHA and effective flags.
+5. Check /ict-shadow/state: order_handoff.runtime.submission_connected=true;
+   enabled=true; static blockers empty. This is not an ALLOW for every trade:
+   each future genuine setup must pass the live review/market/Guard/risk checks.
+   Track broker_lifecycle and native order IDs. ACK alone is never reported as fill.
+   The first ICT broker lifecycle is NOT independently verified by unit tests.
+
+STOP / ROLLBACK (operator action)
+Set ICT_EXECUTION_ENABLED=false on the SAME tested release. Existing native
+reconciliation stays running and cancels only proven owned unfilled entries.
+Existing filled positions retain their broker-side SL/TP/OCO; the switch does not
+cancel protection. Unknown cancellations/fills remain blocked until reconciled.
+For account-wide new-entry stop, EXEC_KILL_SWITCH=true; use the existing emergency
+procedure for any required position close. Do not use cancel-all on an open
+position or turn off the reconciler to stop entries. Do not roll back to an image
+that cannot read ICT pending orders. Reconcile flat/terminal positions and orders
+first, keep ICT off, preserve SQLite journals/backups, then deploy a compatible
+previous release. Stop-loss slippage/disconnect risk is not eliminated.
+
+VERIFICATION BOUNDARY
+New ICT route/tests use synthetic AI and injected broker responses; no evaluation
+account order was sent during implementation. Existing account historical OSO/OCO
+facts do not prove a new ICT live roundtrip, arbitrary quantity or all late-fill
+recovery behavior. Missing policy approval or current account evidence blocks
+orders. This release implements automatic routing; it does not activate it.

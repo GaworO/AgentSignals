@@ -1041,6 +1041,15 @@ def _process_new(now_ms=None, gap_min=None):
             if c not in cats: cats.append(c)
         merged=' + '.join(cats) + ('+DIB' if live_emit.grade(rep)=='B' else '')
         repx=dict(rep); repx['cat']=merged
+        # Freeze scanner quality before applying the existing entry offset.
+        # The exact Q1 review validates this causal source separately from final prices.
+        try:
+            if repx.get('_ab_quality') is None:
+                if repx.get('signal_close') is None:
+                    repx['signal_close'] = _signal_bar_close(repx)
+                ab_quality.attach(repx)
+        except Exception as _aqe:
+            print('[ab-quality] classification error', _aqe, flush=True)
         try:      # v27.4 ENTRY_OFFSET_PTS (default 0=off): quote the resting limit N pts SHALLOWER
                   # (toward market) than the detector level. Rationale: a real limit fills on trade-
                   # THROUGH, so resting 1pt shallower converts a touch of the detector level into a
@@ -1048,9 +1057,8 @@ def _process_new(now_ms=None, gap_min=None):
                   # years, plateau-stable 0.5-1.5pt. Applied BEFORE alert/exec/book/shadow so every
                   # witness sees the same level. SL stays the detector's (widening tested: adds nothing).
             _eo = float(os.environ.get('ENTRY_OFFSET_PTS', '0') or 0)
-            if _eo:
-                _es = 1 if repx.get('dir') == 'LONG' else -1
-                repx['entry'] = round(float(repx['entry']) + _es * _eo, 2)
+            import ab_q1_review
+            ab_q1_review.apply_entry_offset(repx, _eo)
         except Exception as _eoe: print('entry_offset err', _eoe, flush=True)
         # DOL is a final classification of this one canonical A/B order. In
         # LIVE it changes only the label and target to fixed +2R before Guard;
@@ -1060,15 +1068,6 @@ def _process_new(now_ms=None, gap_min=None):
         except Exception as _dre:
             repx['_dol_state'] = 'DOL_STATE_UNAVAILABLE'
             print('[dol-reversal-live] classification error', _dre, flush=True)
-        # Forward-observation label only. It is deliberately attached after the
-        # canonical setup exists and is never read by Guard or the executor.
-        try:
-            if repx.get('_ab_quality') is None:
-                if repx.get('signal_close') is None:
-                    repx['signal_close'] = _signal_bar_close(repx)
-                ab_quality.attach(repx)
-        except Exception as _aqe:
-            print('[ab-quality] classification error', _aqe, flush=True)
         if execution_policy.signal_family(repx) == 'A/B':
             # Opt-in exact Q1 review on the existing shared worker. This does
             # not change routing or submit anything from the detector.
@@ -2095,6 +2094,16 @@ execution_validation.register_source('pending', PendingValidator(
     signal_builder=_continuation_live_signal,budget_builder=_directional_live_budget,feed_age=_feed_age_min,market_open=_market_open_now,
     news_flags=flags_for,calendar_age=_cal_age_h))
 ab_ai_context.start()
+
+# Independent ICT review; separate default-off submission permission.
+import ict_shadow_cloud
+import ict_execution
+ict_execution.configure(budget_builder=_directional_live_budget, feed_age=_feed_age_min,
+    market_open=_market_open_now, news_flags=flags_for, calendar_age=_cal_age_h)
+try:
+    ict_shadow_cloud.register(app)
+except Exception as exc:
+    print("[ict-shadow] startup blocked:", type(exc).__name__, flush=True)
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))

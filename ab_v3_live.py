@@ -467,7 +467,9 @@ def native_bracket_readiness(parameters=None):
     try:
         p=execution_validation.policy() if parameters is None else parameters
         proof=p.get('broker_workflow_verification',{})
-        if os.environ.get('EXEC_STRATEGY_POLICY') == 'DIRECTIONAL_Q1_ONLY' and set(proof.get('execution_strategies', [])) != {'AB_DIRECTIONAL', 'A/B:Q1'}:
+        if p.get('strategy') == 'ICT_AI' and ('ICT_AI' not in proof.get('execution_strategies', []) or not proof.get('ict_operator_acceptance_reference')):
+            return 'native_bracket_ict_scope_unverified'
+        if p.get('strategy') != 'ICT_AI' and os.environ.get('EXEC_STRATEGY_POLICY') == 'DIRECTIONAL_Q1_ONLY' and set(proof.get('execution_strategies', [])) != {'AB_DIRECTIONAL', 'A/B:Q1'}:
             return 'native_bracket_shared_strategy_scope_unverified'
         if proof.get('evidence_kind') == 'ACCOUNT_HISTORY_CONTROLLED_PILOT':
             # Explicit operator acceptance of a one-contract pilot, NOT a

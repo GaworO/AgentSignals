@@ -1445,8 +1445,10 @@ def _reserved_entry_blocker(x, reservation_id, state):
         return 'group_pending' if pg else None
     import ab_q1_execution
     q1 = ab_q1_execution.is_order(x.get('_q1_order') or {})
-    expected = ('ab_q1_' if q1 else 'ab_directional_') + str(x.get('_continuation_order_id') or '')
-    if (not pg or not x.get('_continuation_order_id') or (x.get('_v3_directional') is not True and not q1)
+    import ict_execution
+    ict = ict_execution.is_order(x.get('_ict_order') or {})
+    expected = ('ict_ai_' if ict else 'ab_q1_' if q1 else 'ab_directional_') + str(x.get('_continuation_order_id') or '')
+    if (not pg or not x.get('_continuation_order_id') or (x.get('_v3_directional') is not True and not q1 and not ict)
             or reservation_id != expected or pg.get('group_id') != expected
             or pg.get('strats') != [x.get('_strat')] or pg.get('accepted') != []
             or pg.get('planned_risk_usd') != x.get('_planned_group_risk_usd')):

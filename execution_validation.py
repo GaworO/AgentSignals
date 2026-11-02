@@ -37,6 +37,10 @@ def register_source(name, validator):
 
 
 def policy_for(order):
+    if order.get('strategy') == 'ICT_AI':
+        import ict_execution
+        if not ict_execution.is_order(order):raise ValueError('exact_ict_order_required')
+        return policy('ICT_AI')
     if order.get('strategy') == 'A/B':
         import ab_q1_execution
         if not ab_q1_execution.is_order(order):
@@ -46,7 +50,7 @@ def policy_for(order):
 
 
 def policy(strategy='AB_DIRECTIONAL'):
-    path = os.environ.get('AB_Q1_EXECUTION_POLICY_FILE' if strategy == 'A/B' else 'DIRECTIONAL_EXECUTION_POLICY_FILE')
+    path = os.environ.get({'A/B':'AB_Q1_EXECUTION_POLICY_FILE','ICT_AI':'ICT_EXECUTION_POLICY_FILE'}.get(strategy,'DIRECTIONAL_EXECUTION_POLICY_FILE'))
     if not path:
         raise ValueError('validated_execution_policy_missing')
     value = json.loads(Path(path).read_text())
@@ -56,6 +60,8 @@ def policy(strategy='AB_DIRECTIONAL'):
         raise ValueError('validated_execution_policy_missing')
     if strategy == 'A/B' and (value.get('quality') != 'Q1' or value.get('target_rule') != 'ORIGINAL_AB_TARGET' or value.get('execution_model') != resting.MODEL):
         raise ValueError('q1_original_bracket_policy_required')
+    if strategy == 'ICT_AI' and value.get('execution_model') != resting.MODEL:
+        raise ValueError('ict_explicit_resting_limit_policy_required')
     validate_parameters(value)
     costs(value)
     return value
@@ -157,9 +163,13 @@ def evaluate(order, quote, thesis, risk, review, parameters, now_ms):
         candle_policy = parameters.get("execution_model") == resting.MODEL
         import ab_q1_execution
         q1 = ab_q1_execution.is_order(order)
+        import ict_execution
+        ict = ict_execution.is_order(order)
+        if order.get('strategy') == 'ICT_AI' and (not ict or parameters.get('strategy') != 'ICT_AI'):
+            return 'exact_ict_policy_required'
         if (order.get('strategy') == 'A/B' and (not q1 or parameters.get('strategy') != 'A/B' or parameters.get('quality') != 'Q1')):
             return 'exact_q1_policy_required'
-        if (not order.get('order_id') or (order.get('strategy') != 'AB_DIRECTIONAL' and not q1)
+        if (not order.get('order_id') or (order.get('strategy') != 'AB_DIRECTIONAL' and not q1 and not ict)
                 or str(order.get('order_type', 'LIMIT')).upper() != 'LIMIT'):
             return 'exact_directional_limit_setup_required'
         sign = {'LONG': 1, 'SHORT': -1}[order['direction']]
@@ -280,10 +290,13 @@ def check(order, review, *, clock=time.time):
                 raise ValueError(name + '_validator_unavailable')
             evidence[name] = _SOURCES[name](dict(order))
         import ab_ai_context
-        if (os.environ.get('AB_AI_TRIGGER') == 'HYBRID' or
+        if (order.get('strategy') == 'ICT_AI' or os.environ.get('AB_AI_TRIGGER') == 'HYBRID' or
                 getattr(ab_ai_context.INSTANCE,'trigger',None) == 'HYBRID'):
             import directional_ai_review
-            if order.get('strategy') == 'A/B':
+            if order.get('strategy') == 'ICT_AI':
+                import ict_execution
+                blocked, latest = ict_execution.review_check(order, clock=clock)
+            elif order.get('strategy') == 'A/B':
                 import ab_q1_review
                 blocked, latest = ab_q1_review.check(order, ab_ai_context.INSTANCE)
             else:
@@ -371,7 +384,7 @@ def configuration_files():
     result={}
     for key,fields in {
         'DIRECTIONAL_EXECUTION_POLICY_FILE':('approved','execution_model','max_quantity','risk','recovery','approval_status'),
-        'MFFU_RISK_EVIDENCE_FILE':('verified','account_controls_source','max_micro_contracts','required_evidence'),
+        'MFFU_RISK_EVIDENCE_FILE':('verified','account_controls_source','max_micro_contracts','required_evidence','expires_at_ms','rule_authority'),
     }.items():
         path=os.environ.get(key);item=dict(path=path,loaded=False)
         try:
@@ -380,6 +393,11 @@ def configuration_files():
             if not isinstance(value,dict):raise ValueError('object required')
             item.update(loaded=True,sha256=hashlib.sha256(raw).hexdigest(),
                         **{f:value.get(f) for f in fields})
+            if key=='MFFU_RISK_EVIDENCE_FILE':
+                expiry=value.get('expires_at_ms')
+                valid_expiry=type(expiry) in (int,float) and math.isfinite(expiry) and expiry>0
+                item['expired']=int(time.time()*1000)>=expiry if valid_expiry else None
+                item['currently_valid']=value.get('verified') is True and valid_expiry and not item['expired']
         except (OSError,ValueError,TypeError):item['error']='FILE_MISSING_OR_INVALID'
         result[key]=item
     return result

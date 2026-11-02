@@ -50,6 +50,9 @@ class ThesisValidator:
 
     def __call__(self, order, *, pending=False):
         import execution_validation
+        if order.get('strategy') == 'ICT_AI':
+            import ict_execution
+            return ict_execution.thesis(order,self.clock,pending=pending)
         p=execution_validation.policy_for(order) if not pending else {'thesis_rule_version':VERSION}
         proof=dict(order_id=order['order_id'],valid=False,checked_ms=int(self.clock()*1000))
         if order.get('strategy') == 'A/B':

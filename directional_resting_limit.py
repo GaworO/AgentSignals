@@ -25,7 +25,10 @@ def finite(value):
 
 def validate_policy(p):
     q1 = p.get('strategy') == 'A/B' and p.get('quality') == 'Q1' and p.get('target_rule') == 'ORIGINAL_AB_TARGET'
-    if ((p.get('strategy') != 'AB_DIRECTIONAL' and not q1) or p.get('approved') is not True
+    ict = p.get('strategy') == 'ICT_AI'
+    if ict and (p.get('target_rule') != 'FIXED_2R_GROSS' or p.get('risk_percent') != 0.5):
+        raise ValueError('ict_fixed_target_and_risk_policy_required')
+    if ((p.get('strategy') != 'AB_DIRECTIONAL' and not q1 and not ict) or p.get('approved') is not True
             or not p.get('validation_reference') or not p.get('residual_risk_acceptance_reference')
             or set(p.get('accepted_residual_risks', [])) != set(RISKS)):
         raise ValueError('resting_limit_policy_not_explicitly_accepted')
@@ -34,7 +37,7 @@ def validate_policy(p):
             or p.get('allow_scale_in') is not False or p.get('advanced_writes') is not False
             or p.get('original_limit_only') is not True or (not q1 and p.get('fixed_gross_rr') != 2)
             or (q1 and p.get('fixed_gross_rr') is not None)
-            or p.get('min_rr') != 2 or p.get('thesis_rule_version') != 'original_bos_bracket_ai_v1'):
+            or p.get('min_rr') != 2 or p.get('thesis_rule_version') != ('ict_bracket_opposing_structure_v1' if ict else 'original_bos_bracket_ai_v1')):
         raise ValueError('resting_limit_quantity_cap_original_bracket_required')
     if not re.fullmatch(r'MNQ[HMUZ]20\d{2}', str(p.get('contract', ''))):
         raise ValueError('explicit_mnq_contract_required')

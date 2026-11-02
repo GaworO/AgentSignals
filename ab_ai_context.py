@@ -4,6 +4,7 @@ No order API, no network on signal dispatch, no entry/SL/TP modification.
 The sole worker owns paid requests. Unknown outcomes are never retried.
 """
 import base64
+import copy
 from datetime import datetime
 import hashlib
 import hmac
@@ -28,6 +29,19 @@ SESSIONS = (('NYAM', 570, 660), ('NYPM', 810, 960))
 DIRECTIONAL_SESSIONS = (('PREM', 300, 570), ('NYAM', 570, 660),
                         ('NYPM', 810, 960), ('PM_AH', 960, 1080))
 CONTEXT_OPEN_SESSIONS = ('PREM', 'NYAM', 'NYPM')
+
+
+def bound_response_schema(schema, packet_id):
+    """Constrain correlation metadata, never manufacture or repair a decision.
+
+    Clone shared schema objects so concurrent/subsequent reviews cannot inherit
+    another packet's identity. The independent response validator remains final.
+    """
+    if not isinstance(packet_id, str) or not packet_id:
+        raise ValueError('invalid_request_packet_id')
+    result = copy.deepcopy(schema)
+    result['properties']['packet_id'] = dict(type='string', enum=[packet_id])
+    return result
 
 
 def session_windows(config=None):
@@ -594,6 +608,10 @@ class ContextSupport:
             if strategy == 'A/B':
                 payload['input'][0]['content'] = payload['input'][0]['content'].replace('fixed structural SL and 2R gross TP', 'original structural SL and original supplied target')
             instructions = payload['input'][0]['content']
+        # Apply after all schema extensions and packet hashing. The model must
+        # choose this request's exact ID rather than reproduce a free-form hash.
+        payload['text']['format']['schema'] = bound_response_schema(
+            payload['text']['format']['schema'], p['packet_id'])
         if not payload['model'] or not self.config.get('OPENAI_API_KEY'):
             self.status = 'API_NOT_CONFIGURED'
             return False

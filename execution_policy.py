@@ -38,6 +38,12 @@ def entry_blocker(signal):
     if safety:
         return safety
     value = mode()
+    if signal.get('_ict_order') is not None:
+        import ict_execution
+        order=signal['_ict_order']
+        if any(signal.get(k)!=order.get(v) for k,v in (('dir','direction'),('entry','entry_price'),('SL','stop_price'),('TP','target_price'))):
+            return 'ict_signal_geometry_changed'
+        return ict_execution.permission(order)
     if value == 'LEGACY':
         return None
     if value == 'INVALID':

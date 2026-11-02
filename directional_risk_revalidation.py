@@ -42,10 +42,12 @@ class RiskValidator:
                 return dict(proof, reason='automatic_entries_disabled')
             import ab_q1_execution
             q1 = ab_q1_execution.is_order(order)
-            if (order.get('strategy') != 'AB_DIRECTIONAL' and not q1) or not builder_crosstrade.selected():
+            import ict_execution
+            ict = ict_execution.is_order(order)
+            if (order.get('strategy') != 'AB_DIRECTIONAL' and not q1 and not ict) or not builder_crosstrade.selected():
                 return dict(proof, reason='directional_native_route_required')
             if ab_v3_live.native_fixed_bracket():
-                reason=ab_v3_live.native_bracket_readiness(execution_validation.policy_for(order)) if q1 else ab_v3_live.native_bracket_readiness()
+                reason=ab_v3_live.native_bracket_readiness(execution_validation.policy_for(order)) if q1 or ict else ab_v3_live.native_bracket_readiness()
                 if reason:return dict(proof,reason=reason)
             with continuation_live._connect() as db:
                 dispatch = db.execute('SELECT state,source_json FROM live_dispatches WHERE order_id=?',
@@ -53,7 +55,7 @@ class RiskValidator:
             if not dispatch or dispatch['state'] != 'DISPATCHING':
                 return dict(proof, reason='owned_forward_dispatch_required')
             source = json.loads(dispatch['source_json'])
-            signal = ab_q1_execution.signal(source) if q1 else self.signal_builder(source)
+            signal = ict_execution.signal(source) if ict else ab_q1_execution.signal(source) if q1 else self.signal_builder(source)
             if any(signal.get(k) != order.get(v) for k,v in
                    (('dir','direction'),('entry','entry_price'),('SL','stop_price'),('TP','target_price'))):
                 return dict(proof, reason='dispatch_geometry_changed')
@@ -103,6 +105,7 @@ class RiskValidator:
             costs=execution_validation.costs(parameters)
             cost_per_contract=costs['round_trip_usd']+costs['stop_slippage_ticks']*.5
             budget=directional_account_limits.trade_budget(snapshot,budget)
+            if ict:budget=min(budget,ict_execution.equity_budget(snapshot))
             signal['_risk_budget_usd']=budget
             signal['_planned_group_risk_usd']=budget
             if amount+qty*cost_per_contract>budget:
@@ -119,7 +122,7 @@ class RiskValidator:
             allowed, reason = guardrails.guard_ok(
                 signal, feed_age_min=self.feed_age(), market_open=self.market_open(),
                 news_hard=news_hard, cal_age_h=self.calendar_age(),
-                reservation_id=('ab_q1_' if q1 else 'ab_directional_')+order['order_id'])
+                reservation_id=('ict_ai_' if ict else 'ab_q1_' if q1 else 'ab_directional_')+order['order_id'])
             return dict(proof, allowed=allowed, reason=None if allowed else reason)
         except Exception:
             return proof  # No exception text may expose account/provider credentials.
@@ -135,10 +138,12 @@ def _size_for_entry(signal, *, clock=time.time):
     try:
         import ab_q1_execution
         q1 = ab_q1_execution.is_order(signal.get('_q1_order') or {})
-        if (not signal.get('_v3_directional') and not q1) or not order_id or not builder_crosstrade.selected():
+        import ict_execution
+        ict = ict_execution.is_order(signal.get('_ict_order') or {})
+        if (not signal.get('_v3_directional') and not q1 and not ict) or not order_id or not builder_crosstrade.selected():
             return dict(result,reason='directional_native_route_required')
         try:
-            p=execution_validation.policy_for(signal['_q1_order']) if q1 else execution_validation.policy();fees=execution_validation.costs(p)
+            p=execution_validation.policy_for(signal['_ict_order']) if ict else execution_validation.policy_for(signal['_q1_order']) if q1 else execution_validation.policy();fees=execution_validation.costs(p)
         except (OSError,ValueError,TypeError,KeyError):
             return dict(result,reason='execution_policy_or_costs_unavailable')
         contract=os.environ.get('AB_V3_CONTRACT')
@@ -152,8 +157,11 @@ def _size_for_entry(signal, *, clock=time.time):
         reason=sync.entry_blocker()
         if reason:return dict(result,reason=reason)
         cost=fees['round_trip_usd']+fees['stop_slippage_ticks']*.5
-        result=directional_account_limits.capacity(sync.snapshot(),sync.binding,order,
-            int(clock()*1000),cost,signal.get('_risk_budget_usd'))
+        snapshot=sync.snapshot()
+        budget=signal.get('_risk_budget_usd')
+        if ict:budget=min(budget,ict_execution.equity_budget(snapshot))
+        result=directional_account_limits.capacity(snapshot,sync.binding,order,
+            int(clock()*1000),cost,budget)
     except Exception:
         return result
     return result

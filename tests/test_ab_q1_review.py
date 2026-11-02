@@ -178,3 +178,78 @@ def test_q1_ends_at_original_expiry_with_no_paid_rereview(h):
         assert db.execute('SELECT COUNT(*) FROM nofill_opportunities').fetchone()[0]==0
         assert db.execute("SELECT COUNT(*) FROM reviews WHERE review_kind='SETUP'").fetchone()[0]==1
     assert len(h.calls)==1
+
+
+def reported_short():
+    # Actual reported geometry, close, FVG and relative bar distances. Absolute
+    # scanner indices and ATR are synthetic; this is not a historical AI review.
+    s=dict(_strat='A/B',model='Cont',cat='NYLL',dir='SHORT',entry=28395.14,
+        SL=28407.75,TP=28369.92,tp_src='2R',signal_close=28382.5,
+        s=100,u=103,bos_bar=107,bos_ms=1793383020000,
+        fvg_lo=28402.2,fvg_hi=28407.5,atr5=40.7)
+    ab_quality.attach(s);assert s['_ab_quality']['tier']=='Q1'
+    return s
+
+
+def test_reported_q1_survives_entry_offset_and_has_exact_final_2r():
+    s=reported_short();original=copy.deepcopy(s)
+    q1.apply_entry_offset(s,1)
+    assert s['entry']==28394.14 and s['SL']==original['SL']
+    assert s['_ab_quality']==original['_ab_quality']
+    assert s['_ab_quality']['features']['entry_gap_r']!=ab_quality.classify(s)['features']['entry_gap_r']
+    o=q1.candidate(s,'reported-short',dict(AB_V3_CONTRACT='MNQZ2026'))
+    assert (o['entry_price'],o['stop_price'],o['target_price'])==(28394.25,28407.75,28367.25)
+    assert q1.describe(o,'MNQZ2026')['target_r']==2
+    assert o['q1_source']['scanner_input']['TP']==28369.92
+
+
+@pytest.mark.parametrize('side',['LONG','SHORT'])
+def test_offset_handoff_genuine_review_path_with_mock_transport(h,side):
+    order(h)
+    s=reported_short()
+    if side=='LONG':
+        for k in ['entry','SL','TP','signal_close']:s[k]=60000-s[k]
+        s['dir']='LONG';ab_quality.attach(s)
+    s['bos_ms']=int(h.now)//60*60000-60000
+    q1.apply_entry_offset(s,1)
+    queued=q1.queue_signal(s,'offset-'+side,h.support)
+    assert queued['state']=='queued'
+    assert h.support.process_one()
+    o=q1.candidate(s,'offset-'+side,h.config)
+    assert q1.check(o,h.support)[0] is None
+    packet=json.loads(h.calls[-1]['input'][1]['content'])
+    assert packet['setup']['target_r']==2
+    assert packet['setup']['quality']['tier']=='Q1'
+    assert packet['setup']['stop_price']==o['stop_price']
+
+
+@pytest.mark.parametrize('field',['entry','SL','TP'])
+def test_changed_post_offset_geometry_cannot_reuse_scanner_proof(field):
+    s=reported_short();q1.apply_entry_offset(s,1);s[field]+=.25
+    with pytest.raises(ValueError,match='q1_scanner_offset_binding_changed'):
+        q1.candidate(s,'changed',dict(AB_V3_CONTRACT='MNQZ2026'))
+
+
+def test_other_original_targets_not_moved_to_force_2r():
+    s=reported_short();s['tp_src']='swing';s['TP']=s['entry']-10
+    q1.apply_entry_offset(s,1)
+    assert s['TP']==28385.14
+    with pytest.raises(ValueError,match='q1_gross_rr_below_2'):
+        q1.candidate(s,'low-rr',dict(AB_V3_CONTRACT='MNQZ2026'))
+
+
+def test_non_q1_retains_existing_offset_and_target():
+    s=signal();s['signal_close']=110;ab_quality.attach(s)
+    assert s['_ab_quality']['tier']=='Q0'
+    before=copy.deepcopy(s);q1.apply_entry_offset(s,1)
+    assert s['entry']==before['entry']+1 and s['TP']==before['TP']
+    assert '_q1_scanner_input' not in s
+
+
+def test_rejected_intake_persists_specific_reason(h,monkeypatch):
+    order(h);records=[];monkeypatch.setattr(q1,'record_intake',lambda *a,**k:records.append((a,k)))
+    s=signal();del s['bos_ms']
+    result=q1.queue_signal(s,'missing-bos',h.support)
+    assert result['reason']=='q1_required_field_missing:bos_ms'
+    assert records[0][1]['reason']==result['reason']
+    assert h.calls==[]

@@ -1,0 +1,13 @@
+Q1 forward handoff correction
+
+The original A/B quality label is frozen from causal scanner inputs before the existing entry offset. AI receives the exact final tick-aligned LIMIT, original structural SL and approved target. Q0/Q2/Q3 entry and target behavior is unchanged. The Directional scanner is unchanged.
+
+For original Q1 targets explicitly labelled 2R and matching the scanner's original 2R geometry, recompute TP after entry offset and broker tick alignment, before AI review. Other target types remain unchanged and are rejected if final gross RR is below2. AI may not alter geometry.
+
+Q1 review intake and forward registration now record specific reasons, including missing input, changed scanner binding, insufficient gross RR, disabled review, failed permission and missing BOS evidence. Legacy A/B rows remain shadow records; successful Q1 registration creates a separate exact-review native route. No historical setups are replayed. Q1 has no recovery.
+
+Reported October30 13:58 NY short regression: scanner entry28395.14, SL28407.75, TP28369.92, close28382.50; offset entry28394.14. Corrected broker-aligned entry28394.25, unchanged SL28407.75, target28367.25 =2R. Regression uses reported values and synthetic relative bar indices/ATR where originals were not saved. AI and broker tests are mocked, not genuine approvals or fills.
+
+Account file diagnostics now expose expiry and currently_valid separately from the recorded verified boolean. Existing expiry checks remain mandatory.
+The selected October29 risk file is unchanged and expired. The separate October30 operator candidate uses a fresh flat broker snapshot and unchanged fills/fees against independently reconciled October29 statements. Account rules remain explicitly account-holder-attested, not provider verified. This new candidate is NOT selected automatically. Operator selection via MFFU_RISK_EVIDENCE_FILE=/app/mffu_risk_operator_candidate_20261030.json may enable automatic entries under existing approvals. It expires October30 15:55 New York; do not use after expiry. Do not extend dates blindly. Account protection, one-loss rule, exact AI, daily budget and broker proof scope still apply.
+No execution switches, loaded policy approval files, risk-file selection or broker permissions are changed by this release. No orders or paid AI requests were made for testing.

@@ -1,0 +1,26 @@
+{
+  "day_ny": "2026-10-30",
+  "scope": "NYPM_TWO_REMAINING_RESEARCH_CALLS",
+  "maximum_paid_calls": 8,
+  "execution_authorized": false,
+  "user_request": "Let's do the same test for your PM session. Use the remaining two codes you can use and what is left from the 12 codes.",
+  "authorized_at": 1793373677.874308,
+  "window_ny": "13:30-16:00",
+  "window_berlin": "18:30-21:00",
+  "slots": [
+    6,
+    7
+  ],
+  "production_budget_borrowing": "DISABLED: latest user instruction keeps production allowance separate",
+  "production_hard_cap": 12,
+  "research_calls_already_used": 6,
+  "combined_hard_cap": 20,
+  "budget_authorized_at": 1793374548.99207,
+  "explicit_budget_answer": "New ICT scanner only; keep production allowance separate",
+  "max_borrowed_calls": 0,
+  "reserve_setup_recovery": 4,
+  "reserve_position": 2,
+  "preserve_unused_context_slots": true,
+  "production_budget_function_sha256": "f4d5d90d467566abca53103ffe34cef499913bb3329a8645890c8d77b5badc78",
+  "maximum_total_experimental_attempts": 8
+}

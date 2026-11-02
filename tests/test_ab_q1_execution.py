@@ -374,3 +374,42 @@ def test_q1_session_allowance_preserves_guard_loss_limit(guarded,monkeypatch):
     stats['losses']=1
     assert q.guardrails.guard_ok(x,0,True,False,0,reservation_id='ab_q1_'+o['order_id'])==(False,'day_loss_n')
     assert os.environ['SKIP_SESSIONS']=='NYAM'
+
+
+def test_offset_scanner_intake_registers_exact_q1_and_survives_restart(routed,monkeypatch):
+    from test_ab_q1_review import reported_short
+    f,h=routed;s=reported_short();s['bos_ms']=int(f.now*1000)//60000*60000-60000
+    review.apply_entry_offset(s,1)
+    o=review.candidate(s,'reported',f.review.config)
+    with f.api.connect() as db:
+        db.execute('INSERT OR REPLACE INTO bars VALUES(?,?,?,?,?)',('M1',o['contract'],s['bos_ms'],json.dumps(dict(open=28390,high=28400,low=28380,close=28382.5)),int(f.now*1000)))
+    queued=review.queue_signal(s,'reported',f.review)
+    assert queued['state']=='queued'
+    q.observe(s,'reported',f.review,clock=lambda:f.now)
+    q.observe(s,'reported',f.review,clock=lambda:f.now)
+    rows=q.dispatches.rows();assert len(rows)==1 and rows[0]['state']=='WAITING_AI'
+    assert f.review.process_one()
+    dispatch=Mock(return_value=dict(state='TEST_ONLY_NO_ORDER'))
+    q.resume(dispatch,f.review,clock=lambda:f.now)
+    assert dispatch.call_count==1
+    approved=dispatch.call_args.args[0]
+    assert approved['target_price']==28367.25
+    q.resume(dispatch,f.review,clock=lambda:f.now)
+    assert dispatch.call_count==1 and not f.posts
+
+
+def test_observe_records_failed_registration_without_broker_write(routed,monkeypatch):
+    f,h=routed;records=[]
+    monkeypatch.setattr(q.execution_trace,'record',lambda *a,**k:records.append((a,k)))
+    s=signal();del s['bos_ms']
+    q.observe(s,'bad',f.review,clock=lambda:f.now)
+    assert records[0][1]['reason']=='q1_required_field_missing:bos_ms'
+    assert not f.posts
+
+
+def test_expired_account_file_is_visible_in_readiness(tmp_path,monkeypatch):
+    p=tmp_path/'expired.json';p.write_text(json.dumps(dict(verified=True,expires_at_ms=1)))
+    monkeypatch.setenv('MFFU_RISK_EVIDENCE_FILE',str(p))
+    r=gate.configuration_files()['MFFU_RISK_EVIDENCE_FILE']
+    assert r['verified'] is True and r['expired'] is True and r['currently_valid'] is False
+    assert json.loads(p.read_text())['expires_at_ms']==1

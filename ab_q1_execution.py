@@ -78,10 +78,15 @@ def signal(order):
 def observe(raw, candidate_id, service, *, clock=time.time):
     """Only newly emitted scanner setups can enter this ledger; never replay AI history."""
     if execution_policy.mode()!=MODE or os.environ.get('AB_Q1_ENTRY_ARMED','0')!='1':return
+    if service is None:
+        execution_trace.record(candidate_id,'q1_forward_setup_blocked',reason='q1_review_service_unavailable')
+        return
     try:
         order=review.candidate(raw,candidate_id,service.config)
         reason=permission(order,clock=clock)
-        if reason:return
+        if reason:
+            execution_trace.record(order['order_id'],'q1_forward_setup_blocked',reason=reason)
+            return
         with live.connect() as db:
             bos=db.execute("SELECT bar_json FROM bars WHERE tf='M1' AND contract=? AND ts_ms=?",
                            (order['contract'],order['q1_source']['bos_ms'])).fetchone()
@@ -94,7 +99,9 @@ def observe(raw, candidate_id, service, *, clock=time.time):
         if not dispatches._claim(order,now):return
         dispatches._finish(order['order_id'],dict(state='WAITING_AI',reason='q1_exact_review_pending'),now)
         execution_trace.record(order['order_id'],'q1_forward_setup_registered')
-    except (KeyError,ValueError,TypeError,OverflowError):return
+    except (KeyError,ValueError,TypeError,OverflowError) as exc:
+        execution_trace.record(candidate_id,'q1_forward_setup_blocked',reason=review.input_reason(exc))
+        return
 
 
 def resume(dispatcher, service, *, clock=time.time):
