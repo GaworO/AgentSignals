@@ -112,7 +112,9 @@ class AccountSync:
                 raw = response.read(8_000_001)
                 if len(raw) > 8_000_000:
                     raise SyncError('BROKER_RESPONSE_TOO_LARGE')
-                return json.loads(raw)
+                result=json.loads(raw)
+                broker_read_control.succeeded(self,path)
+                return result
         except HTTPError as exc:
             raise SyncError(broker_read_control.http_error(self,path,exc)) from None
         except (URLError, OSError, TimeoutError):

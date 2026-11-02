@@ -203,3 +203,20 @@ def test_budget_calculation_uses_current_snapshot_without_polling(setup,monkeypa
     assert ns['_directional_live_budget']({})==4.89
     s.poll.assert_not_called()
     t[0]+=31;assert ns['_directional_live_budget']({})==0
+
+
+def test_repeated_broker_short_hints_back_off_and_only_same_route_success_resets(setup):
+    s,t,c,v,p=setup
+    def refusal():return HTTPError('url',429,'x',{'Retry-After':'1'},io.BytesIO(b'{"error":"broker_rate_limited"}'))
+    control.http_error(s,'/accounts/Eval',refusal())
+    assert control.status(s)['remaining_seconds']==60
+    t[0]+=61;control.succeeded(s,'/accounts')
+    control.http_error(s,'/accounts/Eval',refusal())
+    assert control.status(s)['remaining_seconds']==120
+    t[0]+=121
+    restarted=b.AccountSync(s.config,reader=s.reader,clock=s.clock)
+    control.http_error(restarted,'/accounts/Eval',refusal())
+    assert control.status(s)['remaining_seconds']==240
+    t[0]+=241;control.succeeded(s,'/accounts/Eval')
+    control.http_error(s,'/accounts/Eval',refusal())
+    assert control.status(s)['remaining_seconds']==60

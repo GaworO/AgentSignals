@@ -19,6 +19,9 @@ def tables(db):
             PRIMARY KEY(binding,day,route));
         CREATE TABLE IF NOT EXISTS broker_read_pacing (
             binding TEXT PRIMARY KEY, next_at REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS broker_read_streak (
+            binding TEXT,route TEXT,failures INTEGER,
+            PRIMARY KEY(binding,route));
     ''')
 
 
@@ -50,6 +53,12 @@ def count(sync,path,field):
         tables(db)
         db.execute('INSERT OR IGNORE INTO broker_read_counts(binding,day,route) VALUES(?,?,?)',(sync.binding,day,route(path)))
         db.execute('UPDATE broker_read_counts SET '+field+'='+field+'+1 WHERE binding=? AND day=? AND route=?',(sync.binding,day,route(path)))
+
+
+def succeeded(sync,path):
+    with sync.connect() as db:
+        tables(db)
+        db.execute('DELETE FROM broker_read_streak WHERE binding=? AND route=?',(sync.binding,route(path)))
 
 
 def before(sync,path):
@@ -108,6 +117,14 @@ def http_error(sync,path,exc):
     delay=max([1]+delays) if delays else fallback
     with sync.connect() as db:
         tables(db)
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('''INSERT INTO broker_read_streak VALUES(?,?,1)
+            ON CONFLICT(binding,route) DO UPDATE SET failures=failures+1''',(sync.binding,route(path)))
+        streak=db.execute('SELECT failures FROM broker_read_streak WHERE binding=? AND route=?',(sync.binding,route(path))).fetchone()[0]
+        # Provider Retry-After can be only a short hint for an unknown broker
+        # penalty. Repeated refusals must slow down, never form a retry storm.
+        maximum=15 if reason=='BALANCE_REFRESH_PENDING' else 60 if reason=='CROSSTRADE_RATE_LIMITED' else 3600
+        delay=max(delay,min(maximum,fallback*2**min(streak-1,12)))
         db.execute('''INSERT INTO broker_read_budget VALUES(?,?,?)
             ON CONFLICT(binding) DO UPDATE SET until=max(until,excluded.until),
             reason=CASE WHEN excluded.until>=until THEN excluded.reason ELSE reason END''',

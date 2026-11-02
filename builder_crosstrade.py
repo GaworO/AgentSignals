@@ -268,6 +268,7 @@ class Transport:
         except (ValueError,UnicodeError):
             raise TransportError('BROKER_RESPONSE_INVALID') from None
         if not isinstance(result,dict):raise TransportError('BROKER_RESPONSE_OBJECT_REQUIRED')
+        if method=='GET':account_sync.broker_read_control.succeeded(self.sync,path)
         return result
 
     def read(self,path):
