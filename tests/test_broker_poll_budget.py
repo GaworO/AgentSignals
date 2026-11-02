@@ -170,3 +170,36 @@ def test_native_get_obeys_shared_backoff_but_protective_post_is_not_blocked(setu
     opener.open.assert_not_called()
     assert transport._request('POST','/accounts/Eval/orders/123/cancel',{})['success']
     assert opener.open.call_count==1
+
+
+def test_read_pacing_shared_across_instances_leaves_write_capacity(setup,monkeypatch):
+    s,t,c,v,p=setup;sleeps=[]
+    def sleep(seconds):sleeps.append(seconds);t[0]+=seconds
+    monkeypatch.setattr(control.time,'sleep',sleep)
+    other=b.AccountSync(s.config,reader=s.reader,clock=s.clock)
+    control.before(s,'/accounts')
+    control.before(other,'/marginsnapshots')
+    control.before(s,'/accounts/Eval/positions')
+    assert sleeps==[.5,.5]
+
+
+def test_rate_limit_does_not_refetch_known_identity(setup):
+    s,t,c,v,p=setup;assert s.poll();day=s.identity_day;c.clear()
+    old=s.reader;s.reader=Mock(side_effect=b.SyncError('BROKER_HTTP_429_TRADOVATE_RATE_LIMITED'))
+    assert not s.poll();assert s.identity_day==day
+    s.reader=old;assert s.poll();assert '/accounts' not in c
+
+
+def test_budget_calculation_uses_current_snapshot_without_polling(setup,monkeypatch):
+    import ast,os
+    from pathlib import Path
+    s,t,c,v,p=setup;assert s.poll()
+    monkeypatch.setenv('AB_DIRECTIONAL_RISK_MODE','EQUITY_PERCENT')
+    monkeypatch.setenv('AB_DIRECTIONAL_RISK_PCT','0.5')
+    monkeypatch.setattr(b,'instance',lambda:s)
+    node=next(n for n in ast.parse(Path('agent.py').read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='_directional_live_budget')
+    ns={'os':os,'builder_broker_sync':b};exec(compile(ast.Module(body=[node],type_ignores=[]),'agent.py','exec'),ns)
+    s.poll=Mock(side_effect=AssertionError('budget must not poll'))
+    assert ns['_directional_live_budget']({})==4.89
+    s.poll.assert_not_called()
+    t[0]+=31;assert ns['_directional_live_budget']({})==0

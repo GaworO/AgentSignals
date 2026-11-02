@@ -5,6 +5,7 @@ account poller and native-order reads, including after process restarts.
 """
 import json
 import math
+import time
 from email.utils import parsedate_to_datetime
 
 
@@ -16,6 +17,8 @@ def tables(db):
             binding TEXT, day TEXT, route TEXT, attempts INTEGER DEFAULT 0,
             failures INTEGER DEFAULT 0, throttled INTEGER DEFAULT 0,
             PRIMARY KEY(binding,day,route));
+        CREATE TABLE IF NOT EXISTS broker_read_pacing (
+            binding TEXT PRIMARY KEY, next_at REAL NOT NULL);
     ''')
 
 
@@ -50,6 +53,25 @@ def count(sync,path,field):
 
 
 def before(sync,path):
+    s=status(sync)
+    if s['remaining_seconds']>0:
+        from builder_broker_sync import SyncError
+        raise SyncError('BROKER_READ_BACKOFF_'+s['reason'])
+    # CrossTrade publishes 3 requests/sec shared with writes. Pace this
+    # integration's GETs at 2/sec, leaving capacity for protective operations.
+    # Shared SQLite reservations prevent separate workers bursting together.
+    now=sync.clock()
+    with sync.connect() as db:
+        tables(db)
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT next_at FROM broker_read_pacing WHERE binding=?',(sync.binding,)).fetchone()
+        at=max(now,row[0] if row else now)
+        if at-now>5:
+            from builder_broker_sync import SyncError
+            raise SyncError('BROKER_READ_BACKOFF_PACING_BUSY')
+        db.execute('INSERT OR REPLACE INTO broker_read_pacing VALUES(?,?)',(sync.binding,at+.5))
+    if at>now:time.sleep(at-now)
+    # Another read may have established a provider cooldown while we waited.
     s=status(sync)
     if s['remaining_seconds']>0:
         from builder_broker_sync import SyncError

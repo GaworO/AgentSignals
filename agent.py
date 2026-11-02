@@ -854,7 +854,9 @@ def _directional_live_budget(profile):
     try:
         if directional_account_limits.equity_percent_mode():
             sync=builder_broker_sync.instance()
-            if not sync.enabled or not sync.poll(wait=True) or not sync.state()['current']:
+            # This computes a budget, not dispatch authorization. Sizing and
+            # FinalRevalidator independently refresh/reconcile before entry.
+            if not sync.enabled or not sync.state()['current']:
                 return 0.0
             return directional_account_limits.trade_budget(sync.snapshot(),None)
     except Exception:

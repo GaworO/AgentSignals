@@ -226,7 +226,10 @@ class AccountSync:
                 pass  # snapshot identity/age fences prevent reuse after storage failure
             return True
         except Exception as exc:
-            self.identity_day = None
+            # Throttling does not change account identity. Auth, transport or
+            # schema failures do require identity revalidation after recovery.
+            if not str(exc).startswith(('BROKER_HTTP_429','BROKER_READ_BACKOFF_')):
+                self.identity_day = None
             self.reconciliation_cache = None
             error = str(exc) if isinstance(exc, SyncError) else 'BROKER_SYNC_FAILED'
             with self.connect() as c:
