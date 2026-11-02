@@ -247,6 +247,9 @@ class Transport:
         if not ((method=='GET' and allowed_read) or (method=='POST' and allowed_write)):
             raise TransportError('BROKER_ROUTE_NOT_ALLOWED')
         if method=='POST' and not selected():raise TransportError('CROSSTRADE_ROUTE_NOT_SELECTED')
+        if method=='GET':
+            try:account_sync.broker_read_control.before(self.sync,path)
+            except account_sync.SyncError as exc:raise TransportError(str(exc)) from None
         request = Request(account_sync.BASE+path,method=method,
             data=None if body is None else encode(body).encode(),
             headers={'Authorization':'Bearer '+self.sync.token,'Accept':'application/json','Content-Type':'application/json'})
@@ -256,8 +259,11 @@ class Transport:
                 if len(raw)>8_000_000:raise TransportError('BROKER_RESPONSE_TOO_LARGE')
                 result=json.loads(raw)
         except HTTPError as exc:
+            if method=='GET':
+                raise TransportError(account_sync.broker_read_control.http_error(self.sync,path,exc)) from None
             raise TransportError('BROKER_HTTP_'+str(exc.code)) from None
         except (OSError,URLError,TimeoutError):
+            if method=='GET':account_sync.broker_read_control.count(self.sync,path,'failures')
             raise TransportError('BROKER_REQUEST_OUTCOME_UNKNOWN') from None
         except (ValueError,UnicodeError):
             raise TransportError('BROKER_RESPONSE_INVALID') from None
@@ -1005,7 +1011,7 @@ class Transport:
             self.reconcile_one(row,snapshot)
             row=self.row(oid);observation=json.loads(row['observation_json'] or '{}')
         except Exception as exc:
-            if isinstance(exc,TransportError) and str(exc) not in ('NATIVE_BRACKET_IDS_NOT_RECOVERED','COMPLETE_BROKER_READ_REQUIRED','BROKER_REQUEST_OUTCOME_UNKNOWN','BROKER_RESPONSE_INVALID') and not str(exc).startswith('BROKER_HTTP_'):
+            if isinstance(exc,TransportError) and str(exc) not in ('NATIVE_BRACKET_IDS_NOT_RECOVERED','COMPLETE_BROKER_READ_REQUIRED','BROKER_REQUEST_OUTCOME_UNKNOWN','BROKER_RESPONSE_INVALID') and not str(exc).startswith(('BROKER_HTTP_','BROKER_READ_BACKOFF_')):
                 raise
             # Missing/rejected protection must not deadlock emergency closure.
             # Only independently attributed, terminal-entry exposure qualifies.

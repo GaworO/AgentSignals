@@ -3,7 +3,6 @@
 Broker snapshots, executions and local order outcomes are separate evidence.
 Flat snapshots never fabricate a fill, a cancellation or realized trade P&L.
 """
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import hashlib
 import json
@@ -13,10 +12,12 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
+import fcntl
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, parse_qs
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
+import broker_read_control
 
 _INSTANCE = None
 _LOCK = threading.Lock()
@@ -57,6 +58,10 @@ class AccountSync:
         self.poll_lock = threading.Lock()
         self.api = None
         self.thread = None
+        self.identity_day = None
+        self.reconciliation_cache = None
+        self.force_reconciliation = False
+        self.last_forced_snapshot_ms = None
         if self.enabled:
             if (config.get('ACCOUNT_PLAN') != 'builder50'
                     or config.get('BUILDER_BROKER_ACCOUNT_VERIFIED') != '1'
@@ -99,6 +104,7 @@ class AccountSync:
                      and 0 < len(query['cursor'][0]) <= 2048))
         if not history_read and path not in ('/accounts', '/marginsnapshots', prefix, prefix+'/positions', prefix+'/orders', prefix+'/fills'):
             raise SyncError('BROKER_READ_ROUTE_NOT_ALLOWED')
+        broker_read_control.before(self,path)
         req = Request(BASE+path, method='GET', headers={
             'Authorization': 'Bearer '+self.token, 'Accept': 'application/json'})
         try:
@@ -108,19 +114,9 @@ class AccountSync:
                     raise SyncError('BROKER_RESPONSE_TOO_LARGE')
                 return json.loads(raw)
         except HTTPError as exc:
-            if exc.code==403:
-                # Expose only the provider's allowlisted reconnect condition,
-                # never raw response details or credentials on the dashboard.
-                expired=False
-                try:
-                    error=json.loads(exc.read(8193))
-                    expired=isinstance(error,dict) and error.get('error')=='tradovate_session_expired'
-                except (ValueError,UnicodeError,OSError):
-                    pass
-                if expired:
-                    raise SyncError('TRADOVATE_SESSION_EXPIRED_RECONNECT_REQUIRED') from None
-            raise SyncError('BROKER_HTTP_'+str(exc.code)) from None
+            raise SyncError(broker_read_control.http_error(self,path,exc)) from None
         except (URLError, OSError, TimeoutError):
+            broker_read_control.count(self,path,'failures')
             raise SyncError('BROKER_CONNECTION_FAILED') from None
         except (ValueError, UnicodeError):
             raise SyncError('BROKER_RESPONSE_INVALID') from None
@@ -133,28 +129,54 @@ class AccountSync:
         return response.get('data')
 
     def poll(self, *, wait=False):
+        requested = self.clock()
+        contended = self.poll_lock.locked()
         acquired = self.poll_lock.acquire(timeout=15) if wait and self.enabled else self.poll_lock.acquire(blocking=False) if self.enabled else False
         if not acquired:
             return False
         started = self.clock()
+        lease = None
         try:
-            accounts = self._data('/accounts')
-            matches = [a for a in accounts if isinstance(a, dict) and a.get('name') == self.name] if isinstance(accounts, list) else []
-            if (len(matches) != 1 or str(matches[0].get('accountId')) != self.account
-                    or matches[0].get('environment') != self.environment
-                    or matches[0].get('active') is not True or matches[0].get('archived') is True):
-                raise SyncError('BROKER_ACCOUNT_BINDING_CHANGED_OR_INACTIVE')
+            # Share a completed concurrent full reconciliation, not an arbitrary
+            # old snapshot. Sequential pre-entry refreshes still fetch anew.
+            if wait and contended:
+                import directional_account_reconciliation as rec
+                prior=rec.state(self)
+                snap=self.snapshot()
+                if (prior.get('verified') and snap and snap['observed_at']>=requested
+                        and prior.get('snapshot_started_ms')==self.last_forced_snapshot_ms
+                        and prior['snapshot_started_ms']>=int((requested-2)*1000)):
+                    return True
+            budget=broker_read_control.status(self)
+            if budget['remaining_seconds']>0:
+                raise SyncError('BROKER_READ_BACKOFF_'+budget['reason'])
+            # Kernel lock spans workers sharing the volume and releases on
+            # crash. No timeout may steal it from a still-running broker read.
+            self.path.parent.mkdir(parents=True,exist_ok=True)
+            lease=open(str(self.path)+'.'+self.binding+'.poll.lock','a')
+            try:fcntl.flock(lease,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:return False
+            self.force_reconciliation = wait
+            day=datetime.fromtimestamp(started,NY).date().isoformat()
+            if self.identity_day != day:
+                accounts = self._data('/accounts')
+                matches = [a for a in accounts if isinstance(a, dict) and a.get('name') == self.name] if isinstance(accounts, list) else []
+                if (len(matches) != 1 or str(matches[0].get('accountId')) != self.account
+                        or matches[0].get('environment') != self.environment
+                        or matches[0].get('active') is not True or matches[0].get('archived') is True):
+                    raise SyncError('BROKER_ACCOUNT_BINDING_CHANGED_OR_INACTIVE')
+                self.identity_day = day
             prefix = '/accounts/' + quote(self.name, safe='')
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                jobs = {key: pool.submit(self._data, prefix+suffix) for key, suffix in
-                        [('account',''),('positions','/positions'),('orders','/orders'),('fills','/fills')]}
-                values = {key: job.result() for key, job in jobs.items()}
+            # No burst of parallel account reads; stop immediately on a 429.
+            values = {key:self._data(prefix+suffix) for key,suffix in
+                      [('account',''),('positions','/positions'),('orders','/orders'),('fills','/fills')]}
             finished = self.clock()
             if not 0 <= finished-started <= 12:
                 raise SyncError('BROKER_SNAPSHOT_TOO_SLOW')
             account = values['account']
             if (not isinstance(account, dict) or str(account.get('accountId')) != self.account
-                    or account.get('name') != self.name or account.get('environment') != self.environment):
+                    or account.get('name') != self.name or account.get('environment') != self.environment
+                    or account.get('active') is False or account.get('archived') is True):
                 raise SyncError('BROKER_ACCOUNT_READ_MISMATCH')
             balance = account.get('balance', {})
             if any(not finite(balance.get(k)) for k in ('netLiq','totalCashValue')):
@@ -199,16 +221,21 @@ class AccountSync:
             import directional_account_reconciliation
             try:
                 directional_account_reconciliation.refresh(self, snapshot)
+                if wait:self.last_forced_snapshot_ms=int(snapshot['read_started_at']*1000)
             except Exception:
                 pass  # snapshot identity/age fences prevent reuse after storage failure
             return True
         except Exception as exc:
+            self.identity_day = None
+            self.reconciliation_cache = None
             error = str(exc) if isinstance(exc, SyncError) else 'BROKER_SYNC_FAILED'
             with self.connect() as c:
                 c.execute('INSERT OR REPLACE INTO sync_attempts VALUES(?,?,?)', (self.binding,self.clock(),error))
             return False
         finally:
-            self.poll_lock.release()
+            try:
+                if lease:lease.close()
+            finally:self.poll_lock.release()
 
     def snapshot(self):
         if not self.enabled:
@@ -226,6 +253,9 @@ class AccountSync:
             fills = c.execute('SELECT count(*) FROM broker_fills WHERE binding=?', (self.binding,)).fetchone()[0]
         age = None if not snapshot else self.clock()-snapshot['read_started_at']
         error = attempt['error'] if attempt else None
+        read_budget = broker_read_control.status(self)
+        if read_budget['remaining_seconds']>0:
+            error='BROKER_READ_BACKOFF_'+read_budget['reason']
         current = bool(snapshot and not error and 0 <= age <= 30)
         balance = snapshot['account']['balance'] if snapshot else {}
         return dict(enabled=True, provider='CrossTrade', state='CURRENT' if current else 'ERROR' if error else 'STALE' if snapshot else 'WAITING',
@@ -238,6 +268,7 @@ class AccountSync:
             session_fills=len(snapshot['fills']) if snapshot else None, stored_fills=fills,
             poll_interval_seconds=self.interval,
             reconciliation_error=getattr(self,'reconciliation_error',None),
+            read_budget=read_budget,
             reconciliation='Broker account inventory and equity; native order IDs reconcile individual outcomes when selected.')
 
     def entry_blocker(self, *, refresh=False, pending_order_id=None):
@@ -285,7 +316,11 @@ class AccountSync:
                     # Storage failures must not kill future recovery attempts.
                     # The old timestamp remains stale and entry checks block.
                     pass
-                time.sleep(self.interval)
+                # Provider cooldown is durable and shared with native GETs.
+                # Keep this worker alive to resume after the indicated delay.
+                try:delay=max(self.interval,broker_read_control.status(self)['remaining_seconds'])
+                except Exception:delay=self.interval
+                time.sleep(min(delay,60))
         self.thread = threading.Thread(target=run, daemon=True, name='builder-broker-read-sync')
         self.thread.start()
 

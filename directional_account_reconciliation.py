@@ -286,14 +286,36 @@ def refresh(sync, snapshot):
             proof = directional_account_limits.read_static_evidence()
         except (OSError,ValueError,KeyError,TypeError):
             proof = {}
-        rows = history(sync)
-        margin = margin_row(sync)
+        # Full history is not safely append-only: fees can be corrected later.
+        # Reuse only while live cash/exposure/fills/orders are identical, for a
+        # bounded five-minute background interval. Entry refresh, restart, NY
+        # date/rules changes and any account change force authoritative reads.
+        signature=hashlib.sha256(json.dumps(dict(
+            balance=snapshot['account'].get('balance'),positions=snapshot['positions'],
+            orders=snapshot['orders'],fills=snapshot['fills'],proof=proof,
+            day=datetime.fromtimestamp(now/1000,NY).date().isoformat()),
+            sort_keys=True,allow_nan=False).encode()).hexdigest()
+        cached=getattr(sync,'reconciliation_cache',None)
+        reusable=(not getattr(sync,'force_reconciliation',False) and cached
+                  and cached['signature']==signature and 0<=now-cached['at_ms']<300000)
+        rows=cached['rows'] if reusable else history(sync)
+        # Margin allowances can vary without fills. Only a current, explicit
+        # contract-cap-only rule permits reuse of the diagnostic margin row.
+        contract_only=proof.get('margin_policy',{}).get('mode')=='CONTRACT_CAP_ONLY'
+        margin=cached['margin'] if reusable and contract_only else margin_row(sync)
         result = assess(snapshot, rows, margin, proof, sync.binding,
                         sync.config.get('AB_V3_CONTRACT'), int(sync.clock()*1000))
+        if not reusable and result.get('verified'):
+            sync.reconciliation_cache=dict(signature=signature,at_ms=now,rows=rows,margin=margin)
+        if not result.get('verified'):
+            sync.reconciliation_cache=None
+        result['history_observed_at_ms']=cached['at_ms'] if reusable else now
+        result['history_cache_reused']=bool(reusable)
         import builder_broker_sync
         result['rules_sha256'] = hashlib.sha256(builder_broker_sync.encode(proof).encode()).hexdigest()
         result['input_sha256'] = hashlib.sha256(json.dumps(dict(fills=rows,margin=margin),sort_keys=True).encode()).hexdigest()
     except Exception:
+        sync.reconciliation_cache=None
         result['missing'] = ['account_risk_provider_read_or_schema_failed']
     with sync.connect() as db:
         db.execute('CREATE TABLE IF NOT EXISTS account_risk_reconciliation(binding TEXT PRIMARY KEY,payload TEXT)')
