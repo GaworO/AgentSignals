@@ -1,24 +1,51 @@
-# ICT 2022 + IFVG review release
+# ICT IFVG execution integration
 
-Adds IFVG assessment to the same cloud AI request and reservation as ICT 2022.
-Original ICT 2022 prompt/price selection, entry rules, execution contract and
-0.5% structural sizing are retained. No research entry-quality variant applied.
+Continues the deployed 10086ce release. Original ICT2022 entries, shared account
+risk, budgets, and native CrossTrade reconciliation remain in place.
 
-- The top-level assessment remains the existing ICT 2022 execution input.
-- `ifvg_review` is a separately bound same-cutoff assessment. Closed opposite
-  FVG formation plus later same-timeframe inversion close are required.
-- Missing path evidence, re-inversion, stale response, invalid price, expiry,
-  unsupported anchor or insufficient liquidity room block the IFVG proposal.
-- IFVG shadow outcomes use fixed 2R, with AI's liquidity objective recorded.
-- IFVG rows are dashboard projections of the saved parent response, not extra
-  paid reviews. They never enter the raw-record execution queue. Explicit
-  handoff rejection additionally protects direct companion submissions.
-- IFVG has no broker permission in this release. Existing permission values
-  are not modified. No automatic recovery/partials/trailing added.
-- Same call/day/dollar caps, cooldown, production priority and separate ledger.
-- New closed inversion observations can trigger the existing guarded scheduler.
-- Authenticated `/ict-shadow/ifvg-examples` contains historical saved AI ideas
-  with clearly labelled simulated outcomes, including an ambiguous loss.
+IFVG is a separately authorized family of the same ICT scanner, not another
+service or a model-owned broker connection. The same paid response contains both
+assessments. Deterministic sizing uses at most 0.5% equity including costs and
+all tighter account/broker limits; structural SL and LIMIT remain original;
+TP is exactly 2R gross. No partials, trailing, runners or advanced writes.
 
-Tests use mocked responses; a genuine new dual-family response must be observed
-in an eligible production session before claiming live AI behavior verified.
+## Binding and lifecycle
+
+- Only the nested `ifvg_review` of an authentic saved parent response is eligible.
+  The original packet hash, raw AI output, validation, geometry and timestamps
+  are rechecked. Dashboard companion rows are never executable inputs.
+- A new IFVG execution contract must be present in both the original request
+  packet and the response. Earlier shadow-only reviews cannot be activated.
+- A separate operator-approved `ifvg_execution` scope on the existing ICT policy
+  and its `armed_after_ms` are required. Original ICT approval is insufficient.
+- Shared global execution permission, fresh broker/risk/Guard checks and native
+  bracket proof remain mandatory. Shared account ownership prevents overlap.
+- Original ICT2022 is processed first within the same response. IFVG may proceed
+  only if shared ownership and all remaining gates permit it; no portfolio claim.
+- Before submission and while pending, all original ICT invalidations apply.
+  Additionally a closed candle on the formation timeframe below the lower gap
+  edge (LONG), or above the upper edge (SHORT), invalidates the IFVG. Missing
+  post-inversion candles block; revisions block. Wicks alone do not re-invert.
+- Uses the same durable opportunity/dispatch/native broker journals for duplicate
+  suppression, unknown POST outcomes, expiry cancellation, late fill protection,
+  partial-fill protection, accounting and restart reconciliation.
+
+## Operator activation
+
+The release does not add approval to any existing policy. The manually invoked
+`ict_ifvg_operator.py` provides `check`, `activate`, and `stop` commands. Only the
+human operator executes `activate` after inspecting its evidence and warnings.
+It changes the IFVG policy scope only, never global flags or account limits.
+`stop` disables new IFVG entries; existing protection and reconciliation continue.
+No Railway variable edit or redeployment is needed for these policy-file actions.
+Shared account evidence must still be current and complete; policy approval does
+not renew it. Existing historical broker evidence is not proof of a real IFVG
+round trip. Automated tests are simulated broker/AI evidence, not live fills.
+
+## Deployment
+
+Keep IFVG unapproved when deploying. Preserve the exact currently active account
+risk file if its path is under /app; redeploying an older copy would revert the
+operator's evidence. Verify source hashes, runtime commit, all configuration and
+active policy/evidence hashes. Do not redeploy a different GitHub image merely
+to change a flag. This release adds no subscription and makes no paid test calls.

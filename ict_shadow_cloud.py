@@ -141,8 +141,9 @@ class Cloud:
     def prepare(self,p,now):
         s=session(now)
         if s is None:raise ValueError('SESSION_ENDED')
-        from ict_execution import VERSION
+        from ict_execution import VERSION,IFVG_VERSION,ifvg_permission
         p=compact(p);p.update(cloud_shadow=True,review_families=['ICT2022','IFVG'],session_name=s[0],session_end=s[1],execution_contract=VERSION)
+        if ifvg_permission(now=now) is None:p['ifvg_execution_contract']=IFVG_VERSION
         return p
     def entry_events(self,p):
         # Wake AI when an entry gap completes, without selecting a trade.
@@ -242,7 +243,10 @@ class Cloud:
         state['reviews']+=companions
         state['reviews'].sort(key=lambda r:r.get('requested_at') or 0,reverse=True)
         state['review_families']=['ICT2022','IFVG']
-        state['ifvg_execution']='SHADOW_ONLY'
+        import ict_execution
+        state['ifvg_execution']='GUARDED_AUTOMATIC' if ict_execution.ifvg_permission(now=now) is None else 'SHADOW_ONLY'
+        state['ifvg_runtime']=ict_execution.status()['ifvg']
+        for child in companions:child['execution_route']=state['ifvg_execution']
         state['analytics']=dashboard_analytics(all_costs,state['reviews'],now)
         from ict_order_handoff import broker_status
         state['order_handoff']=self.handoff.state()

@@ -15,7 +15,8 @@ from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 
 VERSION='ict_bracket_opposing_structure_v1'
-GEOMETRY=('order_id','strategy','direction','contract','entry_price','stop_price','target_price','activation_ms','expiry_ms','ict_review_id','ict_fingerprint','ict_packet_id','ict_requested_at','ict_liquidity_target')
+IFVG_VERSION='ict_ifvg_bracket_reinversion_v1'
+GEOMETRY=('order_id','strategy','direction','contract','entry_price','stop_price','target_price','activation_ms','expiry_ms','ict_review_id','ict_fingerprint','ict_packet_id','ict_requested_at','ict_liquidity_target','ict_family','ict_family_contract')
 _CALLBACKS=None
 
 
@@ -31,18 +32,22 @@ def equity_budget(snapshot):
     return float((Decimal(str(equity))*Decimal('0.005')).quantize(Decimal('.01'),rounding=ROUND_FLOOR))
 
 
-def from_record(record, now):
+def from_record(record, now, family="ICT2022"):
     from ict_order_handoff import proposal
-    p=proposal(record,os.environ.get('AB_V3_CONTRACT'),now)
-    if (record['packet'].get('execution_contract')!=VERSION
-            or record['decision']['plan'].get('invalidation_mode')!=VERSION):
+    p=proposal(record,os.environ.get('AB_V3_CONTRACT'),now,family=family)
+    decision=record['decision'] if family=='ICT2022' else record['decision']['ifvg_review']
+    version=IFVG_VERSION if family=='IFVG' else VERSION
+    key='ifvg_execution_contract' if family=='IFVG' else 'execution_contract'
+    if (record['packet'].get(key)!=version
+            or decision['plan'].get('invalidation_mode')!=version):
         raise ValueError('ict_machine_invalidation_not_accepted')
     return dict(order_id=p['order_id'],candidate_id=p['review_id'],strategy='ICT_AI',direction=p['direction'],
         contract=p['contract'],order_type='LIMIT',entry_price=p['entry'],stop_price=p['stop'],target_price=p['target'],
         activation_ms=int(p['activation_at']*1000),expiry_ms=int(p['expires_at']*1000),
         ict_review_id=p['review_id'],ict_fingerprint=p['fingerprint'],ict_packet_id=p['packet_id'],
         ict_requested_at=record['requested_at'],ict_liquidity_target=p['ai_liquidity_target'],
-        ict_thesis_version=VERSION,runner_enabled=False)
+        ict_thesis_version=VERSION,runner_enabled=False,
+        **(dict(ict_family='IFVG',ict_family_contract=IFVG_VERSION) if family=='IFVG' else {}))
 
 
 def is_order(order):
@@ -51,7 +56,8 @@ def is_order(order):
             and order.get('order_id')=='ICT-'+order['ict_fingerprint'][:40]
             and bool(re.fullmatch(r'[a-f0-9]{64}',order['ict_fingerprint']))
             and bool(re.fullmatch(r'ICT_INDEPENDENT_NYAM_\d{8}_\d+',order['ict_review_id']))
-            and order.get('order_type')=='LIMIT' and order.get('runner_enabled') is False)
+            and order.get('order_type')=='LIMIT' and order.get('runner_enabled') is False
+            and (order.get('ict_family') is None or (order.get('ict_family')=='IFVG' and order.get('ict_family_contract')==IFVG_VERSION)))
     except (KeyError,TypeError):return False
 
 
@@ -63,11 +69,11 @@ def record_for(order):
 
 def review_check(order, *, clock=time.time):
     try:
-        now=clock();record=record_for(order);original=from_record(record,now)
+        now=clock();record=record_for(order);original=from_record(record,now,order.get("ict_family") or "ICT2022")
         if any(original.get(k)!=order.get(k) for k in GEOMETRY):return 'ict_saved_review_geometry_changed',None
         return None,dict(state='ALLOW',decision_origin='VALIDATED_SAVED_ICT_PROPOSAL',review_id=record['id'],
             order_id=order['order_id'],available_at=record['received_at'],expires_at=original['expiry_ms']/1000,
-            setup={k:original[k] for k in GEOMETRY},packet_id=record['packet']['packet_id'])
+            setup={k:original.get(k) for k in GEOMETRY},packet_id=record['packet']['packet_id'])
     except Exception:return 'ict_saved_review_missing_changed_or_expired',None
 
 
@@ -79,6 +85,9 @@ def permission(order, *, clock=time.time):
     if os.environ.get('ICT_EXECUTION_ENABLED','false')!='true':return 'ict_execution_disabled'
     if execution_policy.mode() not in ('V3_ONLY','DIRECTIONAL_Q1_ONLY'):return 'ict_shared_route_disabled'
     if not is_order(order):return 'ict_exact_order_required'
+    if order.get('ict_family')=='IFVG':
+        why=ifvg_permission(order,clock())
+        if why:return why
     try:
         now=clock();after=int(os.environ.get('ICT_EXECUTION_ARMED_AFTER_MS','0'))
         if after<=0 or after>now*1000 or order['ict_requested_at']*1000<=after:
@@ -100,6 +109,45 @@ def permission(order, *, clock=time.time):
     return None
 
 
+
+def ifvg_policy_check(p):
+    scope=p.get('ifvg_execution',{})
+    if (scope.get('approved') is not True or scope.get('contract_version')!=IFVG_VERSION
+            or not isinstance(scope.get('operator_acceptance_reference'),str)
+            or not scope['operator_acceptance_reference'].strip()):
+        raise ValueError('ict_ifvg_policy_approval_required')
+    return scope
+
+
+def ifvg_permission(order=None, now=None):
+    # Separate persistent operator scope; never inherited from ICT 2022 approval.
+    try:
+        import execution_validation
+        scope=ifvg_policy_check(execution_validation.policy('ICT_AI'))
+        after=scope.get('armed_after_ms')
+        now=time.time() if now is None else now
+        if type(after) is not int or after<=0 or after>now*1000 or (order and order['ict_requested_at']*1000<=after):
+            return 'ict_ifvg_forward_activation_epoch_required'
+    except Exception:return 'ict_ifvg_policy_approval_required'
+    return None
+
+
+def ifvg_market_reason(record,packet):
+    """Closed original-timeframe candles only; missing evidence never proves validity."""
+    plan=record['decision']['ifvg_review']['plan'];original=record['packet']
+    e=dict(original['evidence']);e.update(packet['evidence'])
+    trio=[original['evidence'][k] for k in plan['entry_fvg_bar_ids']]
+    long=plan['direction']=='LONG'
+    low,high=(trio[2]['high'],trio[0]['low']) if long else (trio[0]['high'],trio[2]['low'])
+    step=trio[0]['timeframe']*60;inv=original['evidence'][plan['inversion_bar_id']]
+    bars={b['time']:b for b in e.values() if b.get('kind')=='bar' and b.get('symbol')=='MNQ' and b.get('timeframe')==trio[0]['timeframe'] and b.get('available_at',math.inf)<=packet['as_of']}
+    for t in range(int(inv['time']+step),int(packet['as_of']-step)+1,step):
+        b=bars.get(t)
+        if b is None or b.get('available_at')!=t+step:return 'ict_ifvg_post_inversion_data_gap'
+        if b['close']<low if long else b['close']>high:return 'ict_ifvg_reinverted_before_fill'
+    return None
+
+
 def signal(order):
     from ict_shadow_cloud import session,NY
     if not is_order(order):raise ValueError('ict_exact_order_required')
@@ -114,7 +162,7 @@ def market_check(order, record, packet, now):
     from ict_order_handoff import proposal,market_reason
     import directional_hybrid_context as context
     from directional_hybrid_lifecycle import structure_event_reason
-    bracket=proposal(record,order['contract'],now)
+    bracket=proposal(record,order['contract'],now,family=order.get('ict_family') or 'ICT2022')
     # Include candles closing while the AI was thinking, not only after its response.
     bracket['activation_at']=record['packet']['as_of']
     why=market_reason(bracket,packet,now)
@@ -127,6 +175,9 @@ def market_check(order, record, packet, now):
         times={e['available_at'] for e in packet['evidence'].values()
             if e.get('kind')=='bar' and e.get('symbol')==symbol and e.get('timeframe')==1}
         if any(t not in times for t in range(int(cutoff)+60,int(end)+1,60)):return 'ict_post_review_context_gap'
+    if order.get('ict_family')=='IFVG':
+        why=ifvg_market_reason(record,packet)
+        if why:return why
     events=context.build(packet)['structure_events']['value']
     if events is None:return 'ict_structure_context_unknown'
     return structure_event_reason([e for e in events if cutoff<e['available_at']<=end],order['direction'])
@@ -154,18 +205,18 @@ def thesis(order,clock=time.time,*,pending=False):
     except Exception:return dict(proof,reason='ict_thesis_evidence_unavailable')
 
 
-def process(record):
+def process(record, family="ICT2022"):
     """One claim per review AND per structural opportunity, durable across restarts."""
     import continuation_live as journal
     now=time.time()
     try:
-        order=from_record(record,now)
+        order=from_record(record,now,family)
         why=permission(order)
         if why:return dict(state='BLOCKED',reason=why)
         if _CALLBACKS is None:return dict(state='BLOCKED',reason='ict_runtime_not_connected')
         journal._init_db()
         # A second model review of the same FVG may not become a scale-in/re-entry.
-        plan=record['decision']['plan']
+        plan=(record['decision']['ifvg_review'] if family=='IFVG' else record['decision'])['plan']
         opportunity=hashlib.sha256(json.dumps([order['contract'],order['direction'],plan['entry_fvg_bar_ids']],sort_keys=True).encode()).hexdigest()
         with journal._connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS ict_opportunities(opportunity TEXT PRIMARY KEY,order_id TEXT UNIQUE,claimed_ms INTEGER)')
@@ -198,6 +249,8 @@ def status():
     return dict(implemented=True,submission_connected=_CALLBACKS is not None,
         enabled=os.environ.get('ICT_EXECUTION_ENABLED','false')=='true',blockers=blockers,
         pending_recovery='SHARED_NATIVE_JOURNAL',risk_percent=0.5,target='FIXED_2R_GROSS',
+        ifvg=dict(implemented=True,enabled=ifvg_permission() is None,
+            blockers=blockers+([why] if (why:=ifvg_permission()) else [])),
         note='Fresh exact AI, market, Guard, account and protection checks apply to every order.')
 
 

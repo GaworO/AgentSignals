@@ -40,7 +40,9 @@ def policy_for(order):
     if order.get('strategy') == 'ICT_AI':
         import ict_execution
         if not ict_execution.is_order(order):raise ValueError('exact_ict_order_required')
-        return policy('ICT_AI')
+        p=policy('ICT_AI')
+        if order.get('ict_family')=='IFVG':ict_execution.ifvg_policy_check(p)
+        return p
     if order.get('strategy') == 'A/B':
         import ab_q1_execution
         if not ab_q1_execution.is_order(order):

@@ -19,12 +19,14 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
 
 
-def proposal(record, contract, now):
+def proposal(record, contract, now, *, family="ICT2022"):
     """Recheck the original saved evidence, not merely a cached valid flag."""
     import ict_shadow_research as research
     if record.get('family') == 'IFVG' or record.get('parent_review_id') or str(record.get('id','')).endswith(':IFVG'):
         raise ValueError('IFVG_REVIEW_ONLY_NO_BROKER_PERMISSION')
-    packet, decision = record['packet'], record['decision']
+    if family not in ('ICT2022','IFVG'):raise ValueError('UNKNOWN_ICT_FAMILY')
+    packet, parent = record['packet'], record['decision']
+    decision=parent if family=='ICT2022' else parent['ifvg_review']
     if decision.get('decision') not in ('PROPOSE_LONG', 'PROPOSE_SHORT'):
         raise ValueError('NO_ENTRY_PROPOSED')
     if not re.fullmatch(r'MNQ[HMUZ]20\d{2}', str(contract)) or packet.get('contract_configured') != contract:
@@ -36,7 +38,7 @@ def proposal(record, contract, now):
     raw = record.get('response') or {}
     texts = [c['text'] for item in raw.get('output', []) if item.get('type') == 'message'
              for c in item.get('content', []) if c.get('type') == 'output_text']
-    if raw.get('status') != 'completed' or len(texts) != 1 or json.loads(texts[0]) != decision:
+    if raw.get('status') != 'completed' or len(texts) != 1 or json.loads(texts[0]) != parent:
         raise ValueError('SAVED_AI_RESPONSE_MISMATCH')
     received = record.get('received_at')
     if type(received) not in (float, int) or not math.isfinite(received) or received > now:
@@ -44,8 +46,11 @@ def proposal(record, contract, now):
     packet_body = {k: v for k, v in packet.items() if k != 'packet_id'}
     if research.digest(packet_body) != packet.get('packet_id'):
         raise ValueError('SAVED_PACKET_CHANGED')
-    v = research.validate(packet, decision, received)
+    v = research.validate(packet, parent, received)
     saved = record['validation']
+    if family=='IFVG':
+        v=v['ifvg_validation'];saved=saved['ifvg_validation']
+    if v.get('state')!='VALIDATED_SHADOW_PROPOSAL':raise ValueError('NO_VALIDATED_PROPOSAL')
     for key in ('state', 'entry', 'stop', 'target', 'activation_at', 'expires_at', 'gross_rr'):
         if saved.get(key) != v.get(key):
             raise ValueError('SAVED_APPROVAL_CHANGED')
@@ -55,8 +60,9 @@ def proposal(record, contract, now):
     target=v['entry']+(1 if plan['direction']=='LONG' else -1)*2*abs(v['entry']-v['stop'])
     binding = dict(review_id=record['id'], packet_id=packet['packet_id'], direction=plan['direction'],
                    contract=contract, entry=v['entry'], stop=v['stop'], target=target,
-                   ai_liquidity_target=v['target'], target_rule='FIXED_2R_GROSS',
+                   ai_liquidity_target=v.get('ai_liquidity_target',v['target']), target_rule='FIXED_2R_GROSS',
                    activation_at=received, expires_at=v['expires_at'])
+    if family=='IFVG':binding.update(family='IFVG',inversion_bar_id=plan['inversion_bar_id'])
     fingerprint = hashlib.sha256(canonical(binding).encode()).hexdigest()
     return dict(binding, strategy=STRATEGY, order_id='ICT-'+fingerprint[:40], fingerprint=fingerprint,
                 order_type='LIMIT', gross_rr=2.0, ai_gross_rr=v['gross_rr'], risk_usd_per_mnq=v['risk_usd_per_mnq'],
@@ -113,14 +119,17 @@ class Handoff:
         db=sqlite3.connect(self.path, timeout=15);db.row_factory=sqlite3.Row;return db
 
     def refresh(self, records, packet, now):
-        for r in records:
-            if not (r.get('decision') or {}).get('plan'):continue
-            body=dict(review_id=r['id'], checked_at=now, execution_authorized=False,
+        for r,family in [(r,f) for r in records for f in ('ICT2022','IFVG')]:
+            decision=(r.get('decision') or {})
+            if family=='IFVG':decision=decision.get('ifvg_review') or {}
+            if not decision.get('plan'):continue
+            rid=r['id']+(':IFVG' if family=='IFVG' else '')
+            body=dict(review_id=rid, family=family, checked_at=now, execution_authorized=False,
                       mode='PREVIEW_ONLY', broker_order_sent=False, quantity=None,
                       version=VERSION, blockers=[], plan=None, command_preview=None)
             fingerprint=None
             try:
-                p=proposal(r, self.config.get('AB_V3_CONTRACT'), now)
+                p=proposal(r, self.config.get('AB_V3_CONTRACT'), now,family=family)
                 fingerprint=p['fingerprint'];body['plan']=p
                 body['command_preview']=limit_preview(p)
                 size=self.sizing(p,now);body['sizing']=size
@@ -131,8 +140,11 @@ class Handoff:
                 why=market_reason(p, packet, now)
                 if why:body['blockers'].append(why)
                 import ict_execution
-                body['blockers'] += ict_execution.status()['blockers']
-                if r['packet'].get('execution_contract')!=ict_execution.VERSION or r['decision']['plan'].get('invalidation_mode')!=ict_execution.VERSION:
+                runtime=ict_execution.status()
+                body['blockers'] += runtime['ifvg']['blockers'] if family=='IFVG' else runtime['blockers']
+                contract=ict_execution.IFVG_VERSION if family=='IFVG' else ict_execution.VERSION
+                key='ifvg_execution_contract' if family=='IFVG' else 'execution_contract'
+                if r['packet'].get(key)!=contract or decision['plan'].get('invalidation_mode')!=contract:
                     body['blockers'].append('ICT_INSTRUCTION_INVALIDATION_NOT_MACHINE_VALIDATED')
                 body['state']='INVALIDATED' if why=='BRACKET_TOUCHED_BEFORE_SUBMISSION' else 'PREVIEW_BLOCKED'
             except (AssertionError, KeyError, TypeError, ValueError, OverflowError, IndexError):
@@ -141,7 +153,7 @@ class Handoff:
                 body.update(state=state,blockers=[state])
             with self.db() as db:
                 db.execute('BEGIN IMMEDIATE')
-                old=db.execute('SELECT fingerprint,body FROM intents WHERE review_id=?',(r['id'],)).fetchone()
+                old=db.execute('SELECT fingerprint,body FROM intents WHERE review_id=?',(rid,)).fetchone()
                 if old:
                     previous=json.loads(old['body'])
                     if (old['fingerprint'] and fingerprint and old['fingerprint']!=fingerprint) or previous['state']=='CHANGED_PROPOSAL':
@@ -150,16 +162,16 @@ class Handoff:
                     if previous['state'] in ('EXPIRED','INVALIDATED','INVALID_PROPOSAL'):
                         body.update(state=previous['state'],blockers=previous['blockers'],command_preview=None)
                     db.execute('UPDATE intents SET fingerprint=COALESCE(fingerprint,?),updated=?,body=? WHERE review_id=?',
-                               (fingerprint,now,canonical(body),r['id']))
+                               (fingerprint,now,canonical(body),rid))
                 else:
-                    db.execute('INSERT INTO intents VALUES(?,?,?,?,?)',(r['id'],fingerprint,now,now,canonical(body)))
+                    db.execute('INSERT INTO intents VALUES(?,?,?,?,?)',(rid,fingerprint,now,now,canonical(body)))
 
             if self.config.get('ICT_EXECUTION_ENABLED','false')=='true' and body['state']=='PREVIEW_BLOCKED' and body.get('plan'):
                 import ict_execution
-                body['execution_result']=ict_execution.process(r)
+                body['execution_result']=ict_execution.process(r,family=family)
                 body['mode']='GUARDED_AUTOMATIC'
                 with self.db() as db:
-                    db.execute('UPDATE intents SET body=? WHERE review_id=?',(canonical(body),r['id']))
+                    db.execute('UPDATE intents SET body=? WHERE review_id=?',(canonical(body),rid))
 
     def state(self):
         with self.db() as db:rows=[json.loads(r[0]) for r in db.execute('SELECT body FROM intents ORDER BY created DESC LIMIT 100')]

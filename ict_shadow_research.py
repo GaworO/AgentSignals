@@ -17,7 +17,7 @@ def canonical(x):return json.dumps(x,sort_keys=True,separators=(',',':'),allow_n
 def digest(x):return hashlib.sha256(canonical(x).encode()).hexdigest()
 def obj(props):return dict(type='object',properties=props,required=list(props),additionalProperties=False)
 STR={'type':'string'};NUM={'type':'number'};IDS={'type':'array','items':STR}
-def schema(packet_id, execution_contract=None, include_ifvg=False):
+def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_execution_contract=None):
  anchor=obj(dict(evidence_id=STR,field=dict(type='string',enum=['high','low','price']),price=NUM))
  plan=obj(dict(direction=dict(type='string',enum=['LONG','SHORT']),order_type=dict(type='string',enum=['LIMIT']),entry_fvg_bar_ids=dict(type='array',items=STR,minItems=3,maxItems=3),entry_fraction=dict(type='number',minimum=0,maximum=1),entry_price=NUM,stop_anchor=anchor,stop_buffer_ticks=dict(type='integer',minimum=0),stop_price=NUM,target_anchor=anchor,target_price=NUM,valid_until=dict(type='integer'),entry_reason=STR,stop_reason=STR,target_reason=STR,invalidation_condition=STR))
  if execution_contract:
@@ -28,7 +28,7 @@ def schema(packet_id, execution_contract=None, include_ifvg=False):
  if include_ifvg:
   # Same request and budget reservation, independent family result. The original
   # top-level plan remains ICT 2022 and is the only broker-routable plan.
-  companion=schema(packet_id)
+  companion=schema(packet_id,ifvg_execution_contract)
   ip=companion['properties']['plan']['anyOf'][1]
   ip['properties']['inversion_bar_id']=STR
   ip['required'].append('inversion_bar_id')
@@ -311,8 +311,13 @@ def remote_run(index,observe_only=False,manual_authorization=None,pm_authorizati
    instructions=instructions.replace('no later than 11:00 NY','no later than the supplied session_end timestamp').replace('no later than 16:00 NY','no later than the supplied session_end timestamp')
   if packet.get('execution_contract'):
    instructions += ''' The application may separately route validated proposals only with operator permission. You still have no execution authority. For this packet the entry and structural stop remain exactly your proposed levels, but execution TP is FIXED at entry + 2*(entry-stop) for LONG, or entry - 2*(stop-entry) for SHORT. Your target_anchor/target_price remain the evidence-backed liquidity boundary and must leave at least that much room. Assess this exact fixed-2R bracket, not a later adaptive exit. Mechanical invalidation before fill consists of: original SL or fixed 2R target touched on any newly closed MNQ M1 bar; a newer opposing NQ/MNQ MSS, BOS, STRUCTURE_BREAK, SWEEP_RECLAIM, IFVG or directional liquidity event; revised/missing market evidence; original expiry or session expiry. Aligned events alone do not invalidate. No discretionary post-fill exits. Set invalidation_mode to the supplied execution_contract only when these machine checks fully cover your required pre-entry invalidation; otherwise choose UNSUPPORTED_ADDITIONAL_CONDITION and explain the additional condition. Unsupported proposals remain shadow-only. Do not invent a structural SL to get a desired quantity; the application sizes deterministically with 0.5% equity maximum including costs and tighter account controls.'''
-  if packet.get('review_families')==['ICT2022','IFVG']:instructions+='\n'+IFVG_PROMPT
-  payload=dict(model=os.environ['OPENAI_MODEL'],store=False,stream=True,service_tier='default',max_output_tokens=5000,reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=canonical(packet))],text={'format':dict(type='json_schema',name='ict_independent_shadow_v2',strict=True,schema=schema(packet['packet_id'],packet.get('execution_contract'),packet.get('review_families')==['ICT2022','IFVG']))})
+  if packet.get('review_families')==['ICT2022','IFVG']:
+   ifvg_prompt=IFVG_PROMPT
+   if packet.get('ifvg_execution_contract'):
+    ifvg_prompt=ifvg_prompt.replace("IFVG has NO broker permission, even if the original family's execution contract is supplied.", 'IFVG may be routed separately by the application only after explicit operator authorization and all safety checks. You never authorize orders.')
+    ifvg_prompt+=' For IFVG set invalidation_mode to ifvg_execution_contract only if the original machine invalidations plus a subsequent same-formation-timeframe close through the opposite inverted-gap edge fully cover your thesis: LONG closes below the lower edge, SHORT closes above the upper edge invalidate; missing data blocks. Otherwise choose UNSUPPORTED_ADDITIONAL_CONDITION. Entry, structural SL and fixed 2R TP remain unchanged.'
+   instructions+='\n'+ifvg_prompt
+  payload=dict(model=os.environ['OPENAI_MODEL'],store=False,stream=True,service_tier='default',max_output_tokens=5000,reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=canonical(packet))],text={'format':dict(type='json_schema',name='ict_independent_shadow_v2',strict=True,schema=schema(packet['packet_id'],packet.get('execution_contract'),packet.get('review_families')==['ICT2022','IFVG'],packet.get('ifvg_execution_contract')))})
   assert len(canonical(payload).encode())<550000,'PACKET_TOO_LARGE'
   flags={k:os.environ.get(k) for k in ['EXEC_KILL_SWITCH','LIVE_EXECUTION_ENABLED','V3_ENTRY_ARMED','AB_Q1_ENTRY_ARMED','RISK_PCT','EXEC_STRATEGY_POLICY','AB_AI_MAX_CALLS_PER_DAY']}
   assert time.time()-packet['as_of']<=120,'STALE_BEFORE_REQUEST'
