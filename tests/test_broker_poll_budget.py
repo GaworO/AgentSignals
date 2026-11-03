@@ -220,3 +220,93 @@ def test_repeated_broker_short_hints_back_off_and_only_same_route_success_resets
     t[0]+=241;control.succeeded(s,'/accounts/Eval')
     control.http_error(s,'/accounts/Eval',refusal())
     assert control.status(s)['remaining_seconds']==60
+
+
+def test_unchanged_refresh_publishes_matching_risk_before_native_callback(setup):
+    s,t,c,v,p=setup
+    assert s.poll() and ar.state(s)['verified']
+    t[0]+=15;c.clear();seen=[]
+    s.after_poll=lambda snapshot:seen.append((snapshot,ar.state(s)))
+    assert s.poll()
+    snapshot,risk=seen[0]
+    assert risk['verified'],risk
+    assert risk['snapshot_started_ms']==int(snapshot['read_started_at']*1000)
+    assert len(c)==4  # No extra provider reads to cure a local publication race.
+
+
+@pytest.mark.parametrize('change',['position','order','cash','forced','history_ttl'])
+def test_full_refresh_publishes_blocked_pending_without_delaying_native_callback(setup,change):
+    s,t,c,v,p=setup
+    assert s.poll();t[0]+=15;c.clear();seen=[]
+    if change=='position':v['/accounts/Eval/positions']=[dict(accountId=1,netPos=1)]
+    if change=='order':v['/accounts/Eval/orders']=[dict(accountId=1,id=12)]
+    if change=='cash':v['/accounts/Eval']['balance']['netLiq']-=1
+    if change=='history_ttl':t[0]+=300
+    def callback(snapshot):
+        seen.append(ar.state(s))
+        assert not any(x.startswith('/fills/history?') for x in c)
+        assert s.snapshot()==snapshot
+    s.after_poll=callback
+    assert s.poll(wait=change=='forced')
+    assert seen[0]['missing']==['account_risk_reconciliation_refresh_pending']
+    assert not seen[0]['verified'] and seen[0]['controls'] is None
+    final=ar.state(s)
+    assert final['snapshot_started_ms']==int(s.snapshot()['read_started_at']*1000)
+    assert final['verified']==(change in ('forced','history_ttl'))
+
+
+def test_cached_publication_keeps_true_age_and_failure_fences(setup):
+    s,t,c,v,p=setup
+    assert s.poll();t[0]+=15;assert s.poll()
+    assert ar.state(s)['verified']
+    assert not ar.state(s,now_ms=int((t[0]+31)*1000))['verified']
+    assert not ar.state(s,now_ms=int((t[0]-1)*1000))['verified']
+    s.reader=Mock(side_effect=OSError('unavailable'))
+    assert not s.poll()
+    assert not ar.state(s)['verified']
+
+
+def test_snapshot_and_risk_commit_are_atomic_for_other_workers(setup,monkeypatch):
+    import threading
+    s,t,c,v,p=setup
+    assert s.poll();old=s.snapshot()['read_started_at'];t[0]+=15
+    entered=threading.Event();release=threading.Event();out=[]
+    store=ar.store
+    def paused_store(db,binding,result):
+        store(db,binding,result)
+        entered.set()
+        assert release.wait(3)
+    monkeypatch.setattr(ar,'store',paused_store)
+    writer=threading.Thread(target=lambda:out.append(s.poll()))
+    writer.start()
+    try:
+        assert entered.wait(3)
+        other=b.AccountSync(s.config,reader=Mock(side_effect=AssertionError('no provider reads')),clock=s.clock)
+        risk=ar.state(other)
+        assert risk['verified'] and risk['snapshot_started_ms']==int(old*1000)
+        assert other.snapshot()['read_started_at']==old
+    finally:
+        release.set();writer.join(3)
+    assert out==[True]
+    assert ar.state(other)['verified']
+    assert ar.state(other)['snapshot_started_ms']==int(t[0]*1000)
+
+
+def test_atomic_publication_failure_cannot_leave_new_snapshot_with_old_approval(setup,monkeypatch):
+    s,t,c,v,p=setup
+    assert s.poll();old=s.snapshot();t[0]+=15
+    def failure(*args):raise OSError('storage failure')
+    monkeypatch.setattr(ar,'store',failure)
+    assert not s.poll()
+    assert s.snapshot()==old
+    assert not ar.state(s)['verified']
+
+
+def test_assessment_metadata_error_cannot_preserve_verified_controls(setup,monkeypatch):
+    s,t,c,v,p=setup
+    assert s.poll()
+    def fail(value):raise ValueError('metadata invalid')
+    monkeypatch.setattr(b,'encode',fail)
+    risk=ar.refresh(s,s.snapshot(),persist=False,cached_only=True)
+    assert not risk['verified'] and risk['controls'] is None
+    assert risk['missing']==['account_risk_provider_read_or_schema_failed']

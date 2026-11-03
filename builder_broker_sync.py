@@ -194,6 +194,14 @@ class AccountSync:
                         raise SyncError('BROKER_FILL_ID_REQUIRED')
             snapshot = dict(observed_at=finished, read_started_at=started, **values)
             fingerprint = hashlib.sha256(encode(values).encode()).hexdigest()
+            import directional_account_reconciliation as risk
+            # Reassess unchanged inputs locally before publication. No network
+            # work here: native protection must still receive snapshots promptly.
+            prepared_risk = risk.refresh(self, snapshot, persist=False, cached_only=True)
+            published_risk = prepared_risk if prepared_risk is not None else dict(
+                verified=False, controls=None, account_binding=self.binding,
+                observed_at_ms=int(finished*1000), snapshot_started_ms=int(started*1000),
+                missing=['account_risk_reconciliation_refresh_pending'])
             with self.connect() as c:
                 c.execute('BEGIN IMMEDIATE')
                 for fill in values['fills']:
@@ -209,6 +217,7 @@ class AccountSync:
                 c.execute('INSERT OR REPLACE INTO account_snapshots VALUES(?,?,?)', (self.binding,finished,encode(snapshot)))
                 c.execute('INSERT OR IGNORE INTO account_changes VALUES(?,?,?,?)', (self.binding,fingerprint,finished,encode(values)))
                 c.execute('INSERT OR REPLACE INTO sync_attempts VALUES(?,?,NULL)', (self.binding,finished))
+                risk.store(c, self.binding, published_risk)
             # The complete account snapshot is committed before order reconciliation.
             # A failed order-specific read must not erase a valid account balance.
             callback = getattr(self, 'after_poll', None)
@@ -218,14 +227,14 @@ class AccountSync:
                     self.reconciliation_error = None
                 except Exception:
                     self.reconciliation_error = 'NATIVE_RECONCILIATION_FAILED'
-            # Read-only account-wide fees/risk evidence; never grants order permission.
-            # Failure leaves the last evidence stale or explicitly blocked.
-            import directional_account_reconciliation
-            try:
-                directional_account_reconciliation.refresh(self, snapshot)
-                if wait:self.last_forced_snapshot_ms=int(snapshot['read_started_at']*1000)
-            except Exception:
-                pass  # snapshot identity/age fences prevent reuse after storage failure
+            # Changed inputs, restart, cache expiry and pre-entry checks still
+            # require provider reads. Pending is blocked, never old approval.
+            if prepared_risk is None:
+                try:
+                    risk.refresh(self, snapshot)
+                    if wait:self.last_forced_snapshot_ms=int(snapshot['read_started_at']*1000)
+                except Exception:
+                    pass  # the atomically published pending result stays blocked
             return True
         except Exception as exc:
             # Throttling does not change account identity. Auth, transport or

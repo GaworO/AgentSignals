@@ -275,8 +275,19 @@ def assess(snapshot, rows, margin, proof, binding, contract, now_ms):
     return result
 
 
-def refresh(sync, snapshot):
-    """Called by the existing account poller; errors persist a blocking result."""
+def store(db, binding, result):
+    """Allow the poller to publish the snapshot and its risk result together."""
+    db.execute('CREATE TABLE IF NOT EXISTS account_risk_reconciliation(binding TEXT PRIMARY KEY,payload TEXT)')
+    db.execute('INSERT OR REPLACE INTO account_risk_reconciliation VALUES(?,?)',
+               (binding,json.dumps(result,sort_keys=True,allow_nan=False)))
+
+
+def refresh(sync, snapshot, *, persist=True, cached_only=False):
+    """Assess current inputs; cached_only never reads the provider.
+
+    None means authoritative history/margin reads are needed. The caller must
+    publish a blocking pending result until those reads and assessment finish.
+    """
     now = int(sync.clock()*1000)
     result = dict(verified=False, observed_at_ms=now, account_binding=sync.binding,
                   snapshot_started_ms=int(snapshot['read_started_at']*1000), controls=None)
@@ -298,10 +309,12 @@ def refresh(sync, snapshot):
         cached=getattr(sync,'reconciliation_cache',None)
         reusable=(not getattr(sync,'force_reconciliation',False) and cached
                   and cached['signature']==signature and 0<=now-cached['at_ms']<300000)
-        rows=cached['rows'] if reusable else history(sync)
         # Margin allowances can vary without fills. Only a current, explicit
         # contract-cap-only rule permits reuse of the diagnostic margin row.
         contract_only=proof.get('margin_policy',{}).get('mode')=='CONTRACT_CAP_ONLY'
+        if cached_only and not (reusable and contract_only):
+            return None
+        rows=cached['rows'] if reusable else history(sync)
         margin=cached['margin'] if reusable and contract_only else margin_row(sync)
         result = assess(snapshot, rows, margin, proof, sync.binding,
                         sync.config.get('AB_V3_CONTRACT'), int(sync.clock()*1000))
@@ -316,11 +329,11 @@ def refresh(sync, snapshot):
         result['input_sha256'] = hashlib.sha256(json.dumps(dict(fills=rows,margin=margin),sort_keys=True).encode()).hexdigest()
     except Exception:
         sync.reconciliation_cache=None
-        result['missing'] = ['account_risk_provider_read_or_schema_failed']
-    with sync.connect() as db:
-        db.execute('CREATE TABLE IF NOT EXISTS account_risk_reconciliation(binding TEXT PRIMARY KEY,payload TEXT)')
-        db.execute('INSERT OR REPLACE INTO account_risk_reconciliation VALUES(?,?)',
-                   (sync.binding,json.dumps(result,sort_keys=True,allow_nan=False)))
+        result.update(verified=False, controls=None,
+                      missing=['account_risk_provider_read_or_schema_failed'])
+    if persist:
+        with sync.connect() as db:
+            store(db, sync.binding, result)
     return result
 
 
@@ -330,14 +343,18 @@ def state(sync=None, *, now_ms=None):
         sync = builder_broker_sync.instance()
     if not sync.enabled:
         return dict(verified=False,missing=['broker_sync_disabled'])
-    now_ms = int(sync.clock()*1000) if now_ms is None else now_ms
     try:
         with sync.connect() as db:
-            row=db.execute('SELECT payload FROM account_risk_reconciliation WHERE binding=?',(sync.binding,)).fetchone()
+            # A single SQLite read view cannot mix generations across a poll
+            # commit. All existing identity, age and broker-error fences remain.
+            row=db.execute('SELECT r.payload,s.payload FROM account_risk_reconciliation r '
+                           'JOIN account_snapshots s ON s.binding=r.binding WHERE r.binding=?',
+                           (sync.binding,)).fetchone()
         if not row:
             raise ValueError()
         result=json.loads(row[0])
-        snap=sync.snapshot()
+        snap=json.loads(row[1])
+        now_ms = int(sync.clock()*1000) if now_ms is None else now_ms
         if (not sync.state()['current'] or not snap
                 or result.get('snapshot_started_ms')!=int(snap['read_started_at']*1000)
                 or not 0 <= now_ms-result['snapshot_started_ms'] <= 30000):
