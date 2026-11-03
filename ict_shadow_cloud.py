@@ -299,6 +299,12 @@ def register(app,config=None,start=True):
         r=next((r for r in cloud.records() if r['id']==rid),None)
         return jsonify({k:v for k,v in r.items() if k not in ('flags','original_sse')} if r else {'error':'not_found'})
     app.add_url_rule('/ict-shadow/reviews/<rid>','ict_shadow_detail',private(detail))
+    def history():
+        import ict_history
+        try:return jsonify(ict_history.collect(cloud,request.args.get('period','day'),request.args.get('date',datetime.now(NY).date().isoformat()),request.args.get('session','ALL')))
+        except ValueError as e:
+            response=jsonify(error=str(e));response.status_code=400;return response
+    app.add_url_rule('/ict-shadow/history','ict_shadow_history',private(history))
     import ict_risk_renewal_web
     ict_risk_renewal_web.register(app,private,cloud.config)
     if start:threading.Thread(target=cloud.run,daemon=True,name='ict-shadow-cloud').start()
