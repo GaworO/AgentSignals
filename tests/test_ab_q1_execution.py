@@ -35,7 +35,7 @@ def isolated_process_state():
 REAL_CHECK=gate.check
 
 
-def setup(now,side='LONG',key='q1'):
+def make_q1_setup(now,side='LONG',key='q1'):
     s=signal(side);s['bos_ms']=int(now*1000)//60000*60000-60000
     return review.candidate(s,key,dict(AB_V3_CONTRACT='MNQZ2026',EXEC_CANCEL_AFTER_SEC='600'))
 
@@ -70,7 +70,7 @@ def routed(h,tmp_path,monkeypatch):
     monkeypatch.setattr(q.live,'now_ms',f.api.now_ms)
     monkeypatch.setattr(q.dispatches,'DB_PATH',tmp_path/'dispatch.db');q.dispatches._init_db()
     monkeypatch.setattr(ab_ai_context,'INSTANCE',h.support)
-    order=setup(f.now);f.order=dict(order,quantity=2,route_id=f.api.route(),account_label='Builder 50K',
+    order=make_q1_setup(f.now);f.order=dict(order,quantity=2,route_id=f.api.route(),account_label='Builder 50K',
         lifecycle=q.LIFECYCLE,runner_enabled=False,risk_points=10,baseline_target_price=order['target_price'])
     with f.api.connect() as db:db.execute('DELETE FROM orders')
     f.prepare()
@@ -85,7 +85,7 @@ def routed(h,tmp_path,monkeypatch):
 
 def allow(f,h,side='LONG'):
     if side=='SHORT':
-        o=setup(f.now,side);f.order.update(o,baseline_target_price=o['target_price']);f.prepare()
+        o=make_q1_setup(f.now,side);f.order.update(o,baseline_target_price=o['target_price']);f.prepare()
     assert f.review.queue_setup(f.order)['state']=='queued'
     assert f.review.process_one()
     assert review.check(f.order,f.review)[0] is None
@@ -212,7 +212,7 @@ def test_legacy_ab_signal_cannot_use_shared_policy(routed):
 def test_q1_uses_real_account_risk_validator(q_native,monkeypatch,tmp_path):
     f=q_native;flags(monkeypatch)
     # Use an eligible NYAM instant, keeping all fixture account times current.
-    o=setup(f.now);f.order=dict(o,quantity=2,route_id=f.api.route(),account_label='Builder 50K')
+    o=make_q1_setup(f.now);f.order=dict(o,quantity=2,route_id=f.api.route(),account_label='Builder 50K')
     with f.api.connect() as db:db.execute('DELETE FROM orders')
     f.prepare()
     with q.dispatches._connect() as db:db.execute('DELETE FROM live_dispatches')
@@ -294,7 +294,7 @@ def test_q1_structural_thesis_blocks_missing_or_contradictory_evidence(routed,mo
 
 def test_pending_q1_preserves_shared_account_checks(q_native,monkeypatch):
     f=q_native;flags(monkeypatch)
-    o=setup(f.now);f.order=dict(o,quantity=2,route_id=f.api.route(),account_label='Builder 50K',
+    o=make_q1_setup(f.now);f.order=dict(o,quantity=2,route_id=f.api.route(),account_label='Builder 50K',
                                ai_review_at_native_dispatch=dict(review_id='mock',expires_at=f.now+120))
     f.prepare();q.dispatches._claim(o,'test')
     monkeypatch.setattr(q,'permission',lambda o:None)
@@ -366,7 +366,7 @@ def test_q1_session_allowance_preserves_guard_loss_limit(guarded,monkeypatch):
     state,stats,original,check,latch=guarded
     monkeypatch.setenv('SKIP_SESSIONS','NYAM')
     assert check()==(False,'session:NYAM')
-    o=setup(1792504800.)
+    o=make_q1_setup(1792504800.)
     x=q.signal(o);x['_planned_group_risk_usd']=250.
     state['pending_group'].update(group_id='ab_q1_'+o['order_id'],strats=['A/B'])
     result=q.guardrails.guard_ok(x,0,True,False,0,reservation_id='ab_q1_'+o['order_id'])

@@ -851,6 +851,7 @@ def _continuation_live_budget(profile):
 def _directional_live_budget(profile):
     """Separate capped risk switch for A/B Directional; never borrows Continuation config."""
     import directional_account_limits
+    import builder_broker_sync
     try:
         if directional_account_limits.equity_percent_mode():
             sync=builder_broker_sync.instance()

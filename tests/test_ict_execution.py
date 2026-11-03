@@ -210,6 +210,9 @@ def test_partial_fill_keeps_exact_quantity_protection(routed):
 
 def test_dispatch_uses_shared_guard_size_and_native_route(routed,monkeypatch):
     import guardrails, directional_risk_revalidation as risk
+    import builder_broker_sync
+    from types import SimpleNamespace
+    from test_live_risk_budget import production_budget
     f=routed
     with f.api.connect() as db:db.execute('DELETE FROM orders')
     monkeypatch.setattr(ict,'permission',lambda o,**kw:None) # Permission has independent negative tests above.
@@ -222,7 +225,12 @@ def test_dispatch_uses_shared_guard_size_and_native_route(routed,monkeypatch):
     monkeypatch.setattr(guardrails,'touch_sibling_batch',lambda *a:None)
     monkeypatch.setattr(guardrails,'note',lambda *a:None)
     # f.final_gate isolates final validation; review is the real saved-response verifier.
-    result=ict.dispatch(f.base,budget_builder=lambda p:243.60,feed_age=lambda:0,market_open=lambda:True,news_flags=lambda s:([],False),calendar_age=lambda:0)
+    monkeypatch.setenv('AB_DIRECTIONAL_RISK_MODE','EQUITY_PERCENT')
+    monkeypatch.setenv('AB_DIRECTIONAL_RISK_PCT','0.5')
+    monkeypatch.setattr(builder_broker_sync,'instance',lambda:SimpleNamespace(
+        enabled=True,state=lambda:{'current':True},
+        snapshot=lambda:{'account':{'balance':{'netLiq':48721.05}}}))
+    result=ict.dispatch(f.base,budget_builder=production_budget(),feed_age=lambda:0,market_open=lambda:True,news_flags=lambda s:([],False),calendar_age=lambda:0)
     assert result['state']=='SENT' and result['quantity']==2 and len(f.posts)==1
     assert batch.call_args.args==('ict_ai_'+f.base['order_id'],243.60,['ICT AI'])
     assert f.local()['state']=='WAITING_BROKER_FILL' and f.local()['position_json'] is None
