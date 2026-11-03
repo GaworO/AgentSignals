@@ -290,7 +290,7 @@ def register(app,config=None,start=True):
     def private(fn):
         def wrapped(*args,**kwargs):
             if not authorized():return Response('Sign in with your existing Tanja dashboard login.',401,{'WWW-Authenticate':'Basic realm="ICT Shadow"'})
-            r=fn(*args,**kwargs);r.headers['Cache-Control']='no-store';r.headers['X-Content-Type-Options']='nosniff';return r
+            r=fn(*args,**kwargs);r.headers['Cache-Control']='no-store';r.headers['X-Content-Type-Options']='nosniff';r.headers['X-Frame-Options']='DENY';return r
         return wrapped
     app.add_url_rule('/ict-shadow','ict_shadow_view',private(lambda:Response(Path(__file__).with_name('ict_shadow.html').read_text(),mimetype='text/html')))
     app.add_url_rule('/ict-shadow/state','ict_shadow_state',private(lambda:jsonify(cloud.state())))
@@ -299,5 +299,7 @@ def register(app,config=None,start=True):
         r=next((r for r in cloud.records() if r['id']==rid),None)
         return jsonify({k:v for k,v in r.items() if k not in ('flags','original_sse')} if r else {'error':'not_found'})
     app.add_url_rule('/ict-shadow/reviews/<rid>','ict_shadow_detail',private(detail))
+    import ict_risk_renewal_web
+    ict_risk_renewal_web.register(app,private,cloud.config)
     if start:threading.Thread(target=cloud.run,daemon=True,name='ict-shadow-cloud').start()
     return cloud
