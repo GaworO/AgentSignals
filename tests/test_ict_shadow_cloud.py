@@ -110,7 +110,8 @@ def test_default_worker_disabled(c,monkeypatch):
     with c.db() as db:assert 'SCANNER_DISABLED' in db.execute("SELECT value FROM state WHERE key='last_check'").fetchone()[0]
 
 @pytest.mark.parametrize('future',[False,True,'extension'])
-def test_full_review_pipeline_mocked_only(c,monkeypatch,future):
+@pytest.mark.parametrize('production_state',[None,'finished_unknown','running','unfinished_unknown'])
+def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state):
     import ict_shadow_research as r, ab_ai_context as ai, directional_ai_transport as transport
     from pathlib import Path
     p=json.loads((Path(__file__).parent/'fixtures/ict_shadow_market.json').read_text())['packet']
@@ -127,7 +128,10 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future):
     monkeypatch.setattr(ai.ContextSupport,'packet',lambda *_:p.copy())
     monkeypatch.setenv('DATA_DIR',str(c.root.parent));monkeypatch.setenv('OPENAI_MODEL','gpt-6.1-sol');monkeypatch.setenv('OPENAI_API_KEY','mock-not-a-key')
     with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:
-        db.executescript('CREATE TABLE reviews(id TEXT,day TEXT,status TEXT,requested_at REAL,review_kind TEXT); CREATE TABLE setup_requests(state TEXT, expires REAL);')
+        db.executescript('CREATE TABLE reviews(id TEXT,day TEXT,status TEXT,requested_at REAL,review_kind TEXT,finished REAL,error_code TEXT); CREATE TABLE setup_requests(state TEXT, expires REAL);')
+        if production_state:
+            db.execute('INSERT INTO reviews VALUES(?,?,?,?,?,?,?)',('production-original',r.DAY,'running' if production_state=='running' else 'unknown',at-3600,'SETUP',at-3500 if production_state=='finished_unknown' else None,'TimeoutError'))
+        production_before=db.execute('SELECT * FROM reviews').fetchall()
     sent=[]
     def request(payload,key,seconds):
         sent.append(payload);pk=json.loads(payload['input'][1]['content'])
@@ -138,6 +142,12 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future):
         monkeypatch.setattr(c,'select',lambda rows,p,now:(8,'CLOUD_STRUCTURE_EVENT',None) if not rows else (None,'90_SECOND_COOLDOWN',None))
         monkeypatch.setattr(r,'reserve_borrowed_call',lambda *a,**k:pytest.fail('Production debit forbidden'))
     result=r.remote_run(None,pm_authorization=auth,cloud=c)
+    if production_state in ('running','unfinished_unknown'):
+        assert result['state'] in ('DEFER_PRODUCTION_AI_BUSY','DEFER_PRODUCTION_AI_UNRESOLVED')
+        assert not sent
+        with c.db() as db:assert db.execute('SELECT count(*) FROM costs').fetchone()[0]==0
+        with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:assert db.execute('SELECT * FROM reviews').fetchall()==production_before
+        return
     assert result['state']=='research_completed' and result['validation']['state']=='WAIT'
     assert len(sent)==1
     assert json.loads(sent[0]['input'][1]['content'])['scheduled_news']['status']=='CLEAR'
@@ -150,7 +160,7 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future):
         assert result['budget_before']['borrowed_attempts']==0
         assert result['budget_before']['research_limit']==12
     assert r.remote_run(None,pm_authorization=auth,cloud=c)['state'] in ('TEN_MINUTE_COOLDOWN','90_SECOND_COOLDOWN')
-    with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:assert db.execute('SELECT COUNT(*) FROM reviews').fetchone()[0]==0
+    with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:assert db.execute('SELECT * FROM reviews').fetchall()==production_before
     with c.db() as db:assert db.execute('SELECT count(*) FROM costs').fetchone()[0]==1
 
 @pytest.mark.parametrize('kind',['gap','ambiguous','target_before_fill','nofill'])
@@ -200,3 +210,26 @@ def test_twelve_call_extension_preserves_history_and_burned_slots(c):
     assert daily_call_limit('2026-10-30')==12
     assert daily_call_limit('2026-11-02')==16
     assert c.select([],p,ts('2026-10-30T16:00:00'))[1]=='OUTSIDE_SESSION'
+
+
+@pytest.mark.parametrize('patch',[
+    {'finished':None},{'finished':float('nan')},{'finished':float('inf')},
+    {'finished':1001},{'finished':899},{'finished':True},
+    {'requested_at':None},{'requested_at':0},{'requested_at':'900'},
+    {'error_code':None},{'error_code':''},{'error_code':' '},
+])
+def test_incomplete_production_failure_evidence_still_blocks(patch):
+    import ict_shadow_research as r
+    row=dict(status='unknown',requested_at=900,finished=950,error_code='TimeoutError')
+    row.update(patch)
+    assert r.production_defer_reason([row],1000,independent_cloud=True)=='DEFER_PRODUCTION_AI_UNRESOLVED'
+
+
+def test_finished_failure_is_not_running_or_refunded_and_legacy_stays_strict():
+    import ict_shadow_research as r
+    row=dict(status='unknown',requested_at=900,finished=950,error_code='TimeoutError')
+    before=dict(row)
+    assert r.production_defer_reason([row],1000,independent_cloud=True) is None
+    assert r.production_defer_reason([row],1000)=='DEFER_PRODUCTION_AI_UNRESOLVED'
+    assert r.production_defer_reason([row,dict(row,status='running')],1000,independent_cloud=True)=='DEFER_PRODUCTION_AI_BUSY'
+    assert row==before

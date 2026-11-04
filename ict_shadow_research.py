@@ -248,6 +248,27 @@ def validate(packet,d,received):
   v['ifvg_validation']=iv
  return v
 
+def production_defer_reason(rows, now, *, independent_cloud=False):
+ """Read-only priority gate; finished failures stay charged and never replay.
+
+ ContextSupport records finished+error only after the foreground transport has
+ returned/raised (the SSE transport closes its connection in finally). That is
+ evidence of a completed local attempt, not a recovered provider result.
+ Running/interrupted attempts and incomplete evidence still block. The original
+ one-day experiment retains its stricter unknown-outcome rule.
+ """
+ if any(r['status']=='running' for r in rows):return 'DEFER_PRODUCTION_AI_BUSY'
+ for row in rows:
+  if row['status']!='unknown':continue
+  requested,finished=row.get('requested_at'),row.get('finished')
+  completed_failure=(independent_cloud
+   and all(type(v) in (int,float) and math.isfinite(v) for v in (requested,finished,now))
+   and 0<requested<=finished<=now
+   and isinstance(row.get('error_code'),str) and bool(row['error_code'].strip()))
+  if not completed_failure:return 'DEFER_PRODUCTION_AI_UNRESOLVED'
+ return None
+
+
 def remote_run(index,observe_only=False,manual_authorization=None,pm_authorization=None,cloud=None):
  import os,sqlite3
  from pathlib import Path
@@ -270,9 +291,10 @@ def remote_run(index,observe_only=False,manual_authorization=None,pm_authorizati
  production_path=Path(os.environ['DATA_DIR'])/'ab_ai_context.sqlite3'
  with sqlite3.connect('file:'+str(production_path)+'?mode=ro',uri=True) as prod:
   prod.row_factory=sqlite3.Row
-  production=[dict(r) for r in prod.execute('select id,status,requested_at,review_kind from reviews where day=?',(DAY,))]
+  production=[dict(r) for r in prod.execute('select id,status,requested_at,review_kind,finished,error_code from reviews where day=?',(DAY,))]
  legacy=sum(r['id'].startswith(PREFIX) for r in production)
- if any(r['status'] in ('running','unknown') for r in production):return dict(state='DEFER_PRODUCTION_AI_BUSY',execution_authorized=False)
+ reason=production_defer_reason(production,time.time(),independent_cloud=cloud is not None)
+ if reason:return dict(state=reason,execution_authorized=False)
  dbpath=root/'research_budget.sqlite3'
  def connect():
   db=sqlite3.connect(dbpath,timeout=15);db.row_factory=sqlite3.Row;return db
