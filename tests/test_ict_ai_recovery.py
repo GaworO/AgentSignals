@@ -130,3 +130,15 @@ def test_worker_lock_still_excludes_competing_tick(tmp_path,monkeypatch):
         c.pause=Mock(side_effect=RuntimeError('stop test loop'))
         with pytest.raises(RuntimeError,match='stop test loop'):c.run()
         assert not c.tick.called
+
+
+@pytest.mark.parametrize('state',['THREE_REVIEWS_PER_30_MINUTES','90_SECOND_COOLDOWN','WATCHING_CANDLES_NO_NEW_EVENT','WAIT_FIRST_CLOSED_CANDLE','BLOCKED'])
+def test_saved_scheduler_wait_is_visible_and_not_mislabelled_ready(setup,state):
+    c,client,h,now=setup
+    c.put('last_check',dict(at=now,state=state,reason='STALE_AT_SEND'))
+    value=recovery.inspect(c)
+    assert value['state']=='WAITING'
+    timing=next(row for row in value['checks'] if row['label']=='Review timing')
+    assert timing['state']=='wait' and timing['detail'] in value['blockers']
+    token=get_token(client,h);post(client,h,token)
+    assert recovery.inspect(c)['state']=='WAITING'

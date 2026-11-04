@@ -66,6 +66,17 @@ def inspect(cloud, now=None):
     session_used=sum(window[2]<=r['at']<window[1] for r in costs) if window else 0
     budget_ok=used<cap and amount<DAILY_USD and session_used<8 and not saved.get('budget_anomaly')
     check('AI budget','ok' if budget_ok else 'wait',f'{used}/{cap} calls today · ${amount:.2f}/${DAILY_USD:.2f} estimated or reserved'+(' · limit or reconciliation check prevents further calls.' if not budget_ok else ''),not budget_ok)
+    last=saved.get('last_check',{})
+    timing={
+        'THREE_REVIEWS_PER_30_MINUTES':'Three reviews in 30 minutes. Waiting for the rolling allowance to reopen.',
+        '90_SECOND_COOLDOWN':'Waiting for the minimum 90-second interval between reviews.',
+        'WATCHING_CANDLES_NO_NEW_EVENT':'Watching for fresh structure; otherwise reassessment is due 20 minutes after the last review.',
+        'WAIT_FIRST_CLOSED_CANDLE':'Waiting for the first closed candle of this session.',
+    }
+    wait=timing.get(last.get('state')) if 0<=now-last.get('at',0)<180 else None
+    if last.get('state')=='BLOCKED' and 0<=now-last.get('at',0)<180:
+        wait='Last scanner check failed: '+str(last.get('reason') or 'unknown reason')[:160]
+    check('Review timing','wait' if wait else 'ok',wait or 'Fresh-event, cooldown and reassessment rules apply.',bool(wait))
     market=saved.get('market',{});market_fresh=0<=now-market.get('as_of',0)<=180
     check('Market observations','ok' if market_fresh else 'wait','Recent closed candles available.' if market_fresh else 'Waiting for fresh closed candles. Recovery cannot manufacture missing market data.')
     return dict(at=now,checks=checks,blockers=blockers,can_recheck=enabled and not any(c['state']=='error' for c in checks),
