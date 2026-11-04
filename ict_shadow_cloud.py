@@ -92,6 +92,7 @@ def dashboard_analytics(costs, reviews, now):
 
 class Cloud:
     def __init__(self,config):
+        self._wake=threading.Event();self._worker_lock=threading.Lock();self._worker_thread=None
         self.config=config;self.root=Path(config.get('DATA_DIR','/data/builder50'))/'research';self.root.mkdir(parents=True,exist_ok=True)
         self.dbpath=self.root/'ict_cloud.sqlite3'
         with self.db() as db:
@@ -281,15 +282,24 @@ class Cloud:
             if stopped and target:return {'state':'AMBIGUOUS_SL_TP_SAME_BAR'}
             if stopped or target:return {'state':'SIMULATED_STOP' if stopped else 'SIMULATED_TARGET','gross_usd_per_mnq':(-1 if stopped else v['gross_rr'])*v['risk_usd_per_mnq'],'net_pnl':'UNKNOWN_FEES_SLIPPAGE','freeform_invalidation':'NOT_SIMULATED'}
         return {'state':'SIMULATED_OPEN' if filled else 'UNKNOWN_INCOMPLETE_COVERAGE' if time.time()>expiry else 'SIMULATED_WAITING','freeform_invalidation':'NOT_SIMULATED'}
+    def start_worker(self):
+        with self._worker_lock:
+            if self._worker_thread is not None and self._worker_thread.is_alive():
+                self._wake.set();return 'CHECK_REQUESTED'
+            self._worker_thread=threading.Thread(target=self.run,daemon=True,name='ict-shadow-cloud')
+            self._worker_thread.start()
+            return 'WORKER_STARTED'
+    def pause(self):
+        self._wake.wait(30);self._wake.clear()
     def run(self):
         # Shared volume flock prevents multiple Gunicorn/deployment workers calling AI.
         while True:
             with (self.root/'ict_cloud.lock').open('a') as lock:
                 try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-                except BlockingIOError:time.sleep(30);continue
+                except BlockingIOError:self.pause();continue
                 try:self.tick()
                 except Exception as e:self.put('last_check',{'at':time.time(),'state':'BLOCKED','reason':type(e).__name__+':'+str(e)[:120]})
-                time.sleep(30)
+                self.pause()
 
 def register(app,config=None,start=True):
     from flask import Response, jsonify, request
@@ -318,5 +328,7 @@ def register(app,config=None,start=True):
     app.add_url_rule('/ict-shadow/history','ict_shadow_history',private(history))
     import ict_risk_renewal_web
     ict_risk_renewal_web.register(app,private,cloud.config)
-    if start:threading.Thread(target=cloud.run,daemon=True,name='ict-shadow-cloud').start()
+    import ict_ai_recovery_web
+    ict_ai_recovery_web.register(app,private,cloud,allow_worker_start=start)
+    if start:cloud.start_worker()
     return cloud
