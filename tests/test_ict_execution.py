@@ -35,6 +35,8 @@ def ipolicy(binding='simulator'):
 
 @pytest.fixture
 def routed(tmp_path,monkeypatch):
+    import ict_news_context
+    monkeypatch.setattr(ict_news_context,'build',lambda config,now:dict(status='CLEAR',next_blackout_at=None))
     env=dict(os.environ);f=protocol.NativeTests();f.setUp();f.now=T+11
     flags=dict(ICT_EXECUTION_ENABLED='true',ICT_EXECUTION_ARMED_AFTER_MS=str(int(T*1000)),
         ICT_SHADOW_ENABLED='true',AB_V3_TV_MAPPING_VERIFIED='1',EXEC_MAX_QTY='40',AUTO_SUBMIT='1',
@@ -315,3 +317,15 @@ def test_operator_draft_cannot_enable_execution(routed,monkeypatch):
     assert d['broker_workflow_verification']['max_quantity']==5 and d['risk_percent']==.5
     assert not d['broker_workflow_verification']['ict_operator_acceptance_reference']
     assert base['strategy']=='AB_DIRECTIONAL' and base['broker_workflow_verification']['execution_strategies']==['AB_DIRECTIONAL']
+
+
+@pytest.mark.parametrize('status',['UNKNOWN','BLACKOUT','POLICY_BLOCKED'])
+def test_news_blocks_native_submission_and_pending_thesis(routed,monkeypatch,status):
+    import ict_news_context
+    f=routed
+    monkeypatch.setattr(ict_news_context,'build',lambda config,now:dict(status=status))
+    assert ict.permission(f.order,clock=lambda:f.now)=='ict_news_'+status.lower()
+    with pytest.raises(broker.TransportError):f.submit()
+    assert not f.posts
+    proof=ict.thesis(f.base,clock=lambda:f.now,pending=True)
+    assert not proof['valid'] and proof['reason']=='ict_news_'+status.lower()

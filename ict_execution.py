@@ -106,7 +106,8 @@ def permission(order, *, clock=time.time):
                 or float(os.environ.get('POINT_VALUE','2'))!=2 or float(os.environ.get('EXEC_TICK','.25'))!=.25):
             return 'ict_geometry_config_mismatch'
     except (ValueError,KeyError,TypeError,OverflowError):return 'ict_invalid_execution_config'
-    return None
+    import ict_news_context
+    return ict_news_context.entry_reason(os.environ,now,order['expiry_ms']/1000)
 
 
 
@@ -187,6 +188,9 @@ def thesis(order,clock=time.time,*,pending=False):
     import continuation_live,ict_shadow_research
     proof=dict(order_id=order['order_id'],checked_ms=int(clock()*1000),valid=False)
     try:
+        import ict_news_context
+        why=ict_news_context.entry_reason(os.environ,clock(),order['expiry_ms']/1000)
+        if why:return dict(proof,reason=why)
         why,_=review_check(order,clock=clock)
         if why:return dict(proof,reason=why)
         with continuation_live._connect() as db:

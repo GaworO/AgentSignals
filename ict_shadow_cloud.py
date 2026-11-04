@@ -215,6 +215,10 @@ class Cloud:
         # Source validation (calendar/freshness/closed bars) is shared with production.
         obs=research.remote_run(0,True);self.observe(obs['packet'])
         self.handoff.refresh(self.records(),obs['packet'],time.time())
+        import ict_news_context
+        news=ict_news_context.build(self.config,time.time());self.put('scheduled_news',news)
+        if news['status']!='CLEAR':
+            self.put('last_check',{'at':time.time(),'state':'ICT_NEWS_'+news['status'],'reason':news.get('reason')});return
         # Production receives priority; no production changes or setup queue writes.
         with sqlite3.connect('file:'+str(self.root.parent/'ab_ai_context.sqlite3')+'?mode=ro',uri=True) as db:
             pending=db.execute("SELECT COUNT(*) FROM setup_requests WHERE state IN ('queued','running') AND expires>?",(now,)).fetchone()[0]
