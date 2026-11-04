@@ -142,7 +142,10 @@ class Cloud:
         s=session(now)
         if s is None:raise ValueError('SESSION_ENDED')
         from ict_execution import VERSION,IFVG_VERSION,ifvg_permission
+        import ict_news_context
         p=compact(p);p.update(cloud_shadow=True,review_families=['ICT2022','IFVG'],session_name=s[0],session_end=s[1],execution_contract=VERSION)
+        p['scheduled_news']=ict_news_context.build(self.config,now)
+        self.put('scheduled_news',p['scheduled_news'])
         if ifvg_permission(now=now) is None:p['ifvg_execution_contract']=IFVG_VERSION
         return p
     def entry_events(self,p):
@@ -172,6 +175,10 @@ class Cloud:
         if any(r['status'] in ('research_inflight','research_unknown') for r in rows):return None,'UNKNOWN_OUTCOME_REQUIRES_RECONCILIATION',None
         limit=daily_call_limit(datetime.fromtimestamp(now,NY).date().isoformat())
         if len(rows)>=limit:return None,'DAILY_CALL_CAP',None
+        import ict_news_context
+        news=ict_news_context.build(self.config,now)
+        self.put('scheduled_news',news)
+        if news['status']!='CLEAR':return None,'ICT_NEWS_'+news['status'],None
         in_session=[r for r in rows if s[2]<=r['requested_at']<s[1]]
         if len(in_session)>=8:return None,'SESSION_EIGHT_CALL_CAP',None
         if sum(r['requested_at']>now-1800 for r in in_session)>=3:return None,'THREE_REVIEWS_PER_30_MINUTES',None

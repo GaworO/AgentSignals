@@ -4,7 +4,7 @@ Remote writes are research files and a separate research-only quota ledger.
 import hashlib,json,math,time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-VERSION='ict-2022-ifvg-cloud-v2'
+VERSION='ict-2022-ifvg-cloud-v3-news'
 DAY='2026-10-30'
 PREFIX='ICT_INDEPENDENT_NYAM_20261030_'
 BUDGET_PREFIX='ICT_RESEARCH_BUDGET_20261030_'
@@ -17,7 +17,7 @@ def canonical(x):return json.dumps(x,sort_keys=True,separators=(',',':'),allow_n
 def digest(x):return hashlib.sha256(canonical(x).encode()).hexdigest()
 def obj(props):return dict(type='object',properties=props,required=list(props),additionalProperties=False)
 STR={'type':'string'};NUM={'type':'number'};IDS={'type':'array','items':STR}
-def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_execution_contract=None):
+def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_execution_contract=None, include_news=False):
  anchor=obj(dict(evidence_id=STR,field=dict(type='string',enum=['high','low','price']),price=NUM))
  plan=obj(dict(direction=dict(type='string',enum=['LONG','SHORT']),order_type=dict(type='string',enum=['LIMIT']),entry_fvg_bar_ids=dict(type='array',items=STR,minItems=3,maxItems=3),entry_fraction=dict(type='number',minimum=0,maximum=1),entry_price=NUM,stop_anchor=anchor,stop_buffer_ticks=dict(type='integer',minimum=0),stop_price=NUM,target_anchor=anchor,target_price=NUM,valid_until=dict(type='integer'),entry_reason=STR,stop_reason=STR,target_reason=STR,invalidation_condition=STR))
  if execution_contract:
@@ -25,10 +25,13 @@ def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_executio
   plan['required'].append('invalidation_mode')
  assessment=obj(dict(reasoning=STR,evidence_ids=IDS,missing=IDS))
  result=obj(dict(packet_id=dict(type='string',enum=[packet_id]),execution_authorized=dict(type='boolean',enum=[False]),decision=dict(type='string',enum=['PROPOSE_LONG','PROPOSE_SHORT','WAIT','NO_TRADE']),summary=STR,assessments=obj({k:assessment for k in ['htf_narrative','liquidity_and_sweep','mss_and_displacement','fvg_selection','premium_discount','atr_regime','es_nq_alignment_smt','opposing_liquidity']}),watch_condition=STR,prior_idea_assessment=STR,plan=dict(anyOf=[{'type':'null'},plan])))
+ if include_news:
+  result['properties']['assessments']['properties']['news_and_session_risk']=assessment
+  result['properties']['assessments']['required'].append('news_and_session_risk')
  if include_ifvg:
   # Same request and budget reservation, independent family result. The original
   # top-level plan remains ICT 2022 and is the only broker-routable plan.
-  companion=schema(packet_id,ifvg_execution_contract)
+  companion=schema(packet_id,ifvg_execution_contract,include_news=include_news)
   ip=companion['properties']['plan']['anyOf'][1]
   ip['properties']['inversion_bar_id']=STR
   ip['required'].append('inversion_bar_id')
@@ -158,6 +161,11 @@ def _validate_single(packet,d,received,ifvg=False):
  if d['decision'] in ('WAIT','NO_TRADE'):
   assert p is None,'NONACTIONABLE_PLAN'
   return dict(state=d['decision'],execution_authorized=False)
+ news=packet.get('scheduled_news')
+ if news is not None:
+  assert news.get('status')=='CLEAR','NEWS_NOT_CLEAR'
+  assert 0<=received-news['observed_at']<=240,'NEWS_CONTEXT_STALE'
+  assert d['assessments'].get('news_and_session_risk',{}).get('reasoning'),'NEWS_ASSESSMENT_MISSING'
  assert p and d['decision']=='PROPOSE_'+p['direction'],'DIRECTION_MISMATCH'
  assert p['order_type']=='LIMIT','NOT_LIMIT'
  assert all(math.isfinite(p[k]) and p[k]>0 for k in ('entry_price','stop_price','target_price')),'INVALID_PRICE'
@@ -185,6 +193,12 @@ def _validate_single(packet,d,received,ifvg=False):
    assert b['available_at']==t+tf*60,'INVALID_INVERSION_TIME'
    assert b['close']>=low if long else b['close']<=high,'IFVG_REINVALIDATED'
   confirmation_at=inv['available_at']
+ if news is not None:
+  release=news.get('post_release_not_before')
+  if release is not None:
+   assert (inv['time']>=release if ifvg else bars[0]['time']>=release),'PRE_NEWS_SETUP_REQUIRES_FRESH_CONFIRMATION'
+  blackout=news.get('next_blackout_at')
+  assert blackout is None or p['valid_until']<blackout,'PLAN_OVERLAPS_NEWS_BLACKOUT'
  fraction=p['entry_fraction'];assert 0<=fraction<=1
  theoretical=low+fraction*(high-low)
  entry=(math.floor(theoretical*4+1e-8) if long else math.ceil(theoretical*4-1e-8))/4
@@ -296,9 +310,14 @@ def remote_run(index,observe_only=False,manual_authorization=None,pm_authorizati
   packet.update(index=index,assessment_kind=kind,trigger_event=event,prior_shadow_ideas=[dict(id=r['id'],requested_at=r['requested_at'],decision=json.loads(r['decision']) if r['decision'] else None,broker_fill='NONE_SHADOW_ONLY') for r in rows])
   if manual_authorization is not None:packet['manual_authorization']=manual_authorization
   if pm_authorization is not None:packet['pm_authorization']=pm_authorization
-  if cloud is not None:packet=cloud.prepare(packet,time.time())
+  if cloud is not None:
+   packet=cloud.prepare(packet,time.time())
+   assert packet['scheduled_news']['status']=='CLEAR','NEWS_CHANGED_BEFORE_REQUEST'
   packet['packet_id']=digest(packet)
   instructions=PROMPT
+  if packet.get('scheduled_news') is not None:
+   import ict_news_context
+   instructions+='\n'+ict_news_context.PROMPT
   if kind.startswith('NYPM_'):
    instructions=instructions.replace('no later than 11:00 NY','no later than 16:00 NY')
    instructions+=' This is the separately authorized NYPM shadow session, 13:30–16:00 New York, on the same day. State the actual session/time. Morning proposals and expired approvals are historical observations only. Assess the fresh afternoon context independently; do not revive the expired morning LONG or assume any fills. Reassess any prior afternoon proposal without rewriting its fixed baseline. No broker order authority.'
@@ -317,7 +336,7 @@ def remote_run(index,observe_only=False,manual_authorization=None,pm_authorizati
     ifvg_prompt=ifvg_prompt.replace("IFVG has NO broker permission, even if the original family's execution contract is supplied.", 'IFVG may be routed separately by the application only after explicit operator authorization and all safety checks. You never authorize orders.')
     ifvg_prompt+=' For IFVG set invalidation_mode to ifvg_execution_contract only if the original machine invalidations plus a subsequent same-formation-timeframe close through the opposite inverted-gap edge fully cover your thesis: LONG closes below the lower edge, SHORT closes above the upper edge invalidate; missing data blocks. Otherwise choose UNSUPPORTED_ADDITIONAL_CONDITION. Entry, structural SL and fixed 2R TP remain unchanged.'
    instructions+='\n'+ifvg_prompt
-  payload=dict(model=os.environ['OPENAI_MODEL'],store=False,stream=True,service_tier='default',max_output_tokens=5000,reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=canonical(packet))],text={'format':dict(type='json_schema',name='ict_independent_shadow_v2',strict=True,schema=schema(packet['packet_id'],packet.get('execution_contract'),packet.get('review_families')==['ICT2022','IFVG'],packet.get('ifvg_execution_contract')))})
+  payload=dict(model=os.environ['OPENAI_MODEL'],store=False,stream=True,service_tier='default',max_output_tokens=5000,reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=canonical(packet))],text={'format':dict(type='json_schema',name='ict_independent_shadow_v2',strict=True,schema=schema(packet['packet_id'],packet.get('execution_contract'),packet.get('review_families')==['ICT2022','IFVG'],packet.get('ifvg_execution_contract'),include_news=packet.get('scheduled_news') is not None))})
   assert len(canonical(payload).encode())<550000,'PACKET_TOO_LARGE'
   flags={k:os.environ.get(k) for k in ['EXEC_KILL_SWITCH','LIVE_EXECUTION_ENABLED','V3_ENTRY_ARMED','AB_Q1_ENTRY_ARMED','RISK_PCT','EXEC_STRATEGY_POLICY','AB_AI_MAX_CALLS_PER_DAY']}
   assert time.time()-packet['as_of']<=120,'STALE_BEFORE_REQUEST'

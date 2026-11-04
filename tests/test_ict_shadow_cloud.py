@@ -9,7 +9,18 @@ from ict_shadow_cloud import Cloud, cost, compact, session, register
 def ts(s='2026-11-02T09:35:00'):return datetime.fromisoformat(s).replace(tzinfo=ZoneInfo('America/New_York')).timestamp()
 def payload():return dict(model='gpt-6.1-sol',service_tier='default',max_output_tokens=5000,input='hello')
 @pytest.fixture
-def c(tmp_path):return Cloud({'DATA_DIR':str(tmp_path),'TANJA_DASHBOARD_PASSWORD':'test-password-long'})
+def c(tmp_path,monkeypatch):
+    import ict_news_context
+    import ict_shadow_research
+    # tick updates these globals; keep test order from changing legacy dates.
+    monkeypatch.setattr(ict_shadow_research,'DAY',ict_shadow_research.DAY)
+    monkeypatch.setattr(ict_shadow_research,'PREFIX',ict_shadow_research.PREFIX)
+    # Scheduler/budget fixtures use a clear synthetic calendar. Calendar I/O,
+    # freshness and blackouts have separate end-to-end tests.
+    monkeypatch.setattr(ict_news_context,'build',lambda config,now:dict(
+        version=ict_news_context.VERSION,status='CLEAR',observed_at=now,
+        next_blackout_at=None,post_release_not_before=None,events=[]))
+    return Cloud({'DATA_DIR':str(tmp_path),'TANJA_DASHBOARD_PASSWORD':'test-password-long'})
 def test_cache_write_pricing():
     assert cost({'input_tokens':100000,'input_tokens_details':{'cache_write_tokens':100000},'output_tokens':1000})==.26
     assert cost({'input_tokens':100000,'input_tokens_details':{'cached_tokens':100000},'output_tokens':1000})==.02
@@ -129,6 +140,9 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future):
     result=r.remote_run(None,pm_authorization=auth,cloud=c)
     assert result['state']=='research_completed' and result['validation']['state']=='WAIT'
     assert len(sent)==1
+    assert json.loads(sent[0]['input'][1]['content'])['scheduled_news']['status']=='CLEAR'
+    assert 'news_and_session_risk' in sent[0]['text']['format']['schema']['properties']['assessments']['required']
+    assert 'Assess scheduled_news explicitly' in sent[0]['input'][0]['content']
     assert 'ifvg_review' in sent[0]['text']['format']['schema']['required']
     assert json.loads(sent[0]['input'][1]['content'])['review_families']==['ICT2022','IFVG']
     if future=='extension':
