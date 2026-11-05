@@ -263,6 +263,11 @@ class Cloud:
         from ict_order_handoff import broker_status
         state['order_handoff']=self.handoff.state()
         state['order_handoff']['broker']=broker_status()
+        # Display-only: evaluate the saved calendar at request time, including
+        # outside sessions when the worker's last news snapshot may be old.
+        import ict_news_context, ict_ai_call_status
+        state['scheduled_news']=ict_news_context.build(self.config,now)
+        state['ai_call_status']=ict_ai_call_status.describe(state,state['scheduled_news'],self.config.get('ICT_SHADOW_ENABLED')=='true')
         return state
     def outcome(self,r):
         v=r.get('validation') or {}
