@@ -177,3 +177,84 @@ def test_policy_cutoff_uses_new_york_dst(date,offset):
     windows=news.conservative_windows([dict(at=at(date),category='NFP',id='nfp')])
     start=datetime.fromtimestamp(windows[0]['start'],news.NY)
     assert start.weekday()==2 and start.hour==11 and start.isoformat().endswith(offset)
+
+
+@pytest.mark.parametrize('stamp,status',[
+    ('2026-11-04T10:59:59','CLEAR'),('2026-11-04T11:00:00','POLICY_BLOCKED'),
+    ('2026-11-05T14:00:00','POLICY_BLOCKED'),('2026-11-06T08:30:00','POLICY_BLOCKED'),
+    ('2026-11-06T09:59:59','POLICY_BLOCKED'),('2026-11-06T10:00:00','CLEAR'),
+    ('2026-11-06T13:30:00','CLEAR')])
+def test_opt_in_friday_reopen_is_narrow_and_shared_with_dispatch(tmp_path,stamp,status):
+    now=at(stamp);release=at('2026-11-06T08:30:00')
+    config,_=calendar(tmp_path,now,[(release,'Non-Farm Employment Change','USD')])
+    config['ICT_NEWS_POLICY_PROFILE']=news.NFP_REOPEN_PROFILE
+    value=news.build(config,now)
+    assert value['status']==status
+    assert value['policy_profile']==news.NFP_REOPEN_PROFILE
+    assert (news.entry_reason(config,now) is None)==(status=='CLEAR')
+    if status=='CLEAR' and stamp.startswith('2026-11-06'):
+        assert value['post_release_not_before']==release
+    if status=='POLICY_BLOCKED':
+        cloud=Cloud(config)
+        assert cloud.select([],{'as_of':now},now)[0] is None
+        with cloud.db() as db:assert db.execute('SELECT count(*) FROM costs').fetchone()[0]==0
+
+
+def test_reopen_still_blocks_other_news_and_fomc(tmp_path):
+    nfp=(at('2026-11-06T08:30:00'),'Non-Farm Employment Change','USD')
+    for title,status in [('ISM Services PMI','BLACKOUT'),('FOMC Statement','POLICY_BLOCKED')]:
+        now=at('2026-11-06T10:00:00')
+        config,_=calendar(tmp_path,now,[nfp,(now,title,'USD')])
+        config['ICT_NEWS_POLICY_PROFILE']=news.NFP_REOPEN_PROFILE
+        assert news.build(config,now)['status']==status
+        assert news.entry_reason(config,now) is not None
+
+
+def test_late_release_does_not_reopen_before_its_buffer(tmp_path):
+    release=at('2026-11-06T10:15:00')
+    for now,status in [(at('2026-11-06T10:00:00'),'POLICY_BLOCKED'),
+                       (release+1800,'POLICY_BLOCKED'),(release+1801,'CLEAR')]:
+        config,_=calendar(tmp_path,now,[(release,'Non-Farm Employment Change','USD')])
+        config['ICT_NEWS_POLICY_PROFILE']=news.NFP_REOPEN_PROFILE
+        assert news.build(config,now)['status']==status
+
+
+@pytest.mark.parametrize('profile',['', 'OFF', 'nfp_friday_after_1000', None])
+def test_unknown_profile_fails_closed(tmp_path,profile):
+    now=at('2026-11-06T10:05:00');config,_=calendar(tmp_path,now)
+    config['ICT_NEWS_POLICY_PROFILE']=profile
+    assert news.build(config,now)['reason']=='NEWS_POLICY_PROFILE_INVALID'
+    assert news.entry_reason(config,now)=='ict_news_news_policy_profile_invalid'
+
+
+def test_reopen_still_requires_fresh_calendar(tmp_path):
+    now=at('2026-11-06T10:05:00');config,saved=calendar(tmp_path,now)
+    config['ICT_NEWS_POLICY_PROFILE']=news.NFP_REOPEN_PROFILE
+    saved['received_at']=now-86401
+    (tmp_path/'news_calendar.json').write_text(json.dumps(saved))
+    assert news.build(config,now)['status']=='UNKNOWN'
+
+
+@pytest.mark.parametrize('date',['2026-07-10','2026-11-06'])
+def test_reopen_uses_ny_dst_and_banner_shows_friday(date):
+    from ict_ai_call_status import describe
+    release=at(date+'T08:30:00');now=at(date+'T09:45:00')
+    event=dict(at=release,category='NFP',id='nfp')
+    windows=news.conservative_windows([event],news.NFP_REOPEN_PROFILE)
+    assert windows[0]['end']==at(date+'T10:00:00')
+    value=dict(status='POLICY_BLOCKED',policy_windows=windows,
+               active_policy_reasons=[windows[0]['reason']])
+    banner=describe({'now':now},value,True)
+    assert banner['next_at']==at(date+'T10:00:00')
+    assert 'Friday after 10:00' in banner['reason']
+
+
+def test_non_friday_nfp_keeps_conservative_window():
+    event=dict(at=at('2026-11-05T08:30:00'),category='NFP',id='nfp')
+    assert news.conservative_windows([event],news.NFP_REOPEN_PROFILE)==news.conservative_windows([event])
+
+
+def test_prompt_matches_both_selectable_profiles():
+    assert news.DEFAULT_PROFILE in news.PROMPT and news.NFP_REOPEN_PROFILE in news.PROMPT
+    assert 'no experienced-trader exceptions' not in news.PROMPT
+    assert 'Do not recycle a pre-release setup' in news.PROMPT

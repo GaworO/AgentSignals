@@ -50,14 +50,16 @@ def describe(state, news, enabled):
         reasons = [w['reason'] for w in news.get('policy_windows', []) if w['start'] == boundary]
         names = [e['title'] for e in events.values() if e['at'] - 1800 == boundary]
         result.update(upcoming_at=boundary, upcoming_reason=(
-            'NFP-week pause' if 'NFP_WEEK_AFTER_WEDNESDAY_1100' in reasons else
+            'NFP-week pause' if any(r.startswith('NFP_WEEK_') for r in reasons) else
             'FOMC morning pause' if 'FOMC_MORNING' in reasons else
             'News blackout: ' + ', '.join(names) if names else 'Scheduled news pause'))
     if not enabled:
         return finish('PAUSED', 'AI calls paused', 'Scanner disabled in settings. An operator must enable it.')
     if news.get('status') == 'POLICY_BLOCKED':
         active = news.get('active_policy_reasons', [])
-        reason = ('NFP week: no new AI reviews from Wednesday 11:00 NY through Friday.'
+        reason = ('NFP week: reviews resume Friday after 10:00 NY and the post-release news buffer; other checks still apply.'
+                  if 'NFP_WEEK_UNTIL_FRIDAY_1000_AND_POST_RELEASE_BUFFER' in active else
+                  'NFP week: no new AI reviews from Wednesday 11:00 NY through Friday.'
                   if 'NFP_WEEK_AFTER_WEDNESDAY_1100' in active else
                   'FOMC decision day: morning AI reviews are paused.')
         return finish('PAUSED', 'AI calls paused', reason, now, scheduled=True)
