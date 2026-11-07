@@ -2070,6 +2070,11 @@ if HEARTBEAT:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
     print(f'[heartbeat] on — co {HEARTBEAT_EVERY:.0f}s, stale po {STALE_MIN:.0f} min (godziny rynkowe)', flush=True)
 
+# Existing market context moved from Tanja; no extra AI or broker workers.
+if os.environ.get("MARKET_CONTEXT_ENABLED", "false") == "true":
+    import local_market_context
+    local_market_context.register(app)
+
 # Advisory context owns its own bounded worker, independent of order dispatch.
 ab_ai_context.register(app)
 import ab_q1_execution

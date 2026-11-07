@@ -263,6 +263,12 @@ class ContextSupport:
         return db
 
     def read_source(self):
+        mode=self.config.get('AB_CONTEXT_SOURCE','TANJA')
+        if mode == 'LOCAL':
+            import local_market_context
+            return local_market_context.source(self.config)
+        if mode != 'TANJA':
+            raise ValueError('unknown_market_context_source')
         # Fixed trusted destination: no credentials sent to arbitrary URLs.
         password = self.config.get('AB_CONTEXT_SOURCE_PASSWORD','')
         if not password:

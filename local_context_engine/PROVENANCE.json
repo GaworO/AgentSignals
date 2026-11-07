@@ -1,0 +1,87 @@
+{
+  "atr_review_context": {
+    "original_path": "atr_review_context.py",
+    "original_sha256": "8cd1c523cd7ef02666abb63012e6e96cdcb49a5fb06cecc71a7c0898fe6bf006",
+    "packaged_sha256": "cbc0e48a6a6b6aec259579b712d5de78527ba6eab27ba859db6a9abc539e1a3e"
+  },
+  "context_api": {
+    "original_path": "vendor/context_api.py",
+    "original_sha256": "984eedad90a91d8d88a9fcf0f08e45d70fe6aabda99e704a8ef9eeaafd1d0dcf",
+    "packaged_sha256": "59b3ec5adb92b7ed604fbc67cfa365ee20f9a377ee83a0c467f653366977f3ad"
+  },
+  "context_filter": {
+    "original_path": "context_filter.py",
+    "original_sha256": "4541053eb476e127f1ba349dc754e8ed19fdf0377d1b85aa993fc3572e42f321",
+    "packaged_sha256": "4541053eb476e127f1ba349dc754e8ed19fdf0377d1b85aa993fc3572e42f321"
+  },
+  "context_geometry": {
+    "original_path": "vendor/context_geometry.py",
+    "original_sha256": "b22dd2a5a8b40e54573408eed5f68e72d16dc3b3c82a845cfbcca0297a97c789",
+    "packaged_sha256": "39dd102ba63aa9856bfa04b3239fd7b8f61cb18ff27596f61ce6b9fbbcb1f6ee"
+  },
+  "context_layer": {
+    "original_path": "vendor/context_layer.py",
+    "original_sha256": "f54d31bb92c717ccdaa1f5787a1acff7a43ac06afba5098b3a2aa2263cc32c6c",
+    "packaged_sha256": "f608823c26a57141dd4b8d649373ef6abcb5ae8e484465548928b8a6e76915fc"
+  },
+  "context_v3": {
+    "original_path": "vendor/context_v3.py",
+    "original_sha256": "06a17dac8a5e201e5b3e98baf260c022c0883cfb1e32a758e9b40fdaad58c7d6",
+    "packaged_sha256": "1091fb8da5e7876dd2ae1aeec3edad7cd99cec6ec6ae8230ade6dc9da80c3757"
+  },
+  "daily_atr": {
+    "original_path": "daily_atr.py",
+    "original_sha256": "5351d02cc534ae0ed2c31a0081da130d28d7f0029555c058379fdc75437d4b3a",
+    "packaged_sha256": "846d93ccaa0f773abf7e5d055190c7c4704c4e713dc73e59ebbce8846951306a"
+  },
+  "decision_engine": {
+    "original_path": "vendor/decision_engine.py",
+    "original_sha256": "943dda67f234986b03ff1dd1f3117ef6a6efbb0578fd71a47ca49cae3b602871",
+    "packaged_sha256": "cc534565cc5fddfc50a3f7e6538d17a885aee93f0fd247d969929a7c47c495a6"
+  },
+  "entry_controls": {
+    "original_path": "entry_controls.py",
+    "original_sha256": "9ab9e45b4115b4a7b65953d8d8c897788d6c2ba2cbc37322998796f684106804",
+    "packaged_sha256": "9ab9e45b4115b4a7b65953d8d8c897788d6c2ba2cbc37322998796f684106804"
+  },
+  "entry_patterns": {
+    "original_path": "entry_patterns.py",
+    "original_sha256": "c7f41dfaa0c92ea92bfe73b3271be08aeb984c1547646e9370f684ad47050fa2",
+    "packaged_sha256": "c7f41dfaa0c92ea92bfe73b3271be08aeb984c1547646e9370f684ad47050fa2"
+  },
+  "entry_rules": {
+    "original_path": "entry_rules.py",
+    "original_sha256": "b34eadf35b19c805e2a6a754784548b1b61cd49f46f2250b541719ab74943476",
+    "packaged_sha256": "490424b747a419992c296415d4f7021ad84bdf952bdfe759c24ac081e2cd0f8d"
+  },
+  "plan_review": {
+    "original_path": "plan_review.py",
+    "original_sha256": "9b7370de1628bbdb77c9b0fa1148d11d19820c224eaf5d1e4118e7779a079724",
+    "packaged_sha256": "9b7370de1628bbdb77c9b0fa1148d11d19820c224eaf5d1e4118e7779a079724"
+  },
+  "review_calendar": {
+    "original_path": "review_calendar.py",
+    "original_sha256": "fbd6275372e846617371b2f9ac519d606d3a54fd0d62ae343d2af95ae695fc8f",
+    "packaged_sha256": "fbd6275372e846617371b2f9ac519d606d3a54fd0d62ae343d2af95ae695fc8f"
+  },
+  "setup_recipes": {
+    "original_path": "vendor/setup_recipes.py",
+    "original_sha256": "4ca3fd376eb42a1287dfde6a122e541af3c857fda902284952f339c259478ab9",
+    "packaged_sha256": "29536b1813ba75868d4a2493b0e56e80b9d52a87b020c06f50284284c24f8ecb"
+  },
+  "source_rules": {
+    "original_path": "source_rules.py",
+    "original_sha256": "b0cfa21f308685c3ca89132dd0c33b75c81606338b6eec954ec8eb2d70bda10e",
+    "packaged_sha256": "b0cfa21f308685c3ca89132dd0c33b75c81606338b6eec954ec8eb2d70bda10e"
+  },
+  "store": {
+    "original_path": "store.py",
+    "original_sha256": "93b5d9bfcea052df57e4f1e65effe41b1fea8f111b99a45a7e72b6a54a7ab40a",
+    "packaged_sha256": "93b5d9bfcea052df57e4f1e65effe41b1fea8f111b99a45a7e72b6a54a7ab40a"
+  },
+  "tanya_replay": {
+    "original_path": "vendor/tanya_replay.py",
+    "original_sha256": "9466eeec6b6bd4ef592ae63f9ce10ce3d55fe404f0dbdadcac54a61e6b0ac140",
+    "packaged_sha256": "9466eeec6b6bd4ef592ae63f9ce10ce3d55fe404f0dbdadcac54a61e6b0ac140"
+  }
+}
