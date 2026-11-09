@@ -20,6 +20,11 @@ def number(x):
     return type(x) in (int, float) and math.isfinite(x)
 
 
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                    allow_nan=False).encode()).hexdigest()
+
+
 def millis(value):
     d = datetime.fromisoformat(value.replace('Z', '+00:00'))
     if d.tzinfo is None:
@@ -272,7 +277,68 @@ def assess(snapshot, rows, margin, proof, binding, contract, now_ms):
             last_loss_closed_ms=ledger['last_loss_closed_ms'], margin_max_new_micro_contracts=cap,
             remaining_daily_loss_usd=remaining)
         result['verified'] = True
+        # Bind settlement to the complete snapshot, not merely equal cash or a
+        # timestamp. The native journal consumes this only for accounting; it
+        # never adopts external orders or grants execution permissions.
+        result['native_settlement'] = dict(
+            version=1, snapshot_sha256=digest(snapshot), rules_sha256=digest(proof),
+            expires_at_ms=min(proof['expires_at_ms'], rule['expires_at_ms']),
+            accounted_fill_ids=sorted({i for g in ledger['closed_groups'] for i in g['fill_ids']}))
     return result
+
+
+def native_activity_reconciled(sync, snapshot, native_rows, external_fill_ids):
+    """Read-only, snapshot-bound settlement of historical external activity.
+
+    All native states/actions must already be terminal at the caller. A cash
+    bridge alone is insufficient: require current account-wide coverage, fees,
+    rules and exact owned closed-group agreement. No persisted waiver survives
+    a new fill, cash revision, stale read, changed rules or restart refresh.
+    """
+    try:
+        import directional_account_limits
+        result = state(sync)
+        now = int(sync.clock()*1000)
+        proof = directional_account_limits.read_static_evidence()
+        receipt = result.get('native_settlement', {})
+        if (result.get('verified') is not True or result.get('missing')
+                or result.get('account_binding') != sync.binding
+                or result.get('controls', {}).get('verified') is not True
+                or receipt.get('version') != 1
+                or receipt.get('snapshot_sha256') != digest(snapshot)
+                or receipt.get('rules_sha256') != digest(proof)
+                or not 0 <= now-result['snapshot_started_ms'] <= 30000
+                or not now < receipt['expires_at_ms']
+                or snapshot['positions'] or snapshot['orders']):
+            return False
+        groups = result['ledger']['closed_groups']
+        accounted = {i for group in groups for i in group['fill_ids']}
+        if (accounted != set(receipt['accounted_fill_ids'])
+                or not set(external_fill_ids).issubset(accounted)
+                or abs(Decimal(str(result['ledger']['cash'])) -
+                       Decimal(str(snapshot['account']['balance']['totalCashValue']))) > Decimal('.01')):
+            return False
+        for row in native_rows:
+            if row['state'] == 'NO_FILL':
+                continue
+            if row['state'] != 'CLOSED':
+                return False
+            obs = json.loads(row['observation_json'] or '{}')
+            ids = set(obs['owned_fill_ids'])
+            matches = [g for g in groups if set(g['fill_ids']) == ids]
+            if not ids or len(matches) != 1 or obs.get('costs_reconciled') is not True:
+                return False
+            group = matches[0]
+            if (group['closed_ms'] != obs['exit_fill_ms']
+                    or any(abs(Decimal(str(group[a]))-Decimal(str(obs[b]))) > Decimal('.01')
+                           for a, b in [('net_usd','net_usd'), ('gross_usd','gross_usd'),
+                                        ('costs_usd','captured_cost_usd')])):
+                return False
+            if not set(obs.get('later_account_cash_bridge', {}).get('external_fill_ids', [])).issubset(accounted):
+                return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError, ArithmeticError):
+        return False
 
 
 def store(db, binding, result):

@@ -978,16 +978,20 @@ class Transport:
             for row in close_replies:
                 value=json.loads(row[0] or '{}').get('response',{}).get('orderId')
                 if numeric(value):known.add(value)
-            if any(json.loads(row['observation_json'] or '{}').get('later_account_cash_bridge',{}).get('external_fill_ids')
-                   for row in native):
-                return 'broker:external_account_activity_requires_reconciliation'
-            if any(f.get('orderId') not in known for f in snapshot['fills']):
-                return 'broker:unattributed_account_fill_requires_reconciliation'
+            external_ids={i for row in native for i in
+                          json.loads(row['observation_json'] or '{}').get('later_account_cash_bridge',{}).get('external_fill_ids',[])}
+            unowned_ids={f['id'] for f in snapshot['fills'] if f.get('orderId') not in known}
+            accounting_blocker = ('broker:external_account_activity_requires_reconciliation' if external_ids else
+                                  'broker:unattributed_account_fill_requires_reconciliation' if unowned_ids else None)
             if native and native[-1]['state']=='CLOSED':
                 last=native[-1];obs=json.loads(last['observation_json']);cmd=json.loads(last['command_json'])
                 delta=Decimal(str(snapshot['account']['balance']['totalCashValue']))-Decimal(str(cmd['before_cash']))
                 if abs(delta-Decimal(str(obs['net_usd'])))>Decimal('.01'):
-                    return 'broker:cash_change_or_fee_revision_requires_reconciliation'
+                    accounting_blocker = accounting_blocker or 'broker:cash_change_or_fee_revision_requires_reconciliation'
+            if accounting_blocker:
+                import directional_account_reconciliation as risk
+                if not risk.native_activity_reconciled(self.sync,snapshot,native,external_ids|unowned_ids):
+                    return accounting_blocker
         return None
 
     def action(self,oid,operation,action_id,*,snapshot=None,before_send=None):

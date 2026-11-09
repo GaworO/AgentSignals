@@ -255,6 +255,108 @@ class NativeTests(unittest.TestCase):
         self.t.reconcile_costs(self.snapshot(snap['fills']))
         self.assertEqual(self.t.row('order-one')['state'],'CLOSED_PENDING_COSTS')
 
+    def verified_external_settlement(self):
+        """Real local risk assessment over mocked provider records; no network."""
+        import directional_account_reconciliation as risk
+        import directional_account_limits as limits
+        self.test_later_external_roundtrip_is_not_a_fee_revision_of_owned_trade()
+        self.account['balance'].update(realizedPnL=0.,openPnL=0.)
+        snap=self.snapshot([])
+        at=int(self.now*1000)-2*86400000
+        proof=dict(provider='MFFU',verified=True,account_binding=self.sync.binding,
+            source_reference='TEST_RULES',observed_at_ms=at,expires_at_ms=int(self.now*1000)+60000,
+            minimum_balance=48000.,max_micro_contracts=40,daily_loss_policy='NONE',
+            daily_loss_limit_usd=None,daily_loss_source_reference='TEST_NO_DLL',
+            reconciliation_anchor=dict(verified=True,account_binding=self.sync.binding,
+                flat=True,source_reference='TEST_FLAT',at_ms=at,cash=48961.55,
+                consecutive_losses=0,capture_complete_since_ms=at,coverage_reference='TEST_COVERAGE'),
+            margin_policy=dict(verified=True,source_reference='TEST_CAP',contract='MNQZ2026',
+                mode='CONTRACT_CAP_ONLY',observed_at_ms=at,expires_at_ms=int(self.now*1000)+60000))
+        patch.object(limits,'read_static_evidence',return_value=proof).start()
+        result=risk.assess(snap,self.history,{},proof,self.sync.binding,'MNQZ2026',int(self.now*1000))
+        self.assertTrue(result['verified'],result['missing'])
+        with self.sync.connect() as db:risk.store(db,self.sync.binding,result)
+        return snap,proof,result
+
+    def test_verified_external_history_settles_native_gate_without_adopting_orders(self):
+        snap,proof,result=self.verified_external_settlement()
+        posts=len(self.posts);row=dict(self.t.row('order-one'))
+        self.assertIsNone(self.t.entry_blocker())
+        restarted=native.Transport(self.api,self.sync,request=self.request,clock=lambda:self.now)
+        self.assertIsNone(restarted.entry_blocker())
+        self.assertEqual(dict(self.t.row('order-one')),row)
+        self.assertEqual(len(self.posts),posts)
+        self.assertEqual(result['controls']['losses_today'],2)
+        # A new poll replaces the receipt, so restart/refresh cannot use an old waiver.
+        self.now+=1;self.snapshot([])
+        self.assertIsNotNone(restarted.entry_blocker())
+
+    def test_current_external_fills_require_exact_current_account_receipt(self):
+        import directional_account_reconciliation as risk
+        snap,proof,result=self.verified_external_settlement()
+        live=[dict(id=f['fillId'],accountId=2214,contractId=100,
+                   **{k:f[k] for k in ('orderId','qty','price','action','timestamp')}) for f in self.history]
+        snap=self.snapshot(live)
+        # Even equal cash is insufficient after the snapshot has changed.
+        self.assertIsNotNone(self.t.entry_blocker())
+        result=risk.assess(snap,self.history,{},proof,self.sync.binding,'MNQZ2026',int(self.now*1000))
+        self.assertTrue(result['verified'])
+        with self.sync.connect() as db:risk.store(db,self.sync.binding,result)
+        self.assertIsNone(self.t.entry_blocker())
+        self.assertEqual(result['controls']['losses_today'],2)
+        # Missing coverage is not repaired by the numerical cash bridge.
+        proof['reconciliation_anchor'].pop('coverage_reference')
+        result=risk.assess(snap,self.history,{},proof,self.sync.binding,'MNQZ2026',int(self.now*1000))
+        self.assertTrue(result['cash_bridge']['matches_current_cash'])
+        with self.sync.connect() as db:risk.store(db,self.sync.binding,result)
+        self.assertIsNotNone(self.t.entry_blocker())
+
+    def test_external_settlement_rejects_changed_stale_or_incomplete_evidence(self):
+        import directional_account_reconciliation as risk
+        snap,proof,result=self.verified_external_settlement()
+        original_proof=copy.deepcopy(proof);now=self.now
+        original_row=dict(self.t.row('order-one'));posts=len(self.posts)
+        for case in ('unverified','binding','no_receipt','missing_fill','changed_net','fee_revision',
+                     'stale','future','rules_changed','rules_expired','position','new_order','new_fill','cash_change',
+                     'same_timestamp_snapshot_change','unknown_action','unresolved_order','native_net_changed'):
+            with self.subTest(case=case):
+                self.now=now;proof.clear();proof.update(copy.deepcopy(original_proof))
+                r=copy.deepcopy(result);s=copy.deepcopy(snap)
+                if case=='unverified':r['verified']=False
+                if case=='binding':r['account_binding']='other'
+                if case=='no_receipt':r.pop('native_settlement')
+                if case=='missing_fill':r['ledger']['closed_groups'].pop()
+                if case=='changed_net':r['ledger']['closed_groups'][0]['net_usd']+=1
+                if case=='fee_revision':r['ledger']['closed_groups'][0]['costs_usd']+=1
+                if case=='stale':self.now+=31
+                if case=='future':self.now-=1
+                if case=='rules_changed':proof['minimum_balance']+=1
+                if case=='rules_expired':
+                    proof['expires_at_ms']=int(self.now*1000)
+                    r['native_settlement'].update(rules_sha256=risk.digest(proof),expires_at_ms=int(self.now*1000))
+                if case=='position':s['positions']=[{'netPos':1}]
+                if case=='new_order':s['orders']=[{'id':999}]
+                if case=='new_fill':s['fills']=[self.fill(999,777,1,30000,'Buy')]
+                if case=='cash_change':s['account']['balance']['totalCashValue']-=1
+                if case=='same_timestamp_snapshot_change':s['account']['balance']['realizedPnL']-=1
+                with self.sync.connect() as db:
+                    risk.store(db,self.sync.binding,r)
+                    db.execute('UPDATE account_snapshots SET payload=? WHERE binding=?',(broker.encode(s),self.sync.binding))
+                with self.api.connect() as db:
+                    if case=='unknown_action':
+                        db.execute('INSERT INTO native_actions VALUES(?,?,?,?,?,?,?,?)',
+                            (self.t.binding,'test-unknown','order-one','cancel','UNKNOWN','{}','{}',int(self.now*1000),))
+                    if case=='unresolved_order':db.execute("UPDATE native_orders SET state='CLOSED_PENDING_COSTS' WHERE order_id='order-one'")
+                    if case=='native_net_changed':
+                        obs=json.loads(original_row['observation_json']);obs['net_usd']+=1
+                        db.execute('UPDATE native_orders SET observation_json=? WHERE order_id=?',(json.dumps(obs),'order-one'))
+                self.assertIsNotNone(self.t.entry_blocker())
+                with self.api.connect() as db:
+                    db.execute("DELETE FROM native_actions WHERE action_id='test-unknown'")
+                    db.execute('UPDATE native_orders SET state=?,observation_json=? WHERE order_id=?',
+                               (original_row['state'],original_row['observation_json'],'order-one'))
+        self.assertEqual(len(self.posts),posts)
+
     def test_incomplete_or_conflicting_external_history_cannot_settle_old_trade(self):
         self.submit();snap,net=self.complete(winning=False)
         self.t.reconcile_one(self.t.row('order-one'),snap)
