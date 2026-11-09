@@ -332,6 +332,8 @@ def register(app,config=None,start=True):
         except ValueError as e:
             response=jsonify(error=str(e));response.status_code=400;return response
     app.add_url_rule('/ict-shadow/history','ict_shadow_history',private(history))
+    import ict_scanner
+    ict_scanner.register(app,private,cloud)
     import ict_risk_renewal_web
     ict_risk_renewal_web.register(app,private,cloud.config)
     import ict_ai_recovery_web
