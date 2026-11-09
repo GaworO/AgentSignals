@@ -22,7 +22,7 @@ def test_tuesday_to_friday_only(day,allowed):
     stamp=london(f'2026-11-{day:02}T08:00:00')
     window=schedule.session(stamp)
     assert bool(window)==allowed
-    assert schedule.daily_call_limit(f'2026-11-{day:02}')==(22 if allowed else 16)
+    assert schedule.daily_call_limit(f'2026-11-{day:02}')==(24 if allowed else 16)
     if allowed:
         assert window[0]=='LONDON' and window[1]-window[2]==7200
         assert schedule.session(stamp-1) is None
@@ -43,27 +43,27 @@ def test_historical_caps_and_monday_ny_unchanged():
     assert schedule.session(london('2026-11-06T08:10:00')) is None
     assert schedule.session(ts('2026-11-09T09:30:00'))[0]=='NYAM'
     assert schedule.session(ts('2026-11-09T13:30:00'))[0]=='NYPM'
-    assert DAILY_USD==8
+    assert DAILY_USD==10
 
 
-def test_six_london_reservations_survive_restart_and_ny_keeps_eight(c):
+def test_eight_london_reservations_survive_restart_and_ny_keeps_eight(c):
     day='2026-11-10';opening=london(day+'T08:01:00')
-    for i in range(6):c.reserve('ICT_'+str(i),payload(),opening+i*120)
+    for i in range(8):c.reserve('ICT_'+str(i),payload(),opening+i*120)
     restarted=Cloud(c.config)
     now=london(day+'T09:00:00')
     assert restarted.select([],dict(as_of=now,trigger_events=[]),now)[1]=='SESSION_CALL_CAP'
-    with pytest.raises(ValueError,match='SESSION_CALL_CAP'):restarted.reserve('ICT_6',payload(),now)
+    with pytest.raises(ValueError,match='SESSION_CALL_CAP'):restarted.reserve('ICT_8',payload(),now)
     am=ts(day+'T09:31:00')
-    assert restarted.select([],dict(as_of=am,trigger_events=[]),am)[0]==6
-    for i in range(8):restarted.reserve('ICT_'+str(i+6),payload(),am+i*120)
-    with pytest.raises(ValueError,match='SESSION_CALL_CAP'):restarted.reserve('ICT_14',payload(),am+1200)
+    assert restarted.select([],dict(as_of=am,trigger_events=[]),am)[0]==8
+    for i in range(8):restarted.reserve('ICT_'+str(i+8),payload(),am+i*120)
+    with pytest.raises(ValueError,match='SESSION_CALL_CAP'):restarted.reserve('ICT_16',payload(),am+1200)
     pm=ts(day+'T13:31:00')
-    for i in range(8):restarted.reserve('ICT_'+str(i+14),payload(),pm+i*120)
-    with pytest.raises(ValueError,match='DAILY_CALL_CAP'):restarted.reserve('ICT_22',payload(),pm+1200)
+    for i in range(8):restarted.reserve('ICT_'+str(i+16),payload(),pm+i*120)
+    with pytest.raises(ValueError,match='DAILY_CALL_CAP'):restarted.reserve('ICT_24',payload(),pm+1200)
     with restarted.db() as db:
         rows=[dict(r) for r in db.execute('SELECT * FROM costs')]
-    assert len(rows)==22 and all(r['amount'] is None for r in rows)
-    assert [(b['session'],b['used'],b['cap']) for b in schedule.session_budgets(day,rows)]==[('LONDON',6,6),('NYAM',8,8),('NYPM',8,8)]
+    assert len(rows)==24 and all(r['amount'] is None for r in rows)
+    assert [(b['session'],b['used'],b['cap']) for b in schedule.session_budgets(day,rows)]==[('LONDON',8,8),('NYAM',8,8),('NYPM',8,8)]
 
 
 def test_unused_london_calls_cannot_be_spent_on_ny(c):
@@ -72,14 +72,14 @@ def test_unused_london_calls_cannot_be_spent_on_ny(c):
     with pytest.raises(ValueError,match='SESSION_CALL_CAP'):c.reserve('ICT_8',payload(),at+1200)
 
 
-def test_concurrent_reservations_never_exceed_six(c):
+def test_concurrent_reservations_never_exceed_eight(c):
     at=london('2026-11-10T08:10:00')
     def attempt(i):
         try:c.reserve('ICT_'+str(i),payload(),at);return True
         except ValueError as e:
             assert str(e)=='SESSION_CALL_CAP';return False
     with ThreadPoolExecutor(max_workers=8) as pool:
-        assert sum(pool.map(attempt,range(12)))==6
+        assert sum(pool.map(attempt,range(12)))==8
 
 
 @pytest.mark.parametrize('state',['BLACKOUT','POLICY_BLOCKED','UNKNOWN'])
@@ -102,9 +102,9 @@ def test_next_session_and_used_london_budget_are_displayed():
     assert status.next_window(ts('2026-11-09T16:00:00'))==london('2026-11-10T08:00:00')
     assert status.next_window(ts('2026-11-13T16:00:00'))==ts('2026-11-16T09:30:00')
     at=london('2026-11-10T09:00:00');s=snapshot(at)
-    s.update(daily_call_cap=22,calls_today=6,session_budgets=[dict(session='LONDON',cap=6,used=6)])
+    s.update(daily_call_cap=24,calls_today=8,session_budgets=[dict(session='LONDON',cap=8,used=8)])
     value=status.describe(s,dict(status='CLEAR'),True)
-    assert value['state']=='PAUSED' and 'all 6' in value['reason']
+    assert value['state']=='PAUSED' and 'all 8' in value['reason']
     assert value['next_at']==ts('2026-11-10T09:30:00')
 
 

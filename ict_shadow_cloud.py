@@ -8,7 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 NY=ZoneInfo('America/New_York')
-DAILY_USD=8.0
+DAILY_USD=10.0
 DAILY_CALLS=16
 
 from ict_sessions import daily_call_limit, session, session_call_limit, session_budgets, SCHEDULE

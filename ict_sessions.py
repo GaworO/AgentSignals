@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
 LONDON = ZoneInfo('Europe/London')
 LONDON_EFFECTIVE_DAY = date(2026, 11, 9)
-SESSION_CAPS = {'LONDON': 6, 'NYAM': 8, 'NYPM': 8}
-SCHEDULE = ('London Tue–Fri 08:00–10:00 Europe/London (6 calls) · '
+SESSION_CAPS = {'LONDON': 8, 'NYAM': 8, 'NYPM': 8}
+SCHEDULE = ('London Tue–Fri 08:00–10:00 Europe/London (8 calls) · '
             'NYAM Mon–Fri 09:30–11:00 (8) · NYPM Mon–Fri 13:30–16:00 (8) America/New_York')
 
 
@@ -18,7 +18,7 @@ def london_day(day):
 def daily_call_limit(day):
     if str(day) == '2026-10-30':
         return 12  # Preserve the original dated authorization and history.
-    return 16 + (6 if london_day(day) else 0)
+    return 16 + (SESSION_CAPS['LONDON'] if london_day(day) else 0)
 
 
 def windows(day):

@@ -32,11 +32,23 @@ def test_cost_cap_restart_unknown_duplicate(c):
     c.reserve('r_0',payload(),ts())
     with c.db() as db:
         initial=db.execute('SELECT reserve FROM costs').fetchone()[0]
-        db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',('prior_1','2026-11-02',ts()-60,8-initial-.01,'UNKNOWN_RESERVED'))
+        db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',('prior_1','2026-11-02',ts()-60,10-initial-.01,'UNKNOWN_RESERVED'))
     with pytest.raises(ValueError,match='DAILY_DOLLAR_CAP'):c.reserve('r_2',p,ts())
     d=Cloud(c.config)
     with pytest.raises(ValueError):d.reserve('r_0',payload(),ts())
-    with d.db() as db:assert db.execute('SELECT SUM(reserve) FROM costs').fetchone()[0]<=8
+    with d.db() as db:assert db.execute('SELECT SUM(reserve) FROM costs').fetchone()[0]<=10
+
+
+def test_temporary_ten_dollar_limit_allows_reviews_above_old_eight(c):
+    at=ts()
+    with c.db() as db:
+        db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',
+                   ('prior_0','2026-11-02',at-120,8.5,'UNKNOWN_RESERVED'))
+    c.reserve('prior_1',payload(),at)
+    restarted=Cloud(c.config)
+    with restarted.db() as db:
+        rows=list(db.execute('SELECT * FROM costs'))
+    assert len(rows)==2 and 8.5 < sum(r['reserve'] for r in rows) < 10
 
 def test_atomic_dedup(c):
     def f(_):
@@ -160,7 +172,7 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
         packet=json.loads(sent[0]['input'][1]['content'])
         assert packet['session_name']=='LONDON' and packet['session_end']==ts('2026-11-10T05:00:00')
         assert 'Current review session is LONDON' in sent[0]['input'][0]['content']
-        assert result['budget_before']['research_limit']==22
+        assert result['budget_before']['research_limit']==24
     if future=='extension':
         assert result['id'].endswith('_8')
         assert result['budget_before']['borrowed_attempts']==0
