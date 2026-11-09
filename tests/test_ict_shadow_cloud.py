@@ -29,11 +29,11 @@ def test_cache_write_pricing():
 
 def test_cost_cap_restart_unknown_duplicate(c):
     p=payload();p['input']='x'*250000
-    n=0
-    while True:
-        try:c.reserve('r_'+str(n),p,ts());n+=1
-        except ValueError as e:assert str(e)=='DAILY_DOLLAR_CAP';break
-    assert n>1
+    c.reserve('r_0',payload(),ts())
+    with c.db() as db:
+        initial=db.execute('SELECT reserve FROM costs').fetchone()[0]
+        db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',('prior_1','2026-11-02',ts()-60,8-initial-.01,'UNKNOWN_RESERVED'))
+    with pytest.raises(ValueError,match='DAILY_DOLLAR_CAP'):c.reserve('r_2',p,ts())
     d=Cloud(c.config)
     with pytest.raises(ValueError):d.reserve('r_0',payload(),ts())
     with d.db() as db:assert db.execute('SELECT SUM(reserve) FROM costs').fetchone()[0]<=8
@@ -77,7 +77,8 @@ def test_event_selector_and_budget(c):
 
 def test_burned_reservation_not_retried(c):
     at=ts();c.reserve('ICT_0',payload(),at)
-    assert c.select([],{'as_of':at,'trigger_events':[]},at)[0]==1
+    assert c.select([],{'as_of':at,'trigger_events':[]},at)[1]=='90_SECOND_COOLDOWN'
+    assert c.select([],{'as_of':at+120,'trigger_events':[]},at+120)[0]==1
 
 def test_dashboard_private_no_mutations(c):
     app=Flask(__name__);register(app,c.config,start=False);client=app.test_client()
@@ -109,19 +110,19 @@ def test_default_worker_disabled(c,monkeypatch):
     c.tick()
     with c.db() as db:assert 'SCANNER_DISABLED' in db.execute("SELECT value FROM state WHERE key='last_check'").fetchone()[0]
 
-@pytest.mark.parametrize('future',[False,True,'extension'])
+@pytest.mark.parametrize('future',[False,True,'extension','london'])
 @pytest.mark.parametrize('production_state',[None,'finished_unknown','running','unfinished_unknown'])
 def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state):
     import ict_shadow_research as r, ab_ai_context as ai, directional_ai_transport as transport
     from pathlib import Path
     p=json.loads((Path(__file__).parent/'fixtures/ict_shadow_market.json').read_text())['packet']
-    at=ts('2026-11-02T09:35:00') if future is True else ts('2026-10-30T15:15:00') if future=='extension' else ts('2026-10-30T13:35:00')
+    at=ts('2026-11-10T03:10:00') if future=='london' else ts('2026-11-02T09:35:00') if future is True else ts('2026-10-30T15:15:00') if future=='extension' else ts('2026-10-30T13:35:00')
     delta=at-60-p['as_of'];p['as_of']+=delta
     for e in p['evidence'].values():
         e['available_at']+=delta
         if 'time' in e:e['time']+=delta
     p.pop('manual_authorization',None)
-    monkeypatch.setattr(r,'DAY','2026-11-02' if future is True else '2026-10-30')
+    monkeypatch.setattr(r,'DAY',datetime.fromtimestamp(at,ZoneInfo('America/New_York')).date().isoformat())
     monkeypatch.setattr(r,'PREFIX','ICT_INDEPENDENT_NYAM_'+r.DAY.replace('-','')+'_')
     monkeypatch.setattr(r.time,'time',lambda:at)
     monkeypatch.setattr(ai.ContextSupport,'read_source',lambda _: {'calls_today':0})
@@ -155,6 +156,11 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
     assert 'Assess scheduled_news explicitly' in sent[0]['input'][0]['content']
     assert 'ifvg_review' in sent[0]['text']['format']['schema']['required']
     assert json.loads(sent[0]['input'][1]['content'])['review_families']==['ICT2022','IFVG']
+    if future=='london':
+        packet=json.loads(sent[0]['input'][1]['content'])
+        assert packet['session_name']=='LONDON' and packet['session_end']==ts('2026-11-10T05:00:00')
+        assert 'Current review session is LONDON' in sent[0]['input'][0]['content']
+        assert result['budget_before']['research_limit']==22
     if future=='extension':
         assert result['id'].endswith('_8')
         assert result['budget_before']['borrowed_attempts']==0
@@ -201,9 +207,9 @@ def test_twelve_call_extension_preserves_history_and_burned_slots(c):
     rows=[dict(id='ICT_'+str(i),status='research_completed',requested_at=ts('2026-10-30T10:00:00') if i<6 else ts('2026-10-30T13:35:00')) for i in range(8)]
     p={'as_of':at,'trigger_events':[{'available_at':at-60,'kind':'MSS'}]}
     assert c.select(rows,p,at)[0]==8
-    c.reserve('ICT_8',payload(),at)
+    c.reserve('ICT_8',payload(),at-120)
     assert c.select(rows,p,at)[0]==9
-    c.reserve('ICT_11',payload(),at)
+    c.reserve('ICT_11',payload(),at-120)
     assert c.select(rows,p,at)[1]=='DAILY_CALL_CAP_INCLUDING_BURNED'
     rows += [dict(id='ICT_'+str(i),status='research_completed',requested_at=at-3600) for i in range(8,12)]
     assert c.select(rows,p,at)[1]=='DAILY_CALL_CAP'

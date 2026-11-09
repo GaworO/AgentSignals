@@ -101,6 +101,26 @@ def test_permissions_are_separate_and_forward_only(routed,monkeypatch,key,value,
     assert not f.posts
 
 
+def test_london_permission_keeps_weekday_news_and_kill_controls(routed,monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import ict_news_context
+    def stamp(day):
+        return datetime.fromisoformat(day+'T08:10:00').replace(tzinfo=ZoneInfo('Europe/London')).timestamp()
+    def order(at):
+        return dict(routed.order,ict_requested_at=at-10,activation_ms=int((at-5)*1000),expiry_ms=int((at+300)*1000))
+    at=stamp('2026-11-10')
+    assert ict.permission(order(at),clock=lambda:at) is None
+    monday=stamp('2026-11-09')
+    assert ict.permission(order(monday),clock=lambda:monday)=='ict_outside_session'
+    monkeypatch.setattr(ict_news_context,'build',lambda *args:dict(status='POLICY_BLOCKED',next_blackout_at=None))
+    assert ict.permission(order(at),clock=lambda:at)
+    monkeypatch.setattr(ict_news_context,'build',lambda *args:dict(status='CLEAR',next_blackout_at=None))
+    monkeypatch.setenv('EXEC_KILL_SWITCH','true')
+    assert ict.permission(order(at),clock=lambda:at)
+    assert not routed.posts
+
+
 @pytest.mark.parametrize('side',['LONG','SHORT'])
 def test_native_ack_fill_oco_close_accounting(routed,side):
     f=routed

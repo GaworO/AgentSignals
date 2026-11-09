@@ -11,19 +11,9 @@ NY=ZoneInfo('America/New_York')
 DAILY_USD=8.0
 DAILY_CALLS=16
 
-def daily_call_limit(day):
-    # Explicit user approval: four additional dedicated reviews on Oct 30 only.
-    return 12 if day == "2026-10-30" else DAILY_CALLS
+from ict_sessions import daily_call_limit, session, session_call_limit, session_budgets, SCHEDULE
 
 MODEL='gpt-6.1-sol'
-
-def session(now):
-    d=datetime.fromtimestamp(now,NY);m=d.hour*60+d.minute
-    if d.weekday()>=5:return None
-    for name,start,end in [('NYAM',570,660),('NYPM',810,960)]:
-        if start<=m<end:
-            return name,d.replace(hour=end//60,minute=end%60,second=0,microsecond=0).timestamp(),d.replace(hour=start//60,minute=start%60,second=0,microsecond=0).timestamp()
-    return None
 
 def cost(usage):
     """Official standard rates, cache writes replace base input rate; no tools."""
@@ -129,6 +119,10 @@ class Cloud:
             total=db.execute('SELECT COALESCE(SUM(COALESCE(amount,reserve)),0) FROM costs WHERE day=?',(day,)).fetchone()[0]
             if total+reserve>DAILY_USD:raise ValueError('DAILY_DOLLAR_CAP')
             if db.execute('SELECT 1 FROM costs WHERE id=?',(rid,)).fetchone():raise ValueError('COST_RESERVED_NO_RETRY')
+            window=session(now)
+            if window is None:raise ValueError('SESSION_ENDED')
+            if db.execute('SELECT COUNT(*) FROM costs WHERE day=?',(day,)).fetchone()[0]>=daily_call_limit(day):raise ValueError('DAILY_CALL_CAP')
+            if db.execute('SELECT COUNT(*) FROM costs WHERE day=? AND at>=? AND at<?',(day,window[2],window[1])).fetchone()[0]>=session_call_limit(window[0]):raise ValueError('SESSION_CALL_CAP')
             db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',(rid,day,now,reserve,'RESERVED'))
     def finish(self,rid,raw,error):
         amount=cost((raw or {}).get('usage'))
@@ -180,10 +174,17 @@ class Cloud:
         news=ict_news_context.build(self.config,now)
         self.put('scheduled_news',news)
         if news['status']!='CLEAR':return None,'ICT_NEWS_'+news['status'],None
-        in_session=[r for r in rows if s[2]<=r['requested_at']<s[1]]
-        if len(in_session)>=8:return None,'SESSION_EIGHT_CALL_CAP',None
+        # Include reservations burned before the review row was persisted.
+        # IDs remain stable for existing journals and execution bindings.
+        with self.db() as db:
+            reserved_rows=[dict(r) for r in db.execute('SELECT id,at FROM costs WHERE day=?',(datetime.fromtimestamp(now,NY).date().isoformat(),))]
+        attempts={r['id']:dict(r) for r in rows}
+        for r in reserved_rows:
+            attempts.setdefault(r['id'],dict(id=r['id'],requested_at=r['at']))
+        in_session=[r for r in attempts.values() if s[2]<=r['requested_at']<s[1]]
+        if len(in_session)>=session_call_limit(s[0]):return None,'SESSION_CALL_CAP',None
         if sum(r['requested_at']>now-1800 for r in in_session)>=3:return None,'THREE_REVIEWS_PER_30_MINUTES',None
-        last=max((r['requested_at'] or 0 for r in rows),default=0)
+        last=max((r['requested_at'] or 0 for r in attempts.values()),default=0)
         if now-last<90:return None,'90_SECOND_COOLDOWN',None
         # Never reuse a burned cost reservation after a crash before research INSERT.
         with self.db() as db:
@@ -240,7 +241,7 @@ class Cloud:
             all_costs=[dict(r) for r in db.execute('SELECT * FROM costs')]
             costs=[r for r in all_costs if r['day']==day]
         with self.db() as db:state['candles']=[json.loads(r[0]) for r in db.execute("SELECT body FROM candles WHERE symbol='MNQ' ORDER BY time DESC LIMIT 90")][::-1]
-        state.update(now=now,day_ny=day,execution_authorized=False,daily_usd_cap=DAILY_USD,estimated_or_reserved_usd=sum(r['amount'] if r['amount'] is not None else r['reserve'] for r in costs),calls_today=len(costs),daily_call_cap=daily_call_limit(day),costs=costs,budget_scope='THIS_SHADOW_SCANNER_ONLY; production billed separately. USD before tax; not a guaranteed EUR invoice cap.',sessions='NYAM 09:30–11:00 · NYPM 13:30–16:00 America/New_York',reviews=[])
+        state.update(now=now,day_ny=day,execution_authorized=False,daily_usd_cap=DAILY_USD,estimated_or_reserved_usd=sum(r['amount'] if r['amount'] is not None else r['reserve'] for r in costs),calls_today=len(costs),daily_call_cap=daily_call_limit(day),costs=costs,budget_scope='THIS_SHADOW_SCANNER_ONLY; production billed separately. USD before tax; not a guaranteed EUR invoice cap.',sessions=SCHEDULE,session_budgets=session_budgets(day,costs),reviews=[])
         for r in self.records():
             state['reviews'].append({k:r.get(k) for k in ('id','state','decision','validation','requested_at','received_at','finished_at','latency_seconds','error')}|{'purpose':r.get('packet',{}).get('assessment_kind'),'market_as_of':r.get('packet',{}).get('as_of'),'budget':r.get('budget_before',{}),'outcome':self.outcome(r)})
         companions=[]

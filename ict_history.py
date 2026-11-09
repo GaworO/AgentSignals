@@ -13,6 +13,9 @@ NY=ZoneInfo('America/New_York')
 
 def day(at):return datetime.fromtimestamp(at,NY).date().isoformat()
 def session(at):
+    from ict_sessions import session as active_session
+    window=active_session(at)
+    if window and window[0]=='LONDON':return 'LONDON'
     d=datetime.fromtimestamp(at,NY);m=d.hour*60+d.minute
     return 'NYAM' if 570<=m<660 else 'NYPM' if 810<=m<960 else 'OTHER'
 def number(x):return type(x) in (int,float) and math.isfinite(x)
@@ -109,7 +112,7 @@ def summary(reviews,costs,brokers,included):
         shadow_no_fill=sum((x.get('outcome') or {}).get('state')=='SIMULATED_NO_FILL' for x in r))
 
 def build(state,costs,brokers,gaps,period,anchor,selected_session):
-    if selected_session not in ('ALL','NYAM','NYPM','OTHER'):raise ValueError('Unknown session filter.')
+    if selected_session not in ('ALL','LONDON','NYAM','NYPM','OTHER'):raise ValueError('Unknown session filter.')
     start,end=bounds(period,anchor,state['now'])
     def included(at):
         return number(at) and at>0 and at<=state['now'] and (start is None or day(at)>=start) and day(at)<=end and (selected_session=='ALL' or session(at)==selected_session)
@@ -130,7 +133,7 @@ def build(state,costs,brokers,gaps,period,anchor,selected_session):
         a=datetime.strptime(start,'%Y-%m-%d').date();b=datetime.strptime(end,'%Y-%m-%d').date()
         dates|={(a+timedelta(days=i)).isoformat() for i in range((b-a).days+1)}
     daily=[dict(day=d,**summary(reviews,costs,brokers,lambda at,d=d:included(at) and day(at)==d)) for d in sorted(dates,reverse=True)]
-    sessions=[dict(session=name,**summary(reviews,costs,brokers,lambda at,name=name:included(at) and session(at)==name)) for name in ('NYAM','NYPM','OTHER')]
+    sessions=[dict(session=name,**summary(reviews,costs,brokers,lambda at,name=name:included(at) and session(at)==name)) for name in ('LONDON','NYAM','NYPM','OTHER')]
     return dict(from_day=start,through_day=end,period=period,session=selected_session,now=state['now'],
         summary=summary(reviews,costs,brokers,included),daily=daily,sessions=sessions,reviews=selected,broker_orders=orders,
         broker_history_gaps=gaps,timezone='America/New_York',

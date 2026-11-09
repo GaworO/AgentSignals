@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 NY = ZoneInfo('America/New_York')
+from ict_sessions import windows, session
 
 
 def next_window(now, intervals=()):
@@ -10,11 +11,7 @@ def next_window(now, intervals=()):
     day = datetime.fromtimestamp(now, NY).replace(hour=0, minute=0, second=0, microsecond=0)
     for offset in range(10):
         date = day + timedelta(days=offset)
-        if date.weekday() >= 5:
-            continue
-        for start, end in ((570, 660), (810, 960)):
-            a = (date + timedelta(minutes=start)).timestamp()
-            b = (date + timedelta(minutes=end)).timestamp()
+        for name, b, a in windows(date.date()):
             candidate = max(now, a)
             for left, right in sorted(intervals):
                 if left <= candidate < right:
@@ -27,8 +24,7 @@ def next_window(now, intervals=()):
 def describe(state, news, enabled):
     now = state['now']
     current = datetime.fromtimestamp(now, NY)
-    minute = current.hour * 60 + current.minute
-    in_session = current.weekday() < 5 and (570 <= minute < 660 or 810 <= minute < 960)
+    in_session = session(now)
     intervals = [(w['start'], w['end']) for w in news.get('policy_windows', [])]
     # The calendar's +/-30 minute event boundaries are inclusive.
     events = {e['id']: e for e in news.get('events', []) + news.get('us_events_this_week', [])}
@@ -76,7 +72,11 @@ def describe(state, news, enabled):
         tomorrow = (current.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).timestamp()
         return finish('PAUSED', 'AI calls paused', 'Daily AI call or dollar limit reached.', tomorrow, scheduled=True)
     if not in_session:
-        return finish('PAUSED', 'AI calls paused', 'Outside NYAM / NYPM review hours.', now, scheduled=True)
+        return finish('PAUSED', 'AI calls paused', 'Outside London / NYAM / NYPM review hours. London runs Tuesday–Friday only.', now, scheduled=True)
+    current_budget=next((b for b in state.get('session_budgets',[]) if b['session']==in_session[0]),None)
+    if current_budget and current_budget['used']>=current_budget['cap']:
+        return finish('PAUSED', 'Session AI limit reached',
+                      f"{in_session[0]}: all {current_budget['cap']} reviews used, including reserved attempts.", in_session[1], scheduled=True)
     worker = state.get('worker') or {}
     if not 0 <= now - worker.get('at', 0) < 180:
         return finish('CHECK_REQUIRED', 'AI status needs checking', 'No recent scanner heartbeat. Use Check & recover AI.')
@@ -86,6 +86,7 @@ def describe(state, news, enabled):
     reasons = {
         'THREE_REVIEWS_PER_30_MINUTES': 'Three reviews in 30 minutes. Waiting for the rolling allowance to reopen.',
         '90_SECOND_COOLDOWN': 'Waiting for the minimum 90 seconds between reviews.',
+        'SESSION_CALL_CAP': 'The dedicated review allowance for this session has been used.',
         'SESSION_EIGHT_CALL_CAP': 'All eight reviews for this session have been used.',
         'DAILY_CALL_CAP': 'Daily review allowance reached.',
         'DAILY_CALL_CAP_INCLUDING_BURNED': 'Daily review allowance reached, including charged attempts without a result.',

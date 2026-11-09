@@ -18,7 +18,7 @@ ORIGIN='https://agent-50k-production.up.railway.app'
 
 
 def inspect(cloud, now=None):
-    from ict_shadow_cloud import NY, session, daily_call_limit, DAILY_USD
+    from ict_shadow_cloud import NY, session, session_call_limit, daily_call_limit, DAILY_USD
     now=time.time() if now is None else now
     day=datetime.fromtimestamp(now,NY).date().isoformat()
     with cloud.db() as db:
@@ -55,7 +55,7 @@ def inspect(cloud, now=None):
     news=ict_news_context.build(cloud.config,now)
     window=session(now)
     allowed=bool(window) and news['status']=='CLEAR'
-    detail=('Outside NYAM / NYPM. The scanner waits for the next permitted session.' if not window else
+    detail=('Outside London / NYAM / NYPM. London runs Tuesday–Friday. The scanner waits for the next permitted session.' if not window else
             'NFP week: new reviews stop Wednesday 11:00 New York through Friday.' if 'NFP_WEEK_AFTER_WEDNESDAY_1100' in news.get('active_policy_reasons',[]) else
             'FOMC morning: reviews are paused.' if 'FOMC_MORNING' in news.get('active_policy_reasons',[]) else
             'Scheduled news blackout. Wait until it ends.' if news['status']=='BLACKOUT' else
@@ -64,7 +64,7 @@ def inspect(cloud, now=None):
     check('Session & news','ok' if allowed else 'wait',detail,not allowed)
     cap=daily_call_limit(day);used=len(costs);amount=sum(r['amount'] if r['amount'] is not None else r['reserve'] for r in costs)
     session_used=sum(window[2]<=r['at']<window[1] for r in costs) if window else 0
-    budget_ok=used<cap and amount<DAILY_USD and session_used<8 and not saved.get('budget_anomaly')
+    budget_ok=used<cap and amount<DAILY_USD and (not window or session_used<session_call_limit(window[0])) and not saved.get('budget_anomaly')
     check('AI budget','ok' if budget_ok else 'wait',f'{used}/{cap} calls today · ${amount:.2f}/${DAILY_USD:.2f} estimated or reserved'+(' · limit or reconciliation check prevents further calls.' if not budget_ok else ''),not budget_ok)
     last=saved.get('last_check',{})
     timing={

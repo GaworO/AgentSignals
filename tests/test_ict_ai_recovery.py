@@ -54,7 +54,7 @@ def test_get_is_authenticated_and_never_starts_worker(setup):
 
 def test_recovery_double_tap_does_not_reset_charge_or_production_attempt(setup):
     c,client,h,now=setup
-    c.reserve('prior_0',dict(model=cloudmod.MODEL,service_tier='default',input='mock',max_output_tokens=5000),now-3600)
+    c.reserve('prior_0',dict(model=cloudmod.MODEL,service_tier='default',input='mock',max_output_tokens=5000),now-120)
     c.finish('prior_0',None,'timeout')
     with c.db() as db:before=[tuple(r) for r in db.execute('SELECT * FROM costs')]
     with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:production=db.execute('SELECT * FROM reviews').fetchall()
