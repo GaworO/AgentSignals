@@ -301,3 +301,32 @@ def test_corrupt_ab_recovery_row_never_spends_or_dispatches(rig):
     assert not rig.calls and not rig.posts
     with rig.connect() as db:
         assert db.execute('SELECT state FROM nofill_opportunities').fetchone()[0]=='REJECTED'
+
+
+@pytest.mark.parametrize('row', [None,dict(state='NO_FILL',receipt_json=None)])
+def test_unsubmitted_recovery_candidates_never_trigger_broker_poll(monkeypatch,row):
+    import threading,builder_crosstrade
+    from unittest.mock import Mock
+    lock=threading.Lock()
+    poll=Mock(side_effect=AssertionError('no broker request for unsubmitted candidate'))
+    t=SimpleNamespace(poll_lock=lock,sync=SimpleNamespace(poll=poll),row=lambda oid:row)
+    monkeypatch.setattr(builder_crosstrade,'_TRANSPORT',t)
+    for i in range(20):
+        with pytest.raises(ValueError,match='ORIGINAL_NATIVE_'):
+            runtime.broker_proof('OLD-'+str(i))
+    poll.assert_not_called()
+    assert not lock.locked()
+
+
+@pytest.mark.parametrize('state',['SENDING','UNKNOWN','RECONCILIATION_REQUIRED'])
+def test_unknown_native_recovery_without_ack_still_refreshes_broker(monkeypatch,state):
+    import threading,builder_crosstrade
+    from unittest.mock import Mock
+    poll=Mock(return_value=False)
+    t=SimpleNamespace(poll_lock=threading.Lock(),sync=SimpleNamespace(poll=poll),
+                      row=lambda oid:dict(state=state,receipt_json=None))
+    monkeypatch.setattr(builder_crosstrade,'_TRANSPORT',t)
+    with pytest.raises(ValueError,match='BROKER_REFRESH_UNAVAILABLE'):
+        runtime.broker_proof('UNKNOWN-INTENT')
+    poll.assert_called_once_with(wait=True)
+    assert not t.poll_lock.locked()

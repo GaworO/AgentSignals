@@ -130,7 +130,7 @@ class AccountSync:
             raise SyncError('COMPLETE_BROKER_RESPONSE_REQUIRED')
         return response.get('data')
 
-    def poll(self, *, wait=False):
+    def poll(self, *, wait=False, background=False, prefetch_reconciliation=False):
         requested = self.clock()
         contended = self.poll_lock.locked()
         acquired = self.poll_lock.acquire(timeout=15) if wait and self.enabled else self.poll_lock.acquire(blocking=False) if self.enabled else False
@@ -158,6 +158,14 @@ class AccountSync:
             lease=open(str(self.path)+'.'+self.binding+'.poll.lock','a')
             try:fcntl.flock(lease,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:return False
+            # A second worker must not repeat the same background cycle just
+            # after the first releases its lock. Explicit pre-entry/protection
+            # refreshes never use this shortcut.
+            if background and not wait and self.identity_day is not None:
+                previous = self.snapshot()
+                if (previous and self.state()['current']
+                        and 0 <= started-previous['read_started_at'] < self.interval):
+                    return True
             self.force_reconciliation = wait
             day=datetime.fromtimestamp(started,NY).date().isoformat()
             if self.identity_day != day:
@@ -168,6 +176,14 @@ class AccountSync:
                         or matches[0].get('active') is not True or matches[0].get('archived') is True):
                     raise SyncError('BROKER_ACCOUNT_BINDING_CHANGED_OR_INACTIVE')
                 self.identity_day = day
+            import directional_account_reconciliation as risk
+            # Slow full-history and margin reads precede the live inventory.
+            # Keep read_started_at truthful: it is the start of the account /
+            # positions / orders / fills snapshot, never a refreshed old stamp.
+            # Entry sizing/final validation opt in. Protective refreshes keep
+            # inventory first; every explicit refresh still reads fees anew.
+            inputs = risk.read_inputs(self) if wait and prefetch_reconciliation else None
+            started = self.clock()
             prefix = '/accounts/' + quote(self.name, safe='')
             # No burst of parallel account reads; stop immediately on a 429.
             values = {key:self._data(prefix+suffix) for key,suffix in
@@ -197,7 +213,7 @@ class AccountSync:
             import directional_account_reconciliation as risk
             # Reassess unchanged inputs locally before publication. No network
             # work here: native protection must still receive snapshots promptly.
-            prepared_risk = risk.refresh(self, snapshot, persist=False, cached_only=True)
+            prepared_risk = risk.refresh(self, snapshot, persist=False, cached_only=True, inputs=inputs)
             published_risk = prepared_risk if prepared_risk is not None else dict(
                 verified=False, controls=None, account_binding=self.binding,
                 observed_at_ms=int(finished*1000), snapshot_started_ms=int(started*1000),
@@ -227,6 +243,8 @@ class AccountSync:
                     self.reconciliation_error = None
                 except Exception:
                     self.reconciliation_error = 'NATIVE_RECONCILIATION_FAILED'
+            if wait and prepared_risk is not None:
+                self.last_forced_snapshot_ms=int(snapshot['read_started_at']*1000)
             # Changed inputs, restart, cache expiry and pre-entry checks still
             # require provider reads. Pending is blocked, never old approval.
             if prepared_risk is None:
@@ -325,7 +343,7 @@ class AccountSync:
         def run():
             while True:
                 try:
-                    self.poll()
+                    self.poll(background=True)
                 except Exception:
                     # Storage failures must not kill future recovery attempts.
                     # The old timestamp remains stale and entry checks block.

@@ -162,6 +162,15 @@ def broker_proof(oid):
     try:
         # Own reconciliation before polling: its asynchronous after_poll hook
         # must skip this pass, not race parent proof or the reserved child.
+        # The transport persists its native intent BEFORE any possible POST.
+        # Scanner-only/rejected setups cannot gain broker IDs by polling. These
+        # old recovery candidates otherwise repeatedly force six account reads.
+        row=t.row(oid)
+        if not row:raise ValueError('ORIGINAL_NATIVE_INTENT_MISSING')
+        if row['state']=='NO_FILL' and not row.get('receipt_json'):
+            raise ValueError('ORIGINAL_NATIVE_ENTRY_NOT_SENT')
+        # Unknown/submitted intents still require actual broker reconciliation;
+        # absence of an acknowledgement alone is never proof of no exposure.
         if not t.sync.poll(wait=True):raise ValueError('BROKER_REFRESH_UNAVAILABLE')
         snapshot=t.sync.snapshot();row=t.row(oid)
         if not row:raise ValueError('ORIGINAL_NATIVE_INTENT_MISSING')

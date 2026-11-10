@@ -348,7 +348,19 @@ def store(db, binding, result):
                (binding,json.dumps(result,sort_keys=True,allow_nan=False)))
 
 
-def refresh(sync, snapshot, *, persist=True, cached_only=False):
+def read_inputs(sync):
+    """Authoritative history/costs and margin for one explicit refresh.
+
+    Fetch before live inventory so unrelated history latency does not age the
+    final account snapshot. Newly appearing fills still must match this history;
+    inconsistent data blocks, rather than silently retrying or granting risk.
+    """
+    started = int(sync.clock()*1000)
+    return dict(at_ms=started, rows=history(sync), margin=margin_row(sync),
+                account_binding=sync.binding)
+
+
+def refresh(sync, snapshot, *, persist=True, cached_only=False, inputs=None):
     """Assess current inputs; cached_only never reads the provider.
 
     None means authoritative history/margin reads are needed. The caller must
@@ -374,21 +386,36 @@ def refresh(sync, snapshot, *, persist=True, cached_only=False):
             sort_keys=True,allow_nan=False).encode()).hexdigest()
         cached=getattr(sync,'reconciliation_cache',None)
         reusable=(not getattr(sync,'force_reconciliation',False) and cached
-                  and cached['signature']==signature and 0<=now-cached['at_ms']<300000)
+                  and cached['signature']==signature
+                  and 0<=now-cached['at_ms']<cached.get('ttl_ms',300000))
         # Margin allowances can vary without fills. Only a current, explicit
         # contract-cap-only rule permits reuse of the diagnostic margin row.
         contract_only=proof.get('margin_policy',{}).get('mode')=='CONTRACT_CAP_ONLY'
-        if cached_only and not (reusable and contract_only):
-            return None
-        rows=cached['rows'] if reusable else history(sync)
-        margin=cached['margin'] if reusable and contract_only else margin_row(sync)
+        if inputs is not None:
+            if (inputs.get('account_binding') != sync.binding
+                    or not 0 <= int(snapshot['read_started_at']*1000)-inputs['at_ms']
+                    or not 0 <= now-inputs['at_ms'] <= 30000):
+                raise ValueError('account_reconciliation_inputs_stale_or_mismatched')
+            reusable = False
+            rows, margin = inputs['rows'], inputs['margin']
+            history_at = inputs['at_ms']
+        else:
+            if cached_only and not (reusable and contract_only):
+                return None
+            rows=cached['rows'] if reusable else history(sync)
+            margin=cached['margin'] if reusable and contract_only else margin_row(sync)
+            history_at = cached['at_ms'] if reusable else now
         result = assess(snapshot, rows, margin, proof, sync.binding,
                         sync.config.get('AB_V3_CONTRACT'), int(sync.clock()*1000))
-        if not reusable and result.get('verified'):
-            sync.reconciliation_cache=dict(signature=signature,at_ms=now,rows=rows,margin=margin)
-        if not result.get('verified'):
-            sync.reconciliation_cache=None
-        result['history_observed_at_ms']=cached['at_ms'] if reusable else now
+        if not reusable:
+            # Cache raw authenticated inputs, never an approval. Expired rules
+            # or an unmatched ledger used to trigger six reads every poll all
+            # night. Reassess on each snapshot, with a shorter retry for missing
+            # evidence; a changed fill/cash/rule, forced entry or restart refetches.
+            sync.reconciliation_cache=dict(signature=signature,at_ms=history_at,
+                rows=rows,margin=margin,ttl_ms=300000 if result.get('verified') else 60000)
+        result['history_observed_at_ms']=history_at
+        result['inputs_before_snapshot']=inputs is not None
         result['history_cache_reused']=bool(reusable)
         import builder_broker_sync
         result['rules_sha256'] = hashlib.sha256(builder_broker_sync.encode(proof).encode()).hexdigest()

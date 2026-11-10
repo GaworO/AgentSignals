@@ -124,7 +124,10 @@ def test_expired_rules_cannot_be_extended_by_cache(setup):
     s,t,c,v,p=setup;assert s.poll()
     t[0]=p['expires_at_ms']/1000+1
     assert s.poll()
-    assert not ar.state(s)['verified'] and s.reconciliation_cache is None
+    assert not ar.state(s)['verified'] and ar.state(s)['controls'] is None
+    c.clear();t[0]+=15;assert s.poll()
+    assert len(c)==4 and not ar.state(s)['verified']
+    assert 'current_account_rules_missing_or_expired' in ar.state(s)['missing']
 
 
 def test_simultaneous_entry_checks_share_one_complete_fresh_cycle(setup):
@@ -310,3 +313,87 @@ def test_assessment_metadata_error_cannot_preserve_verified_controls(setup,monke
     risk=ar.refresh(s,s.snapshot(),persist=False,cached_only=True)
     assert not risk['verified'] and risk['controls'] is None
     assert risk['missing']==['account_risk_provider_read_or_schema_failed']
+
+
+def test_unverified_rules_cache_raw_inputs_not_permission_and_recheck_each_minute(setup):
+    s,t,c,v,p=setup
+    p['expires_at_ms']=int(t[0]*1000)-1
+    assert s.poll();c.clear()
+    for _ in range(3):
+        t[0]+=15;assert s.poll()
+        assert not ar.state(s)['verified'] and ar.state(s)['controls'] is None
+    assert len(c)==12  # 4 inventory reads/cycle, not repeated history + margin.
+    c.clear();t[0]+=15;assert s.poll();assert len(c)==6
+    p['expires_at_ms']=int(t[0]*1000)+600000
+    c.clear();t[0]+=15;assert s.poll()
+    assert len(c)==6 and ar.state(s)['verified']  # Actual changed rules, never automatic renewal.
+
+
+def test_background_dedup_never_skips_explicit_protection_or_entry_refresh(setup):
+    s,t,c,v,p=setup;assert s.poll();c.clear();t[0]+=1
+    assert s.poll(background=True) and not c
+    assert s.poll(wait=True) and len(c)==6
+    c.clear();t[0]+=15
+    assert s.poll(background=True) and len(c)==4
+
+
+def test_forced_history_precedes_inventory_without_retimestamping_old_evidence(setup):
+    s,t,c,v,p=setup;assert s.poll();c.clear();t[0]+=15
+    reader=s.reader;began=t[0];at={};seen=[]
+    def slow(path):
+        at[path]=t[0]
+        reply=reader(path)
+        t[0]+=8 if path.startswith('/fills/history') else 5 if path=='/marginsnapshots' else .4
+        return reply
+    s.reader=slow
+    s.after_poll=lambda snap:seen.append(ar.state(s))
+    assert s.poll(wait=True, prefetch_reconciliation=True)
+    snap=s.snapshot();r=ar.state(s)
+    assert c[:2]==['/fills/history?account=Eval&environment=demo&limit=1000','/marginsnapshots']
+    assert snap['read_started_at']==at['/accounts/Eval']==began+13
+    assert 1.59 <= t[0]-snap['read_started_at'] <= 1.61
+    assert r['verified'] and seen[0]['verified'] and r['inputs_before_snapshot']
+    assert r['history_observed_at_ms']==int(began*1000)
+    # Feed the real measured snapshot age to the unchanged execution validator.
+    import execution_validation as gate
+    from test_directional_resting_policy import case
+    a=case();a[3]['checked_ms']=a[-1]-round((t[0]-snap['read_started_at'])*1000)
+    assert gate.evaluate(*a) is None
+    a[3]['checked_ms']=a[-1]-3081
+    assert gate.evaluate(*a)=='account_risk_not_revalidated'
+
+
+@pytest.mark.parametrize('change',['new_fill','fee_revision','unknown_margin','slow_history','slow_inventory'])
+def test_prefetch_cannot_approve_changed_or_stale_account(setup,change):
+    s,t,c,v,p=setup;assert s.poll();c.clear();t[0]+=15
+    reader=s.reader
+    def changing(path):
+        reply=reader(path)
+        if path.startswith('/fills/history'):
+            if change=='new_fill':v['/accounts/Eval/fills'].append(dict(id=99,orderId=99,accountId=1))
+            if change=='fee_revision':reply['data'][0]['fees']+=1
+            if change=='slow_history':t[0]+=31
+        if path=='/marginsnapshots' and change=='unknown_margin':reply['data']=[]
+        if path.startswith('/accounts/Eval') and change=='slow_inventory':t[0]+=1
+        return reply
+    s.reader=changing
+    ok=s.poll(wait=True, prefetch_reconciliation=True)
+    if change=='unknown_margin':assert not ok
+    elif change=='slow_inventory':
+        assert ok
+        import execution_validation as gate
+        from test_directional_resting_policy import case
+        a=case();a[3]['checked_ms']=a[-1]-int((t[0]-s.snapshot()['read_started_at'])*1000)
+        assert gate.evaluate(*a)=='account_risk_not_revalidated'
+    else:assert ok and not ar.state(s)['verified']
+
+
+def test_forced_read_429_does_not_read_live_inventory_or_return_cached_approval(setup):
+    s,t,c,v,p=setup;assert s.poll();c.clear();t[0]+=15
+    def fail(path):
+        c.append(path)
+        raise b.SyncError('BROKER_HTTP_429_TRADOVATE_RATE_LIMITED')
+    s.reader=fail
+    assert not s.poll(wait=True, prefetch_reconciliation=True)
+    assert c==['/fills/history?account=Eval&environment=demo&limit=1000']
+    assert not ar.state(s)['verified']

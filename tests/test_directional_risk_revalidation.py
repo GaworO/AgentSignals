@@ -21,6 +21,9 @@ REAL_ACCOUNT_BLOCKER = builder_broker_sync.entry_blocker
 def native(monkeypatch, tmp_path):
     f = fixture.NativeTests()
     f.setUp()
+    f.values['/fills/history?account=Builder+account&environment=demo&limit=1000']=[]
+    f.values['/marginsnapshots']=[dict(environment='demo',data=[dict(id=2214,
+        initialMargin=0.,maintenanceMargin=0.,totalUsedMargin=0.,openCollateralReq=0.)])]
     monkeypatch.setenv('AUTO_SUBMIT', '1')
     monkeypatch.setenv('EXEC_MAX_QTY', '15')
     monkeypatch.setenv('DAY_LOSS_USD','550');monkeypatch.setenv('DAY_LOSS_N','1')
@@ -67,7 +70,7 @@ def test_final_risk_uses_persisted_dispatch_preparation_and_fresh_broker(native)
     proof = f.validator(dict(f.order))
     assert proof['allowed'] is True and proof['account_binding'] == f.sync.binding
     assert proof['checked_ms'] == int(f.sync.snapshot()['read_started_at']*1000)
-    poll.assert_called_once_with(wait=True)
+    poll.assert_called_once_with(wait=True, prefetch_reconciliation=True)
     _, kwargs = f.guard_check.call_args
     assert kwargs['reservation_id'] == 'ab_directional_order-one'
     assert kwargs['market_open'] is True and kwargs['news_hard'] is False

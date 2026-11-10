@@ -86,7 +86,7 @@ class RiskValidator:
             permission=execution_policy.entry_blocker(signal)
             if permission:return dict(proof,reason=permission)
             sync = builder_broker_sync.instance()
-            if not sync.enabled or not sync.poll(wait=True):
+            if not sync.enabled or not sync.poll(wait=True, prefetch_reconciliation=True):
                 return dict(proof, reason='fresh_broker_snapshot_required')
             snapshot = sync.snapshot()
             # Repeat the account-wide inventory barrier after the final read.
@@ -152,7 +152,7 @@ def _size_for_entry(signal, *, clock=time.time):
         order=dict(order_id=order_id,contract=contract,direction=signal['dir'],
                    entry_price=signal['entry'],stop_price=signal['SL'],target_price=signal['TP'])
         sync=builder_broker_sync.instance()
-        if not sync.enabled or not sync.poll(wait=True):
+        if not sync.enabled or not sync.poll(wait=True, prefetch_reconciliation=True):
             return dict(result,reason='fresh_broker_snapshot_required')
         reason=sync.entry_blocker()
         if reason:return dict(result,reason=reason)
