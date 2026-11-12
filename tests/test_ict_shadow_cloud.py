@@ -32,11 +32,11 @@ def test_cost_cap_restart_unknown_duplicate(c):
     c.reserve('r_0',payload(),ts())
     with c.db() as db:
         initial=db.execute('SELECT reserve FROM costs').fetchone()[0]
-        db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',('prior_1','2026-11-02',ts()-60,10-initial-.01,'UNKNOWN_RESERVED'))
+        db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',('prior_1','2026-11-02',ts()-60,20-initial-.01,'UNKNOWN_RESERVED'))
     with pytest.raises(ValueError,match='DAILY_DOLLAR_CAP'):c.reserve('r_2',p,ts())
     d=Cloud(c.config)
     with pytest.raises(ValueError):d.reserve('r_0',payload(),ts())
-    with d.db() as db:assert db.execute('SELECT SUM(reserve) FROM costs').fetchone()[0]<=10
+    with d.db() as db:assert db.execute('SELECT SUM(reserve) FROM costs').fetchone()[0]<=20
 
 
 def test_temporary_ten_dollar_limit_allows_reviews_above_old_eight(c):
@@ -123,13 +123,13 @@ def test_default_worker_disabled(c,monkeypatch):
     c.tick()
     with c.db() as db:assert 'SCANNER_DISABLED' in db.execute("SELECT value FROM state WHERE key='last_check'").fetchone()[0]
 
-@pytest.mark.parametrize('future',[False,True,'extension','london'])
+@pytest.mark.parametrize('future',[False,True,'extension','london','five_minute'])
 @pytest.mark.parametrize('production_state',[None,'finished_unknown','running','unfinished_unknown'])
 def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state):
     import ict_shadow_research as r, ab_ai_context as ai, directional_ai_transport as transport
     from pathlib import Path
     p=json.loads((Path(__file__).parent/'fixtures/ict_shadow_market.json').read_text())['packet']
-    at=ts('2026-11-10T03:10:00') if future=='london' else ts('2026-11-02T09:35:00') if future is True else ts('2026-10-30T15:15:00') if future=='extension' else ts('2026-10-30T13:35:00')
+    at=ts('2026-11-12T09:35:00') if future=='five_minute' else ts('2026-11-10T03:10:00') if future=='london' else ts('2026-11-02T09:35:00') if future is True else ts('2026-10-30T15:15:00') if future=='extension' else ts('2026-10-30T13:35:00')
     delta=at-60-p['as_of'];p['as_of']+=delta
     for e in p['evidence'].values():
         e['available_at']+=delta

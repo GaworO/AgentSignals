@@ -64,12 +64,12 @@ def inspect(cloud, now=None):
     check('Session & news','ok' if allowed else 'wait',detail,not allowed)
     cap=daily_call_limit(day);used=len(costs);amount=sum(r['amount'] if r['amount'] is not None else r['reserve'] for r in costs)
     session_used=sum(window[2]<=r['at']<window[1] for r in costs) if window else 0
-    budget_ok=used<cap and amount<DAILY_USD and (not window or session_used<session_call_limit(window[0])) and not saved.get('budget_anomaly')
+    budget_ok=used<cap and amount<DAILY_USD and (not window or session_used<session_call_limit(window[0],day)) and not saved.get('budget_anomaly')
     check('AI budget','ok' if budget_ok else 'wait',f'{used}/{cap} calls today · ${amount:.2f}/${DAILY_USD:.2f} estimated or reserved'+(' · limit or reconciliation check prevents further calls.' if not budget_ok else ''),not budget_ok)
     last=saved.get('last_check',{})
     timing={
         'THREE_REVIEWS_PER_30_MINUTES':'Three reviews in 30 minutes. Waiting for the rolling allowance to reopen.',
-        'SESSION_REVIEW_PACING':'Preserving calls for later in this session. The normal scheduler will recheck.',
+        'SESSION_REVIEW_PACING':'Waiting for the next scheduled review; minimum five minutes between paid attempts.',
         '90_SECOND_COOLDOWN':'Waiting for the minimum 90-second interval between reviews.',
         'WATCHING_CANDLES_NO_NEW_EVENT':'Watching for fresh structure; otherwise reassessment is due 20 minutes after the last review.',
         'WAIT_FIRST_CLOSED_CANDLE':'Waiting for the first closed candle of this session.',

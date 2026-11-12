@@ -85,8 +85,8 @@ def describe(state, news, enabled):
     code = last.get('state') if fresh else None
     if code == 'SESSION_REVIEW_PACING':
         pacing = state.get('review_pacing') or {}
-        return finish('OBSERVING', 'Reviews spread across the session',
-                      'Preserving review capacity for later market developments; fresh events and all other checks still apply.',
+        return finish('OBSERVING', 'Next five-minute review pending',
+                      'Waiting for the next five-minute review; fresh data, news, production priority and budgets still apply.',
                       pacing.get('next_at'))
     reasons = {
         'THREE_REVIEWS_PER_30_MINUTES': 'Three reviews in 30 minutes. Waiting for the rolling allowance to reopen.',

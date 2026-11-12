@@ -5,9 +5,11 @@ from zoneinfo import ZoneInfo
 NY = ZoneInfo('America/New_York')
 LONDON = ZoneInfo('Europe/London')
 LONDON_EFFECTIVE_DAY = date(2026, 11, 9)
-SESSION_CAPS = {'LONDON': 8, 'NYAM': 8, 'NYPM': 8}
-SCHEDULE = ('London Tue–Fri 08:00–10:00 Europe/London (8 calls) · '
-            'NYAM Mon–Fri 09:30–11:00 (8) · NYPM Mon–Fri 13:30–16:00 (8) America/New_York')
+FIVE_MINUTE_EFFECTIVE_DAY = date(2026, 11, 12)
+SESSION_CAPS = {'LONDON': 24, 'NYAM': 18, 'NYPM': 30}
+REVIEW_INTERVAL_SECONDS = 300
+SCHEDULE = ('London Tue–Fri 08:00–10:00 Europe/London (24 calls) · '
+            'NYAM Mon–Fri 09:30–11:00 (18) · NYPM Mon–Fri 13:30–16:00 (30) America/New_York · AI every 5 minutes when checks pass')
 
 
 def london_day(day):
@@ -18,7 +20,7 @@ def london_day(day):
 def daily_call_limit(day):
     if str(day) == '2026-10-30':
         return 12  # Preserve the original dated authorization and history.
-    return 16 + (SESSION_CAPS['LONDON'] if london_day(day) else 0)
+    return session_call_limit('NYAM', day) + session_call_limit('NYPM', day) + (session_call_limit('LONDON', day) if london_day(day) else 0)
 
 
 def windows(day):
@@ -41,19 +43,25 @@ def session(now):
                  if w[2] <= now < w[1]), None)
 
 
-def session_call_limit(name):
-    return SESSION_CAPS[name]
+def five_minute_schedule(day):
+    day = date.fromisoformat(day) if isinstance(day, str) else day
+    return day >= FIVE_MINUTE_EFFECTIVE_DAY
+
+
+def session_call_limit(name, day=None):
+    day = day or datetime.now(NY).date()
+    return SESSION_CAPS[name] if five_minute_schedule(day) else 8
 
 
 def session_budgets(day, costs):
-    return [dict(session=name, cap=session_call_limit(name),
+    return [dict(session=name, cap=session_call_limit(name, day),
                  used=sum(start <= r['at'] < end for r in costs),
                  starts_at=start, ends_at=end)
             for name, end, start in windows(day)]
 
 
 def review_pacing(now, attempts):
-    """Space paid attempts across the full session; failures still consume time.
+    """Pace paid attempts; failures still consume time and no catch-up bursts.
 
     This is a minimum interval, not a promise to call AI. Events/freshness,
     calendar, production priority and both budget caps remain mandatory.
@@ -63,7 +71,8 @@ def review_pacing(now, attempts):
     if window is None:
         return dict(ready=False, interval_seconds=None, next_at=None)
     name, end, start = window
-    interval = (end - start) / session_call_limit(name)
+    day = datetime.fromtimestamp(now, NY).date()
+    interval = REVIEW_INTERVAL_SECONDS if five_minute_schedule(day) else (end - start) / session_call_limit(name, day)
     stamps = [r.get('requested_at', r.get('at')) for r in attempts]
     stamps = [t for t in stamps if type(t) in (int, float) and start <= t <= now and t < end]
     earliest = max(stamps) + interval if stamps else start + 60

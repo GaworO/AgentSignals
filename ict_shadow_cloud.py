@@ -8,10 +8,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 NY=ZoneInfo('America/New_York')
-DAILY_USD=10.0
-DAILY_CALLS=16
+DAILY_USD=20.0
 
-from ict_sessions import daily_call_limit, session, session_call_limit, session_budgets, review_pacing, SCHEDULE
+from ict_sessions import daily_call_limit, session, session_call_limit, session_budgets, review_pacing, five_minute_schedule, SCHEDULE
 
 MODEL='gpt-6.1-sol'
 
@@ -122,7 +121,10 @@ class Cloud:
             window=session(now)
             if window is None:raise ValueError('SESSION_ENDED')
             if db.execute('SELECT COUNT(*) FROM costs WHERE day=?',(day,)).fetchone()[0]>=daily_call_limit(day):raise ValueError('DAILY_CALL_CAP')
-            if db.execute('SELECT COUNT(*) FROM costs WHERE day=? AND at>=? AND at<?',(day,window[2],window[1])).fetchone()[0]>=session_call_limit(window[0]):raise ValueError('SESSION_CALL_CAP')
+            if db.execute('SELECT COUNT(*) FROM costs WHERE day=? AND at>=? AND at<?',(day,window[2],window[1])).fetchone()[0]>=session_call_limit(window[0], day):raise ValueError('SESSION_CALL_CAP')
+            if five_minute_schedule(day):
+                attempts=[dict(r) for r in db.execute('SELECT at FROM costs WHERE day=?',(day,))]
+                if not review_pacing(now, attempts)['ready']:raise ValueError('SESSION_REVIEW_PACING')
             db.execute('INSERT INTO costs VALUES(?,?,?,?,NULL,?)',(rid,day,now,reserve,'RESERVED'))
     def finish(self,rid,raw,error):
         amount=cost((raw or {}).get('usage'))
@@ -182,8 +184,8 @@ class Cloud:
         for r in reserved_rows:
             attempts.setdefault(r['id'],dict(id=r['id'],requested_at=r['at']))
         in_session=[r for r in attempts.values() if s[2]<=r['requested_at']<s[1]]
-        if len(in_session)>=session_call_limit(s[0]):return None,'SESSION_CALL_CAP',None
-        if sum(r['requested_at']>now-1800 for r in in_session)>=3:return None,'THREE_REVIEWS_PER_30_MINUTES',None
+        if len(in_session)>=session_call_limit(s[0], datetime.fromtimestamp(now,NY).date()):return None,'SESSION_CALL_CAP',None
+        if not five_minute_schedule(datetime.fromtimestamp(now,NY).date()) and sum(r['requested_at']>now-1800 for r in in_session)>=3:return None,'THREE_REVIEWS_PER_30_MINUTES',None
         last=max((r['requested_at'] or 0 for r in attempts.values()),default=0)
         if now-last<90:return None,'90_SECOND_COOLDOWN',None
         # Never reuse a burned cost reservation after a crash before research INSERT.
@@ -197,6 +199,8 @@ class Cloud:
         if not any(r['requested_at']>=s[2] for r in rows):return next_slot,'CLOUD_'+s[0]+'_OPENING',None
         fresh=[e for e in p.get('trigger_events',[]) if last<e['available_at']<=p['as_of'] and p['as_of']-e['available_at']<=120]
         if fresh:return next_slot,'CLOUD_STRUCTURE_EVENT',max(fresh,key=lambda x:x['available_at'])
+        if five_minute_schedule(datetime.fromtimestamp(now,NY).date()):
+            return next_slot,'CLOUD_FIVE_MINUTE_REASSESSMENT',None
         if now-last>=1200:return next_slot,'CLOUD_20_MINUTE_REASSESSMENT',None
         return None,'WATCHING_CANDLES_NO_NEW_EVENT',None
     def observe(self,p):

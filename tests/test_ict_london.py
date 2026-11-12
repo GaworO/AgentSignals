@@ -22,7 +22,7 @@ def test_tuesday_to_friday_only(day,allowed):
     stamp=london(f'2026-11-{day:02}T08:00:00')
     window=schedule.session(stamp)
     assert bool(window)==allowed
-    assert schedule.daily_call_limit(f'2026-11-{day:02}')==(24 if allowed else 16)
+    assert schedule.daily_call_limit(f'2026-11-{day:02}')==((72 if allowed else 48) if day>=12 else (24 if allowed else 16))
     if allowed:
         assert window[0]=='LONDON' and window[1]-window[2]==7200
         assert schedule.session(stamp-1) is None
@@ -43,7 +43,7 @@ def test_historical_caps_and_monday_ny_unchanged():
     assert schedule.session(london('2026-11-06T08:10:00')) is None
     assert schedule.session(ts('2026-11-09T09:30:00'))[0]=='NYAM'
     assert schedule.session(ts('2026-11-09T13:30:00'))[0]=='NYPM'
-    assert DAILY_USD==10
+    assert DAILY_USD==20
 
 
 def test_eight_london_reservations_survive_restart_and_ny_keeps_eight(c):
