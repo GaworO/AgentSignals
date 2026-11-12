@@ -50,3 +50,22 @@ def session_budgets(day, costs):
                  used=sum(start <= r['at'] < end for r in costs),
                  starts_at=start, ends_at=end)
             for name, end, start in windows(day)]
+
+
+def review_pacing(now, attempts):
+    """Space paid attempts across the full session; failures still consume time.
+
+    This is a minimum interval, not a promise to call AI. Events/freshness,
+    calendar, production priority and both budget caps remain mandatory.
+    Late or unused capacity is never spent in a catch-up burst.
+    """
+    window = session(now)
+    if window is None:
+        return dict(ready=False, interval_seconds=None, next_at=None)
+    name, end, start = window
+    interval = (end - start) / session_call_limit(name)
+    stamps = [r.get('requested_at', r.get('at')) for r in attempts]
+    stamps = [t for t in stamps if type(t) in (int, float) and start <= t <= now and t < end]
+    earliest = max(stamps) + interval if stamps else start + 60
+    return dict(ready=now >= earliest, interval_seconds=interval,
+                next_at=earliest if earliest < end else None)

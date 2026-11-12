@@ -69,6 +69,7 @@ def inspect(cloud, now=None):
     last=saved.get('last_check',{})
     timing={
         'THREE_REVIEWS_PER_30_MINUTES':'Three reviews in 30 minutes. Waiting for the rolling allowance to reopen.',
+        'SESSION_REVIEW_PACING':'Preserving calls for later in this session. The normal scheduler will recheck.',
         '90_SECOND_COOLDOWN':'Waiting for the minimum 90-second interval between reviews.',
         'WATCHING_CANDLES_NO_NEW_EVENT':'Watching for fresh structure; otherwise reassessment is due 20 minutes after the last review.',
         'WAIT_FIRST_CLOSED_CANDLE':'Waiting for the first closed candle of this session.',

@@ -76,9 +76,9 @@ def test_session_dst():
     assert session(ts('2026-11-02T16:00:00')) is None
 
 def test_event_selector_and_budget(c):
-    at=ts();p={'as_of':at,'trigger_events':[]}
+    at=ts('2026-11-02T09:46:00');p={'as_of':at,'trigger_events':[]}
     assert c.select([],p,at)[1]=='CLOUD_NYAM_OPENING'
-    rows=[dict(id='x_0',status='research_completed',requested_at=at-120)]
+    rows=[dict(id='x_0',status='research_completed',requested_at=at-700)]
     assert c.select(rows,p,at)[0] is None
     p['trigger_events']=[{'available_at':at-60,'kind':'MSS'}]
     assert c.select(rows,p,at)[1]=='CLOUD_STRUCTURE_EVENT'
@@ -90,7 +90,8 @@ def test_event_selector_and_budget(c):
 def test_burned_reservation_not_retried(c):
     at=ts();c.reserve('ICT_0',payload(),at)
     assert c.select([],{'as_of':at,'trigger_events':[]},at)[1]=='90_SECOND_COOLDOWN'
-    assert c.select([],{'as_of':at+120,'trigger_events':[]},at+120)[0]==1
+    assert c.select([],{'as_of':at+120,'trigger_events':[]},at+120)[1]=='SESSION_REVIEW_PACING'
+    assert c.select([],{'as_of':at+675,'trigger_events':[]},at+675)[0]==1
 
 def test_dashboard_private_no_mutations(c):
     app=Flask(__name__);register(app,c.config,start=False);client=app.test_client()
@@ -219,7 +220,7 @@ def test_twelve_call_extension_preserves_history_and_burned_slots(c):
     rows=[dict(id='ICT_'+str(i),status='research_completed',requested_at=ts('2026-10-30T10:00:00') if i<6 else ts('2026-10-30T13:35:00')) for i in range(8)]
     p={'as_of':at,'trigger_events':[{'available_at':at-60,'kind':'MSS'}]}
     assert c.select(rows,p,at)[0]==8
-    c.reserve('ICT_8',payload(),at-120)
+    c.reserve('ICT_8',payload(),at-1200)
     assert c.select(rows,p,at)[0]==9
     c.reserve('ICT_11',payload(),at-120)
     assert c.select(rows,p,at)[1]=='DAILY_CALL_CAP_INCLUDING_BURNED'

@@ -83,6 +83,11 @@ def describe(state, news, enabled):
     last = state.get('last_check') or {}
     fresh = 0 <= now - last.get('at', 0) < 180
     code = last.get('state') if fresh else None
+    if code == 'SESSION_REVIEW_PACING':
+        pacing = state.get('review_pacing') or {}
+        return finish('OBSERVING', 'Reviews spread across the session',
+                      'Preserving review capacity for later market developments; fresh events and all other checks still apply.',
+                      pacing.get('next_at'))
     reasons = {
         'THREE_REVIEWS_PER_30_MINUTES': 'Three reviews in 30 minutes. Waiting for the rolling allowance to reopen.',
         '90_SECOND_COOLDOWN': 'Waiting for the minimum 90 seconds between reviews.',

@@ -11,7 +11,7 @@ NY=ZoneInfo('America/New_York')
 DAILY_USD=10.0
 DAILY_CALLS=16
 
-from ict_sessions import daily_call_limit, session, session_call_limit, session_budgets, SCHEDULE
+from ict_sessions import daily_call_limit, session, session_call_limit, session_budgets, review_pacing, SCHEDULE
 
 MODEL='gpt-6.1-sol'
 
@@ -191,6 +191,8 @@ class Cloud:
             reserved=[r['id'] for r in db.execute('SELECT id FROM costs WHERE day=?',(datetime.fromtimestamp(now,NY).date().isoformat(),))]
         next_slot=max([int(r['id'].rsplit('_',1)[1]) for r in rows]+[int(r.rsplit('_',1)[1]) for r in reserved]+[-1])+1
         if next_slot>=limit:return None,'DAILY_CALL_CAP_INCLUDING_BURNED',None
+        if not review_pacing(now, list(attempts.values()))['ready']:
+            return None,'SESSION_REVIEW_PACING',None
         if p['as_of']<s[2]+60:return None,'WAIT_FIRST_CLOSED_CANDLE',None
         if not any(r['requested_at']>=s[2] for r in rows):return next_slot,'CLOUD_'+s[0]+'_OPENING',None
         fresh=[e for e in p.get('trigger_events',[]) if last<e['available_at']<=p['as_of'] and p['as_of']-e['available_at']<=120]
@@ -242,6 +244,7 @@ class Cloud:
             costs=[r for r in all_costs if r['day']==day]
         with self.db() as db:state['candles']=[json.loads(r[0]) for r in db.execute("SELECT body FROM candles WHERE symbol='MNQ' ORDER BY time DESC LIMIT 90")][::-1]
         state.update(now=now,day_ny=day,execution_authorized=False,daily_usd_cap=DAILY_USD,estimated_or_reserved_usd=sum(r['amount'] if r['amount'] is not None else r['reserve'] for r in costs),calls_today=len(costs),daily_call_cap=daily_call_limit(day),costs=costs,budget_scope='THIS_SHADOW_SCANNER_ONLY; production billed separately. USD before tax; not a guaranteed EUR invoice cap.',sessions=SCHEDULE,session_budgets=session_budgets(day,costs),reviews=[])
+        state['review_pacing'] = review_pacing(now, costs)
         for r in self.records():
             state['reviews'].append({k:r.get(k) for k in ('id','state','decision','validation','requested_at','received_at','finished_at','latency_seconds','error')}|{'purpose':r.get('packet',{}).get('assessment_kind'),'market_as_of':r.get('packet',{}).get('as_of'),'budget':r.get('budget_before',{}),'outcome':self.outcome(r)})
         companions=[]
