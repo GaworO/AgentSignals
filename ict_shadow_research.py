@@ -257,7 +257,7 @@ def validate(packet,d,received):
    v['pending_order_validation']=dict(state='BLOCKED',reason=str(exc)[:160])
  return v
 
-def production_defer_reason(rows, now, *, independent_cloud=False):
+def production_defer_reason(rows, now, *, independent_cloud=False, production_enabled=True):
  """Read-only priority gate; finished failures stay charged and never replay.
 
  ContextSupport records finished+error only after the foreground transport has
@@ -266,6 +266,9 @@ def production_defer_reason(rows, now, *, independent_cloud=False):
  Running/interrupted attempts and incomplete evidence still block. The original
  one-day experiment retains its stricter unknown-outcome rule.
  """
+ # Explicit operator disable stops the production worker at process startup.
+ # Preserve its unresolved records/costs; they are not an ICT worker lock.
+ if independent_cloud and production_enabled is False:return None
  if any(r['status']=='running' for r in rows):return 'DEFER_PRODUCTION_AI_BUSY'
  for row in rows:
   if row['status']!='unknown':continue
@@ -302,7 +305,7 @@ def remote_run(index,observe_only=False,manual_authorization=None,pm_authorizati
   prod.row_factory=sqlite3.Row
   production=[dict(r) for r in prod.execute('select id,status,requested_at,review_kind,finished,error_code from reviews where day=?',(DAY,))]
  legacy=sum(r['id'].startswith(PREFIX) for r in production)
- reason=production_defer_reason(production,time.time(),independent_cloud=cloud is not None)
+ reason=production_defer_reason(production,time.time(),independent_cloud=cloud is not None,production_enabled=os.environ.get('AB_AI_ENABLED')!='false')
  if reason:return dict(state=reason,execution_authorized=False)
  dbpath=root/'research_budget.sqlite3'
  def connect():

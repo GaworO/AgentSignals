@@ -63,3 +63,15 @@ https://crosstrade.io/docs/api/orders/get-order-lifecycle
 Tests use synthetic AI and broker responses. No paid test review or account order
 is authorized or performed by the tests. No claim of independent live GTD
 extension/late-fill validation is made.
+
+## ICT-only AI operation
+
+With `AB_AI_ENABLED=false`, the separate Directional/Q1 reviewer is stopped at
+process startup. The independent ICT scanner keeps its own schedule and budget;
+stored production running/unknown records and setup queues no longer defer it.
+Those records are preserved, never refunded, retried or converted into approvals.
+ICT's own in-flight deduplication, cost accounting, freshness and order checks
+remain mandatory. Directional/Q1 still require their own exact valid AI approval.
+`/ict-shadow/state.production_ai_priority=false` confirms the scheduler choice.
+Restoring `AB_AI_ENABLED=true` restores production priority and its existing
+unresolved-record checks; investigate old unknown attempts before doing so.

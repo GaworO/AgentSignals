@@ -123,13 +123,15 @@ def test_default_worker_disabled(c,monkeypatch):
     c.tick()
     with c.db() as db:assert 'SCANNER_DISABLED' in db.execute("SELECT value FROM state WHERE key='last_check'").fetchone()[0]
 
-@pytest.mark.parametrize('future',[False,True,'extension','london','five_minute','pending'])
+@pytest.mark.parametrize('future',[False,True,'extension','london','five_minute','pending','production_disabled'])
 @pytest.mark.parametrize('production_state',[None,'finished_unknown','running','unfinished_unknown'])
 def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state):
     import ict_shadow_research as r, ab_ai_context as ai, directional_ai_transport as transport
     from pathlib import Path
     p=json.loads((Path(__file__).parent/'fixtures/ict_shadow_market.json').read_text())['packet']
     at=ts('2026-11-12T09:35:00') if future=='five_minute' else ts('2026-11-10T03:10:00') if future=='london' else ts('2026-11-02T09:35:00') if future is True else ts('2026-10-30T15:15:00') if future=='extension' else ts('2026-10-30T13:35:00')
+    if future=='production_disabled':monkeypatch.setenv('AB_AI_ENABLED','false')
+    else:monkeypatch.delenv('AB_AI_ENABLED',raising=False)
     delta=at-60-p['as_of'];p['as_of']+=delta
     for e in p['evidence'].values():
         e['available_at']+=delta
@@ -163,7 +165,7 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
         monkeypatch.setattr(c,'select',lambda rows,p,now:(8,'CLOUD_STRUCTURE_EVENT',None) if not rows else (None,'90_SECOND_COOLDOWN',None))
         monkeypatch.setattr(r,'reserve_borrowed_call',lambda *a,**k:pytest.fail('Production debit forbidden'))
     result=r.remote_run(None,pm_authorization=auth,cloud=c)
-    if production_state in ('running','unfinished_unknown'):
+    if production_state in ('running','unfinished_unknown') and future!='production_disabled':
         assert result['state'] in ('DEFER_PRODUCTION_AI_BUSY','DEFER_PRODUCTION_AI_UNRESOLVED')
         assert not sent
         with c.db() as db:assert db.execute('SELECT count(*) FROM costs').fetchone()[0]==0
@@ -263,3 +265,23 @@ def test_finished_failure_is_not_running_or_refunded_and_legacy_stays_strict():
     assert r.production_defer_reason([row],1000)=='DEFER_PRODUCTION_AI_UNRESOLVED'
     assert r.production_defer_reason([row,dict(row,status='running')],1000,independent_cloud=True)=='DEFER_PRODUCTION_AI_BUSY'
     assert row==before
+
+
+def test_disabled_production_queue_does_not_block_ict_or_modify_records(c):
+    with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:
+        db.execute('CREATE TABLE setup_requests(state TEXT, expires REAL)')
+        db.execute("INSERT INTO setup_requests VALUES('running',2000)")
+    assert c.production_pending(1000)==1
+    c.config['AB_AI_ENABLED']='false'
+    assert c.production_pending(1000)==0
+    with sqlite3.connect(c.root.parent/'ab_ai_context.sqlite3') as db:
+        assert db.execute('SELECT * FROM setup_requests').fetchall()==[('running',2000.0)]
+
+
+def test_disabled_worker_history_remains_charged_and_legacy_strict():
+    import ict_shadow_research as r
+    rows=[dict(status='running',requested_at=900,finished=None,error_code=None)]
+    original=[dict(x) for x in rows]
+    assert r.production_defer_reason(rows,1000,independent_cloud=True,production_enabled=False) is None
+    assert r.production_defer_reason(rows,1000,production_enabled=False)=='DEFER_PRODUCTION_AI_BUSY'
+    assert rows==original

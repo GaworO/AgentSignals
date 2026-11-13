@@ -232,14 +232,17 @@ class Cloud:
         news=ict_news_context.build(self.config,time.time());self.put('scheduled_news',news)
         if news['status']!='CLEAR':
             self.put('last_check',{'at':time.time(),'state':'ICT_NEWS_'+news['status'],'reason':news.get('reason')});return
-        # Production receives priority; no production changes or setup queue writes.
-        with sqlite3.connect('file:'+str(self.root.parent/'ab_ai_context.sqlite3')+'?mode=ro',uri=True) as db:
-            pending=db.execute("SELECT COUNT(*) FROM setup_requests WHERE state IN ('queued','running') AND expires>?",(now,)).fetchone()[0]
-        if pending:self.put('last_check',{'at':now,'state':'DEFER_PRODUCTION_SETUP_QUEUE'});return
+        # A disabled production worker cannot own ICT scheduling priority.
+        # Its ledger remains intact for accounting and uncertain-outcome evidence.
+        if self.production_pending(now):self.put('last_check',{'at':now,'state':'DEFER_PRODUCTION_SETUP_QUEUE'});return
         result=research.remote_run(None,cloud=self)
         ict_pending_review.ingest(self.records(),time.time())
         self.handoff.refresh(self.records(),obs['packet'],time.time())
         self.put('last_check',{'at':time.time(),'state':result['state'],'review_id':result.get('id')})
+    def production_pending(self, now):
+        if self.config.get('AB_AI_ENABLED') == 'false':return 0
+        with sqlite3.connect('file:'+str(self.root.parent/'ab_ai_context.sqlite3')+'?mode=ro',uri=True) as db:
+            return db.execute("SELECT COUNT(*) FROM setup_requests WHERE state IN ('queued','running') AND expires>?",(now,)).fetchone()[0]
     def records(self):
         records=[]
         for p in sorted(self.root.glob('ict_2022_nyam_*/ICT_INDEPENDENT_NYAM_*.json'),key=lambda p:p.stat().st_mtime,reverse=True):
@@ -255,6 +258,7 @@ class Cloud:
         with self.db() as db:state['candles']=[json.loads(r[0]) for r in db.execute("SELECT body FROM candles WHERE symbol='MNQ' ORDER BY time DESC LIMIT 90")][::-1]
         state.update(now=now,day_ny=day,execution_authorized=False,daily_usd_cap=DAILY_USD,estimated_or_reserved_usd=sum(r['amount'] if r['amount'] is not None else r['reserve'] for r in costs),calls_today=len(costs),daily_call_cap=daily_call_limit(day),costs=costs,budget_scope='THIS_SHADOW_SCANNER_ONLY; production billed separately. USD before tax; not a guaranteed EUR invoice cap.',sessions=SCHEDULE,session_budgets=session_budgets(day,costs),reviews=[])
         state['review_pacing'] = review_pacing(now, costs)
+        state['production_ai_priority'] = self.config.get('AB_AI_ENABLED') != 'false'
         for r in self.records():
             state['reviews'].append({k:r.get(k) for k in ('id','state','decision','validation','requested_at','received_at','finished_at','latency_seconds','error')}|{'purpose':r.get('packet',{}).get('assessment_kind'),'market_as_of':r.get('packet',{}).get('as_of'),'budget':r.get('budget_before',{}),'outcome':self.outcome(r)})
         companions=[]
