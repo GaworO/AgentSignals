@@ -144,6 +144,9 @@ class Cloud:
         p['scheduled_news']=ict_news_context.build(self.config,now)
         self.put('scheduled_news',p['scheduled_news'])
         if ifvg_permission(now=now) is None:p['ifvg_execution_contract']=IFVG_VERSION
+        import ict_pending_review
+        pending=ict_pending_review.snapshot(now)
+        if pending:p['pending_order']=pending
         return p
     def entry_events(self,p):
         # Wake AI when an entry gap completes, without selecting a trade.
@@ -223,6 +226,8 @@ class Cloud:
         # Source validation (calendar/freshness/closed bars) is shared with production.
         obs=research.remote_run(0,True);self.observe(obs['packet'])
         self.handoff.refresh(self.records(),obs['packet'],time.time())
+        import ict_pending_review
+        ict_pending_review.ingest(self.records(),time.time())
         import ict_news_context
         news=ict_news_context.build(self.config,time.time());self.put('scheduled_news',news)
         if news['status']!='CLEAR':
@@ -232,6 +237,7 @@ class Cloud:
             pending=db.execute("SELECT COUNT(*) FROM setup_requests WHERE state IN ('queued','running') AND expires>?",(now,)).fetchone()[0]
         if pending:self.put('last_check',{'at':now,'state':'DEFER_PRODUCTION_SETUP_QUEUE'});return
         result=research.remote_run(None,cloud=self)
+        ict_pending_review.ingest(self.records(),time.time())
         self.handoff.refresh(self.records(),obs['packet'],time.time())
         self.put('last_check',{'at':time.time(),'state':result['state'],'review_id':result.get('id')})
     def records(self):
@@ -271,6 +277,8 @@ class Cloud:
         from ict_order_handoff import broker_status
         state['order_handoff']=self.handoff.state()
         state['order_handoff']['broker']=broker_status()
+        import ict_pending_review
+        state['pending_order_review']=ict_pending_review.state()
         # Display-only: evaluate the saved calendar at request time, including
         # outside sessions when the worker's last news snapshot may be old.
         import ict_news_context, ict_ai_call_status

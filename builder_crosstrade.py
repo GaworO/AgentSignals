@@ -120,6 +120,8 @@ class Transport:
         self.request = request or self._request
         self.contract_id = None
         self.poll_lock = threading.Lock()
+        import ict_pending_review
+        ict_pending_review.init(api)
         with api.connect() as c:
             c.executescript('''
                 CREATE TABLE IF NOT EXISTS native_orders(
@@ -230,12 +232,20 @@ class Transport:
         if int(self.clock()*1000)>=row['expiry_ms']:reason='entry_expired'
         if not reason and queued:reason=queued[0]
         if not reason and prior:reason='cancellation_still_pending'
+        if not reason:
+            import ict_pending_review
+            try:reason=ict_pending_review.apply(self,row,receipt,entry,snapshot,fact)
+            except Exception:
+                # The original broker/local deadline remains authoritative.
+                # A failed review must never suppress expiry or reconciliation.
+                with self.api.connect() as c:
+                    self.audit(c,row['order_id'],'ICT_PENDING_REVIEW_ERROR',{})
         if reason:
             self.phase(row,'EXPIRED_PENDING' if now>=row['expiry_ms'] else 'CANCEL_PENDING',exposure=fact,reason=reason)
             self.cancel_owned_order(row,receipt['orderId'],'cancel','parent-cancel-'+row['order_id'])
 
     def _request(self, method, path, body=None):
-        if method == 'POST' and not execution_safety.writes_enabled():
+        if method in ('POST','PUT') and not execution_safety.writes_enabled():
             raise TransportError('LIVE_EXECUTION_DISABLED')
         if method == 'POST' and path == self.prefix+'/orders/place' and execution_safety.entry_blocker():
             raise TransportError(execution_safety.entry_blocker())
@@ -244,9 +254,18 @@ class Transport:
                         re.fullmatch(re.escape(self.prefix)+r'/orders/[1-9][0-9]*(?:/lifecycle)?',path))
         allowed_write = (path == self.prefix+'/orders/place' or path == self.prefix+'/positions/close'
                          or re.fullmatch(re.escape(self.prefix)+r'/orders/[1-9][0-9]*/cancel',path))
-        if not ((method=='GET' and allowed_read) or (method=='POST' and allowed_write)):
+        allowed_extension=False
+        if method=='PUT':
+            import ict_pending_review
+            match=re.fullmatch(re.escape(self.prefix)+r'/orders/([1-9][0-9]*)/change',path)
+            if match and ict_pending_review.enabled() and isinstance(body,dict) and set(body)=={'tif','expireTime'} and body['tif']=='gtd':
+                with self.api.connect() as c:
+                    actions=c.execute("SELECT payload_json FROM native_actions WHERE binding=? AND operation='ict_extend' AND state='SENDING'",(self.binding,)).fetchall()
+                allowed_extension=any(json.loads(a[0]).get('broker_id')==int(match[1]) and json.loads(a[0]).get('expiry_ms')==stamp(body['expireTime']) for a in actions)
+            if execution_safety.entry_blocker():allowed_extension=False
+        if not ((method=='GET' and allowed_read) or (method=='POST' and allowed_write) or allowed_extension):
             raise TransportError('BROKER_ROUTE_NOT_ALLOWED')
-        if method=='POST' and not selected():raise TransportError('CROSSTRADE_ROUTE_NOT_SELECTED')
+        if method in ('POST','PUT') and not selected():raise TransportError('CROSSTRADE_ROUTE_NOT_SELECTED')
         if method=='GET':
             try:account_sync.broker_read_control.before(self.sync,path)
             except account_sync.SyncError as exc:raise TransportError(str(exc)) from None

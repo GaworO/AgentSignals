@@ -17,7 +17,7 @@ def canonical(x):return json.dumps(x,sort_keys=True,separators=(',',':'),allow_n
 def digest(x):return hashlib.sha256(canonical(x).encode()).hexdigest()
 def obj(props):return dict(type='object',properties=props,required=list(props),additionalProperties=False)
 STR={'type':'string'};NUM={'type':'number'};IDS={'type':'array','items':STR}
-def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_execution_contract=None, include_news=False):
+def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_execution_contract=None, include_news=False, pending_order=None):
  anchor=obj(dict(evidence_id=STR,field=dict(type='string',enum=['high','low','price']),price=NUM))
  plan=obj(dict(direction=dict(type='string',enum=['LONG','SHORT']),order_type=dict(type='string',enum=['LIMIT']),entry_fvg_bar_ids=dict(type='array',items=STR,minItems=3,maxItems=3),entry_fraction=dict(type='number',minimum=0,maximum=1),entry_price=NUM,stop_anchor=anchor,stop_buffer_ticks=dict(type='integer',minimum=0),stop_price=NUM,target_anchor=anchor,target_price=NUM,valid_until=dict(type='integer'),entry_reason=STR,stop_reason=STR,target_reason=STR,invalidation_condition=STR))
  if execution_contract:
@@ -37,6 +37,10 @@ def schema(packet_id, execution_contract=None, include_ifvg=False, ifvg_executio
   ip['required'].append('inversion_bar_id')
   result['properties']['ifvg_review']=companion
   result['required'].append('ifvg_review')
+ if pending_order:
+  import ict_pending_review
+  result['properties']['pending_order_review']=ict_pending_review.schema(pending_order)
+  result['required'].append('pending_order_review')
  return result
 
 IFVG_PROMPT = """Additionally assess IFVG (inversion fair value gap) in ifvg_review using this SAME cutoff and context. Keep the top-level original ICT 2022 assessment and rules unchanged. Evaluate both families independently, including LONG, SHORT or WAIT/NO_TRADE. One original plan and at most one separate IFVG shadow plan. IFVG has NO broker permission, even if the original family's execution contract is supplied. Never put an IFVG entry in the top-level ICT 2022 plan.
@@ -246,6 +250,11 @@ def validate(packet,d,received):
   except (AssertionError,KeyError,ValueError,TypeError,IndexError,OverflowError) as exc:
    iv=dict(state='BLOCKED',reason=str(exc)[:160],family='IFVG',route='SHADOW_ONLY',execution_authorized=False)
   v['ifvg_validation']=iv
+ if packet.get('pending_order'):
+  import ict_pending_review
+  try:v['pending_order_validation']=ict_pending_review.validate(packet,d,received)
+  except (AssertionError,KeyError,TypeError,ValueError) as exc:
+   v['pending_order_validation']=dict(state='BLOCKED',reason=str(exc)[:160])
  return v
 
 def production_defer_reason(rows, now, *, independent_cloud=False):
@@ -359,7 +368,10 @@ def remote_run(index,observe_only=False,manual_authorization=None,pm_authorizati
     ifvg_prompt=ifvg_prompt.replace("IFVG has NO broker permission, even if the original family's execution contract is supplied.", 'IFVG may be routed separately by the application only after explicit operator authorization and all safety checks. You never authorize orders.')
     ifvg_prompt+=' For IFVG set invalidation_mode to ifvg_execution_contract only if the original machine invalidations plus a subsequent same-formation-timeframe close through the opposite inverted-gap edge fully cover your thesis: LONG closes below the lower edge, SHORT closes above the upper edge invalidate; missing data blocks. Otherwise choose UNSUPPORTED_ADDITIONAL_CONDITION. Entry, structural SL and fixed 2R TP remain unchanged.'
    instructions+='\n'+ifvg_prompt
-  payload=dict(model=os.environ['OPENAI_MODEL'],store=False,stream=True,service_tier='default',max_output_tokens=5000,reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=canonical(packet))],text={'format':dict(type='json_schema',name='ict_independent_shadow_v2',strict=True,schema=schema(packet['packet_id'],packet.get('execution_contract'),packet.get('review_families')==['ICT2022','IFVG'],packet.get('ifvg_execution_contract'),include_news=packet.get('scheduled_news') is not None))})
+  if packet.get('pending_order'):
+   import ict_pending_review
+   instructions+='\n'+ict_pending_review.PROMPT
+  payload=dict(model=os.environ['OPENAI_MODEL'],store=False,stream=True,service_tier='default',max_output_tokens=5000,reasoning={'effort':'low'},input=[dict(role='system',content=instructions),dict(role='user',content=canonical(packet))],text={'format':dict(type='json_schema',name='ict_independent_shadow_v2',strict=True,schema=schema(packet['packet_id'],packet.get('execution_contract'),packet.get('review_families')==['ICT2022','IFVG'],packet.get('ifvg_execution_contract'),include_news=packet.get('scheduled_news') is not None,pending_order=packet.get('pending_order')))})
   assert len(canonical(payload).encode())<550000,'PACKET_TOO_LARGE'
   flags={k:os.environ.get(k) for k in ['EXEC_KILL_SWITCH','LIVE_EXECUTION_ENABLED','V3_ENTRY_ARMED','AB_Q1_ENTRY_ARMED','RISK_PCT','EXEC_STRATEGY_POLICY','AB_AI_MAX_CALLS_PER_DAY']}
   assert time.time()-packet['as_of']<=120,'STALE_BEFORE_REQUEST'
