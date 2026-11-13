@@ -123,7 +123,7 @@ def test_default_worker_disabled(c,monkeypatch):
     c.tick()
     with c.db() as db:assert 'SCANNER_DISABLED' in db.execute("SELECT value FROM state WHERE key='last_check'").fetchone()[0]
 
-@pytest.mark.parametrize('future',[False,True,'extension','london','five_minute'])
+@pytest.mark.parametrize('future',[False,True,'extension','london','five_minute','pending'])
 @pytest.mark.parametrize('production_state',[None,'finished_unknown','running','unfinished_unknown'])
 def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state):
     import ict_shadow_research as r, ab_ai_context as ai, directional_ai_transport as transport
@@ -146,10 +146,17 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
         if production_state:
             db.execute('INSERT INTO reviews VALUES(?,?,?,?,?,?,?)',('production-original',r.DAY,'running' if production_state=='running' else 'unknown',at-3600,'SETUP',at-3500 if production_state=='finished_unknown' else None,'TimeoutError'))
         production_before=db.execute('SELECT * FROM reviews').fetchall()
+    if future=='pending':
+        import ict_pending_review
+        pending=dict(order_id='owned',binding='bound',submitted_ms=int((at-360)*1000),current_expiry_ms=int((at+240)*1000),original_setup_expiry_ms=int((at+840)*1000),extension_until_ms=int((at+840)*1000))
+        monkeypatch.setattr(ict_pending_review,'snapshot',lambda now:pending)
     sent=[]
     def request(payload,key,seconds):
         sent.append(payload);pk=json.loads(payload['input'][1]['content'])
-        return {'status':'completed','model':'gpt-6.1-sol','usage':{'input_tokens':1000,'output_tokens':100},'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps({'packet_id':pk['packet_id'],'execution_authorized':False,'decision':'WAIT','plan':None,'assessments':{},'summary':'Mock wait'})}]}]}
+        decision={'packet_id':pk['packet_id'],'execution_authorized':False,'decision':'WAIT','plan':None,'assessments':{},'summary':'Mock wait'}
+        if future=='pending':
+            decision['pending_order_review']=dict(order_id='owned',binding='bound',decision='EXTEND',reason='Synthetic valid thesis',evidence_ids=[next(iter(pk['evidence']))],extension_until_ms=pending['extension_until_ms'])
+        return {'status':'completed','model':'gpt-6.1-sol','usage':{'input_tokens':1000,'output_tokens':100},'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(decision)}]}]}
     monkeypatch.setattr(transport,'request',request)
     auth=None
     if future=='extension':
@@ -164,6 +171,10 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
         return
     assert result['state']=='research_completed' and result['validation']['state']=='WAIT'
     assert len(sent)==1
+    if future=='pending':
+        assert result['validation']['pending_order_validation']['state']=='VALIDATED_PENDING_REVIEW'
+        assert 'pending_order_review' in sent[0]['text']['format']['schema']['required']
+        assert 'same setup remains valid' in sent[0]['input'][0]['content']
     assert json.loads(sent[0]['input'][1]['content'])['scheduled_news']['status']=='CLEAR'
     assert 'news_and_session_risk' in sent[0]['text']['format']['schema']['properties']['assessments']['required']
     assert 'Assess scheduled_news explicitly' in sent[0]['input'][0]['content']

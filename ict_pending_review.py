@@ -247,6 +247,30 @@ def apply(t, row, receipt, entry, snapshot, fact):
             return None
         if any(r.get('ordStatus') in ('Filled','PartFilled','PartiallyFilled') or str(r.get('reportType','')).lower() in ('fill','partialfill') for r in life['reports']):
             return None
+        # Extending exposure requires current evidence of the original OSO
+        # children, not merely IDs retained from the original acknowledgment.
+        if set(receipt) != {'orderId','oso1Id','oso2Id'}:
+            return None
+        legs=[t.lifecycle(receipt[k]) for k in ('oso1Id','oso2Id')]
+        expected={'limit':order['target_price'],'stop':order['stop_price']}
+        if not native.oco_linked(legs[0]['order'],legs[1]['order']):
+            return None
+        if not any(l['order'].get('parentId')==receipt['orderId'] for l in legs):
+            return None
+        if {str(l['version'].get('orderType','')).lower() for l in legs} != set(expected):
+            return None
+        for leg in legs:
+            kind=str(leg['version']['orderType']).lower()
+            if (leg['order']['ordStatus']!='Suspended' or not native.stable_version(leg)
+                    or leg['version'].get('orderQty')!=order['quantity']
+                    or str(leg['order'].get('action','')).lower()==str(life['order']['action']).lower()
+                    or leg['version'].get('price' if kind=='limit' else 'stopPrice')!=expected[kind]):
+                return None
+        life=t.entry_identity(row,receipt)
+        if (life['order']['ordStatus']!='Working'
+                or any(r.get('ordStatus') in ('Filled','PartFilled','PartiallyFilled')
+                       or str(r.get('reportType','')).lower() in ('fill','partialfill') for r in life['reports'])):
+            return None
         if int(t.clock()*1000)>=row['expiry_ms']:
             return None
         payload=dict(broker_id=receipt['orderId'],expiry_ms=end,review_id=d['review_id'])

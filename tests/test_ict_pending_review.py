@@ -176,3 +176,16 @@ def test_cancel_during_extension_confirmation_is_not_lost(ready):
     f=ready;d=propose(f);run(f);confirm(f,d['extension_until_ms'])
     f.now+=1;propose(f,'CANCEL',review_id='mock-cancel');run(f);run(f)
     assert f.posts[-1][0].endswith('/11/cancel')
+
+
+@pytest.mark.parametrize('failure',['missing','wrong_stop','wrong_quantity','unlinked','working','foreign_parent'])
+def test_extension_requires_intact_native_bracket(ready,failure):
+    f=ready;propose(f)
+    if failure=='missing':del f.life[13]
+    if failure=='wrong_stop':f.life[13]['version']['stopPrice']-=1
+    if failure=='wrong_quantity':f.life[13]['version']['orderQty']=2
+    if failure=='unlinked':f.life[13]['order']['ocoId']=1000
+    if failure=='working':f.life[13]['order']['ordStatus']='Working'
+    if failure=='foreign_parent':f.life[12]['order']['parentId']=999
+    run(f)
+    assert not any(p.endswith('/change') for p,b in f.posts)
