@@ -271,7 +271,10 @@ def apply(t, row, receipt, entry, snapshot, fact):
                 or any(r.get('ordStatus') in ('Filled','PartFilled','PartiallyFilled')
                        or str(r.get('reportType','')).lower() in ('fill','partialfill') for r in life['reports'])):
             return None
-        if int(t.clock()*1000)>=row['expiry_ms']:
+        if (execution_safety.entry_blocker() or t.directional_permission(order)
+                or native.pending_blocker(order,snapshot,set(receipt.values()))):
+            return None
+        if int(t.clock()*1000)>=row['expiry_ms'] or not 0<=t.clock()-snapshot['observed_at']<=3:
             return None
         payload=dict(broker_id=receipt['orderId'],expiry_ms=end,review_id=d['review_id'])
         aid='ict-extend:'+row['order_id']

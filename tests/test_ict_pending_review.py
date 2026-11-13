@@ -191,3 +191,13 @@ def test_extension_requires_intact_native_bracket(ready,failure):
     if failure=='parent_modify_unresolved':f.life[11]['commands'].append(dict(id=555,commandType='Modify',commandStatus='Pending'))
     run(f)
     assert not any(p.endswith('/change') for p,b in f.posts)
+
+
+def test_slow_protection_reads_cannot_use_stale_account(ready):
+    f=ready;propose(f);original=f.t.lifecycle
+    def slow(oid):
+        result=original(oid)
+        if oid==13:f.now+=4
+        return result
+    f.t.lifecycle=slow;run(f)
+    assert not any(p.endswith('/change') for p,b in f.posts)
