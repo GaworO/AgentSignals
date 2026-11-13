@@ -243,7 +243,7 @@ def apply(t, row, receipt, entry, snapshot, fact):
     # Serialized, durable single attempt. No replacement order or quantity/price edit.
     with native._LOCK:
         life=t.entry_identity(row,receipt)
-        if life['order']['ordStatus']!='Working' or t.fills({receipt['orderId']},snapshot,row['created_ms']):
+        if life['order']['ordStatus']!='Working' or not native.stable_version(life) or t.fills({receipt['orderId']},snapshot,row['created_ms']):
             return None
         if any(r.get('ordStatus') in ('Filled','PartFilled','PartiallyFilled') or str(r.get('reportType','')).lower() in ('fill','partialfill') for r in life['reports']):
             return None
@@ -263,11 +263,11 @@ def apply(t, row, receipt, entry, snapshot, fact):
             kind=str(leg['version']['orderType']).lower()
             if (leg['order']['ordStatus']!='Suspended' or not native.stable_version(leg)
                     or leg['version'].get('orderQty')!=order['quantity']
-                    or str(leg['order'].get('action','')).lower()==str(life['order']['action']).lower()
+                    or str(leg['order'].get('action','')).lower()!=('sell' if order['direction']=='LONG' else 'buy')
                     or leg['version'].get('price' if kind=='limit' else 'stopPrice')!=expected[kind]):
                 return None
         life=t.entry_identity(row,receipt)
-        if (life['order']['ordStatus']!='Working'
+        if (life['order']['ordStatus']!='Working' or not native.stable_version(life)
                 or any(r.get('ordStatus') in ('Filled','PartFilled','PartiallyFilled')
                        or str(r.get('reportType','')).lower() in ('fill','partialfill') for r in life['reports'])):
             return None

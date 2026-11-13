@@ -178,7 +178,7 @@ def test_cancel_during_extension_confirmation_is_not_lost(ready):
     assert f.posts[-1][0].endswith('/11/cancel')
 
 
-@pytest.mark.parametrize('failure',['missing','wrong_stop','wrong_quantity','unlinked','working','foreign_parent'])
+@pytest.mark.parametrize('failure',['missing','wrong_stop','wrong_quantity','unlinked','working','foreign_parent','wrong_action','parent_modify_unresolved'])
 def test_extension_requires_intact_native_bracket(ready,failure):
     f=ready;propose(f)
     if failure=='missing':del f.life[13]
@@ -187,5 +187,7 @@ def test_extension_requires_intact_native_bracket(ready,failure):
     if failure=='unlinked':f.life[13]['order']['ocoId']=1000
     if failure=='working':f.life[13]['order']['ordStatus']='Working'
     if failure=='foreign_parent':f.life[12]['order']['parentId']=999
+    if failure=='wrong_action':f.life[13]['order']['action']='Unknown'
+    if failure=='parent_modify_unresolved':f.life[11]['commands'].append(dict(id=555,commandType='Modify',commandStatus='Pending'))
     run(f)
     assert not any(p.endswith('/change') for p,b in f.posts)
