@@ -1,0 +1,774 @@
+{
+  "row": {
+    "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+    "client_id": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+    "created_ms": 1794512623966,
+    "expiry_ms": 1794513120000,
+    "state": "RECONCILIATION_REQUIRED",
+    "command_json": "{\"before_cash\":48671.37,\"before_fill_ids\":[],\"body\":{\"action\":\"sell\",\"clOrdId\":\"b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42\",\"expireTime\":\"2026-11-12T19:52:00Z\",\"instrument\":\"MNQZ6\",\"limitPrice\":28380.25,\"maxPositions\":1,\"orderId\":\"b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42\",\"orderType\":\"limit\",\"qty\":4,\"requireMarketPosition\":\"flat\",\"stopLoss\":28404.25,\"takeProfit\":28332.25,\"tif\":\"gtd\"},\"contract_id\":4470324,\"order\":{\"account_label\":\"Builder 50K\",\"activation_ms\":1794512616975,\"ai_review_at_native_dispatch\":{\"available_at\":1794512616.9753816,\"decision_origin\":\"VALIDATED_SAVED_ICT_PROPOSAL\",\"expires_at\":1794513120.0,\"order_id\":\"ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6\",\"packet_id\":\"425230acbb2eecce992cd5905fa1259676c8eab3c031039e0888a1928b31c924\",\"review_id\":\"ICT_INDEPENDENT_NYAM_20261112_25\",\"setup\":{\"activation_ms\":1794512616975,\"contract\":\"MNQZ2026\",\"direction\":\"SHORT\",\"entry_price\":28380.25,\"expiry_ms\":1794513120000,\"ict_family\":null,\"ict_family_contract\":null,\"ict_fingerprint\":\"bb985992c3430b4bd090ba954def04ba0e2ef7f62ad6dd4a5ac86d19dfd7124b\",\"ict_liquidity_target\":28244,\"ict_packet_id\":\"425230acbb2eecce992cd5905fa1259676c8eab3c031039e0888a1928b31c924\",\"ict_requested_at\":1794512560.951362,\"ict_review_id\":\"ICT_INDEPENDENT_NYAM_20261112_25\",\"order_id\":\"ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6\",\"stop_price\":28404.25,\"strategy\":\"ICT_AI\",\"target_price\":28332.25},\"state\":\"ALLOW\"},\"baseline_target_price\":28332.25,\"candidate_id\":\"ICT_INDEPENDENT_NYAM_20261112_25\",\"contract\":\"MNQZ2026\",\"direction\":\"SHORT\",\"entry_price\":28380.25,\"execution_costs_at_dispatch\":{\"contract\":\"MNQZ2026\",\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"validation_reference\":\"Existing configured RT estimate and prior proposed 2-tick allowance accepted for implementation; assumptions, not statistical calibration or a loss bound.\"},\"execution_model_at_dispatch\":\"RESTING_LIMIT_CLOSED_M1_V1\",\"expiry_ms\":1794513120000,\"ict_fingerprint\":\"bb985992c3430b4bd090ba954def04ba0e2ef7f62ad6dd4a5ac86d19dfd7124b\",\"ict_liquidity_target\":28244,\"ict_packet_id\":\"425230acbb2eecce992cd5905fa1259676c8eab3c031039e0888a1928b31c924\",\"ict_requested_at\":1794512560.951362,\"ict_review_id\":\"ICT_INDEPENDENT_NYAM_20261112_25\",\"ict_thesis_version\":\"ict_bracket_opposing_structure_v1\",\"lifecycle\":\"ICT_NATIVE_FIXED_BRACKET_V1\",\"order_id\":\"ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6\",\"order_type\":\"LIMIT\",\"quantity\":4,\"risk_points\":24.0,\"route_id\":\"ef498f8029fb7741\",\"runner_enabled\":false,\"stop_price\":28404.25,\"strategy\":\"ICT_AI\",\"target_price\":28332.25}}",
+    "receipt_json": "{\"orderId\":641664660909,\"oso1Id\":641664660910,\"oso2Id\":641664660911}",
+    "observation_json": "{\"actual_fill_risk\":{\"basis\":\"NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS\",\"costs_are_estimates\":true,\"gross_reward_usd\":96.0,\"gross_risk_usd\":48.0,\"gross_rr\":2.0,\"net_loss_usd\":51.24,\"net_reward_usd\":93.76,\"net_rr\":1.8298204527712725,\"original_limit\":28380.25,\"policy\":\"MINIMUM_GROSS_RR_NET_REPORTED\",\"quantity\":4,\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"total_estimated_stop_loss_usd\":204.96},\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"entry_price\":28380.25,\"entry_quantity\":4,\"entry_status\":\"Filled\",\"evidence_error\":\"BROKER_HTTP_400\",\"exit_quantity\":0,\"late_fill\":false,\"native_active\":[641664660910,641664660911],\"observed_at\":1794512738.0129986,\"oco_verified\":true,\"owned_fill_ids\":[641664660916],\"protection_verified\":false,\"protective_remaining_quantities\":{\"641664660910\":4,\"641664660911\":4},\"reconciliation_valid\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25}",
+    "error": "BROKER_HTTP_400",
+    "updated_ms": 1794836009753
+  },
+  "action": {
+    "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "action_id": "guard-close-ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+    "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+    "operation": "close",
+    "state": "UNKNOWN",
+    "payload_json": "{\"instrument\":\"MNQZ6\"}",
+    "response_json": "{\"account\":\"Fixture account\",\"api\":\"liquidate_position\",\"destination\":\"tradovate\",\"durationMs\":869,\"instrument\":\"MNQZ6\",\"response\":{\"ack\":\"empty_body\",\"flatAfterS\":0.6,\"ok\":true},\"success\":true}",
+    "updated_ms": 1794512746661
+  },
+  "lives": {
+    "641664660909": {
+      "commands": [
+        {
+          "clOrdId": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+          "commandStatus": "AtExecution",
+          "commandType": "New",
+          "correlationClOrdId": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+          "id": 641664660909,
+          "isAutomated": true,
+          "orderId": 641664660909,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:43:48.128Z",
+          "userSessionId": 3713674632
+        }
+      ],
+      "order": {
+        "accountId": 2214,
+        "action": "Sell",
+        "admin": false,
+        "archived": false,
+        "clOrdId": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+        "contractId": 4470324,
+        "correlationClOrdId": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+        "executionProviderId": 3,
+        "external": false,
+        "id": 641664660909,
+        "linkedId": 641664660910,
+        "ordStatus": "Filled",
+        "timestamp": "2026-11-12T19:43:48.128Z"
+      },
+      "reports": [
+        {
+          "commandId": 641664660909,
+          "commandStatus": "RiskPassed",
+          "correlationClOrdId": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+          "id": 641664660912,
+          "timestamp": "2026-11-12T19:43:48.193Z"
+        },
+        {
+          "commandId": 641664660909,
+          "commandStatus": "AtExecution",
+          "correlationClOrdId": "b50-b00031d8f8cd5f1a82c54959ec3973f0bb15d6a844f6775632f42b42",
+          "id": 641664660915,
+          "timestamp": "2026-11-12T19:43:48.196Z"
+        }
+      ],
+      "version": {
+        "expireTime": "2026-11-12T19:52Z",
+        "id": 641664660909,
+        "orderId": 641664660909,
+        "orderQty": 4,
+        "orderType": "Limit",
+        "price": 28380.25,
+        "timeInForce": "GTD"
+      }
+    },
+    "641664660910": {
+      "commands": [
+        {
+          "commandStatus": "ExecutionStopped",
+          "commandType": "New",
+          "id": 641664660910,
+          "isAutomated": true,
+          "orderId": 641664660910,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:43:48.128Z",
+          "userSessionId": 3713674632
+        },
+        {
+          "commandStatus": "ExecutionStopped",
+          "commandType": "Modify",
+          "id": 641664660925,
+          "isAutomated": true,
+          "orderId": 641664660910,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:43:51.421Z"
+        },
+        {
+          "commandStatus": "AtExecution",
+          "commandType": "Cancel",
+          "id": 641664660933,
+          "isAutomated": false,
+          "orderId": 641664660910,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:45:45.810Z",
+          "userSessionId": 3713674632
+        }
+      ],
+      "order": {
+        "accountId": 2214,
+        "action": "Buy",
+        "admin": false,
+        "archived": false,
+        "contractId": 4470324,
+        "executionProviderId": 3,
+        "external": false,
+        "id": 641664660910,
+        "ocoId": 641664660911,
+        "ordStatus": "Canceled",
+        "parentId": 641664660909,
+        "timestamp": "2026-11-12T19:43:48.128Z"
+      },
+      "reports": [
+        {
+          "commandId": 641664660910,
+          "commandStatus": "OnHold",
+          "id": 641664660913,
+          "timestamp": "2026-11-12T19:43:48.193Z"
+        },
+        {
+          "commandId": 641664660910,
+          "commandStatus": "ExecutionStopped",
+          "id": 641664660929,
+          "timestamp": "2026-11-12T19:43:51.428Z"
+        },
+        {
+          "commandId": 641664660925,
+          "commandStatus": "RiskPassed",
+          "id": 641664660926,
+          "timestamp": "2026-11-12T19:43:51.423Z"
+        },
+        {
+          "commandId": 641664660925,
+          "commandStatus": "AtExecution",
+          "id": 641664660928,
+          "timestamp": "2026-11-12T19:43:51.428Z"
+        },
+        {
+          "commandId": 641664660925,
+          "commandStatus": "ExecutionStopped",
+          "id": 641664660937,
+          "timestamp": "2026-11-12T19:45:45.812Z"
+        },
+        {
+          "commandId": 641664660933,
+          "commandStatus": "AtExecution",
+          "id": 641664660936,
+          "timestamp": "2026-11-12T19:45:45.812Z"
+        }
+      ],
+      "version": {
+        "id": 641664660925,
+        "orderId": 641664660910,
+        "orderQty": 4,
+        "orderType": "Limit",
+        "price": 28332.25,
+        "timeInForce": "GTC"
+      }
+    },
+    "641664660911": {
+      "commands": [
+        {
+          "commandStatus": "ExecutionStopped",
+          "commandType": "New",
+          "id": 641664660911,
+          "isAutomated": true,
+          "orderId": 641664660911,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:43:48.128Z",
+          "userSessionId": 3713674632
+        },
+        {
+          "commandStatus": "ExecutionStopped",
+          "commandType": "Modify",
+          "id": 641664660924,
+          "isAutomated": true,
+          "orderId": 641664660911,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:43:51.421Z"
+        },
+        {
+          "commandStatus": "AtExecution",
+          "commandType": "Cancel",
+          "id": 641664660932,
+          "isAutomated": false,
+          "orderId": 641664660911,
+          "senderId": 3550438,
+          "timestamp": "2026-11-12T19:45:45.809Z",
+          "userSessionId": 3713674632
+        }
+      ],
+      "order": {
+        "accountId": 2214,
+        "action": "Buy",
+        "admin": false,
+        "archived": false,
+        "contractId": 4470324,
+        "executionProviderId": 3,
+        "external": false,
+        "id": 641664660911,
+        "ocoId": 641664660910,
+        "ordStatus": "Canceled",
+        "timestamp": "2026-11-12T19:43:48.128Z"
+      },
+      "reports": [
+        {
+          "commandId": 641664660911,
+          "commandStatus": "OnHold",
+          "id": 641664660914,
+          "timestamp": "2026-11-12T19:43:48.193Z"
+        },
+        {
+          "commandId": 641664660911,
+          "commandStatus": "ExecutionStopped",
+          "id": 641664660931,
+          "timestamp": "2026-11-12T19:43:51.428Z"
+        },
+        {
+          "commandId": 641664660924,
+          "commandStatus": "RiskPassed",
+          "id": 641664660927,
+          "timestamp": "2026-11-12T19:43:51.423Z"
+        },
+        {
+          "commandId": 641664660924,
+          "commandStatus": "AtExecution",
+          "id": 641664660930,
+          "timestamp": "2026-11-12T19:43:51.428Z"
+        },
+        {
+          "commandId": 641664660924,
+          "commandStatus": "ExecutionStopped",
+          "id": 641664660935,
+          "timestamp": "2026-11-12T19:45:45.812Z"
+        },
+        {
+          "commandId": 641664660932,
+          "commandStatus": "AtExecution",
+          "id": 641664660934,
+          "timestamp": "2026-11-12T19:45:45.812Z"
+        }
+      ],
+      "version": {
+        "id": 641664660924,
+        "orderId": 641664660911,
+        "orderQty": 4,
+        "orderType": "Stop",
+        "stopPrice": 28404.25,
+        "timeInForce": "GTC"
+      }
+    }
+  },
+  "fills": [
+    {
+      "accountId": 2214,
+      "accountName": "Fixture account",
+      "action": "Sell",
+      "active": true,
+      "contractId": 4470324,
+      "environment": "demo",
+      "executionId": "tv:demo:641664660916",
+      "external": false,
+      "fillId": 641664660916,
+      "finallyPaired": 4,
+      "id": 641664660916,
+      "instrument": "MNQZ6",
+      "orderId": 641664660909,
+      "price": 28380.25,
+      "qty": 4,
+      "timestamp": "2026-11-12T19:43:51.418Z",
+      "tradeDate": {
+        "day": 12,
+        "month": 11,
+        "year": 2026
+      }
+    },
+    {
+      "accountId": 2214,
+      "accountName": "Fixture account",
+      "action": "Buy",
+      "active": true,
+      "contractId": 4470324,
+      "environment": "demo",
+      "executionId": "tv:demo:641664660941",
+      "external": false,
+      "fillId": 641664660941,
+      "finallyPaired": 4,
+      "id": 641664660941,
+      "instrument": "MNQZ6",
+      "orderId": 641664660938,
+      "price": 28373.5,
+      "qty": 4,
+      "timestamp": "2026-11-12T19:45:46.079Z",
+      "tradeDate": {
+        "day": 12,
+        "month": 11,
+        "year": 2026
+      }
+    }
+  ],
+  "audits": [
+    {
+      "id": 38905,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512731513,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_entry_price\":28380.25,\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"attributable\":true,\"broker_positions\":[{\"accountId\":2214,\"archived\":false,\"bought\":0,\"boughtValue\":0.0,\"contractId\":4470324,\"id\":641664660922,\"instrument\":\"MNQZ6\",\"isActiveOrPendingSettlement\":true,\"netPos\":-4,\"netPrice\":28380.25,\"prevPos\":0,\"sold\":4,\"soldValue\":113521.0,\"timestamp\":\"2026-11-12T19:43:51.418Z\",\"tradeDate\":{\"day\":12,\"month\":11,\"year\":2026}}],\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"protection_verified\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 38906,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512735140,
+      "kind": "OPEN",
+      "payload_json": "{\"actual_fill_risk\":{\"basis\":\"NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS\",\"costs_are_estimates\":true,\"gross_reward_usd\":96.0,\"gross_risk_usd\":48.0,\"gross_rr\":2.0,\"net_loss_usd\":51.24,\"net_reward_usd\":93.76,\"net_rr\":1.8298204527712725,\"original_limit\":28380.25,\"policy\":\"MINIMUM_GROSS_RR_NET_REPORTED\",\"quantity\":4,\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"total_estimated_stop_loss_usd\":204.96},\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"entry_price\":28380.25,\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"native_active\":[641664660910,641664660911],\"observed_at\":1794512729.6785629,\"oco_verified\":true,\"owned_fill_ids\":[641664660916],\"protection_verified\":true,\"protective_remaining_quantities\":{\"641664660910\":4,\"641664660911\":4},\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25}"
+    },
+    {
+      "id": 38907,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512735383,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_fill_risk\":{\"basis\":\"NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS\",\"costs_are_estimates\":true,\"gross_reward_usd\":96.0,\"gross_risk_usd\":48.0,\"gross_rr\":2.0,\"net_loss_usd\":51.24,\"net_reward_usd\":93.76,\"net_rr\":1.8298204527712725,\"original_limit\":28380.25,\"policy\":\"MINIMUM_GROSS_RR_NET_REPORTED\",\"quantity\":4,\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"total_estimated_stop_loss_usd\":204.96},\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"entry_price\":28380.25,\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"native_active\":[641664660910,641664660911],\"observed_at\":1794512729.6785629,\"oco_verified\":true,\"owned_fill_ids\":[641664660916],\"protection_verified\":true,\"protective_remaining_quantities\":{\"641664660910\":4,\"641664660911\":4},\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 38908,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512740643,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_entry_price\":28380.25,\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"attributable\":true,\"broker_positions\":[{\"accountId\":2214,\"archived\":false,\"bought\":0,\"boughtValue\":0.0,\"contractId\":4470324,\"id\":641664660922,\"instrument\":\"MNQZ6\",\"isActiveOrPendingSettlement\":true,\"netPos\":-4,\"netPrice\":28380.25,\"prevPos\":0,\"sold\":4,\"soldValue\":113521.0,\"timestamp\":\"2026-11-12T19:43:51.418Z\",\"tradeDate\":{\"day\":12,\"month\":11,\"year\":2026}}],\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"protection_verified\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 38909,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512742249,
+      "kind": "OPEN",
+      "payload_json": "{\"actual_fill_risk\":{\"basis\":\"NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS\",\"costs_are_estimates\":true,\"gross_reward_usd\":96.0,\"gross_risk_usd\":48.0,\"gross_rr\":2.0,\"net_loss_usd\":51.24,\"net_reward_usd\":93.76,\"net_rr\":1.8298204527712725,\"original_limit\":28380.25,\"policy\":\"MINIMUM_GROSS_RR_NET_REPORTED\",\"quantity\":4,\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"total_estimated_stop_loss_usd\":204.96},\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"entry_price\":28380.25,\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"native_active\":[641664660910,641664660911],\"observed_at\":1794512738.0129986,\"oco_verified\":true,\"owned_fill_ids\":[641664660916],\"protection_verified\":true,\"protective_remaining_quantities\":{\"641664660910\":4,\"641664660911\":4},\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25}"
+    },
+    {
+      "id": 38910,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512742306,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_fill_risk\":{\"basis\":\"NET_REWARD_DIVIDED_BY_COST_INCLUSIVE_LOSS\",\"costs_are_estimates\":true,\"gross_reward_usd\":96.0,\"gross_risk_usd\":48.0,\"gross_rr\":2.0,\"net_loss_usd\":51.24,\"net_reward_usd\":93.76,\"net_rr\":1.8298204527712725,\"original_limit\":28380.25,\"policy\":\"MINIMUM_GROSS_RR_NET_REPORTED\",\"quantity\":4,\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"total_estimated_stop_loss_usd\":204.96},\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"entry_price\":28380.25,\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"native_active\":[641664660910,641664660911],\"observed_at\":1794512738.0129986,\"oco_verified\":true,\"owned_fill_ids\":[641664660916],\"protection_verified\":true,\"protective_remaining_quantities\":{\"641664660910\":4,\"641664660911\":4},\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 38911,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512745653,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_entry_price\":28380.25,\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"attributable\":true,\"broker_positions\":[{\"accountId\":2214,\"archived\":false,\"bought\":0,\"boughtValue\":0.0,\"contractId\":4470324,\"id\":641664660922,\"instrument\":\"MNQZ6\",\"isActiveOrPendingSettlement\":true,\"netPos\":-4,\"netPrice\":28380.25,\"prevPos\":0,\"sold\":4,\"soldValue\":113521.0,\"timestamp\":\"2026-11-12T19:43:51.418Z\",\"tradeDate\":{\"day\":12,\"month\":11,\"year\":2026}}],\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"protection_verified\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 38912,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512746662,
+      "kind": "ACTION_UNKNOWN",
+      "payload_json": "{\"action\":\"close\"}"
+    },
+    {
+      "id": 38913,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512764891,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_entry_price\":28380.25,\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"attributable\":false,\"broker_positions\":[],\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"protection_verified\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 38914,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512766042,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_entry_price\":28380.25,\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"attributable\":false,\"broker_positions\":[],\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"protection_verified\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"RECOVERY\",\"reason\":\"BROKER_POSITION_DOES_NOT_MATCH_OWNED_FILLS\",\"recovery\":true}"
+    },
+    {
+      "id": 38915,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512770852,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{\"actual_entry_price\":28380.25,\"actual_stop_distance\":24.0,\"actual_target_distance\":48.0,\"attributable\":false,\"broker_positions\":[],\"entry_quantity\":4,\"entry_status\":\"Filled\",\"exit_quantity\":0,\"late_fill\":false,\"protection_verified\":false,\"remaining_quantity\":4,\"setup_expired_fill\":false,\"stop_price\":28404.25,\"target_price\":28332.25},\"phase\":\"FILLED\",\"reason\":\"BROKER_POSITION_DOES_NOT_MATCH_OWNED_FILLS\",\"recovery\":true}"
+    },
+    {
+      "id": 38916,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-bb985992c3430b4bd090ba954def04ba0e2ef7f6",
+      "at_ms": 1794512771809,
+      "kind": "EXIT_RECOVERY_BLOCKED",
+      "payload_json": "{\"additional_exposure_blocked\":true,\"reason\":\"BROKER_POSITION_DOES_NOT_MATCH_OWNED_FILLS\",\"recovery_requires_fresh_owned_broker_evidence\":true}"
+    }
+  ],
+  "snapshot": {
+    "account": {
+      "accountId": "2214",
+      "balance": {
+        "autoLiqLevel": -2000.0,
+        "cashSODUSD": 48717.85,
+        "cashUSD": 48717.85,
+        "currencyCashAvailWithdrawalUSD": 48717.85,
+        "fullInitialMargin": 0.0,
+        "fullInitialMarginSOD": 0.0,
+        "fundsInTransitAppliedToCashUSD": 0.0,
+        "fundsInTransitUSD": 0.0,
+        "initialMargin": 0.0,
+        "maintenanceMargin": 0.0,
+        "netLiq": 48717.85,
+        "netLiqSOD": 48717.85,
+        "openPnL": 0.0,
+        "realizedPnL": 0.0,
+        "totalCashValue": 48717.85,
+        "totalCashValueSOD": 48717.85,
+        "totalPnL": 0.0,
+        "weekRealizedPnL": 0.0
+      },
+      "environment": "demo",
+      "name": "Fixture account",
+      "userId": "3550438"
+    },
+    "fills": [],
+    "observed_at": 1794836280.7765877,
+    "orders": [],
+    "positions": [],
+    "read_started_at": 1794836279.116032
+  },
+  "risk": {
+    "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "account_rules": {
+      "daily_loss_policy": "NONE",
+      "max_micro_contracts": 40,
+      "minimum_balance": 48161.9
+    },
+    "cash_bridge": {
+      "authorizes_entries": false,
+      "capture_completeness_verified": false,
+      "captured_closed_groups": [
+        {
+          "closed_ms": 1792504007709,
+          "costs_usd": 9.5,
+          "fill_ids": [
+            641664660727,
+            641664660743,
+            641664660751
+          ],
+          "gross_usd": -231.0,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -240.5
+        },
+        {
+          "closed_ms": 1793041609551,
+          "costs_usd": 1.9,
+          "fill_ids": [
+            641664660775,
+            641664660808
+          ],
+          "gross_usd": -1.0,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -2.9
+        },
+        {
+          "closed_ms": 1793387759745,
+          "costs_usd": 1.9,
+          "fill_ids": [
+            641664660825,
+            641664660849
+          ],
+          "gross_usd": -21.5,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -23.4
+        },
+        {
+          "closed_ms": 1793972981666,
+          "costs_usd": 1.88,
+          "fill_ids": [
+            641664660869,
+            641664660893
+          ],
+          "gross_usd": -21.5,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -23.38
+        },
+        {
+          "closed_ms": 1794512746079,
+          "costs_usd": 7.52,
+          "fill_ids": [
+            641664660916,
+            641664660941
+          ],
+          "gross_usd": 54.0,
+          "instrument": "MNQ 12-26",
+          "loss": false,
+          "net_usd": 46.48
+        }
+      ],
+      "checkpoint_cash": 48961.55,
+      "checkpoint_ms": 1792385905601,
+      "current_cash": 48717.85,
+      "matches_current_cash": true,
+      "reconstructed_cash": 48717.85,
+      "scope": "NUMERICAL_CASH_BRIDGE_ONLY",
+      "unexplained_difference_usd": 0.0
+    },
+    "controls": {
+      "cash": 48717.85,
+      "consecutive_losses": 0,
+      "contract": "MNQZ2026",
+      "equity": 48717.85,
+      "fees_reconciled": true,
+      "last_loss_closed_ms": 1793972981666,
+      "losses_today": 0,
+      "margin_max_new_micro_contracts": 40,
+      "ny_day": "2026-11-16",
+      "observed_at_ms": 1794836279116,
+      "remaining_daily_loss_usd": null,
+      "source_reference": "CROSSTRADE_ACCOUNT_RECONCILIATION_V1",
+      "verified": true
+    },
+    "history_cache_reused": true,
+    "history_observed_at_ms": 1794836263345,
+    "input_sha256": "4c87cf92a2b9a7aad17eab701ecf133c3e4b05e453b277a4d9994135614ccd36",
+    "inputs_before_snapshot": false,
+    "ledger": {
+      "cash": 48717.85,
+      "closed_groups": [
+        {
+          "closed_ms": 1792504007709,
+          "costs_usd": 9.5,
+          "fill_ids": [
+            641664660727,
+            641664660743,
+            641664660751
+          ],
+          "gross_usd": -231.0,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -240.5
+        },
+        {
+          "closed_ms": 1793041609551,
+          "costs_usd": 1.9,
+          "fill_ids": [
+            641664660775,
+            641664660808
+          ],
+          "gross_usd": -1.0,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -2.9
+        },
+        {
+          "closed_ms": 1793387759745,
+          "costs_usd": 1.9,
+          "fill_ids": [
+            641664660825,
+            641664660849
+          ],
+          "gross_usd": -21.5,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -23.4
+        },
+        {
+          "closed_ms": 1793972981666,
+          "costs_usd": 1.88,
+          "fill_ids": [
+            641664660869,
+            641664660893
+          ],
+          "gross_usd": -21.5,
+          "instrument": "MNQ 12-26",
+          "loss": true,
+          "net_usd": -23.38
+        },
+        {
+          "closed_ms": 1794512746079,
+          "costs_usd": 7.52,
+          "fill_ids": [
+            641664660916,
+            641664660941
+          ],
+          "gross_usd": 54.0,
+          "instrument": "MNQ 12-26",
+          "loss": false,
+          "net_usd": 46.48
+        }
+      ],
+      "consecutive_losses": 0,
+      "last_loss_closed_ms": 1793972981666,
+      "losses_today": 0
+    },
+    "missing": [],
+    "native_settlement": {
+      "accounted_fill_ids": [
+        641664660727,
+        641664660743,
+        641664660751,
+        641664660775,
+        641664660808,
+        641664660825,
+        641664660849,
+        641664660869,
+        641664660893,
+        641664660916,
+        641664660941
+      ],
+      "expires_at_ms": 1794862500000,
+      "rules_sha256": "a88f1b9a14069d18d40208185958963573c168eebcbd0bd1b431db11c8be4f71",
+      "snapshot_sha256": "d13fff89c3b00b5502f99a92d467413e4a1abef255932a67555dba79ef4f6eee",
+      "version": 1
+    },
+    "observed": {
+      "captured_costs_usd": 22.7,
+      "captured_fills": 11,
+      "cash": 48717.85,
+      "equity": 48717.85,
+      "margin_snapshot": {
+        "initialMargin": 0.0,
+        "maintenanceMargin": 0.0,
+        "openCollateralReq": 0.0,
+        "timestamp": "2026-11-12T19:43:48.196Z",
+        "totalUsedMargin": 0.0
+      },
+      "margin_timestamp_semantics": "PROVIDER_ROW_LAST_CHANGE_NOT_NEW_POSITION_ALLOWANCE",
+      "positions": 0,
+      "realized_pnl": 0.0,
+      "unrealized_pnl": 0.0,
+      "working_orders": 0
+    },
+    "observed_at_ms": 1794836280777,
+    "rules_sha256": "a88f1b9a14069d18d40208185958963573c168eebcbd0bd1b431db11c8be4f71",
+    "snapshot_started_ms": 1794836279116,
+    "source": "CROSSTRADE_ACCOUNT_RECONCILIATION_V1",
+    "verified": true
+  },
+  "proof": {
+    "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+    "account_controls_source": "CROSSTRADE_RECONCILED",
+    "account_stage": "Evaluation",
+    "account_suffix": "5021",
+    "accounting_verification": {
+      "coverage_through_ms": 1793298910455,
+      "observed_at_ms": 1793298910455,
+      "scope": "Historical checkpoint, not future capture guarantee or a live account snapshot",
+      "source": "Authenticated Tradovate Fills and Cash History reports + CrossTrade account snapshot",
+      "sources_sha256": {
+        "broker_read.json": "185350d08b67bbc8d74c0b4fec3dca2faaa5093639f7a61607f207ac5a8357d3",
+        "tradovate_cash_history.csv": "f75795d7181468852bd1f5ae2436e789c9c76a720a8ee529cc7e56086cc287d6",
+        "tradovate_fills.csv": "c4adc110788564e9e25ac7ecc394acb58908d0b154a326184aae56428fcc76c6"
+      },
+      "verified": true
+    },
+    "approval_status": "OPERATOR_INSTALLATION_REQUIRED_DO_NOT_AUTOLOAD",
+    "broker_refresh": {
+      "history_unchanged_since_independent_statement_check": true,
+      "observed_at_ms": 1793386683449,
+      "sha256": "cc193d3af1038723e26ba447d35f0ef5b23f665f69befdb5224fce9f1ae60d1b",
+      "source": "CrossTrade read-only balance, positions, orders, fills/history"
+    },
+    "confirmation_source": "ACCOUNT_HOLDER",
+    "daily_loss_limit_usd": null,
+    "daily_loss_policy": "NONE",
+    "daily_loss_source_reference": "USER_CONFIRMED_NO_PROVIDER_DAILY_LIMIT; exact rule version unverified",
+    "expires_at_ms": 1794862500000,
+    "historical_costs": {
+      "complete_account_history_verified": false,
+      "fees_usd": 9.5,
+      "fill_ids": [
+        641664660727,
+        641664660743,
+        641664660751
+      ],
+      "gross_pnl_usd": -231,
+      "net_pnl_usd": -240.5,
+      "observed_at_ms": 1792993579108,
+      "source": "CrossTrade GET /fills/history"
+    },
+    "independently_provider_verified": false,
+    "margin_policy": {
+      "confirmation_source": "ACCOUNT_HOLDER",
+      "contract": "MNQZ2026",
+      "expires_at_ms": 1794862500000,
+      "independently_provider_verified": false,
+      "mode": "CONTRACT_CAP_ONLY",
+      "observed_at_ms": 1794807855789,
+      "recorded_at_ms": 1793298066678,
+      "source_reference": "ACCOUNT_HOLDER_RECONFIRMATION_2026-11-16T00:44:15.789000-05:00",
+      "verification_method": "ACCOUNT_HOLDER_ATTESTATION_NOT_PROVIDER_VERIFICATION",
+      "verified": true
+    },
+    "max_micro_contracts": 40,
+    "max_micro_contracts_source": "USER_CONFIRMED_ACCOUNT_SPECIFIC; not independently provider-verified",
+    "minimum_balance": 48161.9,
+    "minimum_balance_source": "USER_CONFIRMED_NOT_CURRENT_PROVIDER_API",
+    "observed_at_ms": 1794807855789,
+    "observed_broker": {
+      "at_ms": 1793386672198,
+      "cash": 48718.15,
+      "equity": 48718.15,
+      "orders": 0,
+      "positions": 0,
+      "realized_pnl": 0,
+      "unrealized_pnl": 0
+    },
+    "plan_variant": "UNKNOWN",
+    "provider": "MFFU",
+    "provider_rules_independently_verified": false,
+    "reconciliation_anchor": {
+      "account_binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "at_ms": 1792385905601,
+      "capture_complete_since_ms": 1792385905601,
+      "cash": 48961.55,
+      "consecutive_losses": 1,
+      "coverage_reference": "Tradovate Fills and Cash History: unfiltered 2026-10-01 through 2026-10-29; exact5/5fill match since checkpoint",
+      "coverage_verified_through_ms": 1793298910455,
+      "evidence_sha256": {
+        "broker_read.json": "185350d08b67bbc8d74c0b4fec3dca2faaa5093639f7a61607f207ac5a8357d3",
+        "tradovate_cash_history.csv": "f75795d7181468852bd1f5ae2436e789c9c76a720a8ee529cc7e56086cc287d6",
+        "tradovate_fills.csv": "c4adc110788564e9e25ac7ecc394acb58908d0b154a326184aae56428fcc76c6"
+      },
+      "flat": true,
+      "last_loss_closed_ms": 1792065985324,
+      "source_reference": "Authenticated CrossTrade archived flat account snapshot, cross-checked against Tradovate Cash History",
+      "verified": true
+    },
+    "required_evidence": [],
+    "rule_authority": "ACCOUNT_HOLDER_ATTESTATION",
+    "source_reference": "ACCOUNT_HOLDER_RECONFIRMATION_2026-11-16T00:44:15.789000-05:00",
+    "stage_source": "User account dashboard",
+    "user_confirmed_rules": {
+      "independently_provider_verified": false,
+      "margin_mode": "CONTRACT_CAP_ONLY",
+      "margin_rule_confirmed": true,
+      "maximum_micro_contracts": 40,
+      "minimum_balance": 48161.9,
+      "minimum_micro_contracts": 1,
+      "provider_daily_loss_policy": "NONE",
+      "recorded_at_ms": 1793298066678,
+      "source": "Account holder statements in this conversation; no separate margin requirement confirmed 2026-10-29"
+    },
+    "user_reported_max_micro_contracts": 40,
+    "validity_note": "Same-day account-holder reconfirmation; fresh broker accounting required. Expires 2026-11-16T15:55:00-05:00",
+    "verified": true
+  },
+  "account": "2214",
+  "name": "Fixture account",
+  "environment": "demo",
+  "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+  "now": 1794836280.7765877
+}

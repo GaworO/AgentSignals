@@ -607,7 +607,62 @@ class Transport:
         if state in ('NO_FILL','CLOSED','CLOSED_PENDING_COSTS'):
             self.phase(row,'TERMINAL',recovery=state=='CLOSED_PENDING_COSTS',exposure=observation,reason='costs_pending' if state=='CLOSED_PENDING_COSTS' else None)
 
+    def reconcile_flat_close(self,row,snapshot):
+        """Settle only a fully evidenced closed round trip; never sends orders."""
+        if snapshot['positions'] or snapshot['orders']:return False
+        import native_flat_close
+        import directional_account_reconciliation as risk
+        import directional_account_limits
+        with self.api.connect() as c:
+            actions=[dict(a) for a in c.execute("SELECT * FROM native_actions WHERE binding=? AND order_id=? AND operation='close' AND state IN ('UNKNOWN','ACKNOWLEDGED')",(self.binding,row['order_id']))]
+            if len(actions)!=1:return False
+            reply=json.loads(actions[0]['response_json'] or '{}')
+            if reply.get('response',{}).get('ack')!='empty_body' or reply.get('response',{}).get('orderId') is not None:return False
+            lives={r['broker_id']:json.loads(r['payload_json']) for r in c.execute('SELECT * FROM native_lifecycles WHERE binding=?',(self.binding,))}
+            audits=[dict(a) for a in c.execute("SELECT * FROM native_audit WHERE binding=? AND order_id=? AND kind='LIFECYCLE_PHASE'",(self.binding,row['order_id']))]
+        with self.sync.connect() as c:
+            stored=[json.loads(r[0]) for r in c.execute('SELECT payload FROM broker_fills WHERE binding=?',(self.binding,))]
+        # fills() also rejects conflicting persistent/current fill revisions.
+        ids={f['orderId'] for f in stored+snapshot['fills'] if stamp(f['timestamp'])>=row['created_ms']}
+        fills=self.fills(ids,snapshot,row['created_ms'])
+        try:proof=directional_account_limits.read_static_evidence()
+        except (ValueError,OSError):return False
+        observation=native_flat_close.prove(row,actions[0],lives,fills,audits,snapshot,
+            risk.state(self.sync),proof,
+            account=self.sync.account,name=self.sync.name,environment=self.sync.environment,
+            binding=self.binding,now=self.clock())
+        if observation is None:return False
+        at=int(self.clock()*1000);receipt=json.loads(row['receipt_json']);oid=row['order_id']
+        with self.api.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            current=c.execute('SELECT state,command_json,receipt_json FROM native_orders WHERE binding=? AND order_id=?',(self.binding,oid)).fetchone()
+            action=c.execute('SELECT state,response_json,updated_ms FROM native_actions WHERE binding=? AND action_id=?',(self.binding,actions[0]['action_id'])).fetchone()
+            if (not current or current['state'] in ('CLOSED','NO_FILL')
+                    or current['command_json']!=row['command_json'] or current['receipt_json']!=row['receipt_json']
+                    or not action or action['state']!=actions[0]['state'] or action['response_json']!=actions[0]['response_json']
+                    or action['updated_ms']!=actions[0]['updated_ms']
+                    or not 0<=self.clock()-snapshot['observed_at']<=3):return False
+            local=c.execute('SELECT state,position_json FROM orders WHERE order_id=?',(oid,)).fetchone()
+            if not local:return False
+            position=json.loads(local['position_json'] or '{}')
+            position.update(event='CLOSED',quantity=0,assumed=False,position_id='ct:'+str(receipt['orderId']),
+                entry_price=observation['entry_price'],fill_ms=observation['fill_ms'],
+                exit_price=observation['exit_price'],exit_fill_ms=observation['exit_fill_ms'],
+                event_ms=at,source='crosstrade-evidenced-flat-close')
+            c.execute("UPDATE orders SET state='CLOSED',position_json=?,updated_ms=? WHERE order_id=?",(encode(position),at,oid))
+            c.execute('INSERT OR IGNORE INTO exit_trades(trade_id,exit_mode,status,updated_ms) VALUES(?,?,?,?)',(oid,self.api.exit_mode(),'CLOSED',at))
+            c.execute("UPDATE exit_trades SET status='CLOSED',exit_pnl=?,fill_price=?,fill_time=?,updated_ms=? WHERE trade_id=?",(observation['net_usd'],observation['exit_price'],observation['exit_fill_ms'],at,oid))
+            if local['state']!='CLOSED':self.api._exit_transition(c,oid,'CLOSED',at,'verified_account_round_trip')
+            c.execute("UPDATE native_orders SET state='CLOSED',observation_json=?,error=NULL,updated_ms=? WHERE binding=? AND order_id=?",(encode(observation),at,self.binding,oid))
+            c.execute("UPDATE native_actions SET state='CONFIRMED',updated_ms=? WHERE binding=? AND action_id=?",(at,self.binding,actions[0]['action_id']))
+            c.execute("INSERT OR REPLACE INTO native_order_phase VALUES(?,?,?,0,?,NULL,?)",(self.binding,oid,'TERMINAL',encode(observation),at))
+            c.execute('UPDATE native_operator_alerts SET resolved=1 WHERE binding=? AND order_id=?',(self.binding,oid))
+            c.execute('DELETE FROM native_exit_requests WHERE binding=? AND order_id=?',(self.binding,oid))
+            self.audit(c,oid,'EMPTY_CLOSE_RECONCILED',observation)
+        return True
+
     def reconcile_one(self,row,snapshot):
+        if self.reconcile_flat_close(row,snapshot):return
         command=json.loads(row['command_json']);order=command['order'];receipt=json.loads(row['receipt_json'] or 'null')
         if receipt is None:receipt=self.recover_receipt(row)
         try:entry=self.entry_identity(row,receipt)
@@ -880,9 +935,8 @@ class Transport:
         # Revisions and capture are debounced; they are not a real-time fill feed.
         if self.clock()-getattr(self,'last_cost_poll',0)<60:return
         self.last_cost_poll=self.clock()
-        start=min(r['created_ms'] for r in pending)/1000
-        params=dict(account=self.sync.name,environment=self.sync.environment,limit=1000,
-                    **{'from':datetime.fromtimestamp(start,timezone.utc).isoformat(),'to':datetime.fromtimestamp(self.clock(),timezone.utc).isoformat()})
+        # Captured history supports account/environment/limit/cursor, not from/to.
+        params=dict(account=self.sync.name,environment=self.sync.environment,limit=1000)
         history=[];seen=set()
         try:
             for _ in range(5):
