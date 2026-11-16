@@ -1808,6 +1808,9 @@ def health(feed_age_min=None, market_open=None):
             transport=builder_crosstrade.status()
             add('broker_order_transport','warn' if transport.get('entry_blocker') else 'ok',
                 transport.get('entry_blocker') or 'CrossTrade native IDs; broker fills and closure reconciliation')
+            post_trade=transport.get('post_trade')
+            if post_trade:
+                add('post_trade',post_trade['level'],post_trade['summary'])
             if transport.get('operator_alerts'):
                 alerts=transport['operator_alerts']
                 accounting_only=all(a.get('reason')=='costs_pending' for a in alerts)

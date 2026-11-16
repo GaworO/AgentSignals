@@ -152,6 +152,8 @@ class Transport:
                     binding TEXT,order_id TEXT,reason TEXT,created_ms INTEGER,
                     PRIMARY KEY(binding,order_id));
             ''')
+        import broker_post_trade
+        self.post_trade = broker_post_trade.Watchdog(self)
 
     def phase(self, row, phase, *, recovery=False, exposure=None, reason=None):
         with self.api.connect() as c:
@@ -922,7 +924,11 @@ class Transport:
                 except Exception:
                     with self.api.connect() as c:
                         self.audit(c,oid,'ICT_OBSERVATION_FAILED',{'management_enabled':False})
-        finally:self.poll_lock.release()
+        finally:
+            self.poll_lock.release()
+            # Read-only, independent of reconciliation success or failure.
+            try:self.post_trade.check()
+            except Exception:print('[post-trade] publication failed; watchdog will retry',flush=True)
 
     def reconcile_costs(self,snapshot):
         with self.api.connect() as c:
@@ -1265,6 +1271,7 @@ def configure(api):
         if not sync.enabled:raise TransportError('BROKER_ACCOUNT_SYNC_REQUIRED')
         _TRANSPORT=Transport(api,sync)
         sync.after_poll=_TRANSPORT.schedule_reconcile
+        _TRANSPORT.post_trade.start()
 
 
 def route_id():
@@ -1323,6 +1330,10 @@ def exit_payload(payload):
     return Reply()
 
 
+def post_trade_status():
+    return _TRANSPORT.post_trade.state() if _TRANSPORT else None
+
+
 def status():
     if not selected():return dict(provider=provider(),enabled=False)
     if not _TRANSPORT:return dict(provider='crosstrade',enabled=False,error='NOT_CONFIGURED')
@@ -1332,7 +1343,7 @@ def status():
         recovery=[dict(r) for r in c.execute('SELECT order_id,reason,created_ms FROM native_exit_requests WHERE binding=? ORDER BY created_ms LIMIT 20',(_TRANSPORT.binding,))]
         phases=[dict(r) for r in c.execute('SELECT order_id,phase,recovery,reason,updated_ms FROM native_order_phase WHERE binding=?',(_TRANSPORT.binding,))]
         alerts=[dict(r) for r in c.execute('SELECT order_id,reason,created_ms FROM native_operator_alerts WHERE binding=? AND resolved=0',(_TRANSPORT.binding,))]
-    return dict(lifecycle_phases=phases,operator_alerts=alerts,provider='crosstrade',enabled=True,route_id=route_id(),orders_by_state=counts,pending=pending,entry_blocker=_TRANSPORT.entry_blocker(),
+    return dict(post_trade=_TRANSPORT.post_trade.state(),lifecycle_phases=phases,operator_alerts=alerts,provider='crosstrade',enabled=True,route_id=route_id(),orders_by_state=counts,pending=pending,entry_blocker=_TRANSPORT.entry_blocker(),
         recovery_requests=recovery,
         note='Accepted native order IDs are not fills. Unknown submissions are reconciled and never resent.')
 

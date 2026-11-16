@@ -176,8 +176,10 @@ class Handoff:
     def state(self):
         with self.db() as db:rows=[json.loads(r[0]) for r in db.execute('SELECT body FROM intents ORDER BY created DESC LIMIT 100')]
         import ict_execution
+        import builder_crosstrade
         runtime=ict_execution.status();executions=execution_rows()
         return dict(mode='GUARDED_AUTOMATIC' if runtime['enabled'] else 'EXECUTION_DISABLED', execution_authorized=False, broker_order_sent=any(r.get('broker_ack') for r in executions),
+                    post_trade=builder_crosstrade.post_trade_status(),
                     runtime=runtime, broker_lifecycle=executions,
                     risk_percent=0.5, target_rule='FIXED_2R_GROSS',
                     strategy=STRATEGY, destination='Existing CrossTrade cloud Tradovate connection',
