@@ -5,3 +5,5 @@
 - Before a deployment that needs a backup, run `python backup_retention.py --root /data/builder50` in the existing Agent50k container. It replaces `backups/recovery-current.tar.gz` only after verification. A temporary replacement may coexist during creation; the previous verified copy survives a failed attempt.
 - Never delete live trading databases, broker/AI journals, paid-call ledgers, fills, fees, policy/risk evidence or market data to free space. The backup tool uses online SQLite snapshots and preserves all non-transient live files. Restore offline and reconcile broker state; individual database snapshots are not an atomic snapshot of the entire trading system.
 - Do not use deployment/cleanup as permission to change trading flags, risk parameters or send test orders.
+
+- The existing Railway process runs `daily_backup.py` at/after 17:10 America/New_York every day. Do not add a duplicate Codex/laptop scheduler. Status is `DATA_DIR/backup_daily.json`; retries are limited to three attempts, ten minutes apart. All dates use New York time, including DST.

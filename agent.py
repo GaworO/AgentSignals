@@ -2113,5 +2113,9 @@ try:
 except Exception as exc:
     print("[ict-shadow] startup blocked:", type(exc).__name__, flush=True)
 
+# Railway-local end-of-day backup; independent of trading and AI workers.
+import daily_backup
+daily_backup.start(os.environ.get('DATA_DIR', '/data/builder50'))
+
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT','8000')))
