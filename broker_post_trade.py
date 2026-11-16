@@ -63,7 +63,8 @@ class Watchdog:
             if not local or local['state'] != 'CLOSED':
                 reasons.append('local_closed_state_mismatch')
             result['net_usd'] = observation.get('net_usd')
-        if latest and latest['state']=='NO_FILL' and (not local or local['state'] not in ('NO_FILL','CANCELLED','EXPIRED')):
+        known_not_sent = bool(latest and json.loads(latest['observation_json'] or '{}').get('known_not_sent') is True)
+        if latest and latest['state']=='NO_FILL' and (not local or local['state'] not in ('NO_FILL','CANCELLED','EXPIRED') and not (known_not_sent and local['state']=='REJECTED')):
             reasons.append('local_no_fill_state_mismatch')
         if not active:
             import directional_account_reconciliation as risk

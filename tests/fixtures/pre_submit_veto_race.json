@@ -1,0 +1,128 @@
+{
+  "native_orders": [
+    {
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "client_id": "b50-573fc49623b6fb2ecf685294fb5a4f4996d8b2d6233f539dbd127041",
+      "created_ms": 1794841489859,
+      "expiry_ms": 1794841980000,
+      "state": "RECONCILIATION_REQUIRED",
+      "command_json": "{\"before_cash\":48717.85,\"before_fill_ids\":[],\"body\":{\"action\":\"sell\",\"clOrdId\":\"b50-573fc49623b6fb2ecf685294fb5a4f4996d8b2d6233f539dbd127041\",\"expireTime\":\"2026-11-16T15:13:00Z\",\"instrument\":\"MNQZ6\",\"limitPrice\":27592.0,\"maxPositions\":1,\"orderId\":\"b50-573fc49623b6fb2ecf685294fb5a4f4996d8b2d6233f539dbd127041\",\"orderType\":\"limit\",\"qty\":2,\"requireMarketPosition\":\"flat\",\"stopLoss\":27646.75,\"takeProfit\":27482.5,\"tif\":\"gtd\"},\"contract_id\":4470324,\"order\":{\"account_label\":\"Builder 50K\",\"activation_ms\":1794841481063,\"ai_review_at_native_dispatch\":{\"available_at\":1794841481.0630229,\"decision_origin\":\"VALIDATED_SAVED_ICT_PROPOSAL\",\"expires_at\":1794841980.0,\"order_id\":\"ICT-160c899d09bc95390e4f7b8be2b7627384efa781\",\"packet_id\":\"f869d312208c59c9050ab5921e480324bb6c0003780c67089cc5413959ef5622\",\"review_id\":\"ICT_INDEPENDENT_NYAM_20261116_6\",\"setup\":{\"activation_ms\":1794841481063,\"contract\":\"MNQZ2026\",\"direction\":\"SHORT\",\"entry_price\":27592.0,\"expiry_ms\":1794841980000,\"ict_family\":null,\"ict_family_contract\":null,\"ict_fingerprint\":\"160c899d09bc95390e4f7b8be2b7627384efa781ff8e6a6e39badd8cd976bc10\",\"ict_liquidity_target\":27442,\"ict_packet_id\":\"f869d312208c59c9050ab5921e480324bb6c0003780c67089cc5413959ef5622\",\"ict_requested_at\":1794841423.35607,\"ict_review_id\":\"ICT_INDEPENDENT_NYAM_20261116_6\",\"order_id\":\"ICT-160c899d09bc95390e4f7b8be2b7627384efa781\",\"stop_price\":27646.75,\"strategy\":\"ICT_AI\",\"target_price\":27482.5},\"state\":\"ALLOW\"},\"baseline_target_price\":27482.5,\"candidate_id\":\"ICT_INDEPENDENT_NYAM_20261116_6\",\"contract\":\"MNQZ2026\",\"direction\":\"SHORT\",\"entry_price\":27592.0,\"execution_costs_at_dispatch\":{\"contract\":\"MNQZ2026\",\"round_trip_usd\":2.24,\"stop_slippage_ticks\":2,\"validation_reference\":\"Existing configured RT estimate and prior proposed 2-tick allowance accepted for implementation; assumptions, not statistical calibration or a loss bound.\"},\"execution_model_at_dispatch\":\"RESTING_LIMIT_CLOSED_M1_V1\",\"expiry_ms\":1794841980000,\"ict_fingerprint\":\"160c899d09bc95390e4f7b8be2b7627384efa781ff8e6a6e39badd8cd976bc10\",\"ict_liquidity_target\":27442,\"ict_packet_id\":\"f869d312208c59c9050ab5921e480324bb6c0003780c67089cc5413959ef5622\",\"ict_requested_at\":1794841423.35607,\"ict_review_id\":\"ICT_INDEPENDENT_NYAM_20261116_6\",\"ict_thesis_version\":\"ict_bracket_opposing_structure_v1\",\"lifecycle\":\"ICT_NATIVE_FIXED_BRACKET_V1\",\"order_id\":\"ICT-160c899d09bc95390e4f7b8be2b7627384efa781\",\"order_type\":\"LIMIT\",\"quantity\":2,\"risk_points\":54.75,\"route_id\":\"ef498f8029fb7741\",\"runner_enabled\":false,\"stop_price\":27646.75,\"strategy\":\"ICT_AI\",\"target_price\":27482.5}}",
+      "receipt_json": null,
+      "observation_json": "{\"evidence_error\":\"UNKNOWN_SUBMISSION_REQUIRES_EXACT_CLIENT_ID\",\"protection_verified\":false,\"reconciliation_valid\":false}",
+      "error": "UNKNOWN_SUBMISSION_REQUIRES_EXACT_CLIENT_ID",
+      "updated_ms": 1794842210230
+    }
+  ],
+  "native_actions": [],
+  "native_audit": [
+    {
+      "id": 49621,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841489872,
+      "kind": "ENTRY_RESERVED",
+      "payload_json": "{\"action\":\"sell\",\"clOrdId\":\"b50-573fc49623b6fb2ecf685294fb5a4f4996d8b2d6233f539dbd127041\",\"expireTime\":\"2026-11-16T15:13:00Z\",\"instrument\":\"MNQZ6\",\"limitPrice\":27592.0,\"maxPositions\":1,\"orderId\":\"b50-573fc49623b6fb2ecf685294fb5a4f4996d8b2d6233f539dbd127041\",\"orderType\":\"limit\",\"qty\":2,\"requireMarketPosition\":\"flat\",\"stopLoss\":27646.75,\"takeProfit\":27482.5,\"tif\":\"gtd\"}"
+    },
+    {
+      "id": 49622,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841489881,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{},\"phase\":\"PREPARED\",\"reason\":null,\"recovery\":false}"
+    },
+    {
+      "id": 49623,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841493030,
+      "kind": "ENTRY_REVALIDATION_BLOCKED",
+      "payload_json": "{\"reason\":\"directional_thesis_not_revalidated:BRACKET_TOUCHED_BEFORE_SUBMISSION\"}"
+    },
+    {
+      "id": 49624,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841493037,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{},\"phase\":\"TERMINAL\",\"reason\":\"directional_thesis_not_revalidated:BRACKET_TOUCHED_BEFORE_SUBMISSION\",\"recovery\":false}"
+    },
+    {
+      "id": 49625,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841493409,
+      "kind": "LIFECYCLE_PHASE",
+      "payload_json": "{\"exposure\":{},\"phase\":\"RECOVERY\",\"reason\":\"UNKNOWN_SUBMISSION_REQUIRES_EXACT_CLIENT_ID\",\"recovery\":true}"
+    },
+    {
+      "id": 49626,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841498741,
+      "kind": "POST_TRADE_CHECK",
+      "payload_json": "{\"reasons\":[\"broker:native_order_or_cost_reconciliation_pending\",\"native_order_or_costs_unsettled\",\"operator_alert_unresolved\",\"recovery_phase_pending\",\"recovery_request_pending\"],\"state\":\"PENDING\"}"
+    },
+    {
+      "id": 49627,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841502110,
+      "kind": "EXIT_RECOVERY_BLOCKED",
+      "payload_json": "{\"additional_exposure_blocked\":true,\"reason\":\"EXACT_OWNED_BROKER_IDS_REQUIRED\",\"recovery_requires_fresh_owned_broker_evidence\":true}"
+    },
+    {
+      "id": 49630,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841618792,
+      "kind": "POST_TRADE_CHECK",
+      "payload_json": "{\"reasons\":[\"broker:native_order_or_cost_reconciliation_pending\",\"native_order_or_costs_unsettled\",\"operator_alert_unresolved\",\"recovery_phase_pending\",\"recovery_request_pending\"],\"state\":\"BLOCKED\"}"
+    },
+    {
+      "id": 49633,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841804999,
+      "kind": "POST_TRADE_CHECK",
+      "payload_json": "{\"reasons\":[\"account:account_risk_reconciliation_refresh_pending\",\"broker:native_order_or_cost_reconciliation_pending\",\"native_order_or_costs_unsettled\",\"operator_alert_unresolved\",\"recovery_phase_pending\",\"recovery_request_pending\"],\"state\":\"BLOCKED\"}"
+    },
+    {
+      "id": 49634,
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "at_ms": 1794841815653,
+      "kind": "POST_TRADE_CHECK",
+      "payload_json": "{\"reasons\":[\"broker:native_order_or_cost_reconciliation_pending\",\"native_order_or_costs_unsettled\",\"operator_alert_unresolved\",\"recovery_phase_pending\",\"recovery_request_pending\"],\"state\":\"BLOCKED\"}"
+    }
+  ],
+  "native_order_phase": [
+    {
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "phase": "RECOVERY",
+      "recovery": 1,
+      "exposure_json": "{}",
+      "reason": "UNKNOWN_SUBMISSION_REQUIRES_EXACT_CLIENT_ID",
+      "updated_ms": 1794842210234
+    }
+  ],
+  "orders": [
+    {
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "state": "REJECTED",
+      "order_json": "{\"order_id\": \"ICT-160c899d09bc95390e4f7b8be2b7627384efa781\", \"candidate_id\": \"ICT_INDEPENDENT_NYAM_20261116_6\", \"strategy\": \"ICT_AI\", \"direction\": \"SHORT\", \"contract\": \"MNQZ2026\", \"order_type\": \"LIMIT\", \"entry_price\": 27592.0, \"stop_price\": 27646.75, \"target_price\": 27482.5, \"activation_ms\": 1794841481063, \"expiry_ms\": 1794841980000, \"ict_review_id\": \"ICT_INDEPENDENT_NYAM_20261116_6\", \"ict_fingerprint\": \"160c899d09bc95390e4f7b8be2b7627384efa781ff8e6a6e39badd8cd976bc10\", \"ict_packet_id\": \"f869d312208c59c9050ab5921e480324bb6c0003780c67089cc5413959ef5622\", \"ict_requested_at\": 1794841423.35607, \"ict_liquidity_target\": 27442, \"ict_thesis_version\": \"ict_bracket_opposing_structure_v1\", \"runner_enabled\": false, \"quantity\": 2, \"route_id\": \"ef498f8029fb7741\", \"account_label\": \"Builder 50K\", \"lifecycle\": \"ICT_NATIVE_FIXED_BRACKET_V1\", \"baseline_target_price\": 27482.5, \"risk_points\": 54.75}",
+      "position_json": null,
+      "updated_ms": 1794841493042
+    }
+  ],
+  "native_exit_requests": [
+    {
+      "binding": "bdfeee63d33d2d6c18b657a283cb9e65e495aa76e9f7f5e36f1993b6e7b39dfa",
+      "order_id": "ICT-160c899d09bc95390e4f7b8be2b7627384efa781",
+      "reason": "BROKER_PROTECTION_RECONCILIATION_FAILED",
+      "created_ms": 1794841493422
+    }
+  ]
+}

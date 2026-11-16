@@ -344,6 +344,13 @@ class Transport:
         return None
 
     def submit(self,payload,oid):
+        # Account polls may finish while final pre-POST validation is running.
+        # Do not let their reconciler interpret our in-flight reservation as an
+        # unknown broker submission or overwrite its known-not-sent veto.
+        with self.poll_lock:
+            return self._submit(payload,oid)
+
+    def _submit(self,payload,oid):
         safety=execution_safety.entry_blocker()
         if safety:raise TransportError(safety)
         now=int(self.clock()*1000)
@@ -478,8 +485,8 @@ class Transport:
                 reason = 'ENTRY_INVALIDATED_DURING_REVALIDATION'
         if reason:
             with self.api.connect() as c:
-                c.execute("UPDATE native_orders SET state='NO_FILL',error=?,updated_ms=? WHERE binding=? AND order_id=?",
-                          (reason,int(self.clock()*1000),self.binding,oid))
+                c.execute("UPDATE native_orders SET state='NO_FILL',observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=?",
+                          (encode(dict(known_not_sent=True,broker_order_sent=False)),reason,int(self.clock()*1000),self.binding,oid))
                 self.audit(c,oid,'ENTRY_REVALIDATION_BLOCKED',dict(reason=reason))
             self.phase(self.row(oid),'TERMINAL',reason=reason)
             return dict(sent=False,submission_unknown=False,accepted_any=False,provider='crosstrade',
@@ -663,7 +670,46 @@ class Transport:
             self.audit(c,oid,'EMPTY_CLOSE_RECONCILED',observation)
         return True
 
+    def reconcile_not_sent(self,row,snapshot):
+        """Repair only a durable pre-IO veto, never an ambiguous HTTP outcome."""
+        if (row.get('receipt_json') or snapshot['positions'] or snapshot['orders']
+                or not 0<=self.clock()-snapshot['observed_at']<=3
+                or not 0<=snapshot['observed_at']-snapshot['read_started_at']<=12):return False
+        oid=row['order_id'];now=int(self.clock()*1000)
+        with self.api.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            current=c.execute('SELECT * FROM native_orders WHERE binding=? AND order_id=?',(self.binding,oid)).fetchone()
+            local=c.execute('SELECT state,position_json FROM orders WHERE order_id=?',(oid,)).fetchone()
+            if (not current or current['receipt_json'] or current['state'] in ('CLOSED','NO_FILL')
+                    or current['command_json']!=row['command_json'] or current['client_id']!=row['client_id']
+                    or not local or local['state'] not in ('REJECTED','NO_FILL') or local['position_json']
+                    or c.execute('SELECT 1 FROM native_actions WHERE binding=? AND order_id=?',(self.binding,oid)).fetchone()):return False
+            audits=[dict(r) for r in c.execute('SELECT * FROM native_audit WHERE binding=? AND order_id=? ORDER BY id',(self.binding,oid))]
+            reservations=[a for a in audits if a['kind']=='ENTRY_RESERVED']
+            vetoes=[a for a in audits if a['kind']=='ENTRY_REVALIDATION_BLOCKED']
+            if len(reservations)!=1 or len(vetoes)!=1:return False
+            reserved,veto=reservations[0],vetoes[0]
+            command=json.loads(row['command_json']);reason=json.loads(veto['payload_json']).get('reason')
+            if (not reason or reserved['id']>=veto['id'] or reserved['at_ms']<row['created_ms']
+                    or not reserved['at_ms']<=veto['at_ms']<=now or json.loads(reserved['payload_json'])!=command['body']
+                    or command['body'].get('clOrdId')!=row['client_id']):return False
+            for a in audits:
+                # A SUBMITTED phase precedes any potentially delivered POST.
+                if a['kind'] in ('WAITING_BROKER_FILL','UNKNOWN','ENTRY_POST_STARTED'):return False
+                if a['kind']=='LIFECYCLE_PHASE' and json.loads(a['payload_json']).get('phase') in ('SUBMITTED','ACKNOWLEDGED','FILLED','PARTIALLY_FILLED','WORKING'):return False
+            observation=dict(known_not_sent=True,broker_order_sent=False,entry_quantity=0,exit_quantity=0,
+                             settlement_source='DURABLE_PRE_IO_REVALIDATION_VETO',veto_audit_id=veto['id'],reason=reason)
+            c.execute("UPDATE native_orders SET state='NO_FILL',observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=?",(encode(observation),reason,now,self.binding,oid))
+            c.execute("INSERT OR REPLACE INTO native_order_phase VALUES(?,?,?,0,?,?,?)",(self.binding,oid,'TERMINAL',encode(observation),reason,now))
+            c.execute('UPDATE native_operator_alerts SET resolved=1 WHERE binding=? AND order_id=?',(self.binding,oid))
+            c.execute('DELETE FROM native_exit_requests WHERE binding=? AND order_id=?',(self.binding,oid))
+            self.audit(c,oid,'ENTRY_NOT_SENT_RECONCILED',observation)
+        return True
+
     def reconcile_one(self,row,snapshot):
+        row=self.row(row['order_id']) or row
+        if row['state'] in ('CLOSED','NO_FILL'):return
+        if self.reconcile_not_sent(row,snapshot):return
         if self.reconcile_flat_close(row,snapshot):return
         command=json.loads(row['command_json']);order=command['order'];receipt=json.loads(row['receipt_json'] or 'null')
         if receipt is None:receipt=self.recover_receipt(row)
@@ -903,8 +949,9 @@ class Transport:
                     previous=json.loads(row['observation_json'] or '{}')
                     previous.update(protection_verified=False,reconciliation_valid=False,evidence_error=error)
                     with self.api.connect() as c:
-                        c.execute("UPDATE native_orders SET state='RECONCILIATION_REQUIRED',observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=?",
+                        changed=c.execute("UPDATE native_orders SET state='RECONCILIATION_REQUIRED',observation_json=?,error=?,updated_ms=? WHERE binding=? AND order_id=? AND state NOT IN ('NO_FILL','CLOSED')",
                             (encode(previous),error,int(self.clock()*1000),self.binding,row['order_id']))
+                        if not changed.rowcount:continue
                     # Persist recovery even when the packet is too incomplete
                     # to reach the normal protection check. Recovery still must
                     # re-prove ownership; it never blindly flattens an account.
