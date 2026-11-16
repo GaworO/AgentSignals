@@ -319,12 +319,25 @@ class Cloud:
     def run(self):
         # Shared volume flock prevents multiple Gunicorn/deployment workers calling AI.
         while True:
-            with (self.root/'ict_cloud.lock').open('a') as lock:
-                try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-                except BlockingIOError:self.pause();continue
-                try:self.tick()
-                except Exception as e:self.put('last_check',{'at':time.time(),'state':'BLOCKED','reason':type(e).__name__+':'+str(e)[:120]})
-                self.pause()
+            try:
+                with (self.root/'ict_cloud.lock').open('a') as lock:
+                    try:
+                        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        pass
+                    else:
+                        self.tick()
+            except Exception as e:
+                # A full volume can also break error publication. Keep the
+                # worker alive; the normal durable request/budget guards still
+                # prohibit repeating an uncertain paid call or order.
+                try:
+                    self.put('last_check',{'at':time.time(),'state':'BLOCKED','reason':type(e).__name__+':'+str(e)[:120]})
+                except Exception:
+                    print('[ict-shadow] worker/storage check failed; persistence unavailable; retrying',flush=True)
+            # Back off even when opening the lock or saving the error failed.
+            # Do not hold the cross-process lock while sleeping.
+            self.pause()
 
 def register(app,config=None,start=True):
     from flask import Response, jsonify, request
