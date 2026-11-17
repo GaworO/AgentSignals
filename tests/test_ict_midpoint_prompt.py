@@ -5,10 +5,11 @@ import ict_shadow_research as r
 from test_ict_shadow_research import sample,T
 
 def test_midpoint_guidance_applies_to_both_families():
- assert r.VERSION=='ict-2022-ifvg-cloud-v4-midpoint'
+ assert r.VERSION=='ict-2022-ifvg-cloud-v5-neutral-entry'
  assert r.MIDPOINT_GUIDANCE in r.PROMPT
- for requirement in ('BOTH ICT2022 and IFVG','entry_fraction=0.5','In entry_reason record gap bounds','ONE final plan per family','Existing pending orders retain their exact approved geometry','return WAIT/NO_TRADE'):
+ for requirement in ('BOTH ICT2022 and IFVG','entry_fraction=0','entry_fraction=0.5','entry_fraction=1','No location has a default preference or priority','must not veto a supported LOW or HIGH entry','In entry_reason record gap bounds','ONE final plan per family','Existing pending orders retain their exact approved geometry','return WAIT/NO_TRADE'):
   assert requirement in r.MIDPOINT_GUIDANCE
+ assert 'Prefer entry_fraction=0.5' not in r.PROMPT
 
 @pytest.mark.parametrize('short',[False,True])
 def test_midpoint_half_tick_uses_existing_directional_rounding(short):
@@ -36,3 +37,15 @@ def test_midpoint_cannot_invent_liquidity_or_change_structural_stop(short):
 def test_edge_remains_compatible_with_saved_approvals():
  p,d=sample();d['plan'].update(entry_fraction=0,entry_price=104)
  assert r.validate(p,d,T+10)['state']=='VALIDATED_SHADOW_PROPOSAL'
+
+@pytest.mark.parametrize('short',[False,True])
+def test_supported_edge_is_not_blocked_when_midpoint_lacks_2r_room(short):
+ p,d=sample(short)
+ target=106 if short else 114
+ p['evidence']['target']['price']=target
+ d['plan']['target_anchor']['price']=target;d['plan']['target_price']=target
+ original_stop=d['plan']['stop_price']
+ with pytest.raises(AssertionError):r.validate(p,d,T+10)
+ d['plan'].update(entry_fraction=1 if short else 0,entry_price=116 if short else 104)
+ assert r.validate(p,d,T+10)['state']=='VALIDATED_SHADOW_PROPOSAL'
+ assert d['plan']['stop_price']==original_stop
