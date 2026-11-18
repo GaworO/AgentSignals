@@ -176,6 +176,7 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
     assert r.MIDPOINT_GUIDANCE in sent[0]['input'][0]['content']
     assert r.ENTRY_TIMING_GUIDANCE in sent[0]['input'][0]['content']
     assert r.LIQUIDITY_GUIDANCE in sent[0]['input'][0]['content']
+    assert r.FILL_SELECTION_GUIDANCE in sent[0]['input'][0]['content']
     assert 'No location has a default preference or priority' in sent[0]['input'][0]['content']
     assert 'Prefer entry_fraction=0.5' not in sent[0]['input'][0]['content']
     if future=='pending':
