@@ -155,7 +155,9 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
     sent=[]
     def request(payload,key,seconds):
         sent.append(payload);pk=json.loads(payload['input'][1]['content'])
-        decision={'packet_id':pk['packet_id'],'execution_authorized':False,'decision':'WAIT','plan':None,'assessments':{},'summary':'Mock wait'}
+        stop_assessment=dict(reasoning='Mock: no confirmed thesis, so no structural stop can be selected.',evidence_ids=[],missing=['Confirmed thesis'])
+        decision={'packet_id':pk['packet_id'],'execution_authorized':False,'decision':'WAIT','plan':None,'assessments':{'structural_stop':stop_assessment},'summary':'Mock wait'}
+        decision['ifvg_review']=dict(decision)
         if future=='pending':
             decision['pending_order_review']=dict(order_id='owned',binding='bound',decision='EXTEND',reason='Synthetic valid thesis',evidence_ids=[next(iter(pk['evidence']))],extension_until_ms=pending['extension_until_ms'])
         return {'status':'completed','model':'gpt-6.1-sol','usage':{'input_tokens':1000,'output_tokens':100},'output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(decision)}]}]}
@@ -174,6 +176,7 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
     assert result['state']=='research_completed' and result['validation']['state']=='WAIT'
     assert len(sent)==1
     assert r.MODEL_CONTEXT_GUIDANCE in sent[0]['input'][0]['content']
+    assert r.STRUCTURAL_STOP_GUIDANCE in sent[0]['input'][0]['content']
     assert r.MIDPOINT_GUIDANCE in sent[0]['input'][0]['content']
     assert r.ENTRY_TIMING_GUIDANCE in sent[0]['input'][0]['content']
     assert r.LIQUIDITY_GUIDANCE in sent[0]['input'][0]['content']
@@ -191,6 +194,12 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
     assert json.loads(saved[2])==sent[0]
     record=json.loads((research_root/(result['id']+'.json')).read_text())
     assert record['request']==sent[0] and record['packet']['experiment']==r.VERSION
+    for family in (record['decision'],record['decision']['ifvg_review']):
+        assert family['assessments']['structural_stop']['reasoning'].startswith('Mock: no confirmed thesis')
+    assert record['validation']['ifvg_validation']['state']=='WAIT'
+    response_schema=sent[0]['text']['format']['schema']
+    for item in (response_schema,response_schema['properties']['ifvg_review']):
+        assert 'structural_stop' in item['properties']['assessments']['required']
     if future=='pending':
         assert result['validation']['pending_order_validation']['state']=='VALIDATED_PENDING_REVIEW'
         assert 'pending_order_review' in sent[0]['text']['format']['schema']['required']

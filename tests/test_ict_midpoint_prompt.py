@@ -5,7 +5,7 @@ import ict_shadow_research as r
 from test_ict_shadow_research import sample,T
 
 def test_midpoint_guidance_applies_to_both_families():
- assert r.VERSION=='ict-2022-ifvg-cloud-v8-model-led-entry'
+ assert r.VERSION=='ict-2022-ifvg-cloud-v9-structural-stops'
  assert r.MIDPOINT_GUIDANCE in r.PROMPT
  for requirement in ('BOTH ICT2022 and IFVG','entry_fraction=0','entry_fraction=0.5','entry_fraction=1','No location has a default preference or priority','must not veto a supported LOW or HIGH entry','In entry_reason record gap bounds','ONE final plan per family','Existing pending orders retain their exact approved geometry','return WAIT/NO_TRADE'):
   assert requirement in r.MIDPOINT_GUIDANCE
