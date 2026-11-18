@@ -6,10 +6,11 @@ NY = ZoneInfo('America/New_York')
 LONDON = ZoneInfo('Europe/London')
 LONDON_EFFECTIVE_DAY = date(2026, 11, 9)
 FIVE_MINUTE_EFFECTIVE_DAY = date(2026, 11, 12)
+NYAM_EXTENSION_EFFECTIVE_DAY = date(2026, 11, 18)
 SESSION_CAPS = {'LONDON': 24, 'NYAM': 18, 'NYPM': 30}
 REVIEW_INTERVAL_SECONDS = 300
 SCHEDULE = ('London Tue–Fri 08:00–10:00 Europe/London (24 calls) · '
-            'NYAM Mon–Fri 09:30–11:00 (18) · NYPM Mon–Fri 13:30–16:00 (30) America/New_York · AI every 5 minutes when checks pass')
+            'NYAM Mon–Fri 09:30–11:15 (21) · NYPM Mon–Fri 13:30–16:00 (30) America/New_York · AI every 5 minutes when checks pass')
 
 
 def london_day(day):
@@ -28,7 +29,10 @@ def windows(day):
     day = date.fromisoformat(day) if isinstance(day, str) else day
     if day.weekday() >= 5:
         return []
-    specs = [('NYAM', NY, 9, 30, 11, 0), ('NYPM', NY, 13, 30, 16, 0)]
+    # Preserve historical cutoffs and paid-call attribution. New reviews use
+    # this same end in their prompt, validity, pending review and order gate.
+    am_end_minute = 15 if day >= NYAM_EXTENSION_EFFECTIVE_DAY else 0
+    specs = [('NYAM', NY, 9, 30, 11, am_end_minute), ('NYPM', NY, 13, 30, 16, 0)]
     if london_day(day):
         specs.insert(0, ('LONDON', LONDON, 8, 0, 10, 0))
     return [(name,
@@ -50,6 +54,9 @@ def five_minute_schedule(day):
 
 def session_call_limit(name, day=None):
     day = day or datetime.now(NY).date()
+    day = date.fromisoformat(day) if isinstance(day, str) else day
+    if name == 'NYAM' and day >= NYAM_EXTENSION_EFFECTIVE_DAY:
+        return 21  # Three additional five-minute slots; dollar cap unchanged.
     return SESSION_CAPS[name] if five_minute_schedule(day) else 8
 
 
