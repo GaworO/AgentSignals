@@ -1,10 +1,41 @@
-# ICT entry-selection guidance v8
+# ICT entry-selection guidance v10
 
 Scope: the existing independent ICT2022/IFVG AI prompt in
 `ict_shadow_research.py`. This is an implementation of the user's interpretation
 of ICT teaching, not a claim to reproduce every discretionary ICT trade.
-No execution permissions, validators, schema, call budgets, session schedules,
+No execution permissions, price/risk rules, schema, call budgets, session schedules,
 Directional/A/B rules or pending-order lifecycle rules change in this release.
+V10 retains V9's structural-stop assessment validation for both saved V9 and new
+V10 packets. It adds Fibonacci context to the existing prompt only.
+
+## Fibonacci measurements
+
+- Range 50% is equilibrium; premium/discount is relative to explicitly named
+  anchors and timeframe, not a self-sufficient entry signal.
+- Impulse OTE is a 62%-79% retracement, with 70.5% an internal reference.
+  Bullish price = H-r*(H-L); bearish price = L+r*(H-L). Name anchor IDs, times,
+  prices and wick/body convention before using these measurements. Episode 22
+  distinguishes range highs/lows from an optional body-based OTE measurement;
+  this never replaces a structural wick SL with a candle-body stop.
+- FVG/IFVG 50% is consequent encroachment, independent of the impulse's 50%
+  and 62%. Compute separately before claiming overlap.
+- OTE is optional confluence for the existing ICT2022/IFVG families. A thesis
+  explicitly relying on OTE must substantiate it. A separately confirmed FVG
+  thesis is not rejected solely because 62% was not reached or OTE is unknown.
+- Already observed shallow retracements may support the near gap half, while
+  deeper entries need their own structural justification. No hindsight labels,
+  default near-edge preference or new quarter-gap candidate is introduced.
+- Explanations use existing premium_discount, fvg_selection and entry_reason
+  fields; no new mandatory field, new strategy or additional AI call is added.
+
+Research basis: [Equilibrium vs Discount](https://www.youtube.com/watch?v=qC0LogyIk2I),
+[Equilibrium vs Premium](https://www.youtube.com/watch?v=YuefjnUKQdM),
+[2022 Episode 4](https://www.youtube.com/watch?v=L-ReMHiavPM), and
+[2022 Episode 22](https://www.youtube.com/watch?v=QKc_i90chVg).
+For gap CE and shallow retracements see
+[2024 Lecture 03, 33:26-34:16](https://info.quagmyre.com/xwiki/bin/view/Forex/The-Inner-Circle-Trader/ICT-Youtube-Series-2024/ICT-YT-2024-08-07-ICT-2024-Mentorship-Lecture-03/).
+These are conditional interpretations of the recorded teaching, not an empirical
+claim that a Fibonacci ratio improves profitability or fill rate.
 
 ## Decision order
 
@@ -86,4 +117,4 @@ responses in these tests are mocked.
 
 This proves integration and preserved deterministic controls. It does not prove
 that an LLM will choose a particular level, reduce WAIT/no-fill, or improve PF.
-No new paid research or production deployment is included in this prompt edit.
+Paid replay and deployment evidence are recorded separately from these tests.

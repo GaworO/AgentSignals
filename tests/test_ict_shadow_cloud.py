@@ -177,6 +177,7 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
     assert len(sent)==1
     assert r.MODEL_CONTEXT_GUIDANCE in sent[0]['input'][0]['content']
     assert r.STRUCTURAL_STOP_GUIDANCE in sent[0]['input'][0]['content']
+    assert r.FIBONACCI_GUIDANCE in sent[0]['input'][0]['content']
     assert r.MIDPOINT_GUIDANCE in sent[0]['input'][0]['content']
     assert r.ENTRY_TIMING_GUIDANCE in sent[0]['input'][0]['content']
     assert r.LIQUIDITY_GUIDANCE in sent[0]['input'][0]['content']

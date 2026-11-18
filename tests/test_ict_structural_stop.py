@@ -63,6 +63,7 @@ def test_no_thesis_wait_needs_explanation_not_fabricated_anchors(family,verdict)
 
 
 @pytest.mark.parametrize('family',['ICT2022','IFVG'])
+@pytest.mark.parametrize('version',['ict-2022-ifvg-cloud-v9-structural-stops',research.VERSION])
 @pytest.mark.parametrize('mutation,expected',[
     ('missing','STOP_SELECTION_ASSESSMENT_MISSING'),
     ('invented','INVENTED_EVIDENCE'),
@@ -70,8 +71,8 @@ def test_no_thesis_wait_needs_explanation_not_fabricated_anchors(family,verdict)
     ('uncited','STOP_SELECTION_ANCHOR_NOT_CITED'),
     ('moved_stop','GEOMETRY_NOT_ANCHORED'),
     ('rr','INSUFFICIENT_GROSS_RR')])
-def test_a_comparison_cannot_bypass_price_evidence_or_two_r(family,mutation,expected):
-    p,d=current(family);a=selected(d,family);s=a['assessments']['structural_stop'];plan=a['plan']
+def test_a_comparison_cannot_bypass_price_evidence_or_two_r(family,version,mutation,expected):
+    p,d=current(family);p['experiment']=version;a=selected(d,family);s=a['assessments']['structural_stop'];plan=a['plan']
     if mutation=='missing':del a['assessments']['structural_stop']
     if mutation=='invented':s['evidence_ids'].append('absent')
     if mutation=='future':
