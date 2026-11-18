@@ -173,12 +173,24 @@ def test_full_review_pipeline_mocked_only(c,monkeypatch,future,production_state)
         return
     assert result['state']=='research_completed' and result['validation']['state']=='WAIT'
     assert len(sent)==1
+    assert r.MODEL_CONTEXT_GUIDANCE in sent[0]['input'][0]['content']
     assert r.MIDPOINT_GUIDANCE in sent[0]['input'][0]['content']
     assert r.ENTRY_TIMING_GUIDANCE in sent[0]['input'][0]['content']
     assert r.LIQUIDITY_GUIDANCE in sent[0]['input'][0]['content']
     assert r.FILL_SELECTION_GUIDANCE in sent[0]['input'][0]['content']
     assert 'No location has a default preference or priority' in sent[0]['input'][0]['content']
     assert 'Prefer entry_fraction=0.5' not in sent[0]['input'][0]['content']
+    assert 'make prospective fill attainability the primary entry-location criterion' not in sent[0]['input'][0]['content']
+    # Verify what is actually sent and durably recorded, not just the constant.
+    # The transport above is mocked: this proves prompt delivery, not AI quality.
+    research_root=c.root.parent/'research'/('ict_2022_nyam_'+r.DAY.replace('-',''))
+    with sqlite3.connect(research_root/'research_budget.sqlite3') as db:
+        saved=db.execute('SELECT prompt_version,prompt_sha256,request FROM reviews WHERE id=?',(result['id'],)).fetchone()
+    assert saved[0]==r.VERSION
+    assert saved[1]==r.digest(sent[0]['input'][0]['content'])
+    assert json.loads(saved[2])==sent[0]
+    record=json.loads((research_root/(result['id']+'.json')).read_text())
+    assert record['request']==sent[0] and record['packet']['experiment']==r.VERSION
     if future=='pending':
         assert result['validation']['pending_order_validation']['state']=='VALIDATED_PENDING_REVIEW'
         assert 'pending_order_review' in sent[0]['text']['format']['schema']['required']
