@@ -17,6 +17,16 @@ REFRESH_SECONDS = 6 * 3600
 RETRY_SECONDS = 15 * 60
 MAX_BYTES = 1_000_000
 IMPACTS = {'high', 'medium', 'low', 'holiday', 'non-economic'}
+EVENT_SCOPE = 'US_HIGH_IMPACT_ONLY'
+
+
+def is_us_event(row):
+    """Shared US scope for AI context and the final entry blackout.
+
+    Keep the complete provider calendar on disk; scope only its consumers.
+    Forex Factory uses currency codes in its country field.
+    """
+    return str(row.get('country') or row.get('currency') or '').strip().upper() in ('USD', 'US', 'USA')
 
 
 def week_start(now):
@@ -155,5 +165,6 @@ class Calendar:
         age = self.age_hours()
         raw = value.get('raw_events', []) if age is not None else []
         return dict(at=dt.datetime.fromtimestamp(value['received_at'], UTC).replace(tzinfo=None) if age is not None else None,
-                    events=[(row['epoch'], row['title']) for row in raw], raw_events=raw,
+                    events=[(row['epoch'], row['title']) for row in raw if is_us_event(row)], raw_events=raw,
+                    event_scope=EVENT_SCOPE,
                     source=value.get('source'), error=self.error, age_hours=age)

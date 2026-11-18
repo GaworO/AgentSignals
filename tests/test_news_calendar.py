@@ -15,11 +15,11 @@ def stamp(s):
 
 
 def json_body(date='2026-10-19T08:30:00-04:00', impact='High'):
-    return json.dumps([dict(title='CPI m/m', country='CAD', date=date, impact=impact)]).encode()
+    return json.dumps([dict(title='CPI m/m', country='USD', date=date, impact=impact)]).encode()
 
 
 def xml_body(date='10-19-2026', time='12:30pm', impact='High'):
-    return f'<weeklyevents><event><title>CPI m/m</title><country>CAD</country><date>{date}</date><time>{time}</time><impact>{impact}</impact></event></weeklyevents>'.encode()
+    return f'<weeklyevents><event><title>CPI m/m</title><country>USD</country><date>{date}</date><time>{time}</time><impact>{impact}</impact></event></weeklyevents>'.encode()
 
 
 def response(status=200, body=b''):
@@ -50,6 +50,29 @@ class CalendarTests(unittest.TestCase):
             a=cal.normalize(json_body(jdate),'json',now)
             b=cal.normalize(xml_body(xdate,xtime),'xml',now)
             self.assertEqual(a['raw_events'],b['raw_events'])
+
+    def test_us_only_entry_flags_preserve_full_saved_calendar(self):
+        rows=[dict(title=title,country=country,date='2026-10-19T09:00:00-04:00',impact='High')
+              for title,country in [('Bailey speaks','GBP'),('US release','USD')]]
+        client=Mock();client.get.return_value=response(body=json.dumps(rows).encode())
+        self.calendar.refresh(client)
+        self.assertEqual(self.calendar.view()['event_scope'],'US_HIGH_IMPACT_ONLY')
+        self.assertEqual(self.calendar.view()['events'],[(self.now,'US release')])
+        self.assertEqual(len(self.calendar.view()['raw_events']),2)
+        self.assertEqual(len(json.loads(self.path.read_text())['raw_events']),2)
+        restored=cal.Calendar(self.path,clock=lambda:self.now)
+        self.assertEqual(restored.view()['events'],[(self.now,'US release')])
+        from zoneinfo import ZoneInfo
+        ns=dict(dt=dt,NY=ZoneInfo('America/New_York'),_load_calendar=lambda:None,
+                _cal=restored.view())
+        functions(ROOT/'agent.py',{'flags_for'},ns)
+        flags,hard=ns['flags_for']({'bos_ms':self.now*1000})
+        self.assertTrue(hard)
+        self.assertIn('event: US release',flags)
+        self.assertNotIn('event: Bailey speaks',flags)
+        restored.snapshot['raw_events']=restored.snapshot['raw_events'][:1]
+        ns['_cal']=restored.view()
+        self.assertFalse(ns['flags_for']({'bos_ms':self.now*1000})[1])
 
     def test_malformed_empty_old_week_and_missing_timezone_are_rejected(self):
         cases=[(b'{}','json'),(b'[]','json'),(b'<html>blocked</html>','xml'),

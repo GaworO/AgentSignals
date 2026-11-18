@@ -56,11 +56,55 @@ def test_missing_stale_or_invalid_is_unknown(tmp_path,bad):
     assert news.build(config,now)['status']=='UNKNOWN'
 
 
-def test_currency_filter_does_not_weaken_existing_global_blackout(tmp_path):
+def test_non_us_event_does_not_pause_or_enter_ai_context(tmp_path):
     now=at('2026-11-04T09:35:00')
     config,_=calendar(tmp_path,now,[(now,'BOE Governor Speaks','GBP')])
     result=news.build(config,now)
-    assert result['status']=='BLACKOUT' and not result['us_events_today']
+    assert result['status']=='CLEAR' and not result['us_events_today']
+    assert result['events']==[] and result['active_blackouts']==[]
+    assert result['next_blackout_at'] is None
+    assert result['post_release_not_before'] is None
+    assert news.entry_reason(config,now,now+600) is None
+
+
+@pytest.mark.parametrize('currency',['USD','US','USA',' usd '])
+def test_us_aliases_still_block_reviews_and_dispatch(tmp_path,currency):
+    now=at('2026-11-04T09:35:00')
+    config,_=calendar(tmp_path,now,[(now,'US release',currency),(now,'Bailey','GBP')])
+    value=news.build(config,now)
+    assert value['status']=='BLACKOUT'
+    assert [e['title'] for e in value['events']]==['US release']
+    assert news.entry_reason(config,now,now+600)=='ict_news_blackout'
+    assert Cloud(config).select([],{'as_of':now},now)==(None,'ICT_NEWS_BLACKOUT',None)
+
+
+def test_bailey_does_not_block_opening_but_fomc_minutes_remain(tmp_path):
+    now=at('2026-11-18T09:50:00')
+    release=at('2026-11-18T14:00:00')
+    config,saved=calendar(tmp_path,now,[(at('2026-11-18T10:00:00'),'BOE Gov Bailey Speaks','GBP'),
+        (release,'FOMC Meeting Minutes','USD'),(now+60,'EU speech','EUR')])
+    saved['week_start']='2026-11-15'
+    (tmp_path/'news_calendar.json').write_text(json.dumps(saved))
+    value=news.build(config,now)
+    assert value['event_scope']=='US_HIGH_IMPACT_ONLY'
+    assert value['status']=='CLEAR' and value['active_blackouts']==[]
+    assert value['next_blackout_at']==release-1800
+    assert value['post_release_not_before'] is None
+    assert [e['title'] for e in value['events']]==['FOMC Meeting Minutes']
+    assert news.entry_reason(config,now,now+600) is None
+    assert news.entry_reason(config,now,release-1800)=='ict_news_entry_expiry_overlaps_blackout'
+    assert news.entry_reason(config,release)=='ict_news_blackout'
+    assert news.build(config,release+1801)['post_release_not_before']==release
+    cloud=Cloud(config)
+    selected=cloud.select([],{'as_of':now-60},now)
+    assert selected[0]==0 and selected[1]=='CLOUD_NYAM_OPENING'
+    with cloud.db() as db:
+        assert db.execute('SELECT count(*) FROM costs').fetchone()[0]==0
+
+
+def test_prompt_explicitly_limits_news_to_us():
+    assert 'US_HIGH_IMPACT_ONLY' in news.PROMPT
+    assert 'Do not impose a pause or reject a setup because of a non-US event' in news.PROMPT
 
 
 def test_unknown_or_blackout_uses_no_paid_review_slot(tmp_path):

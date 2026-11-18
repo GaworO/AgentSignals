@@ -42,12 +42,12 @@ def test_fomc_morning_merges_statement_and_conference_buffers(tmp_path):
     assert result['next_at']==at('2026-11-05T15:00:01')
 
 
-def test_non_us_blackout_names_event_and_inclusive_end(tmp_path):
+def test_non_us_event_does_not_pause_dashboard(tmp_path):
     now=at('2026-11-05T10:30:00')
     config,_=calendar(tmp_path,now,[(at('2026-11-05T10:00:00'),'BOE Governor Speaks','GBP')])
     result=status.describe(snapshot(now),ict_news_context.build(config,now),True)
-    assert result['state']=='PAUSED' and 'BOE' in result['reason']
-    assert result['next_at']==now+1
+    assert result['state']=='OBSERVING'
+    assert result['next_at'] is None and result['upcoming_at'] is None
 
 
 @pytest.mark.parametrize('when,expected',[
