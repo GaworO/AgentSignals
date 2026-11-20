@@ -1,0 +1,9 @@
+{
+  "branch": "codex/directional-consolidated-20261026",
+  "base_commit": "75ad2a052a07c78ce52bb9d6945241be332ff9d9",
+  "root_workspace_is_stale_for_production": true,
+  "production_deployed_sha": "NOT_CHECKED_LIVE",
+  "prototype_ported_from": "services/tanja/ict_agent",
+  "prototype_run": "71e60464703a3716",
+  "no_production_changes": true
+}

@@ -12,3 +12,6 @@ protobuf
 
 # Frozen Win/Loss/Boundary artifacts were serialized with this version.
 scikit-learn==1.7.2
+
+# AI ICT Trader strict advisory response validation.
+jsonschema>=4.23,<5

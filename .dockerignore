@@ -1,0 +1,13 @@
+.git/
+**/__pycache__/
+.pytest_cache/
+runtime-assets/
+local-runtime/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+journal.db
+buffer.csv
+.env
+.env.*
+services/tanja/ict_agent/preview.py

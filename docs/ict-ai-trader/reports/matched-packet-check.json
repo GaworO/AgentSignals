@@ -1,0 +1,11 @@
+{
+  "snapshot_id": "07d11f31ef98debe183a8bef",
+  "as_of": 1777645860,
+  "market_anchors": 531,
+  "market_evidence_sha256": "c044603a6f5d32d4ceab2dd02eb84135e8f2262f436782eed9d9d36097fe6614",
+  "no_rag_sources": 0,
+  "rag_sources": 17,
+  "omitted_rag_sources": 9,
+  "paid_calls": 0,
+  "evaluation_complete": false
+}

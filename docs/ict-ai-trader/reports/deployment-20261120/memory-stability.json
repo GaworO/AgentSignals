@@ -1,0 +1,20 @@
+{
+  "hotfix_commit": "8aaf569470afe6cb1bec23a55077b19dc3c2c9b9",
+  "observed_seconds": 1275.5810976028442,
+  "samples": 11,
+  "worker_rss_bytes_range": [
+    612302848,
+    746004480
+  ],
+  "cgroup_bytes_range": [
+    1475092480,
+    1674735616
+  ],
+  "oom_kills": 0,
+  "worker_restarts": 0,
+  "concurrency": 8,
+  "successful_requests": 48,
+  "auth_without_credentials": 401,
+  "legacy_policy_hashes_unchanged": true,
+  "note": "Bounded observation, not proof against every future workload. Full-history JSON remains slow (37\u201342 s under 8-way load)."
+}

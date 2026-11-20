@@ -1,0 +1,39 @@
+{
+  "at": "2026-11-20T14:31:02.538347+00:00",
+  "python": "3.11.5",
+  "tests": {
+    "tests": 145,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "pytest_plugins": "AUTOLOAD_DISABLED",
+  "python_compile": "PASS",
+  "javascript_syntax": "PASS",
+  "git_diff_whitespace": "PASS",
+  "browser": {
+    "url": "http://127.0.0.1:8877/#/ictai/desk",
+    "snapshot_id": "07d11f31ef98debe183a8bef",
+    "six_charts": true,
+    "distinct_nq_mnq_contracts": true,
+    "m15_selection": true,
+    "llm_status": "NOT_CALLED",
+    "shadow_without_journal": "NOT_AVAILABLE",
+    "paper": "NOT_STARTED",
+    "shadow_registration_regressions": "PASS",
+    "production_agent_process_started": false,
+    "unrelated_preview_guard_routes": "NOT_MOUNTED"
+  },
+  "provider_calls": 0,
+  "orders": 0,
+  "deployed": false,
+  "user_api_decision": "KEEP_OFF_REVIEW_FIRST",
+  "limitations": [
+    "Python 3.12/container cold-start unverified",
+    "Live deployed SHA unqueried",
+    "LLM semantic contribution untested",
+    "Full available-text reviews 135/615",
+    "37 execution ambiguities preserved",
+    "No forward paper or current market feed in preview"
+  ]
+}

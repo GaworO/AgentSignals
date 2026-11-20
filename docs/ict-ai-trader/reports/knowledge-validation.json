@@ -1,0 +1,49 @@
+{
+  "asset_hashes_verified": true,
+  "knowledge_version": "9f800dadad0f78d06b1a631e940880deb3a35a1a3ffe3e59e4372618fa1ae1dd",
+  "index_version": "70cc462281fc5b52605a2c3b68b0314436d6d24a1ec926eb556846e8f76fcc93",
+  "rules": 2551,
+  "cue_hash_references_verified": 3817,
+  "review_states": {
+    "FULL_AVAILABLE_TRANSCRIPT_REVIEWED": 135,
+    "PENDING": 338,
+    "SOURCE_MISSING": 136,
+    "PARTIAL_ASSISTANT_REVIEW": 2,
+    "SOURCE_QUARANTINED": 4
+  },
+  "sample_records": [
+    {
+      "id": "full-assistant-36184dDAqtM-022",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-UF5J0nEBc0E-029",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-Sh-bDHWNpsk-005",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-Cg0-CFJOJvg-005",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-IEa1N0rTtbc-020",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-hIusATccCcM-009",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-qC0LogyIk2I-010",
+      "status": "SOURCE_SEQUENCE_NOT_COMPILED"
+    },
+    {
+      "id": "full-assistant-Cg0-CFJOJvg-004",
+      "status": "CONCEPT_ORDER_MATCH_ONLY"
+    }
+  ],
+  "paid_calls": 0
+}

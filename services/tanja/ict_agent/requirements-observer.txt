@@ -1,0 +1,5 @@
+# Tested local environment; no SciPy/scikit-learn dependency.
+numpy==2.4.6
+Flask==2.2.2
+Werkzeug==2.2.3
+jsonschema==4.17.3

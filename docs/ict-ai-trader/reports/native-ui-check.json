@@ -1,0 +1,20 @@
+{
+  "at": "2026-11-20T15:03:29.376936+00:00",
+  "method": "CUA_BROWSER_ON_LOCAL_PREVIEW",
+  "url": "http://127.0.0.1:8877/ict-shadow?view=ictai",
+  "native_tabs": [
+    "live",
+    "history",
+    "scanner",
+    "ictai"
+  ],
+  "iframe_count": 0,
+  "candidate_snapshot": "07d11f31ef98debe183a8bef",
+  "chart_panels": 6,
+  "model_state": "NOT_CALLED",
+  "history_scanner_navigation": true,
+  "query_parameters_preserved": true,
+  "production_changed": false,
+  "final_candidate_confirmed_after_reload": true,
+  "js_errors_observed": []
+}

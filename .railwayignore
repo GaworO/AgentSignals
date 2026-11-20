@@ -7,3 +7,7 @@ __pycache__/
 *.sqlite3-wal
 journal.db
 buffer.csv
+runtime-assets/
+local-runtime/
+.env
+.env.*

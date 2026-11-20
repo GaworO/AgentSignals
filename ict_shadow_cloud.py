@@ -348,7 +348,8 @@ def register(app,config=None,start=True):
             if not authorized():return Response('Sign in with your existing Tanja dashboard login.',401,{'WWW-Authenticate':'Basic realm="ICT Shadow"'})
             r=fn(*args,**kwargs);r.headers['Cache-Control']='no-store';r.headers['X-Content-Type-Options']='nosniff';r.headers['X-Frame-Options']='DENY';return r
         return wrapped
-    app.add_url_rule('/ict-shadow','ict_shadow_view',private(lambda:Response(Path(__file__).with_name('ict_shadow.html').read_text(),mimetype='text/html')))
+    import ict_ai_trader
+    app.add_url_rule('/ict-shadow','ict_shadow_view',private(lambda:Response(ict_ai_trader.render_shadow(Path(__file__).with_name('ict_shadow.html').read_text()),mimetype='text/html')))
     app.add_url_rule('/ict-shadow/state','ict_shadow_state',private(lambda:jsonify(cloud.state())))
     app.add_url_rule('/ict-shadow/ifvg-examples','ict_ifvg_examples',private(lambda:Response(Path(__file__).with_name('ict_ifvg_examples.html').read_text(),mimetype='text/html')))
     def detail(rid):
@@ -367,5 +368,6 @@ def register(app,config=None,start=True):
     ict_risk_renewal_web.register(app,private,cloud.config)
     import ict_ai_recovery_web
     ict_ai_recovery_web.register(app,private,cloud,allow_worker_start=start)
+    ict_ai_trader.register(app,cloud.config,start=start,authorize=authorized)
     if start:cloud.start_worker()
     return cloud

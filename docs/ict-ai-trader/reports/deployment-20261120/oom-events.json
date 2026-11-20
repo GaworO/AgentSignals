@@ -1,0 +1,32 @@
+[
+  {
+    "timestamp": "2026-11-20T15:38:52.412726621Z",
+    "message": "[2026-11-20 15:38:52 +0000] [1] [ERROR] Worker (pid:267755) was sent SIGKILL! Perhaps out of memory?",
+    "level": "error"
+  },
+  {
+    "timestamp": "2026-11-20T15:38:52.413585032Z",
+    "level": "error",
+    "message": "[2026-11-20 15:38:52 +0000] [272155] [INFO] Booting worker with pid: 272155"
+  },
+  {
+    "timestamp": "2026-11-20T15:44:18.532294039Z",
+    "message": "[2026-11-20 15:44:18 +0000] [1] [ERROR] Worker (pid:272155) was sent SIGKILL! Perhaps out of memory?",
+    "level": "error"
+  },
+  {
+    "level": "error",
+    "message": "[2026-11-20 15:44:18 +0000] [272978] [INFO] Booting worker with pid: 272978",
+    "timestamp": "2026-11-20T15:44:18.532299139Z"
+  },
+  {
+    "message": "[2026-11-20 15:48:10 +0000] [1] [ERROR] Worker (pid:272978) was sent SIGKILL! Perhaps out of memory?",
+    "timestamp": "2026-11-20T15:48:14.959772958Z",
+    "level": "error"
+  },
+  {
+    "message": "[2026-11-20 15:48:10 +0000] [273584] [INFO] Booting worker with pid: 273584",
+    "timestamp": "2026-11-20T15:48:14.959778888Z",
+    "level": "error"
+  }
+]

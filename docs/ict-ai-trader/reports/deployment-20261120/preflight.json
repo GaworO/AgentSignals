@@ -1,0 +1,117 @@
+{
+  "status": "BLOCKED_PREEXISTING_PRODUCTION_OOM",
+  "deployment": "ee5447b2-592d-41a2-94da-be780ceef92f",
+  "commit": "75ad2a052a07c78ce52bb9d6945241be332ff9d9",
+  "python": "3.12.16 (main, Nov  5 2026, 07:58:20) [GCC 14.2.0]",
+  "packages": {
+    "numpy": "2.5.5",
+    "pandas": "2.3.3",
+    "scikit-learn": "1.7.2",
+    "jsonschema": null,
+    "flask": "3.1.3",
+    "gunicorn": "27.0.1"
+  },
+  "disk": {
+    "total": 4838498304,
+    "used": 1600471040,
+    "free": 3221250048
+  },
+  "cpu_limit_vcpus": 8,
+  "memory_limit_bytes": 8000000000,
+  "memory_samples": [
+    {
+      "at": 1795189526.3663912,
+      "bytes": 4898476032,
+      "oom_kills": 23
+    },
+    {
+      "at": 1795189581.4619455,
+      "bytes": 7195340800,
+      "oom_kills": 23
+    },
+    {
+      "at": 1795189719.7014103,
+      "bytes": 4973182976,
+      "oom_kills": 24
+    }
+  ],
+  "broker_at_preflight": {
+    "current": true,
+    "open_positions": 0,
+    "working_orders": 0,
+    "age_sec": null,
+    "reason": null
+  },
+  "existing_live_flags_already_enabled": true,
+  "existing_flags_changed": false,
+  "new_paid_calls": 0,
+  "new_paid_spend_usd": 0,
+  "new_orders": 0,
+  "code_pushed": false,
+  "deployment_submitted": false,
+  "backup_created": false,
+  "coverage_at_check": [
+    {
+      "symbol": "ES",
+      "all": [
+        1793071440,
+        1795189500,
+        25345
+      ],
+      "NYAM": [
+        76,
+        1795185000,
+        1795189500,
+        0.36924195289611816,
+        6.567834377288818
+      ]
+    },
+    {
+      "symbol": "MNQ",
+      "all": [
+        1793077140,
+        1795189500,
+        25349
+      ],
+      "NYAM": [
+        76,
+        1795185000,
+        1795189500,
+        0.39676737785339355,
+        15.064191579818726
+      ]
+    },
+    {
+      "symbol": "NQ",
+      "all": [
+        1793077200,
+        1795189500,
+        24996
+      ],
+      "NYAM": [
+        76,
+        1795185000,
+        1795189500,
+        0.3738846778869629,
+        19.494122982025146
+      ]
+    }
+  ],
+  "continuous_contract_mapping": "UNVERIFIED_DATED_CONTRACT",
+  "exchange_delay_entitlement": "UNKNOWN",
+  "build_python312": "NOT_EXECUTED",
+  "authorization": "USER_EXPLICIT_DEPLOYMENT_AND_SHARED_8_USD_NYAM_PLUS_HISTORY",
+  "tests": {
+    "regression_passed": 154,
+    "regression_seconds": 98.01,
+    "final_budget_guard_checks_passed": 5,
+    "additional_authenticated_endpoint_check_passed": 1,
+    "javascript_syntax": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "oom_log_times_utc": [
+    "2026-11-20T15:38:52Z",
+    "2026-11-20T15:44:18Z",
+    "2026-11-20T15:48:10Z"
+  ]
+}

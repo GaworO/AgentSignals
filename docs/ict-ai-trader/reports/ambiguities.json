@@ -1,0 +1,1752 @@
+{
+  "status": "REPRODUCED_WITH_UNRESOLVED_EXECUTION",
+  "run_id": "71e60464703a3716",
+  "reproduced_primary_candidates": 73,
+  "ambiguous_count": 37,
+  "reason_counts": {
+    "ENTRY_IN_ACTIVATION_MINUTE": 25,
+    "CANCEL_EVENT_DURING_LATENCY": 10,
+    "ENTRY_CANCEL_ORDER_UNKNOWN": 2
+  },
+  "resolved_count": 0,
+  "cases": [
+    {
+      "candidate_id": "219c7e1c5b64d4ab2721b439",
+      "day": "2026-05-01",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1777646700,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 27811.0,
+        "entry_zone": [
+          27803.0,
+          27811.0
+        ],
+        "evidence_ids": [
+          "fc1a7d20abe266d5dc0f5b07",
+          "4545c72954d40c1cf9fcf2d0",
+          "7a39f8e72653d60f5f4cb74e"
+        ],
+        "expires_at": 1777651680,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.768,
+        "stop": 27750.75,
+        "symbol": "NQ",
+        "target": 27857.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1777646700,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -42.25,
+        106.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "af343c3b392a1ab0df9a1e92",
+      "day": "2026-05-01",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1777656600,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 27880.0,
+        "entry_zone": [
+          27879.25,
+          27880.0
+        ],
+        "evidence_ids": [
+          "b76e14fb2b0305a13f8273d4",
+          "19dfb9aa5ada5ddf19c2d7bb",
+          "d07a37d15c5070c28617edf2"
+        ],
+        "expires_at": 1777659480,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.104,
+        "stop": 27805.25,
+        "symbol": "NQ",
+        "target": 27887.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1777656600,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -44.5,
+        17.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "1b5e59bdbb83451a53bb0dbf",
+      "day": "2026-05-05",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1777992720,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 28092.25,
+        "entry_zone": [
+          28092.25,
+          28096.5
+        ],
+        "evidence_ids": [
+          "4b9cbc41401dae6e9c75a76f",
+          "45effd2714e051a541a2ba54",
+          "49e41a9f8361f87c5a85113b"
+        ],
+        "expires_at": 1777997220,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.312,
+        "stop": 28139.5,
+        "symbol": "NQ",
+        "target": 28077.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1777992720,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -57.75,
+        10.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "0c19e0c06aafe66f061e9cc2",
+      "day": "2026-05-05",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1777997940,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 28136.5,
+        "entry_zone": [
+          28136.5,
+          28143.5
+        ],
+        "evidence_ids": [
+          "f3490854f807a79d462ae14e",
+          "40f02760b903d1fd62b6e8ac",
+          "99a85837abc64e2833694814"
+        ],
+        "expires_at": 1778003100,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.538,
+        "stop": 28152.75,
+        "symbol": "NQ",
+        "target": 28127.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1777997940,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -18.25,
+        46.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "3039f11e419ba517e0a8f81c",
+      "day": "2026-05-05",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778008260,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 28174.25,
+        "entry_zone": [
+          28174.0,
+          28174.25
+        ],
+        "evidence_ids": [
+          "d0e9379801ade2c322265cdd",
+          "b7c690697bf0057ade329517",
+          "eedc8a16bd816bee8d330f7c"
+        ],
+        "expires_at": 1778012640,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.556,
+        "stop": 28154.0,
+        "symbol": "NQ",
+        "target": 28185.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1778008260,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -65.75,
+        25.5
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "e3cfd97cc6bee747b0a49b12",
+      "day": "2026-05-05",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778009820,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 28159.5,
+        "entry_zone": [
+          28159.5,
+          28160.0
+        ],
+        "evidence_ids": [
+          "05dd6c09f9070d77ff8497bd",
+          "11f11df7e3676a2aac5100a5",
+          "c55264983d1058ec70ae02bc"
+        ],
+        "expires_at": 1778013720,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.845,
+        "stop": 28188.5,
+        "symbol": "NQ",
+        "target": 28135.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778009820,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -87.75,
+        50.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "92405e64234f23f06bd4b7c4",
+      "day": "2026-05-06",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778087520,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 28574.25,
+        "entry_zone": [
+          28565.75,
+          28574.25
+        ],
+        "evidence_ids": [
+          "a3a70679ad0b747d5bbcf3f5",
+          "b68ab135cc50181782bcc137",
+          "ad9a8223de901c99612e9e9d"
+        ],
+        "expires_at": 1778091780,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.222,
+        "stop": 28525.75,
+        "symbol": "NQ",
+        "target": 28585.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778087520,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -7.5,
+        65.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "9eb09ee6f3322e1c19a1a78c",
+      "day": "2026-05-06",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778087520,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 28574.25,
+        "entry_zone": [
+          28565.75,
+          28574.25
+        ],
+        "evidence_ids": [
+          "a3a70679ad0b747d5bbcf3f5",
+          "b68ab135cc50181782bcc137",
+          "a33d0dac221135b2441b05b8"
+        ],
+        "expires_at": 1778092140,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.173,
+        "stop": 28512.0,
+        "symbol": "NQ",
+        "target": 28585.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778087520,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -7.5,
+        65.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "43a8739a7ffcd42c930ad16d",
+      "day": "2026-05-06",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778097120,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 28681.5,
+        "entry_zone": [
+          28672.5,
+          28681.5
+        ],
+        "evidence_ids": [
+          "f536722bd0652ce4cd60e052",
+          "7cbc5543e95c8421d1fcdfde",
+          "8d5eb319a0f860a5d8feedb7"
+        ],
+        "expires_at": 1778102160,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.217,
+        "stop": 28666.5,
+        "symbol": "NQ",
+        "target": 28699.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778097120,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": null,
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": false,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "3b5fe31d3e33b9353141d092",
+      "day": "2026-05-07",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778177460,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 28682.0,
+        "entry_zone": [
+          28682.0,
+          28697.0
+        ],
+        "evidence_ids": [
+          "e6e9a66d83bf71970a6754b0",
+          "0ddb5a5c75a7ef2fa2599540",
+          "922b16e7a3e42cca0c7293c2"
+        ],
+        "expires_at": 1778182680,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.447,
+        "stop": 28721.75,
+        "symbol": "NQ",
+        "target": 28624.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778177460,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -25.75,
+        99.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "f6c1850111d0cf631f50a27a",
+      "day": "2026-05-08",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778253720,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29158.75,
+        "entry_zone": [
+          29151.0,
+          29158.75
+        ],
+        "evidence_ids": [
+          "ff23e2afdae8ce23bdb935ff",
+          "4073d544640c08782630040a",
+          "204f3e9afb8ed6e456119a69"
+        ],
+        "expires_at": 1778256420,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.336,
+        "stop": 29073.25,
+        "symbol": "NQ",
+        "target": 29187.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_CANCEL_ORDER_UNKNOWN",
+      "cause": "Entry and an invalidating level are touched in the same minute; their order is unknown.",
+      "ambiguous_minute": 1778254200,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -5.75,
+        59.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "00697b1f8dd485f95f063cd0",
+      "day": "2026-05-08",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778262540,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 29281.75,
+        "entry_zone": [
+          29281.75,
+          29285.5
+        ],
+        "evidence_ids": [
+          "5e6fcd58ca89a3383c01fa7b",
+          "d14c96adaf013fc2a6bc24d5",
+          "01211ef3edf5e053a14da610"
+        ],
+        "expires_at": 1778267220,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.465,
+        "stop": 29317.75,
+        "symbol": "NQ",
+        "target": 29265.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778262540,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -24.0,
+        44.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "cb43bdb5a046b923484dd4b4",
+      "day": "2026-05-08",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778268360,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 29289.5,
+        "entry_zone": [
+          29289.5,
+          29290.25
+        ],
+        "evidence_ids": [
+          "cd13c626be704abc64fc3604",
+          "4b54adcf537b650107278f48",
+          "ceb783de6414259910c07000"
+        ],
+        "expires_at": 1778273280,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 3.09,
+        "stop": 29306.25,
+        "symbol": "NQ",
+        "target": 29237.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778268360,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -97.5,
+        33.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "84f4478d35b7d0d7bb65b321",
+      "day": "2026-05-11",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778506320,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29342.75,
+        "entry_zone": [
+          29306.0,
+          29342.75
+        ],
+        "evidence_ids": [
+          "ed0e28a2aac0b5e0ad63fb92",
+          "e8ffd3d9db8072f36f0ced67",
+          "ef9b93fe693dca4dd4682559"
+        ],
+        "expires_at": 1778509080,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.552,
+        "stop": 29259.0,
+        "symbol": "NQ",
+        "target": 29389.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1778506320,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -42.25,
+        92.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "bae20c3019f9f55b3b703808",
+      "day": "2026-05-14",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778766960,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 29610.5,
+        "entry_zone": [
+          29610.5,
+          29625.25
+        ],
+        "evidence_ids": [
+          "9e07b5ad72903b8431194750",
+          "84f24a7ce87a838427666b56",
+          "9c4830c536498a28867ef225"
+        ],
+        "expires_at": 1778772060,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.483,
+        "stop": 29685.0,
+        "symbol": "NQ",
+        "target": 29574.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778766960,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -157.5,
+        83.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "725b8ae77af8395dbcf4a88c",
+      "day": "2026-05-14",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778775780,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29764.25,
+        "entry_zone": [
+          29762.5,
+          29764.25
+        ],
+        "evidence_ids": [
+          "9d78aa70e3368d1c01d8397e",
+          "25f4efdc8883e8df616d6959",
+          "55c97e358828af4f51dc8b3a"
+        ],
+        "expires_at": 1778780700,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.479,
+        "stop": 29752.25,
+        "symbol": "NQ",
+        "target": 29782.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778775780,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -169.25,
+        7.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "a3e99868482047a1fa1e2777",
+      "day": "2026-05-14",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778787360,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 29711.0,
+        "entry_zone": [
+          29711.0,
+          29714.0
+        ],
+        "evidence_ids": [
+          "bc1171c73c6c5271d934c5d2",
+          "747e48f36491ccabd84452dd",
+          "e12cc6902182a252b7591cb1"
+        ],
+        "expires_at": 1778791980,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.649,
+        "stop": 29735.25,
+        "symbol": "NQ",
+        "target": 29695.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778787360,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -27.0,
+        77.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "663016640afb06a56152e672",
+      "day": "2026-05-15",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1778859660,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 29341.25,
+        "entry_zone": [
+          29341.25,
+          29357.25
+        ],
+        "evidence_ids": [
+          "d2105d1b17a7717b08335a05",
+          "36b3d07999a060f04bb88409",
+          "9d76a265e6e33f840e7edc03"
+        ],
+        "expires_at": 1778860320,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.919,
+        "stop": 29381.25,
+        "symbol": "NQ",
+        "target": 29304.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778859660,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -3.5,
+        103.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "b3dab48c231b48e20a0e18bb",
+      "day": "2026-05-15",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1778873520,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29307.75,
+        "entry_zone": [
+          29298.5,
+          29307.75
+        ],
+        "evidence_ids": [
+          "186238ec0b23064f3511ab9e",
+          "9f42757716b8dfc27730edca",
+          "2a330330177ca8d24a15cd85"
+        ],
+        "expires_at": 1778878740,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.948,
+        "stop": 29283.5,
+        "symbol": "NQ",
+        "target": 29330.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1778873520,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -197.0,
+        32.5
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "4e1d430774418af7c8bf73d0",
+      "day": "2026-05-18",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779114060,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29242.25,
+        "entry_zone": [
+          29239.5,
+          29242.25
+        ],
+        "evidence_ids": [
+          "9e2d362c913f937b093b73c1",
+          "0e591e8b6480ae9c462a3c94",
+          "2bfcd7bc0c85b300441ff167"
+        ],
+        "expires_at": 1779118620,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.5,
+        "stop": 29128.75,
+        "symbol": "NQ",
+        "target": 29299.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779114060,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -301.0,
+        12.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "d95250d51d68279307fc0d35",
+      "day": "2026-05-18",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779126300,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29007.0,
+        "entry_zone": [
+          29002.75,
+          29007.0
+        ],
+        "evidence_ids": [
+          "2cc96c7e1ba05450b999087d",
+          "edf8300c338571cb5be2a3b5",
+          "bb940d713dad1e4346ce09fe"
+        ],
+        "expires_at": 1779130440,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.756,
+        "stop": 28966.0,
+        "symbol": "NQ",
+        "target": 29038.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779126300,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -192.5,
+        16.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "249c32256b2a16559012f19d",
+      "day": "2026-05-18",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1779131280,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 28942.25,
+        "entry_zone": [
+          28942.25,
+          28980.5
+        ],
+        "evidence_ids": [
+          "05eab7c22a7d50cfa735dfdf",
+          "1b52e324bfa8094294f408a6",
+          "c60d9434e88134f5f3280baf"
+        ],
+        "expires_at": 1779136320,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.055,
+        "stop": 29052.25,
+        "symbol": "NQ",
+        "target": 28826.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779131280,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -172.0,
+        60.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "49cd0e915ead7acf334990ee",
+      "day": "2026-05-19",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1779207060,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 28819.0,
+        "entry_zone": [
+          28819.0,
+          28833.75
+        ],
+        "evidence_ids": [
+          "cc682843243909e857a70fb7",
+          "1547d4cde02d00ec342491d9",
+          "241d65427f7b18fb8511b2dd"
+        ],
+        "expires_at": 1779212040,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.636,
+        "stop": 28880.75,
+        "symbol": "NQ",
+        "target": 28779.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779207060,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -307.75,
+        27.5
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "16e6b7680f8adbe879767b15",
+      "day": "2026-05-20",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779286680,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29150.25,
+        "entry_zone": [
+          29128.5,
+          29150.25
+        ],
+        "evidence_ids": [
+          "a9e67a54f044ac59e2f81b0b",
+          "1f06fde34ee250e3b41d2b58",
+          "07a1147c4c02cea4e75ea649"
+        ],
+        "expires_at": 1779291840,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.451,
+        "stop": 29008.25,
+        "symbol": "NQ",
+        "target": 29356.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779286680,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -33.0,
+        245.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "a2830cb600d77a5db4c71b61",
+      "day": "2026-05-20",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779286680,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29150.25,
+        "entry_zone": [
+          29128.5,
+          29150.25
+        ],
+        "evidence_ids": [
+          "a9e67a54f044ac59e2f81b0b",
+          "1f06fde34ee250e3b41d2b58",
+          "022e1d1351caa702beb0bbbf"
+        ],
+        "expires_at": 1779291780,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.529,
+        "stop": 29015.5,
+        "symbol": "NQ",
+        "target": 29356.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779286680,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -33.0,
+        245.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "2d053d573480272e285d23ec",
+      "day": "2026-05-21",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779370260,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29193.25,
+        "entry_zone": [
+          29193.0,
+          29193.25
+        ],
+        "evidence_ids": [
+          "d8a2ee1c61b9fb94f486710a",
+          "0e5e919c5d75e7c5c0e89af5",
+          "738c0182b91ef3ccf6c41ffc"
+        ],
+        "expires_at": 1779375300,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 6.17,
+        "stop": 29180.0,
+        "symbol": "NQ",
+        "target": 29275.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1779370260,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -66.5,
+        146.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "7664b7084a81b1d964851a9c",
+      "day": "2026-05-21",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779370260,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29193.25,
+        "entry_zone": [
+          29193.0,
+          29193.25
+        ],
+        "evidence_ids": [
+          "d8a2ee1c61b9fb94f486710a",
+          "0e5e919c5d75e7c5c0e89af5",
+          "fd47f7aa047ec939e707f1cd"
+        ],
+        "expires_at": 1779373800,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 10.219,
+        "stop": 29185.25,
+        "symbol": "NQ",
+        "target": 29275.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1779370260,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -66.5,
+        146.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "590d512092f478f080a53744",
+      "day": "2026-05-22",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779476100,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29658.5,
+        "entry_zone": [
+          29653.25,
+          29658.5
+        ],
+        "evidence_ids": [
+          "d227ae364a8e2efc67158f27",
+          "7881580ba2aa230011764de8",
+          "1ccd35c33ea512da3613cd56"
+        ],
+        "expires_at": 1779480540,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.453,
+        "stop": 29623.75,
+        "symbol": "NQ",
+        "target": 29674.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779476100,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -126.75,
+        6.0
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "2fa1dd0352bf54bf4111fcca",
+      "day": "2026-05-22",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779479820,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29563.25,
+        "entry_zone": [
+          29551.0,
+          29563.25
+        ],
+        "evidence_ids": [
+          "e7a0b174b0cb8e5f10097c8d",
+          "ab1e7ecdd321edcaf4f28919",
+          "34400de71ae8fba2e8a30900"
+        ],
+        "expires_at": 1779484620,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.579,
+        "stop": 29531.75,
+        "symbol": "NQ",
+        "target": 29581.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_CANCEL_ORDER_UNKNOWN",
+      "cause": "Entry and an invalidating level are touched in the same minute; their order is unknown.",
+      "ambiguous_minute": 1779479940,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": null,
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": false,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "1e4ccfd80c9d83771cd5e001",
+      "day": "2026-05-27",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779898260,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 29965.0,
+        "entry_zone": [
+          29963.25,
+          29965.0
+        ],
+        "evidence_ids": [
+          "14f68dd74c59c1ac119b66cb",
+          "51d52b61aca0db1987b41447",
+          "2d8f99f6ab058a0e1fcb2633"
+        ],
+        "expires_at": 1779902400,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.196,
+        "stop": 29882.25,
+        "symbol": "NQ",
+        "target": 29981.25,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1779898260,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -70.5,
+        83.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "6fc56a9985af9fdc72f405f0",
+      "day": "2026-05-27",
+      "side": "SHORT",
+      "plan": {
+        "available_at": 1779910020,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "SHORT",
+        "entry": 30038.75,
+        "entry_zone": [
+          30038.75,
+          30041.0
+        ],
+        "evidence_ids": [
+          "11ad46fc7b3ec5987fe08b51",
+          "be1d8ff98c616452e8ce6824",
+          "9235f03b09b437780ae5c23f"
+        ],
+        "expires_at": 1779914220,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.663,
+        "stop": 30062.5,
+        "symbol": "NQ",
+        "target": 30023.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1779910020,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -75.75,
+        29.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "559e20f5e2fbf714f228d7a6",
+      "day": "2026-05-28",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779988920,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 30312.0,
+        "entry_zone": [
+          30305.5,
+          30312.0
+        ],
+        "evidence_ids": [
+          "6e848dd697309b7a38c887ef",
+          "dd31fff5ddea2c932bc4e22e",
+          "95a537f724b764d673e9b8e2"
+        ],
+        "expires_at": 1779994200,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.982,
+        "stop": 30297.75,
+        "symbol": "NQ",
+        "target": 30326.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779988920,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -31.75,
+        32.5
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "c9f3e7449fc47658154cdc1b",
+      "day": "2026-05-28",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779994500,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 30305.75,
+        "entry_zone": [
+          30305.25,
+          30305.75
+        ],
+        "evidence_ids": [
+          "c2a02b425c95a0dfbb595ac4",
+          "bfdb6899d5ffa7255b603fbd",
+          "13c5e7260e4660ff5cc8dd2e"
+        ],
+        "expires_at": 1779999540,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 0.367,
+        "stop": 30281.25,
+        "symbol": "NQ",
+        "target": 30314.75,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1779994500,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -31.75,
+        38.25
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "a288c86678915032526bc529",
+      "day": "2026-05-28",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1779996360,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 30291.5,
+        "entry_zone": [
+          30287.0,
+          30291.5
+        ],
+        "evidence_ids": [
+          "7aa6929a904e56517dba5242",
+          "15d491d294cdcce0523d10e8",
+          "38a466577b8ba9e26adeae6a"
+        ],
+        "expires_at": 1780001220,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.414,
+        "stop": 30277.0,
+        "symbol": "NQ",
+        "target": 30312.0,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1779996360,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -8.5,
+        52.5
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "0d686794b02bdcc8589bedb5",
+      "day": "2026-05-29",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1780077180,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 30348.5,
+        "entry_zone": [
+          30347.0,
+          30348.5
+        ],
+        "evidence_ids": [
+          "dbf2da811fbb3959c8347379",
+          "05f548384aed259ab17976d6",
+          "77d9c9ac73a155a7f175ced9"
+        ],
+        "expires_at": 1780081380,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 2.933,
+        "stop": 30341.0,
+        "symbol": "NQ",
+        "target": 30370.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1780077180,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -57.75,
+        53.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "451d907894acb7a313678ee4",
+      "day": "2026-05-29",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1780077180,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 30348.5,
+        "entry_zone": [
+          30347.0,
+          30348.5
+        ],
+        "evidence_ids": [
+          "dbf2da811fbb3959c8347379",
+          "05f548384aed259ab17976d6",
+          "f3c7b30138d20b4196607760"
+        ],
+        "expires_at": 1780082460,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 1.492,
+        "stop": 30333.75,
+        "symbol": "NQ",
+        "target": 30370.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "ENTRY_IN_ACTIVATION_MINUTE",
+      "cause": "The minute crosses the assumed decision-to-order latency; no event timestamps inside it.",
+      "ambiguous_minute": 1780077180,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -57.75,
+        53.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    },
+    {
+      "candidate_id": "d35cf05a5a1bef5b43fa9fd3",
+      "day": "2026-05-29",
+      "side": "LONG",
+      "plan": {
+        "available_at": 1780077180,
+        "constraint": "Exploratory paper proposal. Not approved source-faithful execution.",
+        "contract": "archive-id:42004058",
+        "direction": "LONG",
+        "entry": 30348.5,
+        "entry_zone": [
+          30347.0,
+          30348.5
+        ],
+        "evidence_ids": [
+          "dbf2da811fbb3959c8347379",
+          "05f548384aed259ab17976d6",
+          "ed7ac0a90aaef8e5785e6cbc"
+        ],
+        "expires_at": 1780082100,
+        "order_type": "LIMIT",
+        "orders_enabled": false,
+        "rr": 2.588,
+        "stop": 30340.0,
+        "symbol": "NQ",
+        "target": 30370.5,
+        "variant": "exploratory-sweep-sequence-v1"
+      },
+      "reason": "CANCEL_EVENT_DURING_LATENCY",
+      "cause": "An invalidation or target touch and order activation may occur in either order inside the latency minute.",
+      "ambiguous_minute": 1780077180,
+      "fill_confirmed": false,
+      "resolved": false,
+      "price_path_stress_bounds_points": [
+        -57.75,
+        53.75
+      ],
+      "bound_scope": "Conditional fill at LIMIT, at most one adverse tick beyond observed price range, exit by deadline; includes zero/no fill. Not a realizable-path or net-PnL estimate.",
+      "timeline_complete": true,
+      "missing": [
+        "timestamped quotes/trades",
+        "order acknowledgement/queue evidence",
+        "actual fees and slippage"
+      ],
+      "order_state_inconsistency_detected": false,
+      "source": "FROZEN_OHLC_MODEL_NOT_ACTUAL_ORDER_JOURNAL"
+    }
+  ],
+  "other_same_bar_exit_envelopes": [],
+  "net_pnl": null,
+  "actual_fills": 0,
+  "conclusion": "Minute OHLC cannot establish event order. All original uncertainties preserved; no ambiguous case counted as a win.",
+  "source_evaluation_sha256": "741d49076e32745124c5152b306fceee903333cd69ca5169f01702eecc06ea8a"
+}

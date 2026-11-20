@@ -1,0 +1,1309 @@
+{
+  "version": "ict-shadow-native-ablation-v1",
+  "model": "gpt-5.4-mini-2026-03-17",
+  "reasoning_effort": "medium",
+  "reasoning_version": "ict-rag-reasoning-v3",
+  "prompt_sha256": "5740fd0a3fdaf20063dac8dc5b2eda61688e33f1377dc791fa21f454b492715c",
+  "schema_sha256": "ee52dc76bd5f007800dcb25553a67264010efc1a17f456e6546b7fa70c1135b0",
+  "knowledge_version": "9f800dadad0f78d06b1a631e940880deb3a35a1a3ffe3e59e4372618fa1ae1dd",
+  "index_version": "4f9e34cf38fc18921cd3547a8901d40dfe9916420a624f3a23ba5fda85c8a031",
+  "source_db": "FROZEN_LOCAL_REPLAY_71e60464703a3716",
+  "rates": {
+    "input_per_million": 0.75,
+    "output_per_million": 4.5,
+    "source": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+    "checked_on": "2026-11-20",
+    "basis": "Standard USD; no cache/batch discount; excludes tax. Recheck before approval."
+  },
+  "max_output_tokens": 12000,
+  "max_input_tokens_upper": 400000,
+  "timeout_seconds": 90,
+  "cases": [
+    {
+      "id": "5a4abfcb4d65a41b4205f6ab",
+      "as_of": 1777642260,
+      "decision": "CANCEL_SETUP",
+      "category": "INVALIDATED",
+      "market_evidence_sha256": "d8ec50f888d8a5201447de441cd3ee211bb75be674790c319aa6d77e445ecbec",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "5a4abfcb4d65a41b4205f6ab-B_LLM_NO_RAG.json",
+          "packet_sha256": "ebdd3f226cbaf2014820ac070efe46f19185306d5b98fee34a344c6c587428ea",
+          "request_sha256": "6b4486d06c42cfc5d48bcf6b8e4b67c19654111147c5a60a6b710e2073a6775d",
+          "input_upper": 226993,
+          "reserve_usd": 0.22424475,
+          "market_anchors": 517,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "5a4abfcb4d65a41b4205f6ab-C_LLM_RAG.json",
+          "packet_sha256": "ee9f0727086c13a67f2a6fa39d4d36cc6e4ee70f50e7f2517829c8b6c2b80ff8",
+          "request_sha256": "82fc58128b1b366a10cc07e5f6804e6408123d13a26f630929b49782a6d6e020",
+          "input_upper": 271298,
+          "reserve_usd": 0.2574735,
+          "market_anchors": 517,
+          "sources": 10
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "CANCEL_SETUP",
+          "active_setup_ids": [],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "630b894261bf855767832a49",
+            "72ff8de41b025f8e27ac8db5",
+            "a0e2fe13a77f7cb5faf9c348",
+            "5849a9a6bae65cd609f8d233",
+            "c2edd7736ac5dd238476912e",
+            "3bdb25c74722f5598a329570",
+            "cd1083eb0b575fa8f3905627",
+            "5a1aeb017febdb6ea1fb2e59"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 8. Aktywne okazje: 0. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1777642260,
+        "event_ids": [
+          "630b894261bf855767832a49",
+          "72ff8de41b025f8e27ac8db5",
+          "a0e2fe13a77f7cb5faf9c348",
+          "5849a9a6bae65cd609f8d233",
+          "c2edd7736ac5dd238476912e",
+          "3bdb25c74722f5598a329570",
+          "cd1083eb0b575fa8f3905627",
+          "5a1aeb017febdb6ea1fb2e59"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "539874be50e54815ea457d1a",
+      "as_of": 1777643400,
+      "decision": "NO_TRADE",
+      "category": "NO_TRADE",
+      "market_evidence_sha256": "41aa12151f81e76765ab246e9addef3f4a8e117ffbe32a05e303a458b78f129b",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "539874be50e54815ea457d1a-B_LLM_NO_RAG.json",
+          "packet_sha256": "17b0046e7a28a0a139da30af11ac7f9577b0244cb5baaf2959918623e3e757b6",
+          "request_sha256": "e5803acaa46a48d6c0dba4f9838f14782399be88809a4bff675e742a79ea9b89",
+          "input_upper": 193786,
+          "reserve_usd": 0.1993395,
+          "market_anchors": 453,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "539874be50e54815ea457d1a-C_LLM_RAG.json",
+          "packet_sha256": "62f1da0e3420c3ad92fe8318296d6a339fe04728bfc97e4b5dd7ca72f45c8fcb",
+          "request_sha256": "751f176a063dc6fb100a96b0fc5d5a32a1f7613c25091c216b95731563df72b0",
+          "input_upper": 236262,
+          "reserve_usd": 0.2311965,
+          "market_anchors": 453,
+          "sources": 10
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "NO_TRADE",
+          "active_setup_ids": [],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "ba12e2750863493483322496",
+            "1828d20863ed4a4b675ff218",
+            "5f408b6a1efe3932b95f7d3d",
+            "bd520c9517a8d51867104b0d"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 4. Aktywne okazje: 0. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1777643400,
+        "event_ids": [
+          "ba12e2750863493483322496",
+          "1828d20863ed4a4b675ff218",
+          "5f408b6a1efe3932b95f7d3d",
+          "bd520c9517a8d51867104b0d"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "8786f08383815e42bde790f7",
+      "as_of": 1777644840,
+      "decision": "WAIT_FOR_CONFIRMATION",
+      "category": "INCOMPLETE",
+      "market_evidence_sha256": "d194aadc378aec425c5b892c4f7960c9765b3d1152ca038d0eca99317283791d",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "8786f08383815e42bde790f7-B_LLM_NO_RAG.json",
+          "packet_sha256": "9b23134507a7e5b3ab3ebc84706404ec8516010e6f889f2daaf7a5222a0e98ec",
+          "request_sha256": "bb0410542b5c2f5014b8399bb0316d2c6f7f44def439a397c416ed4357010378",
+          "input_upper": 212523,
+          "reserve_usd": 0.21339225,
+          "market_anchors": 487,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "8786f08383815e42bde790f7-C_LLM_RAG.json",
+          "packet_sha256": "a73ab14a35ea7cc4e4215294131c39b4c963b5608187dc3cb44bbc0bd54bb1ac",
+          "request_sha256": "7ba7156c4b8544f84ecde041e7c79eee971ba783d38a0a5b05ce0728da03bf4a",
+          "input_upper": 265521,
+          "reserve_usd": 0.25314075,
+          "market_anchors": 487,
+          "sources": 11
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "WAIT_FOR_CONFIRMATION",
+          "active_setup_ids": [
+            "6cde2cac8c40970d2bea7e7c"
+          ],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "09aea321d477801e0ee62709",
+            "7d33a8f29061f7d2c1e46a3e",
+            "55572e2ee8f1e9aae06d071e",
+            "fe32ef6d9f79f187e640fba5",
+            "9e0f5b907108c11179a10b50",
+            "62e7b54d366f67b7b0477f87"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 6. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1777644840,
+        "event_ids": [
+          "09aea321d477801e0ee62709",
+          "7d33a8f29061f7d2c1e46a3e",
+          "55572e2ee8f1e9aae06d071e",
+          "fe32ef6d9f79f187e640fba5",
+          "9e0f5b907108c11179a10b50",
+          "62e7b54d366f67b7b0477f87"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "07d11f31ef98debe183a8bef",
+      "as_of": 1777645860,
+      "decision": "TRADE_CANDIDATE",
+      "category": "RESEARCH_CANDIDATE_NOT_SOURCE_VALIDATED",
+      "market_evidence_sha256": "c044603a6f5d32d4ceab2dd02eb84135e8f2262f436782eed9d9d36097fe6614",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "07d11f31ef98debe183a8bef-B_LLM_NO_RAG.json",
+          "packet_sha256": "f3e6e73442e04837db8a3b867652cf35638343a9e3e651634462a80d4fdf26e5",
+          "request_sha256": "b9d8a7619061030a2935324fc310039fe36f089f26a4db3a07cd864f9cca7311",
+          "input_upper": 241222,
+          "reserve_usd": 0.2349165,
+          "market_anchors": 531,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "07d11f31ef98debe183a8bef-C_LLM_RAG.json",
+          "packet_sha256": "f41dc1896184c8be5f1544067e33a66d212e57ac152b9f5e7ea60db85916e281",
+          "request_sha256": "406023d0b183b535945cf6a107a819b953dcc4daecac32bb080e0c1ef7f36244",
+          "input_upper": 290654,
+          "reserve_usd": 0.2719905,
+          "market_anchors": 531,
+          "sources": 10
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "TRADE_CANDIDATE",
+          "active_setup_ids": [
+            "6cde2cac8c40970d2bea7e7c"
+          ],
+          "candidate_ids": [
+            "6cde2cac8c40970d2bea7e7c"
+          ],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "7bc4d732a1854f35582829bc",
+            "32e7e85b91b586667e13895c",
+            "f87172c5ddab37f05ebd1476",
+            "750f00d32c26ac7f7ac9a929",
+            "72cf6af9d844d203b27f6009",
+            "c3d743876fb7383a5758ed54",
+            "6ca2eb1f5aa4283ca3903efb",
+            "c45870f4a2fb2e28d8a41245",
+            "0e40ea5619cbba2db645c0b5",
+            "2a9010dbadee8d191fcf99e0",
+            "6050e32df0ed799f1ab5f26d",
+            "7c1f90f54afe4104da0c1b7f",
+            "9ac39913f178ba3370e8fd0b",
+            "d7270511150ba77fb82da01e",
+            "b84f9303a9ca7cfaa7e2d784",
+            "6b050dc598a970c9ff9a83af",
+            "1a2b5e5f8e701553e5571746",
+            "79c1e7b06f3bce567be23053"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 18. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 1. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "RESEARCH_CANDIDATE_PENDING_GATES",
+          "risk_reviews": {
+            "6cde2cac8c40970d2bea7e7c": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            }
+          }
+        },
+        "candidate_ids": [
+          "6cde2cac8c40970d2bea7e7c"
+        ]
+      },
+      "observable_checks": {
+        "as_of": 1777645860,
+        "event_ids": [
+          "7bc4d732a1854f35582829bc",
+          "32e7e85b91b586667e13895c",
+          "f87172c5ddab37f05ebd1476",
+          "750f00d32c26ac7f7ac9a929",
+          "72cf6af9d844d203b27f6009",
+          "c3d743876fb7383a5758ed54",
+          "6ca2eb1f5aa4283ca3903efb",
+          "c45870f4a2fb2e28d8a41245",
+          "0e40ea5619cbba2db645c0b5",
+          "2a9010dbadee8d191fcf99e0",
+          "6050e32df0ed799f1ab5f26d",
+          "7c1f90f54afe4104da0c1b7f",
+          "9ac39913f178ba3370e8fd0b",
+          "d7270511150ba77fb82da01e",
+          "b84f9303a9ca7cfaa7e2d784",
+          "6b050dc598a970c9ff9a83af",
+          "1a2b5e5f8e701553e5571746",
+          "79c1e7b06f3bce567be23053"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "7336c0eeb3eff9087674a33c",
+      "as_of": 1777646700,
+      "decision": "TRADE_CANDIDATE",
+      "category": "AMBIGUOUS_EXECUTION",
+      "market_evidence_sha256": "7dc5d49449960732deefb0397a3ca3ecab88a470df01828eb589cdcf17db463b",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "7336c0eeb3eff9087674a33c-B_LLM_NO_RAG.json",
+          "packet_sha256": "1c60a6f03d5a3edaa8fa36af0f32bd156257279d7ef7e93797afe912b2e40c29",
+          "request_sha256": "cefdf73fa1360b2634a532b899de70871b3d6c84bd277644017a2bdbb1565eb6",
+          "input_upper": 217951,
+          "reserve_usd": 0.21746325,
+          "market_anchors": 492,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "7336c0eeb3eff9087674a33c-C_LLM_RAG.json",
+          "packet_sha256": "d77912e8126c6cf7f00f3411f7ea6d84b4c5f318305c86c8584c2ec274e432fb",
+          "request_sha256": "69fa397b763bcdcf0a31f52c363413c52a126bb97716d9cbc39c93cacbc1d41d",
+          "input_upper": 269780,
+          "reserve_usd": 0.256335,
+          "market_anchors": 492,
+          "sources": 10
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "TRADE_CANDIDATE",
+          "active_setup_ids": [
+            "219c7e1c5b64d4ab2721b439"
+          ],
+          "candidate_ids": [
+            "219c7e1c5b64d4ab2721b439"
+          ],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "82fb5cf7fd18de92b84aa599",
+            "8f28756030f142fe03b9e3bd",
+            "0876161eb278f7079293590d",
+            "5b930706e057d712cd9ee74c",
+            "ecccec1cf124d9af8c8e2c4d",
+            "84fbdbb33eba4e0f154826e2",
+            "fc1a7d20abe266d5dc0f5b07",
+            "af2bfabe8021896065c9a1c2"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 8. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 1. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "RESEARCH_CANDIDATE_PENDING_GATES",
+          "risk_reviews": {
+            "219c7e1c5b64d4ab2721b439": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            }
+          }
+        },
+        "candidate_ids": [
+          "219c7e1c5b64d4ab2721b439"
+        ]
+      },
+      "observable_checks": {
+        "as_of": 1777646700,
+        "event_ids": [
+          "82fb5cf7fd18de92b84aa599",
+          "8f28756030f142fe03b9e3bd",
+          "0876161eb278f7079293590d",
+          "5b930706e057d712cd9ee74c",
+          "ecccec1cf124d9af8c8e2c4d",
+          "84fbdbb33eba4e0f154826e2",
+          "fc1a7d20abe266d5dc0f5b07",
+          "af2bfabe8021896065c9a1c2"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "d0621774d4009f9ebf7898d1",
+      "as_of": 1778682600,
+      "decision": "WAIT_FOR_CONFIRMATION",
+      "category": "INCOMPLETE",
+      "market_evidence_sha256": "aa2121b3fd53ae5167d79739b478568711a80f5b395fab0658baf013d4d61d80",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "d0621774d4009f9ebf7898d1-B_LLM_NO_RAG.json",
+          "packet_sha256": "fae816cc9bc4a41e53251bb89e084097b1498c0e83ea02384b9477375ae50793",
+          "request_sha256": "5481d0e9199fbf73fb910dc7c53a8d32b57165d82dda11bb282e2c5368a2876f",
+          "input_upper": 254108,
+          "reserve_usd": 0.244581,
+          "market_anchors": 609,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "d0621774d4009f9ebf7898d1-C_LLM_RAG.json",
+          "packet_sha256": "63ba0c4f72cb414384874c5f57f911593103124dea9df5205fb62f72253621af",
+          "request_sha256": "4707f53eb88ed949e10afadaa3e99be135a5da4240c17c7ecd6c6cc70fa43baf",
+          "input_upper": 306912,
+          "reserve_usd": 0.284184,
+          "market_anchors": 609,
+          "sources": 11
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "WAIT_FOR_CONFIRMATION",
+          "active_setup_ids": [
+            "7db3797bf079e14acd1da753"
+          ],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "d40825e6c489ca3b4ac17ccc",
+            "1ab634fe768899e5fa5aec16",
+            "a114c99a4def20d8000c3cb4",
+            "76fa749be94f8ca7611b1390"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 4. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1778682600,
+        "event_ids": [
+          "d40825e6c489ca3b4ac17ccc",
+          "1ab634fe768899e5fa5aec16",
+          "a114c99a4def20d8000c3cb4",
+          "76fa749be94f8ca7611b1390"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "df361ca231378ba811903313",
+      "as_of": 1778786400,
+      "decision": "NO_TRADE",
+      "category": "NO_TRADE",
+      "market_evidence_sha256": "10d2ac91ca640cf78cc639bf2c51fe1916cba8affa5a45856e2207043c369436",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "df361ca231378ba811903313-B_LLM_NO_RAG.json",
+          "packet_sha256": "eb64c66ec7cd22dceacb3f1e866be0f5b8e14a4b75f44bec4948d7661b5fdabf",
+          "request_sha256": "4570fb6bfc5998b53df0512ca2aad3d7485de1fb71d1c49417d5d7c7785be271",
+          "input_upper": 255084,
+          "reserve_usd": 0.245313,
+          "market_anchors": 621,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "df361ca231378ba811903313-C_LLM_RAG.json",
+          "packet_sha256": "2ae89719aea9f46d3e0398a1fd8c13eac11974eab37dac8e5548cee73229431b",
+          "request_sha256": "7588b391d1d96b41f8f0891d675bf4a45006801323ffc5438138e2a20d36dab1",
+          "input_upper": 303821,
+          "reserve_usd": 0.28186575,
+          "market_anchors": 621,
+          "sources": 9
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "NO_TRADE",
+          "active_setup_ids": [],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "95c9ecf06f1d431d95d6964a",
+            "a9a1e1e5bdce1a1b0e2c0726",
+            "809fca3817511ae43dbb6db9",
+            "e90d0526772809877a84509b"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 4. Aktywne okazje: 0. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1778786400,
+        "event_ids": [
+          "95c9ecf06f1d431d95d6964a",
+          "a9a1e1e5bdce1a1b0e2c0726",
+          "809fca3817511ae43dbb6db9",
+          "e90d0526772809877a84509b"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "13e9109b5c59997a9c7db79c",
+      "as_of": 1778859660,
+      "decision": "TRADE_CANDIDATE",
+      "category": "AMBIGUOUS_EXECUTION",
+      "market_evidence_sha256": "7bc7b707a1ca5dc1ed486ef20d2acd78278e52e7d133bb680a4e4825d8eda833",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "13e9109b5c59997a9c7db79c-B_LLM_NO_RAG.json",
+          "packet_sha256": "21175743c64cf9a07ec68fd978ff91a85588dbe162bcfcb294e9f6e18ff0acb8",
+          "request_sha256": "8c327b945636e7f0a5a7fe128f993f835c243fb4c554318570aa33fecc5ed532",
+          "input_upper": 274716,
+          "reserve_usd": 0.260037,
+          "market_anchors": 657,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "13e9109b5c59997a9c7db79c-C_LLM_RAG.json",
+          "packet_sha256": "6b0ca6b97f2888eb4c160fc12514973950a6bae357b7753af5bc5c87cd5e7b06",
+          "request_sha256": "a915b6a344efb264041e8b41911dd6e94ac0ce388a7d32c04e91351aa8c351d2",
+          "input_upper": 321343,
+          "reserve_usd": 0.29500725,
+          "market_anchors": 657,
+          "sources": 10
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "TRADE_CANDIDATE",
+          "active_setup_ids": [
+            "663016640afb06a56152e672"
+          ],
+          "candidate_ids": [
+            "663016640afb06a56152e672"
+          ],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "bf9b16e3a9d729fd886c1f04",
+            "6de51968e7c3c5ee1e6c1ceb",
+            "9bf559c20efe39669b68883b",
+            "d2105d1b17a7717b08335a05"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 4. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 1. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "RESEARCH_CANDIDATE_PENDING_GATES",
+          "risk_reviews": {
+            "663016640afb06a56152e672": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            }
+          }
+        },
+        "candidate_ids": [
+          "663016640afb06a56152e672"
+        ]
+      },
+      "observable_checks": {
+        "as_of": 1778859660,
+        "event_ids": [
+          "bf9b16e3a9d729fd886c1f04",
+          "6de51968e7c3c5ee1e6c1ceb",
+          "9bf559c20efe39669b68883b",
+          "d2105d1b17a7717b08335a05"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "7670d4862a55f73d1ce6a9d4",
+      "as_of": 1778869200,
+      "decision": "CANCEL_SETUP",
+      "category": "INVALIDATED",
+      "market_evidence_sha256": "e296b2572b2688378d9c56280733a1bc78e52ffbe91e8f9221c5d11394a7d7c5",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "7670d4862a55f73d1ce6a9d4-B_LLM_NO_RAG.json",
+          "packet_sha256": "9d63124a3ea5fa358b2dd4f53bf1ef2b4062d632692cc13b7a3fedd06685bc40",
+          "request_sha256": "257ad5d32bcca0481e25118ae0626dd8bbfb6d7bd042623057dadc8db0d31b39",
+          "input_upper": 288405,
+          "reserve_usd": 0.27030375,
+          "market_anchors": 664,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "7670d4862a55f73d1ce6a9d4-C_LLM_RAG.json",
+          "packet_sha256": "a172f58b80f13dd91da06d3720d3e39f0bc594ea15b60805a82496238793eb86",
+          "request_sha256": "7406d7a33503ec0a80783e160c64cadc838736fed67c46497b0894360996bfba",
+          "input_upper": 338901,
+          "reserve_usd": 0.30817575,
+          "market_anchors": 664,
+          "sources": 11
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "CANCEL_SETUP",
+          "active_setup_ids": [],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "384244528dd0789a8a81566e",
+            "c60c444e54c5f217b9f9c6f8",
+            "68f39c438719c0e64c607d81",
+            "a388921173ae34a21ae23382",
+            "5c71fae6182628d0f39f07b9",
+            "8dc56a22552653e395c24477",
+            "cba223e8d3d7be1ad6f1af1f",
+            "365962046f2df0ad9304cfc3",
+            "b3ef196c31a6f36739ea8752",
+            "43243f2e91608a0ab53793ec",
+            "8aacaccbcb25cbf032ebde3f",
+            "ce1849dc7a4f5ca77c9c5030",
+            "b15bba37b81cd06d08089e4e",
+            "7da34b8518a25f5243d14285",
+            "42ab49beb35aa71e2812eace",
+            "8f766f379bfb0f137cc27f0f",
+            "3b04068531818f5455fb85cb",
+            "74ea63a8d147c8f30654bae3",
+            "84be075c49f2a5536f37dba3"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 19. Aktywne okazje: 0. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1778869200,
+        "event_ids": [
+          "384244528dd0789a8a81566e",
+          "c60c444e54c5f217b9f9c6f8",
+          "68f39c438719c0e64c607d81",
+          "a388921173ae34a21ae23382",
+          "5c71fae6182628d0f39f07b9",
+          "8dc56a22552653e395c24477",
+          "cba223e8d3d7be1ad6f1af1f",
+          "365962046f2df0ad9304cfc3",
+          "b3ef196c31a6f36739ea8752",
+          "43243f2e91608a0ab53793ec",
+          "8aacaccbcb25cbf032ebde3f",
+          "ce1849dc7a4f5ca77c9c5030",
+          "b15bba37b81cd06d08089e4e",
+          "7da34b8518a25f5243d14285",
+          "42ab49beb35aa71e2812eace",
+          "8f766f379bfb0f137cc27f0f",
+          "3b04068531818f5455fb85cb",
+          "74ea63a8d147c8f30654bae3",
+          "84be075c49f2a5536f37dba3"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "7d5372776e3951591fde0e2e",
+      "as_of": 1779118560,
+      "decision": "TRADE_CANDIDATE",
+      "category": "RESEARCH_CANDIDATE_NOT_SOURCE_VALIDATED",
+      "market_evidence_sha256": "e06e77e22ecbd712ea9df6a075b6b2054ed9948f73f2398b9c49f8f1ff5f8bc8",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "7d5372776e3951591fde0e2e-B_LLM_NO_RAG.json",
+          "packet_sha256": "9efd8b13ee3883c24a0fc6a5c82ce0b7dc1fcdfb785fc1526d6df88dcb8502a2",
+          "request_sha256": "07bf8567b25e4a07cf0a4bcc317d3d30cf98bca3cd3c5a6eb06706fd433806c6",
+          "input_upper": 259870,
+          "reserve_usd": 0.2489025,
+          "market_anchors": 620,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "7d5372776e3951591fde0e2e-C_LLM_RAG.json",
+          "packet_sha256": "27da6f0a79436180dabc734125bfe704e7da125240a1550deeeb43ee4f4d8827",
+          "request_sha256": "ba7298b29300473bcdff8a2370c474a86dee4ad39a2de9d22035483b960c6d6a",
+          "input_upper": 302025,
+          "reserve_usd": 0.28051875,
+          "market_anchors": 620,
+          "sources": 9
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "TRADE_CANDIDATE",
+          "active_setup_ids": [
+            "13da7fa2112be23665006f2d"
+          ],
+          "candidate_ids": [
+            "13da7fa2112be23665006f2d"
+          ],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "a304d122a8e98be7eb14aedf",
+            "dd9eb17b6a49d1bb5c6a4810",
+            "4fde528601df6e3119f08419",
+            "1909817a16809ab77cc2baa1",
+            "1f73176d84c7caa10830ea71"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 5. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 1. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "RESEARCH_CANDIDATE_PENDING_GATES",
+          "risk_reviews": {
+            "13da7fa2112be23665006f2d": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            }
+          }
+        },
+        "candidate_ids": [
+          "13da7fa2112be23665006f2d"
+        ]
+      },
+      "observable_checks": {
+        "as_of": 1779118560,
+        "event_ids": [
+          "a304d122a8e98be7eb14aedf",
+          "dd9eb17b6a49d1bb5c6a4810",
+          "4fde528601df6e3119f08419",
+          "1909817a16809ab77cc2baa1",
+          "1f73176d84c7caa10830ea71"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "5185ddf85287ea19182a07cd",
+      "as_of": 1780077180,
+      "decision": "TRADE_CANDIDATE",
+      "category": "AMBIGUOUS_EXECUTION",
+      "market_evidence_sha256": "7326cf97dda6f9216fdce431154bd1eaa54dfe6a65cee1957dea7baa54c08d21",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "5185ddf85287ea19182a07cd-B_LLM_NO_RAG.json",
+          "packet_sha256": "e47b85586accaa455cf191f25e7bd9b4adff5a61f745a43bbb26aedd6f4b4649",
+          "request_sha256": "cab73588c138e9601bd6c1464475f112a4a8a273ee6e55f61d0356e3280c408c",
+          "input_upper": 293788,
+          "reserve_usd": 0.274341,
+          "market_anchors": 682,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "5185ddf85287ea19182a07cd-C_LLM_RAG.json",
+          "packet_sha256": "750cad3adab6eda23c8767f0932942a0fd9675523b439d9eac3b1d1b0041c58c",
+          "request_sha256": "28c09fa7d3a7fd5d753cc320058ef200f34c06ecdd66b08d9a7897b7a41f2f18",
+          "input_upper": 340122,
+          "reserve_usd": 0.3090915,
+          "market_anchors": 682,
+          "sources": 9
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "TRADE_CANDIDATE",
+          "active_setup_ids": [
+            "0d686794b02bdcc8589bedb5",
+            "451d907894acb7a313678ee4",
+            "d35cf05a5a1bef5b43fa9fd3"
+          ],
+          "candidate_ids": [
+            "0d686794b02bdcc8589bedb5",
+            "451d907894acb7a313678ee4",
+            "d35cf05a5a1bef5b43fa9fd3"
+          ],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "e6dcf382baaa29f6e99030a7",
+            "63de62e355bbbdc8fa27ebce",
+            "467b2fc4e25463e21951ed00",
+            "dbf2da811fbb3959c8347379",
+            "b9ecffdb5be7593157363aa8"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 5. Aktywne okazje: 3. Kompletne badawcze plany cenowe: 3. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "RESEARCH_CANDIDATE_PENDING_GATES",
+          "risk_reviews": {
+            "0d686794b02bdcc8589bedb5": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            },
+            "451d907894acb7a313678ee4": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            },
+            "d35cf05a5a1bef5b43fa9fd3": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            }
+          }
+        },
+        "candidate_ids": [
+          "0d686794b02bdcc8589bedb5",
+          "451d907894acb7a313678ee4",
+          "d35cf05a5a1bef5b43fa9fd3"
+        ]
+      },
+      "observable_checks": {
+        "as_of": 1780077180,
+        "event_ids": [
+          "e6dcf382baaa29f6e99030a7",
+          "63de62e355bbbdc8fa27ebce",
+          "467b2fc4e25463e21951ed00",
+          "dbf2da811fbb3959c8347379",
+          "b9ecffdb5be7593157363aa8"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "103163628430de39e924f6b9",
+      "as_of": 1780077240,
+      "decision": "TRADE_CANDIDATE",
+      "category": "RESEARCH_CANDIDATE_NOT_SOURCE_VALIDATED",
+      "market_evidence_sha256": "3f7ee19cafb3000da6f85d01f87d9d3284047ee3e0e851daa537c273b0c6598e",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "103163628430de39e924f6b9-B_LLM_NO_RAG.json",
+          "packet_sha256": "e4b27799e0c0e9418153cab926179c6d325b1749302f71a821e81eb87e5ce342",
+          "request_sha256": "183ea8da14ea22cf425f2ca86ef47a6d6cc0e95c6d892e4cd406519a55d9e30c",
+          "input_upper": 295384,
+          "reserve_usd": 0.275538,
+          "market_anchors": 693,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "103163628430de39e924f6b9-C_LLM_RAG.json",
+          "packet_sha256": "1c8b3413d95c5c8d2b94289da348bd3b6b74f815a952ad43e387168fa3eb5279",
+          "request_sha256": "0f0d7c83bbfab351e65e8e761dcacb7586b4984009fc35ac740e3d9d031b6f34",
+          "input_upper": 352040,
+          "reserve_usd": 0.31803,
+          "market_anchors": 693,
+          "sources": 10
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "TRADE_CANDIDATE",
+          "active_setup_ids": [
+            "451d907894acb7a313678ee4"
+          ],
+          "candidate_ids": [
+            "451d907894acb7a313678ee4"
+          ],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "8eeb47fffdd161ec49373a85",
+            "2b3f9b20d8ecc948f6a87dc8"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 2. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 1. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "RESEARCH_CANDIDATE_PENDING_GATES",
+          "risk_reviews": {
+            "451d907894acb7a313678ee4": {
+              "approved": false,
+              "quantity": 0,
+              "reasons": [
+                "RISK_POLICY_NOT_CONFIGURED"
+              ]
+            }
+          }
+        },
+        "candidate_ids": [
+          "451d907894acb7a313678ee4"
+        ]
+      },
+      "observable_checks": {
+        "as_of": 1780077240,
+        "event_ids": [
+          "8eeb47fffdd161ec49373a85",
+          "2b3f9b20d8ecc948f6a87dc8"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "8e4b41c99d4003e60c923a4e",
+      "as_of": 1780080780,
+      "decision": "CANCEL_SETUP",
+      "category": "INVALIDATED",
+      "market_evidence_sha256": "0a13fb3a6015ef509da6cab275ad634982ae4c2a67c05e92574307c1f5d59f65",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "8e4b41c99d4003e60c923a4e-B_LLM_NO_RAG.json",
+          "packet_sha256": "8c293624938f6816c93043eb4da5eb43d4eb6510b3cff799b3c2202993ca2c79",
+          "request_sha256": "881da4f22fefefda0ded12c9e42842e08d5b5438d5fbe04c98da48493575813a",
+          "input_upper": 269616,
+          "reserve_usd": 0.256212,
+          "market_anchors": 653,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "8e4b41c99d4003e60c923a4e-C_LLM_RAG.json",
+          "packet_sha256": "266eec7b67be19a976618a4217a3cc940af6ff109c8f104232234402e212036a",
+          "request_sha256": "751d6de8b478859ad5dc37472122db3007c722985e14899cd3ad070d2f722c1a",
+          "input_upper": 311584,
+          "reserve_usd": 0.287688,
+          "market_anchors": 653,
+          "sources": 9
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "CANCEL_SETUP",
+          "active_setup_ids": [],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "45bc22c4577aea71ce1e4c17",
+            "0e283560328a4cc2c5dbc94b"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 2. Aktywne okazje: 0. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1780080780,
+        "event_ids": [
+          "45bc22c4577aea71ce1e4c17",
+          "0e283560328a4cc2c5dbc94b"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "af3d6f6936842d89c9c98aec",
+      "as_of": 1780081800,
+      "decision": "NO_TRADE",
+      "category": "NO_TRADE",
+      "market_evidence_sha256": "5acf46823a2288ce480c4a718b065f540b5f04582c79973cef467a9f11e6220f",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "af3d6f6936842d89c9c98aec-B_LLM_NO_RAG.json",
+          "packet_sha256": "ee68024c56ee261b60b7ab09fd81a0c0cbac439fac78aa149961d34805898c4b",
+          "request_sha256": "c41ab4cb539bd93e265d1852af4fd019ef11bb03038b6168b0296b79f4fec6a7",
+          "input_upper": 263467,
+          "reserve_usd": 0.25160025,
+          "market_anchors": 649,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "af3d6f6936842d89c9c98aec-C_LLM_RAG.json",
+          "packet_sha256": "2664a09a663ad140ce394be33fa9a53f1a875fea5aa638cac797856848941fb4",
+          "request_sha256": "881f752d2f4599153494a6085a801ef32dcd3df4a485b4c646f773bbc51a0346",
+          "input_upper": 306551,
+          "reserve_usd": 0.28391325,
+          "market_anchors": 649,
+          "sources": 9
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "NO_TRADE",
+          "active_setup_ids": [],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "96a1a96e35c36ed93d9cb23a",
+            "9776235a5b0bb5f134302452",
+            "52a198dd3e809db16b25fcb1",
+            "9788745ec86ae987e26a59ec",
+            "1513d6d6a5859e6cc5bbb51c"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 5. Aktywne okazje: 0. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1780081800,
+        "event_ids": [
+          "96a1a96e35c36ed93d9cb23a",
+          "9776235a5b0bb5f134302452",
+          "52a198dd3e809db16b25fcb1",
+          "9788745ec86ae987e26a59ec",
+          "1513d6d6a5859e6cc5bbb51c"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    },
+    {
+      "id": "03e8ea86e1908cfd169f3a88",
+      "as_of": 1780084800,
+      "decision": "WAIT_FOR_CONFIRMATION",
+      "category": "INCOMPLETE",
+      "market_evidence_sha256": "e18ca79c2904c02845f736b17e6a309c5b269b978449b37be620bff215d20786",
+      "requests": {
+        "B_LLM_NO_RAG": {
+          "packet": "03e8ea86e1908cfd169f3a88-B_LLM_NO_RAG.json",
+          "packet_sha256": "8fe8e98832c01efefacaf8e03857c3f0fe50e5b3b2ab2c7b0d48975d43b97272",
+          "request_sha256": "70636663634d0bcad2277b3e5f725932388927afca29ecd23bbef275c8839b28",
+          "input_upper": 295680,
+          "reserve_usd": 0.27576,
+          "market_anchors": 698,
+          "sources": 0
+        },
+        "C_LLM_RAG": {
+          "packet": "03e8ea86e1908cfd169f3a88-C_LLM_RAG.json",
+          "packet_sha256": "eca9954c0be103f009a0325aa80809214c9f47eecfd0c397857a79b7205b066b",
+          "request_sha256": "fa12464924fe556fdac53ccfb006134a729301ba4a95a4734ea8aefd3fb7f471",
+          "input_upper": 331697,
+          "reserve_usd": 0.30277275,
+          "market_anchors": 698,
+          "sources": 9
+        }
+      },
+      "baseline": {
+        "decision": {
+          "action": "WAIT_FOR_CONFIRMATION",
+          "active_setup_ids": [
+            "68ccb7d3fbba131f98df17da"
+          ],
+          "candidate_ids": [],
+          "commentary_origin": "DETERMINISTIC_RECORDED_EVIDENCE_NOT_LLM",
+          "data_missing": [],
+          "evidence_ids": [
+            "cc2382692e81e431ebee49da",
+            "b91012f4ea0d850608e75139",
+            "6e66723a1b22254cdf8f4455",
+            "f0483d628966106fbc7125cd",
+            "bfc2a47f19e41355413f37f9",
+            "cdfd0ad3917aca4a0d4e109b",
+            "bac8faec7aa89f007284142a",
+            "40fe623d98203c41e3ddee7e",
+            "d5d7cc19041f3fb20da31aa5",
+            "85b2a2aa2117bd8c541b10b8",
+            "db6f92f7978eaf6c359a61d4",
+            "da88cf678e0bf85f42c52178",
+            "ccc505a64157dddc5e5975cb",
+            "27dac561690dcc26ab2258ab",
+            "59841bc3ccab12cc96455306",
+            "a78f13eeab182a9a0c3e7f84",
+            "307f88fc6115a8b4d4bd2703",
+            "ca99f5c461f2988bf2ca8770",
+            "3e75b0cfae5a05166ed81e47",
+            "4b6a87ff7b9cd71504ebd730",
+            "69075aee9f4fee3d797278da",
+            "f744536d688a1f3072a68a8e",
+            "354acc0557484eda9205da09",
+            "1d6376283d2e828fcfe60265",
+            "15c94d901fe282f370ade4b0",
+            "3e92ddf63b0b9df8c47b4d9c",
+            "3f375738dbe6b07c86854acd"
+          ],
+          "execution_blockers": [
+            "UNVERIFIED_DATED_CONTRACT",
+            "NO_EXECUTABLE_QUOTES",
+            "NO_RECONCILED_ACCOUNT",
+            "SOURCE_VARIANT_NOT_CERTIFIED",
+            "NEWS_FEED_UNAVAILABLE",
+            "LIVE_TRANSPORT_ABSENT"
+          ],
+          "explanation": "Nowe obserwacje: 27. Aktywne okazje: 1. Kompletne badawcze plany cenowe: 0. Hipotezy są oceniane na podstawie zapisanej sekwencji. Kontekst źródłowy i bramki wykonania nadal wymagają potwierdzenia.",
+          "live_enabled": false,
+          "llm_review": "NOT_CALLED",
+          "model_version": "deterministic-observer-v1",
+          "preferred_hypothesis": "NO_TRADE_UNTIL_SOURCE_CONTEXT_AND_RISK_GATES",
+          "risk_reviews": {}
+        },
+        "candidate_ids": []
+      },
+      "observable_checks": {
+        "as_of": 1780084800,
+        "event_ids": [
+          "cc2382692e81e431ebee49da",
+          "b91012f4ea0d850608e75139",
+          "6e66723a1b22254cdf8f4455",
+          "f0483d628966106fbc7125cd",
+          "bfc2a47f19e41355413f37f9",
+          "cdfd0ad3917aca4a0d4e109b",
+          "bac8faec7aa89f007284142a",
+          "40fe623d98203c41e3ddee7e",
+          "d5d7cc19041f3fb20da31aa5",
+          "85b2a2aa2117bd8c541b10b8",
+          "db6f92f7978eaf6c359a61d4",
+          "da88cf678e0bf85f42c52178",
+          "ccc505a64157dddc5e5975cb",
+          "27dac561690dcc26ab2258ab",
+          "59841bc3ccab12cc96455306",
+          "a78f13eeab182a9a0c3e7f84",
+          "307f88fc6115a8b4d4bd2703",
+          "ca99f5c461f2988bf2ca8770",
+          "3e75b0cfae5a05166ed81e47",
+          "4b6a87ff7b9cd71504ebd730",
+          "69075aee9f4fee3d797278da",
+          "f744536d688a1f3072a68a8e",
+          "354acc0557484eda9205da09",
+          "1d6376283d2e828fcfe60265",
+          "15c94d901fe282f370ade4b0",
+          "3e92ddf63b0b9df8c47b4d9c",
+          "3f375738dbe6b07c86854acd"
+        ],
+        "deterministic_missing": [],
+        "source_validated_setup": "NOT_ESTABLISHED"
+      },
+      "semantic_ground_truth": "AWAITING_INDEPENDENT_BLINDED_RATING"
+    }
+  ],
+  "request_count": 30,
+  "paid_authorized": false,
+  "orders_enabled": false,
+  "design": "Fifteen independent retrospective snapshots; no prior model answer in either arm.",
+  "limitations": [
+    "Research-exposed archive, not untouched holdout.",
+    "Candidate validity needs independent source/market adjudication.",
+    "Ambiguity category uses later audit only for sampling; no later outcome enters model packets.",
+    "Partial blinding only: citations may reveal the RAG arm.",
+    "No profitability inference from this experiment."
+  ],
+  "cost": {
+    "reserved_upper_usd": 7.913328,
+    "suggested_total_cap_usd": 8,
+    "heuristic_usd": 2.31,
+    "heuristic_assumption": "UTF-8 bytes / 3.5 input tokens and 4000 output tokens/call; not a tokenizer measurement.",
+    "paid_calls_made": 0
+  },
+  "id": "6cfdb0f52d6cec4d0844"
+}

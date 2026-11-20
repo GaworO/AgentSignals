@@ -1,0 +1,9 @@
+
+# Private ICT source releases, market journals and local previews are never code assets.
+runtime-assets/
+local-runtime/
+*.sqlite3-wal
+*.sqlite3-shm
+__pycache__/
+*.pyc
+*.sqlite3

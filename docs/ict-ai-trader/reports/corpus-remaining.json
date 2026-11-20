@@ -1,0 +1,3849 @@
+{
+  "current_full_text": 136,
+  "total": 615,
+  "remaining": 479,
+  "state_counts": {
+    "PENDING": 337,
+    "SOURCE_MISSING": 136,
+    "PARTIAL_ASSISTANT_REVIEW": 2,
+    "SOURCE_QUARANTINED": 4
+  },
+  "new_review": "XrXgtl2HBzw",
+  "new_rules": 7,
+  "old_records_preserved": 2551,
+  "queue": [
+    {
+      "video_id": "779jcCqyldY",
+      "catalogue_index": 148,
+      "title": "ES Futures Live Trade Example November 28, 2023  [FVG \\ Silver Bullet]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 0
+    },
+    {
+      "video_id": "yzZhC2lc1Ko",
+      "catalogue_index": 195,
+      "title": "NQ PM Session Silver Bullet - August 26, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 0
+    },
+    {
+      "video_id": "JAjL7rUX2Iw",
+      "catalogue_index": 365,
+      "title": "ICT Mentorship Core Content - Month 06 - Reducing Risk & Maximizing Potential Reward In Swing Setups",
+      "status": "PENDING",
+      "available_cues": 167,
+      "priority": 0
+    },
+    {
+      "video_id": "z-7ypchAMDE",
+      "catalogue_index": 373,
+      "title": "ICT Mentorship Core Content - Month 05 - Using 10 Year Notes In HTF Analysis",
+      "status": "PENDING",
+      "available_cues": 95,
+      "priority": 0
+    },
+    {
+      "video_id": "E9F_aT9f038",
+      "catalogue_index": 494,
+      "title": "OTE Pattern Recognition Series - Vol. 01",
+      "status": "PENDING",
+      "available_cues": 326,
+      "priority": 0
+    },
+    {
+      "video_id": "v6ATva5DF0I",
+      "catalogue_index": 495,
+      "title": "OTE Pattern Recognition Series - Vol. 02",
+      "status": "PENDING",
+      "available_cues": 24,
+      "priority": 0
+    },
+    {
+      "video_id": "TmbLhchNrAM",
+      "catalogue_index": 496,
+      "title": "OTE Pattern Recognition Series - Vol. 03",
+      "status": "PENDING",
+      "available_cues": 36,
+      "priority": 0
+    },
+    {
+      "video_id": "Q0SFXEQqI08",
+      "catalogue_index": 497,
+      "title": "OTE Pattern Recognition Series - Vol. 04",
+      "status": "PENDING",
+      "available_cues": 44,
+      "priority": 0
+    },
+    {
+      "video_id": "t6y637OyiDY",
+      "catalogue_index": 498,
+      "title": "OTE Pattern Recognition Series - Vol. 05",
+      "status": "PENDING",
+      "available_cues": 19,
+      "priority": 0
+    },
+    {
+      "video_id": "Vx25X2sbxPA",
+      "catalogue_index": 499,
+      "title": "OTE Pattern Recognition Series - Vol. 06",
+      "status": "PENDING",
+      "available_cues": 36,
+      "priority": 0
+    },
+    {
+      "video_id": "_x36n9Jc2JQ",
+      "catalogue_index": 500,
+      "title": "OTE Pattern Recognition Series - Vol. 07",
+      "status": "PENDING",
+      "available_cues": 30,
+      "priority": 0
+    },
+    {
+      "video_id": "ifFDif82Bmg",
+      "catalogue_index": 501,
+      "title": "OTE Pattern Recognition Series - Vol. 08",
+      "status": "PENDING",
+      "available_cues": 48,
+      "priority": 0
+    },
+    {
+      "video_id": "uqptoSAGS30",
+      "catalogue_index": 502,
+      "title": "OTE Pattern Recognition Series - Vol. 09",
+      "status": "PENDING",
+      "available_cues": 23,
+      "priority": 0
+    },
+    {
+      "video_id": "j5x90p55O8A",
+      "catalogue_index": 503,
+      "title": "OTE Pattern Recognition Series - Vol. 10",
+      "status": "PENDING",
+      "available_cues": 21,
+      "priority": 0
+    },
+    {
+      "video_id": "-k1eBYoajIo",
+      "catalogue_index": 504,
+      "title": "OTE Pattern Recognition Series - Vol. 11",
+      "status": "PENDING",
+      "available_cues": 14,
+      "priority": 0
+    },
+    {
+      "video_id": "6D3sKabkozk",
+      "catalogue_index": 505,
+      "title": "OTE Pattern Recognition Series - Vol. 12",
+      "status": "PENDING",
+      "available_cues": 9,
+      "priority": 0
+    },
+    {
+      "video_id": "GtTKPt-K9u0",
+      "catalogue_index": 506,
+      "title": "OTE Pattern Recognition Series - Vol. 13",
+      "status": "PENDING",
+      "available_cues": 24,
+      "priority": 0
+    },
+    {
+      "video_id": "cYzS_kFxv7M",
+      "catalogue_index": 507,
+      "title": "OTE Pattern Recognition Series - Vol. 14",
+      "status": "PENDING",
+      "available_cues": 50,
+      "priority": 0
+    },
+    {
+      "video_id": "RP6rVMJP4hA",
+      "catalogue_index": 508,
+      "title": "OTE Pattern Recognition Series - Vol. 15",
+      "status": "PENDING",
+      "available_cues": 45,
+      "priority": 0
+    },
+    {
+      "video_id": "ZbkEvNpm-_k",
+      "catalogue_index": 509,
+      "title": "OTE Pattern Recognition Series - Vol.16",
+      "status": "PENDING",
+      "available_cues": 64,
+      "priority": 0
+    },
+    {
+      "video_id": "FNwqw7IiByo",
+      "catalogue_index": 510,
+      "title": "OTE Pattern Recognition Series - Vol.17",
+      "status": "PENDING",
+      "available_cues": 19,
+      "priority": 0
+    },
+    {
+      "video_id": "YMt87VQRpNM",
+      "catalogue_index": 511,
+      "title": "OTE Pattern Recognition Series - Vol.18",
+      "status": "PENDING",
+      "available_cues": 22,
+      "priority": 0
+    },
+    {
+      "video_id": "9F-anykT7J0",
+      "catalogue_index": 512,
+      "title": "OTE Pattern Recognition Series - Vol.19",
+      "status": "PENDING",
+      "available_cues": 17,
+      "priority": 0
+    },
+    {
+      "video_id": "L--1zBIEanY",
+      "catalogue_index": 513,
+      "title": "OTE Pattern Recognition Series - Vol. 20",
+      "status": "PENDING",
+      "available_cues": 24,
+      "priority": 0
+    },
+    {
+      "video_id": "WviTBq8Q40E",
+      "catalogue_index": 587,
+      "title": "Forex Price Action Lesson - OTE Fiber 09/22/21",
+      "status": "PENDING",
+      "available_cues": 139,
+      "priority": 0
+    },
+    {
+      "video_id": "S8ztuGt29FM",
+      "catalogue_index": 612,
+      "title": "ICT - Live Trade Example OTE Short - NFP",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 0
+    },
+    {
+      "video_id": "C_0Jh7HwCUI",
+      "catalogue_index": 18,
+      "title": "Advanced ICT Liquidity Concepts \\ October 11, 2025",
+      "status": "PENDING",
+      "available_cues": 796,
+      "priority": 1
+    },
+    {
+      "video_id": "uT68tcowU-c",
+      "catalogue_index": 19,
+      "title": "ICT Forex & Futures Market Review October 4, 2025",
+      "status": "PENDING",
+      "available_cues": 176,
+      "priority": 1
+    },
+    {
+      "video_id": "rxot6S73Lvs",
+      "catalogue_index": 20,
+      "title": "ICT Forex & Futures Market Review October 3, 2025",
+      "status": "PENDING",
+      "available_cues": 354,
+      "priority": 1
+    },
+    {
+      "video_id": "aa16ZQQfBOQ",
+      "catalogue_index": 21,
+      "title": "ICT NQ Futures Tape Reader Session \\ October 1, 2025",
+      "status": "PENDING",
+      "available_cues": 697,
+      "priority": 1
+    },
+    {
+      "video_id": "-Td-D-vKJDg",
+      "catalogue_index": 22,
+      "title": "ICT Suspension Block & Review September 30, 2025",
+      "status": "PENDING",
+      "available_cues": 265,
+      "priority": 1
+    },
+    {
+      "video_id": "K4KFcDiXD5M",
+      "catalogue_index": 23,
+      "title": "Focus On Forex & Index Futures September 29, 2025",
+      "status": "PENDING",
+      "available_cues": 269,
+      "priority": 1
+    },
+    {
+      "video_id": "-g7vnzaRDv4",
+      "catalogue_index": 24,
+      "title": "Focus On Index Futures September 25, 2025",
+      "status": "PENDING",
+      "available_cues": 141,
+      "priority": 1
+    },
+    {
+      "video_id": "tNL_BtccMfA",
+      "catalogue_index": 25,
+      "title": "Focus On Forex DXY EurUsd GbpUsd 09/25/2025",
+      "status": "PENDING",
+      "available_cues": 130,
+      "priority": 1
+    },
+    {
+      "video_id": "8DWi2wLWv30",
+      "catalogue_index": 26,
+      "title": "Focus On Index Futures September 24, 2025 \\ Intermediate Term High Continued",
+      "status": "PENDING",
+      "available_cues": 81,
+      "priority": 1
+    },
+    {
+      "video_id": "gDFZ4p1BI1c",
+      "catalogue_index": 27,
+      "title": "Focus On Forex DXY EurUsd GbpUsd 09/24/2025",
+      "status": "PENDING",
+      "available_cues": 343,
+      "priority": 1
+    },
+    {
+      "video_id": "PPCVZ2m3Dk8",
+      "catalogue_index": 28,
+      "title": "Focus On Index Futures September 23, 2025 \\ Intermediate Term High",
+      "status": "PENDING",
+      "available_cues": 137,
+      "priority": 1
+    },
+    {
+      "video_id": "OC-ilNjtYsM",
+      "catalogue_index": 29,
+      "title": "Focus On Index Futures September 22, 2025",
+      "status": "PENDING",
+      "available_cues": 86,
+      "priority": 1
+    },
+    {
+      "video_id": "wcSH7zlQ1Zc",
+      "catalogue_index": 30,
+      "title": "Focus On Forex September 22, 2025",
+      "status": "PENDING",
+      "available_cues": 191,
+      "priority": 1
+    },
+    {
+      "video_id": "b4DOrfGau8w",
+      "catalogue_index": 31,
+      "title": "Trading All Time Highs and Disregarding TGIF",
+      "status": "PENDING",
+      "available_cues": 180,
+      "priority": 1
+    },
+    {
+      "video_id": "POUT0pVs4U0",
+      "catalogue_index": 32,
+      "title": "Trading Friday Sellside Under 1st Presented FVG",
+      "status": "PENDING",
+      "available_cues": 183,
+      "priority": 1
+    },
+    {
+      "video_id": "dA2CHAN1DzY",
+      "catalogue_index": 33,
+      "title": "Trading Premarket and Regular Session Liquidity",
+      "status": "PENDING",
+      "available_cues": 263,
+      "priority": 1
+    },
+    {
+      "video_id": "7pW4-84U1RE",
+      "catalogue_index": 34,
+      "title": "Trading FOMC Two Stage Delivery",
+      "status": "PENDING",
+      "available_cues": 274,
+      "priority": 1
+    },
+    {
+      "video_id": "pn1OgwxlK4U",
+      "catalogue_index": 35,
+      "title": "Trading All Time Market Highs",
+      "status": "PENDING",
+      "available_cues": 216,
+      "priority": 1
+    },
+    {
+      "video_id": "1QVRfxziw1I",
+      "catalogue_index": 36,
+      "title": "NQ 23400 Draw On Liquidity September 03, 2025 [Silent Example]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "ixKzHykP0CY",
+      "catalogue_index": 37,
+      "title": "2025 Storytellers Series - Daily High To Low June 21, 2025",
+      "status": "PENDING",
+      "available_cues": 516,
+      "priority": 1
+    },
+    {
+      "video_id": "L6DHi1iXRW0",
+      "catalogue_index": 38,
+      "title": "2025 Lecture Series - Keys To Success In Troubled Markets June 16, 2025",
+      "status": "PENDING",
+      "available_cues": 272,
+      "priority": 1
+    },
+    {
+      "video_id": "CxT_b32UsB0",
+      "catalogue_index": 39,
+      "title": "2025 Lecture Series - EurUsd & NQ Futures June 11, 2025",
+      "status": "PENDING",
+      "available_cues": 230,
+      "priority": 1
+    },
+    {
+      "video_id": "38-431ysWik",
+      "catalogue_index": 40,
+      "title": "2025 Storytellers Series - NQ Futures June 05, 2025",
+      "status": "PENDING",
+      "available_cues": 118,
+      "priority": 1
+    },
+    {
+      "video_id": "08d62cZDXUk",
+      "catalogue_index": 41,
+      "title": "2025 Storytellers Series - Dollar & EurUsd June 05, 2025",
+      "status": "PENDING",
+      "available_cues": 218,
+      "priority": 1
+    },
+    {
+      "video_id": "77gN924c3FU",
+      "catalogue_index": 42,
+      "title": "2025 Storytellers Series - NQ Review June 04, 2025",
+      "status": "PENDING",
+      "available_cues": 178,
+      "priority": 1
+    },
+    {
+      "video_id": "kYw7zlxTqvA",
+      "catalogue_index": 43,
+      "title": "2025 Storytellers Series - NQ Review June 02, 2025",
+      "status": "PENDING",
+      "available_cues": 301,
+      "priority": 1
+    },
+    {
+      "video_id": "7lbbPDSI_Mc",
+      "catalogue_index": 44,
+      "title": "2025 Lecture Series - NQ Review May 29, 2025",
+      "status": "PENDING",
+      "available_cues": 91,
+      "priority": 1
+    },
+    {
+      "video_id": "uC4-1SYXJFg",
+      "catalogue_index": 45,
+      "title": "2025 Lecture Series - NQ Review When 9:30am ET Is 1st Presented FVG May 18, 2025",
+      "status": "PENDING",
+      "available_cues": 582,
+      "priority": 1
+    },
+    {
+      "video_id": "o38k6-twQCg",
+      "catalogue_index": 46,
+      "title": "2025 Lecture Series - NQ Review Advanced 1st Presented FVG Trade May 16, 2025",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "VteCEU9i4Zc",
+      "catalogue_index": 47,
+      "title": "2025 Lecture Series - NQ Review Presession Trade May 15, 2025",
+      "status": "PENDING",
+      "available_cues": 103,
+      "priority": 1
+    },
+    {
+      "video_id": "yAZS6840r7U",
+      "catalogue_index": 48,
+      "title": "2025 Lecture Series - NQ Review Presession Buyside Turtle Soup Trade May 14, 2025",
+      "status": "PENDING",
+      "available_cues": 31,
+      "priority": 1
+    },
+    {
+      "video_id": "JlLAqucv5n8",
+      "catalogue_index": 49,
+      "title": "2025 Lecture Series - NQ Review CPI No Trade May 13, 2025",
+      "status": "PENDING",
+      "available_cues": 54,
+      "priority": 1
+    },
+    {
+      "video_id": "FjSHAOI-Mok",
+      "catalogue_index": 50,
+      "title": "2025 Lecture Series - ICT Venom Example May 12, 2025",
+      "status": "PENDING",
+      "available_cues": 180,
+      "priority": 1
+    },
+    {
+      "video_id": "Q0Xa-Vqy5vo",
+      "catalogue_index": 51,
+      "title": "2025 Lecture Series - ICT Gauntlet & NQ AM Session May 07, 2025 Review",
+      "status": "PENDING",
+      "available_cues": 306,
+      "priority": 1
+    },
+    {
+      "video_id": "hj48OuvouBM",
+      "catalogue_index": 52,
+      "title": "2025 Lecture Series - NQ AM Session May 05, 2025 Review",
+      "status": "PENDING",
+      "available_cues": 86,
+      "priority": 1
+    },
+    {
+      "video_id": "AmTpyveQsbg",
+      "catalogue_index": 53,
+      "title": "2025 Lecture Series - NQ May 01, 2025 Review",
+      "status": "PENDING",
+      "available_cues": 309,
+      "priority": 1
+    },
+    {
+      "video_id": "mQsT-xux5Xk",
+      "catalogue_index": 54,
+      "title": "2025 Lecture Series - NQ April 30, 2025 Review",
+      "status": "PENDING",
+      "available_cues": 214,
+      "priority": 1
+    },
+    {
+      "video_id": "6ZFkXGo_Wjo",
+      "catalogue_index": 55,
+      "title": "2025 Lecture Series - NQ April 28, 2025 Review",
+      "status": "PENDING",
+      "available_cues": 174,
+      "priority": 1
+    },
+    {
+      "video_id": "UaGxeE3AdqE",
+      "catalogue_index": 56,
+      "title": "2025 Lecture Series - NQ Review April 24, 2025",
+      "status": "PENDING",
+      "available_cues": 44,
+      "priority": 1
+    },
+    {
+      "video_id": "28M9ouiKmSY",
+      "catalogue_index": 57,
+      "title": "2025 Lecture Series - NQ Heavy Manipulation Review",
+      "status": "PENDING",
+      "available_cues": 263,
+      "priority": 1
+    },
+    {
+      "video_id": "5N4QHrY6DRc",
+      "catalogue_index": 58,
+      "title": "2025 Lecture Series - Turtle Soup Deferred Entry With -Rejection Block",
+      "status": "PENDING",
+      "available_cues": 536,
+      "priority": 1
+    },
+    {
+      "video_id": "AmrFr3zeubM",
+      "catalogue_index": 59,
+      "title": "2025 Lecture Series - NQ Review & Extraordinary Volatility  \\ 04/09/2025",
+      "status": "PENDING",
+      "available_cues": 197,
+      "priority": 1
+    },
+    {
+      "video_id": "y63zsrLCcCw",
+      "catalogue_index": 60,
+      "title": "2025 Lecture Series - How To Disqualify 1st Presented FVGs  \\ 04/08/2025",
+      "status": "PENDING",
+      "available_cues": 107,
+      "priority": 1
+    },
+    {
+      "video_id": "JipPODfc5_U",
+      "catalogue_index": 61,
+      "title": "2025 Lecture Series - NQ NFP Algorithmic Price Delivery  \\ 04/04/2025",
+      "status": "PENDING",
+      "available_cues": 77,
+      "priority": 1
+    },
+    {
+      "video_id": "7wL2oyebbvU",
+      "catalogue_index": 62,
+      "title": "2025 Lecture Series - ICT Venom Model Tutorial  \\ 04/03/2025",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "0BpG3Ee_kIc",
+      "catalogue_index": 63,
+      "title": "2025 Lecture Series - NQ Futures Review \\ 04/01/2025",
+      "status": "PENDING",
+      "available_cues": 269,
+      "priority": 1
+    },
+    {
+      "video_id": "VCKZXKd8pN8",
+      "catalogue_index": 64,
+      "title": "2025 Lecture Series - Weekly Option Strategy Intro \\ 03/28/2025",
+      "status": "PENDING",
+      "available_cues": 444,
+      "priority": 1
+    },
+    {
+      "video_id": "l4phBVDs2d4",
+      "catalogue_index": 65,
+      "title": "2025 Lecture Series - Algorithmic Timing & Journaling \\ 03/22/2025",
+      "status": "PENDING",
+      "available_cues": 996,
+      "priority": 1
+    },
+    {
+      "video_id": "-L9XMj50XG0",
+      "catalogue_index": 66,
+      "title": "2025 Lecture Series - NQ Weekly Summary \\ 02/28/2025",
+      "status": "PENDING",
+      "available_cues": 815,
+      "priority": 1
+    },
+    {
+      "video_id": "JfX77zCR_NM",
+      "catalogue_index": 67,
+      "title": "2025 Lecture Series - Telegram Commentary Market Review 02/25/2025",
+      "status": "PENDING",
+      "available_cues": 202,
+      "priority": 1
+    },
+    {
+      "video_id": "4hkZEQiB02U",
+      "catalogue_index": 68,
+      "title": "2025 Lecture Series - NY Lunch Macro Rules & PM Session & Final RTH Hour Of Trading 02/24/2025",
+      "status": "PENDING",
+      "available_cues": 320,
+      "priority": 1
+    },
+    {
+      "video_id": "BdmULCuem5Q",
+      "catalogue_index": 69,
+      "title": "2025 Lecture Series - NQ Futures Live Execution With NY Lunch Macro 02/24/2025",
+      "status": "PENDING",
+      "available_cues": 78,
+      "priority": 1
+    },
+    {
+      "video_id": "87Rs7pilxMA",
+      "catalogue_index": 70,
+      "title": "2025 Lecture Series - NQ Futures Live Execution With Telegram Commentary 02/21/2025",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "WGGDbeRpo4w",
+      "catalogue_index": 71,
+      "title": "2025 Lecture Series - Forex GbpUsd Live Execution London Open Killzone 02/21/2025",
+      "status": "PENDING",
+      "available_cues": 642,
+      "priority": 1
+    },
+    {
+      "video_id": "U5peM9ykM78",
+      "catalogue_index": 72,
+      "title": "2025 Lecture Series - Telegram Commentary Review 02/19/2025",
+      "status": "PENDING",
+      "available_cues": 142,
+      "priority": 1
+    },
+    {
+      "video_id": "M6kCfe5QgDg",
+      "catalogue_index": 73,
+      "title": "Inner Musings On Trading One Model & My Venom Model [Example Only]",
+      "status": "PENDING",
+      "available_cues": 91,
+      "priority": 1
+    },
+    {
+      "video_id": "Sbu7tn8r03w",
+      "catalogue_index": 74,
+      "title": "2025 Lecture Series - NQ Live Execution Using Analysis I Shared In Telegram 02/13/2025",
+      "status": "PENDING",
+      "available_cues": 209,
+      "priority": 1
+    },
+    {
+      "video_id": "dWyXLze4c4k",
+      "catalogue_index": 75,
+      "title": "2025 Lecture Series - Trading In High Resistance Liquidity Run Conditions With My Lunch Macro",
+      "status": "PENDING",
+      "available_cues": 97,
+      "priority": 1
+    },
+    {
+      "video_id": "vgG9JAKwng4",
+      "catalogue_index": 76,
+      "title": "2025 Lecture Series - Algorithmic Price Delivery Continuum",
+      "status": "PENDING",
+      "available_cues": 481,
+      "priority": 1
+    },
+    {
+      "video_id": "muL9EoMpYTM",
+      "catalogue_index": 77,
+      "title": "2025 Lecture Series - Forex & NQ Review 02/05/2025",
+      "status": "PENDING",
+      "available_cues": 1139,
+      "priority": 1
+    },
+    {
+      "video_id": "_2XQ2ja5jxM",
+      "catalogue_index": 78,
+      "title": "2025 Lecture Series - NQ Live Execution Using Analysis I Shared In Student's Livestream  02/05/2025",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "7cYwwE1GoV8",
+      "catalogue_index": 79,
+      "title": "2025 Lecture Series - SMC Forex Review 02/04/2025",
+      "status": "PENDING",
+      "available_cues": 239,
+      "priority": 1
+    },
+    {
+      "video_id": "GJG3kV_lupg",
+      "catalogue_index": 80,
+      "title": "2025 Lecture Series - NQ Live Execution Using Telegram Key Levels 02/04/2025",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "r-9jSs1Oq_c",
+      "catalogue_index": 81,
+      "title": "2025 Lecture Review February 03, 2025",
+      "status": "PENDING",
+      "available_cues": 157,
+      "priority": 1
+    },
+    {
+      "video_id": "iNsrXJiwdBM",
+      "catalogue_index": 82,
+      "title": "2025 Lecture Series - SMC Mastery January 30, 2025 NQ IMP24",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "hc9SDgW93gc",
+      "catalogue_index": 83,
+      "title": "2025 Lecture Series - SMC Algorithmic Market On Close Macro",
+      "status": "PENDING",
+      "available_cues": 314,
+      "priority": 1
+    },
+    {
+      "video_id": "x_44mMI7YqU",
+      "catalogue_index": 84,
+      "title": "2025 Lecture Series - SMC New York NWOG With Forex 01/27/2025",
+      "status": "PENDING",
+      "available_cues": 147,
+      "priority": 1
+    },
+    {
+      "video_id": "q5lz5594dpE",
+      "catalogue_index": 85,
+      "title": "January 22, 2025 - Live Execution \\ Forex GbpUsd London Macro",
+      "status": "PENDING",
+      "available_cues": 70,
+      "priority": 1
+    },
+    {
+      "video_id": "r3E1WQcx2-c",
+      "catalogue_index": 86,
+      "title": "January 21, 2025 - Live Execution \\ NQ PreMarket Turtle Soup Short",
+      "status": "PENDING",
+      "available_cues": 139,
+      "priority": 1
+    },
+    {
+      "video_id": "e8FjX9IVxzM",
+      "catalogue_index": 87,
+      "title": "2025 Lecture Series - SMC Trade Example 01/14/2025",
+      "status": "PENDING",
+      "available_cues": 61,
+      "priority": 1
+    },
+    {
+      "video_id": "pM8oWrcIJqU",
+      "catalogue_index": 88,
+      "title": "2025 Lecture Series - SMC Trading Opening Range Gaps",
+      "status": "PENDING",
+      "available_cues": 410,
+      "priority": 1
+    },
+    {
+      "video_id": "uIvlS330qrA",
+      "catalogue_index": 89,
+      "title": "2025 Lecture Series - SMC Opening Range Gaps",
+      "status": "PENDING",
+      "available_cues": 205,
+      "priority": 1
+    },
+    {
+      "video_id": "ib9sa6ldwA4",
+      "catalogue_index": 90,
+      "title": "2025 Lecture Series - SMC Midnight Opening Range Live NQ Example",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "Z0VYZoaTIKE",
+      "catalogue_index": 91,
+      "title": "2025 Lecture Series - SMC Midnight Opening Range",
+      "status": "PENDING",
+      "available_cues": 725,
+      "priority": 1
+    },
+    {
+      "video_id": "IqfB1v8aNIM",
+      "catalogue_index": 92,
+      "title": "2025 Lecture Series - Making Money With SMC Concepts Live Example",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "czSUBVHD9u8",
+      "catalogue_index": 93,
+      "title": "2025 Lecture Series - Making Money With SMC Concepts",
+      "status": "PENDING",
+      "available_cues": 619,
+      "priority": 1
+    },
+    {
+      "video_id": "6wt3xy34bNk",
+      "catalogue_index": 94,
+      "title": "2025 Lecture Series - Housekeeping",
+      "status": "PENDING",
+      "available_cues": 93,
+      "priority": 1
+    },
+    {
+      "video_id": "GKeLVR3dPuI",
+      "catalogue_index": 95,
+      "title": "ICT 2024 Mentorship \\ Lecture #1  August 5, 2024",
+      "status": "PENDING",
+      "available_cues": 1575,
+      "priority": 1
+    },
+    {
+      "video_id": "pkI4AgC4OPI",
+      "catalogue_index": 96,
+      "title": "ICT 2024 Mentorship \\ Lecture #2   August 6, 2024",
+      "status": "PENDING",
+      "available_cues": 2125,
+      "priority": 1
+    },
+    {
+      "video_id": "ZkLc4-adodg",
+      "catalogue_index": 97,
+      "title": "ICT 2024 Mentorship \\ Lecture #3   August 7, 2024",
+      "status": "PENDING",
+      "available_cues": 1721,
+      "priority": 1
+    },
+    {
+      "video_id": "hdSscxZgE58",
+      "catalogue_index": 98,
+      "title": "ICT 2024 Mentorship \\ Lecture #4    August 8, 2024",
+      "status": "PENDING",
+      "available_cues": 3303,
+      "priority": 1
+    },
+    {
+      "video_id": "ul6x6BwOg6M",
+      "catalogue_index": 99,
+      "title": "ICT 2024 Mentorship \\ Lecture #5    August 9, 2024",
+      "status": "PENDING",
+      "available_cues": 1240,
+      "priority": 1
+    },
+    {
+      "video_id": "woAQ1XJeD7Y",
+      "catalogue_index": 100,
+      "title": "ICT 2024 Mentorship \\ Lecture #6   August 12, 2024 Begins 9:15am ET",
+      "status": "PENDING",
+      "available_cues": 1874,
+      "priority": 1
+    },
+    {
+      "video_id": "-WItxLARGpE",
+      "catalogue_index": 101,
+      "title": "ICT 2024 Mentorship \\ Lecture #7   August 13, 2024",
+      "status": "PENDING",
+      "available_cues": 2624,
+      "priority": 1
+    },
+    {
+      "video_id": "zU7iAqg4sSA",
+      "catalogue_index": 102,
+      "title": "ICT 2024 Mentorship \\ Lecture #8   August 14, 2024",
+      "status": "PENDING",
+      "available_cues": 3169,
+      "priority": 1
+    },
+    {
+      "video_id": "pg5XBNkpotM",
+      "catalogue_index": 103,
+      "title": "ICT 2024 Mentorship \\ Lecture #9  August 15, 2024",
+      "status": "PENDING",
+      "available_cues": 515,
+      "priority": 1
+    },
+    {
+      "video_id": "qoNQfVzVXZQ",
+      "catalogue_index": 104,
+      "title": "ICT 2024 Mentorship \\ Lecture #10  August 16, 2024",
+      "status": "PENDING",
+      "available_cues": 2160,
+      "priority": 1
+    },
+    {
+      "video_id": "aONkyy-HTqE",
+      "catalogue_index": 105,
+      "title": "ICT 2024 Mentorship \\ Lecture #11  August 19, 2024 Begins 9:15am ET",
+      "status": "PENDING",
+      "available_cues": 2789,
+      "priority": 1
+    },
+    {
+      "video_id": "EQfTD6ntB4A",
+      "catalogue_index": 106,
+      "title": "ICT 2024 Mentorship \\ Lecture #12  August 19, 2024",
+      "status": "PENDING",
+      "available_cues": 573,
+      "priority": 1
+    },
+    {
+      "video_id": "LMi_mO3AP08",
+      "catalogue_index": 107,
+      "title": "ICT 2024 Mentorship \\ Lecture #13  August 20, 2024 Begins 9:15am ET",
+      "status": "PENDING",
+      "available_cues": 346,
+      "priority": 1
+    },
+    {
+      "video_id": "WiMVPc4cvG8",
+      "catalogue_index": 108,
+      "title": "ICT 2024 Mentorship \\ Lecture #14  August 22, 2024 Begins 9:00am ET",
+      "status": "PENDING",
+      "available_cues": 1506,
+      "priority": 1
+    },
+    {
+      "video_id": "vfqyx8BYdNo",
+      "catalogue_index": 109,
+      "title": "ICT 2024 Mentorship \\ Lecture #15  August 23, 2024",
+      "status": "PENDING",
+      "available_cues": 130,
+      "priority": 1
+    },
+    {
+      "video_id": "kuURDD1ajdQ",
+      "catalogue_index": 110,
+      "title": "ICT 2024 Mentorship \\ Lecture #16  August 24, 2024",
+      "status": "PENDING",
+      "available_cues": 271,
+      "priority": 1
+    },
+    {
+      "video_id": "iLe_4m84_yw",
+      "catalogue_index": 111,
+      "title": "ICT 2024 Mentorship \\ Lecture #17  August 26, 2024  Impeding Barriers",
+      "status": "PENDING",
+      "available_cues": 1454,
+      "priority": 1
+    },
+    {
+      "video_id": "MxaJD1WIzos",
+      "catalogue_index": 118,
+      "title": "ICT 2024 Mentorship \\ NonFarm Payroll September 06, 2024",
+      "status": "PARTIAL_ASSISTANT_REVIEW",
+      "available_cues": 2867,
+      "priority": 1
+    },
+    {
+      "video_id": "Onca4KgfQB4",
+      "catalogue_index": 119,
+      "title": "ICT 2024 Mentorship \\ September 09, 2024",
+      "status": "PENDING",
+      "available_cues": 1005,
+      "priority": 1
+    },
+    {
+      "video_id": "A1mLNIoEsq0",
+      "catalogue_index": 120,
+      "title": "ICT 2024 Mentorship \\ September 11, 2024",
+      "status": "PENDING",
+      "available_cues": 778,
+      "priority": 1
+    },
+    {
+      "video_id": "DRuEMX4RhMw",
+      "catalogue_index": 121,
+      "title": "ICT 2024 Mentorship \\ September 12, 2024",
+      "status": "PENDING",
+      "available_cues": 998,
+      "priority": 1
+    },
+    {
+      "video_id": "fhBnnU44A6E",
+      "catalogue_index": 123,
+      "title": "ICT 2024 Mentorship \\ How To Manage Missed Entries \\ September 17, 2024",
+      "status": "PENDING",
+      "available_cues": 2524,
+      "priority": 1
+    },
+    {
+      "video_id": "AxNoqk5Vx8o",
+      "catalogue_index": 124,
+      "title": "ICT Grey Pools Used In Action September 18, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "XiZHGOeVAOk",
+      "catalogue_index": 125,
+      "title": "ICT 2024 Mentorship \\ Micro Vs. Mini \\ September 19, 2024",
+      "status": "PENDING",
+      "available_cues": 877,
+      "priority": 1
+    },
+    {
+      "video_id": "Vo8WKYKtzIU",
+      "catalogue_index": 126,
+      "title": "ICT 2024 Mentorship \\ CFDs Vs. Futures \\ September 20, 2024",
+      "status": "PENDING",
+      "available_cues": 806,
+      "priority": 1
+    },
+    {
+      "video_id": "Qg3O1GkJDeQ",
+      "catalogue_index": 127,
+      "title": "ICT 2024 Mentorship \\ How To Avoid Seek & Destroy \\ Tape Reading \\ September 23, 2024",
+      "status": "PENDING",
+      "available_cues": 109,
+      "priority": 1
+    },
+    {
+      "video_id": "-M-RAtxB-bE",
+      "catalogue_index": 128,
+      "title": "ICT 2024 Mentorship \\ NDOGs & Tape Reading \\ September 24, 2024",
+      "status": "PENDING",
+      "available_cues": 241,
+      "priority": 1
+    },
+    {
+      "video_id": "NDwNIqUkASc",
+      "catalogue_index": 129,
+      "title": "ICT 2024 Mentorship \\ Tape Reading \\ September 25, 2024",
+      "status": "PENDING",
+      "available_cues": 495,
+      "priority": 1
+    },
+    {
+      "video_id": "nr6CJqNWChw",
+      "catalogue_index": 130,
+      "title": "ICT 2024 Mentorship \\ How To Identify High Resistance Liquidity Conditions \\ September 27, 2024",
+      "status": "PENDING",
+      "available_cues": 1832,
+      "priority": 1
+    },
+    {
+      "video_id": "l7eu9yvUUtg",
+      "catalogue_index": 131,
+      "title": "ICT 2024 Mentorship \\ Premarket Concepts \\ September 30, 2024",
+      "status": "PENDING",
+      "available_cues": 1737,
+      "priority": 1
+    },
+    {
+      "video_id": "DnuCB5Stk-0",
+      "catalogue_index": 132,
+      "title": "ICT 2024 Mentorship \\ Limit Orders & Volatility Pinball Drills \\ October 01, 2024",
+      "status": "PENDING",
+      "available_cues": 2544,
+      "priority": 1
+    },
+    {
+      "video_id": "hfwUXg2nYhs",
+      "catalogue_index": 133,
+      "title": "ICT 2024 Mentorship \\ September 02, 2024",
+      "status": "PENDING",
+      "available_cues": 41,
+      "priority": 1
+    },
+    {
+      "video_id": "YxpHUwZhu80",
+      "catalogue_index": 134,
+      "title": "ICT 2024 Mentorship \\ Tape Reading NQ \\ October 02, 2024",
+      "status": "PENDING",
+      "available_cues": 1391,
+      "priority": 1
+    },
+    {
+      "video_id": "Xyiw_IFE9yc",
+      "catalogue_index": 135,
+      "title": "October 03, 2024 NQ Market Review",
+      "status": "PENDING",
+      "available_cues": 125,
+      "priority": 1
+    },
+    {
+      "video_id": "qcYYm1iNCIM",
+      "catalogue_index": 136,
+      "title": "ICT 2024 Mentorship \\ October NFP NQ \\ October 04, 2024",
+      "status": "PENDING",
+      "available_cues": 1254,
+      "priority": 1
+    },
+    {
+      "video_id": "DzJpkxI057g",
+      "catalogue_index": 137,
+      "title": "ICT 2024 Mentorship \\ NQ High Resistance Liquidity Conditions Tape Reading \\ October 07, 2024",
+      "status": "PENDING",
+      "available_cues": 258,
+      "priority": 1
+    },
+    {
+      "video_id": "HMn46vLjKvY",
+      "catalogue_index": 138,
+      "title": "ICT 2024 Mentorship \\ NQ Tape Reading \\ October 15, 2024",
+      "status": "PENDING",
+      "available_cues": 1054,
+      "priority": 1
+    },
+    {
+      "video_id": "xUWonBnfYOk",
+      "catalogue_index": 139,
+      "title": "ICT 2024 Mentorship \\ How To Navigate Decoupled Markets \\ October 16, 2024",
+      "status": "PENDING",
+      "available_cues": 908,
+      "priority": 1
+    },
+    {
+      "video_id": "z2t62hgjLXo",
+      "catalogue_index": 140,
+      "title": "ICT 2024 Mentorship \\ News Release Tape Reading \\ October 17, 2024",
+      "status": "PENDING",
+      "available_cues": 522,
+      "priority": 1
+    },
+    {
+      "video_id": "CQk-5lAirn0",
+      "catalogue_index": 141,
+      "title": "ICT 2024 Mentorship \\ Premarket Tape Reading NQ Futures \\ October 21, 2024",
+      "status": "PENDING",
+      "available_cues": 450,
+      "priority": 1
+    },
+    {
+      "video_id": "svYZKOrWPRo",
+      "catalogue_index": 142,
+      "title": "ICT 2024 Mentorship \\ How ICT Picks Winning FVG's & Orderblocks \\ October 25, 2024",
+      "status": "PENDING",
+      "available_cues": 1345,
+      "priority": 1
+    },
+    {
+      "video_id": "3YfetuXVhOE",
+      "catalogue_index": 143,
+      "title": "ICT 2024 Mentorship \\ High Resistance & Low Resistance Conditions \\ October 28, 2024",
+      "status": "PENDING",
+      "available_cues": 2070,
+      "priority": 1
+    },
+    {
+      "video_id": "1m5yz6Vh_Dw",
+      "catalogue_index": 144,
+      "title": "New Week Commentary For Nq Futures December 01, 2024",
+      "status": "PENDING",
+      "available_cues": 94,
+      "priority": 1
+    },
+    {
+      "video_id": "403Dzt_Vl5Y",
+      "catalogue_index": 145,
+      "title": "NQ December 05, 2024 Seek & Destroy Review",
+      "status": "PENDING",
+      "available_cues": 138,
+      "priority": 1
+    },
+    {
+      "video_id": "o5NP6VOfNnI",
+      "catalogue_index": 146,
+      "title": "Trading Inside The Range Example 11/20/23",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "TqECSMsuswI",
+      "catalogue_index": 147,
+      "title": "Post Thanksgiving Order Flow Execution Example",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "qW0_Mxfp_Z4",
+      "catalogue_index": 149,
+      "title": "E Mini Futures Lunch Hour Macro Live Execution \\ November 28, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "7IttD8JmDIo",
+      "catalogue_index": 150,
+      "title": "NQ Futures Housing Sales Sellside Delivery Live Execution \\ November 30, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "g-k1xZSpBj0",
+      "catalogue_index": 151,
+      "title": "Live Execution Using 60min Discount BISI Low ES Futures \\ December 01, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rZFisy9AILQ",
+      "catalogue_index": 152,
+      "title": "Leaving Stop Unchanged After 3 Partials Taken - Swing Trade Logic \\ December 04, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "hMvyE0qhads",
+      "catalogue_index": 153,
+      "title": "Why Do I Avoid NFP Weeks?  NQ 3 Trades \\ 2 Losses \\ December 06, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "UOpmn7JqBEY",
+      "catalogue_index": 154,
+      "title": "NQ Employment Number Live Execution \\ December 07, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "A97shZGPE2I",
+      "catalogue_index": 155,
+      "title": "December 2023 Non Farm Payroll Live Execution & Explanations",
+      "status": "PENDING",
+      "available_cues": 1025,
+      "priority": 1
+    },
+    {
+      "video_id": "eYqnZRo0CCE",
+      "catalogue_index": 156,
+      "title": "NQ Live Execution Offside Reversal Example December 13, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "_ZOFkSXfvsg",
+      "catalogue_index": 157,
+      "title": "December 2023 FOMC NQ Front Month Execution \\ Initial Stop Out 50% Reentry",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "0qoLac1XyAw",
+      "catalogue_index": 158,
+      "title": "Do My Concepts Work On Dow Futures? \\ December 14, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "Tbcj6fyDVdo",
+      "catalogue_index": 159,
+      "title": "Fading Retail Buyers For NQ \\ December 14, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "EwYBWf0fJxM",
+      "catalogue_index": 160,
+      "title": "NQ AM Session \\ Time Of Day Execution Sellside Delivery \\ December 15, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "gq2Q2y4ch9k",
+      "catalogue_index": 161,
+      "title": "How Smart Money Targets Retail Traders \\ December 15, 2023 \\ Fake Bear Flag",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "appL5vi8UhM",
+      "catalogue_index": 162,
+      "title": "Live Execution Practice Using The Lowest Leverage \\ December 19, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "tbPjrl-8608",
+      "catalogue_index": 163,
+      "title": "NQ Live Executions In Holiday Volume \\ December 26, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rYwsypxkRX4",
+      "catalogue_index": 164,
+      "title": "NQ Live Execution Turtle Soup Short \\ December 27, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "H1-Ni_J-tOw",
+      "catalogue_index": 165,
+      "title": "NQ Live Execution & Commentary \\ Final Trading Day Of 2023",
+      "status": "PENDING",
+      "available_cues": 1059,
+      "priority": 1
+    },
+    {
+      "video_id": "UMcebJiqAUI",
+      "catalogue_index": 166,
+      "title": "January 2024 NFP \\ Live Execution ES Futures No Audio",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "ylzrm3dZGWw",
+      "catalogue_index": 167,
+      "title": "NQ Live Execution 10:50 - 11:10 Algorithmic Macro Targeting Previous Day High",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "oVSGM3BK97s",
+      "catalogue_index": 168,
+      "title": "What The #1 Day Trader On YouTube Could Do With Funded Accounts & Trade Copier",
+      "status": "PENDING",
+      "available_cues": 62,
+      "priority": 1
+    },
+    {
+      "video_id": "lSr4gdb1n8A",
+      "catalogue_index": 169,
+      "title": "NQ Live Execution January 16, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "xGn4UxJiz9M",
+      "catalogue_index": 170,
+      "title": "ICT Final Hour MOC Macro - NQ Live Execution \\ January 17, 2024",
+      "status": "PENDING",
+      "available_cues": 58,
+      "priority": 1
+    },
+    {
+      "video_id": "FBsrQ0OunuA",
+      "catalogue_index": 171,
+      "title": "NQ Break-Away Gap Entry \\ Turtle Soup Short \\ January 22, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rn32EntwGCs",
+      "catalogue_index": 172,
+      "title": "NQ Final Hour 2:50pm To 3:10pm EST Macro - January 23, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "E_xS2AruCYg",
+      "catalogue_index": 173,
+      "title": "Algorithmic High Frequency Trading \\ January 25, 2024",
+      "status": "PENDING",
+      "available_cues": 8,
+      "priority": 1
+    },
+    {
+      "video_id": "VODMCdDnMs8",
+      "catalogue_index": 174,
+      "title": "Algorithmic High Frequency Trading The Opposite Direction \\ January 25, 2024",
+      "status": "PENDING",
+      "available_cues": 12,
+      "priority": 1
+    },
+    {
+      "video_id": "FwJOgRORLsc",
+      "catalogue_index": 175,
+      "title": "Silent Annotations - January 29, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "gxjWD4TC2ew",
+      "catalogue_index": 176,
+      "title": "Not To Be \"Crude\", It Works Here Too \\ January 30, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "ouisWztKpDU",
+      "catalogue_index": 177,
+      "title": "ES Futures Live Execution \\ January 31, 2024 [Judas Swing Entry]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "JJGjP08M7gs",
+      "catalogue_index": 178,
+      "title": "NQ Futures Live Execution \\ February 01, 2024 [Pre-Opening Bell]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "25PzvOjgJZY",
+      "catalogue_index": 179,
+      "title": "February 2024 NFP NQ",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "wbXnpkiqtw4",
+      "catalogue_index": 180,
+      "title": "ES Futures Live Execution \\ February 07, 2024 [1st Trade 2024 Cup]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "7duYYeLleUA",
+      "catalogue_index": 181,
+      "title": "Sometimes I let Them Pass Me By... No Trade - February 12, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "MDCZ2nHJB1w",
+      "catalogue_index": 182,
+      "title": "Pegging NQ All Time High - Stanley Cup Collectors Edition",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "0OIplRTKYOA",
+      "catalogue_index": 183,
+      "title": "Short Mitigation To Sellside \\ Review Of PD Arrays & Narrative MNQ",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "1vsIPazjfGQ",
+      "catalogue_index": 184,
+      "title": "April 08, 2024 NQ Market Maker Buy Model Example",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "aaKO-eu-tQ4",
+      "catalogue_index": 185,
+      "title": "Micro-Scalping Without Bias - NQ May 06, 2024",
+      "status": "PENDING",
+      "available_cues": 84,
+      "priority": 1
+    },
+    {
+      "video_id": "My9wQ8_UtZk",
+      "catalogue_index": 186,
+      "title": "Micro-Scalping Without Bias - ES May 06, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "HUxK8GN4DHs",
+      "catalogue_index": 187,
+      "title": "NQ Premium Wick Entry - Live Execution May 08, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "-eFpwS3qU5w",
+      "catalogue_index": 188,
+      "title": "NQ May 13, 2024 Premarket Short Live Execution",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "_Ts5bpglOdU",
+      "catalogue_index": 189,
+      "title": "May 14, 2024 NQ PPI 8:50-9:10 ET Macro",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "fRS8m-wShIo",
+      "catalogue_index": 190,
+      "title": "May 24, 2024 NQ Premarket [Trading Inside Friday's Range]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "CRE7Pmch5G0",
+      "catalogue_index": 191,
+      "title": "NQ Lunch Macro 06/10/2024",
+      "status": "PENDING",
+      "available_cues": 91,
+      "priority": 1
+    },
+    {
+      "video_id": "PFUe6OKmKuk",
+      "catalogue_index": 192,
+      "title": "June 24, 2024 NQ Turtle Soup Short",
+      "status": "PENDING",
+      "available_cues": 159,
+      "priority": 1
+    },
+    {
+      "video_id": "dMhceEWjAuU",
+      "catalogue_index": 193,
+      "title": "ICT Turtle Soup Short Example - NQ Futures Lunch Macro",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "KHxQjsITOLo",
+      "catalogue_index": 194,
+      "title": "The Daily Volume Imbalance Draw - Refer to 2024 Livestream August 20, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "7iRB5uc1KYk",
+      "catalogue_index": 196,
+      "title": "Premarket NQ -OB To Discount NDOG \\ August 27, 2024",
+      "status": "SOURCE_QUARANTINED",
+      "available_cues": 1302,
+      "priority": 1
+    },
+    {
+      "video_id": "ypkWB8EpO5s",
+      "catalogue_index": 197,
+      "title": "ES Bearish Order Flow Algorithmic Entries \\ August 27, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "-tuXoqSjO78",
+      "catalogue_index": 198,
+      "title": "Old Daily Lows -Breaker Entry and -IFVG Reentry After Profitable Stop Out",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "Fv3gNx9ta0I",
+      "catalogue_index": 199,
+      "title": "Post Holiday PM Session 1:50pm To 2:10pm Macro Short",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "9HUAUF_h2tI",
+      "catalogue_index": 200,
+      "title": "Silent Study - October 18, 2024 NY Lunch Macro In High Resistance Liquidity",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "QjjnCS_qTXo",
+      "catalogue_index": 201,
+      "title": "2k Drawdown Mitigation on Two Losing Trades This Morning....",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "xpH0wDANtmM",
+      "catalogue_index": 202,
+      "title": "Trading NFP Thursday High Resistance Liquidity Runs",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "Khj1veL49r8",
+      "catalogue_index": 203,
+      "title": "My Model On NQ NFP Friday",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "VBgfJRMVCaI",
+      "catalogue_index": 204,
+      "title": "How To Engage Price After Holiday Volume Days",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "KhnKA8Uu0n8",
+      "catalogue_index": 205,
+      "title": "NQ Long Form Live Trade \\ Explanation Later Today",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "7M56e9O06Ko",
+      "catalogue_index": 206,
+      "title": "NQ December Asian Session Execution 09/29/2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "f6KC4m4zNgc",
+      "catalogue_index": 207,
+      "title": "NonFarm Payroll Live Execution NQ Futures \\ Tutorial Separate Video",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "XN8tuO4QIRw",
+      "catalogue_index": 208,
+      "title": "ICT Mentorship 2023 Ep 01",
+      "status": "PENDING",
+      "available_cues": 357,
+      "priority": 1
+    },
+    {
+      "video_id": "GHaD0mebgMU",
+      "catalogue_index": 209,
+      "title": "ICT Emini S&P 500 Review / January 03, 2023",
+      "status": "PENDING",
+      "available_cues": 51,
+      "priority": 1
+    },
+    {
+      "video_id": "ojy5ApHhEu4",
+      "catalogue_index": 210,
+      "title": "Deep Learning On Nasdaq Futures Trade - January 04, 2023",
+      "status": "PENDING",
+      "available_cues": 492,
+      "priority": 1
+    },
+    {
+      "video_id": "AUbdCTzc19k",
+      "catalogue_index": 211,
+      "title": "ICT Emini NQ Futures Market Maker Live Execution - January 04, 2023",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "VKkn8uckkW0",
+      "catalogue_index": 212,
+      "title": "January 2023 NonFarm Payroll Review & HTF Concepts",
+      "status": "PENDING",
+      "available_cues": 307,
+      "priority": 1
+    },
+    {
+      "video_id": "bGtQOXrrK9c",
+      "catalogue_index": 213,
+      "title": "ICT ES Futures Review - January 09, 2023",
+      "status": "PENDING",
+      "available_cues": 231,
+      "priority": 1
+    },
+    {
+      "video_id": "cxdjcXec3eA",
+      "catalogue_index": 214,
+      "title": "ICT Forex Review January 09, 2023",
+      "status": "PENDING",
+      "available_cues": 43,
+      "priority": 1
+    },
+    {
+      "video_id": "tnxvmHq8xEg",
+      "catalogue_index": 215,
+      "title": "ICT 2023 Mentorship \\ ES Live Execution & Mean Threshold Risk Management",
+      "status": "PENDING",
+      "available_cues": 96,
+      "priority": 1
+    },
+    {
+      "video_id": "cWekmMLqiNM",
+      "catalogue_index": 216,
+      "title": "ICT Emini Futures Review - January 18, 2023",
+      "status": "PENDING",
+      "available_cues": 443,
+      "priority": 1
+    },
+    {
+      "video_id": "w0CYBeFTzcM",
+      "catalogue_index": 217,
+      "title": "ICT Premarket Commentary for Week Ending 01/20/23",
+      "status": "PENDING",
+      "available_cues": 61,
+      "priority": 1
+    },
+    {
+      "video_id": "HkiPAi1Mdu8",
+      "catalogue_index": 218,
+      "title": "ICT 2023 Mentorship Analysis \\ January 25, 2023",
+      "status": "PENDING",
+      "available_cues": 199,
+      "priority": 1
+    },
+    {
+      "video_id": "V1thfpo-R9U",
+      "catalogue_index": 219,
+      "title": "ICT Mentorship ES Market Review \\ January 26, 2023",
+      "status": "PENDING",
+      "available_cues": 210,
+      "priority": 1
+    },
+    {
+      "video_id": "g8bhZReDK-Q",
+      "catalogue_index": 220,
+      "title": "Institutional Market Structure & Standard Deviations With Buyside Liquidity",
+      "status": "PENDING",
+      "available_cues": 29,
+      "priority": 1
+    },
+    {
+      "video_id": "QKvjPltjsqU",
+      "catalogue_index": 221,
+      "title": "2023 Mentorship Price Action Review & PM  Session Reversal Model",
+      "status": "PENDING",
+      "available_cues": 200,
+      "priority": 1
+    },
+    {
+      "video_id": "eTMS36H7HA0",
+      "catalogue_index": 222,
+      "title": "5 Handle Twitter Example Live Execution... January 30, 2023",
+      "status": "PENDING",
+      "available_cues": 46,
+      "priority": 1
+    },
+    {
+      "video_id": "ZrZJmwrMxFY",
+      "catalogue_index": 223,
+      "title": "ICT January 30 -  Market Review",
+      "status": "PENDING",
+      "available_cues": 134,
+      "priority": 1
+    },
+    {
+      "video_id": "MqOVbd1oqZk",
+      "catalogue_index": 224,
+      "title": "January 31, 2023 PM Session Example \\ New Week Opening Gap",
+      "status": "PENDING",
+      "available_cues": 64,
+      "priority": 1
+    },
+    {
+      "video_id": "DVxC7UAHzwk",
+      "catalogue_index": 225,
+      "title": "ICT February 2023 FOMC",
+      "status": "PENDING",
+      "available_cues": 197,
+      "priority": 1
+    },
+    {
+      "video_id": "ALMsQytQ1fg",
+      "catalogue_index": 226,
+      "title": "Price Action Chronicles \\ February 07, 2023",
+      "status": "PENDING",
+      "available_cues": 980,
+      "priority": 1
+    },
+    {
+      "video_id": "wyqayqwoIhA",
+      "catalogue_index": 227,
+      "title": "ICT February 07 -  How To Start Tape Reading Live Emini Price Action",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "gH1e-TVrK6k",
+      "catalogue_index": 228,
+      "title": "Market Review \\ February 07, 2023",
+      "status": "PENDING",
+      "available_cues": 139,
+      "priority": 1
+    },
+    {
+      "video_id": "7RiUUCqQ3SY",
+      "catalogue_index": 229,
+      "title": "Market Review \\ February 08, 2023",
+      "status": "PENDING",
+      "available_cues": 412,
+      "priority": 1
+    },
+    {
+      "video_id": "GFdWahZUNOw",
+      "catalogue_index": 230,
+      "title": "Market Review \\ February 09, 2023",
+      "status": "PENDING",
+      "available_cues": 650,
+      "priority": 1
+    },
+    {
+      "video_id": "STEGBblm4dI",
+      "catalogue_index": 231,
+      "title": "Market Review \\ February 10, 2023",
+      "status": "PENDING",
+      "available_cues": 290,
+      "priority": 1
+    },
+    {
+      "video_id": "wWvFUW-jY4w",
+      "catalogue_index": 232,
+      "title": "Market Review \\ February 12, 2023",
+      "status": "PENDING",
+      "available_cues": 494,
+      "priority": 1
+    },
+    {
+      "video_id": "dwJcsi3ddFg",
+      "catalogue_index": 233,
+      "title": "February 13, 2023 ES Tape Reading AM Session",
+      "status": "PENDING",
+      "available_cues": 478,
+      "priority": 1
+    },
+    {
+      "video_id": "ZdnGlropfmU",
+      "catalogue_index": 234,
+      "title": "February 14, 2023 ES Live Commentary CPI Release",
+      "status": "PENDING",
+      "available_cues": 518,
+      "priority": 1
+    },
+    {
+      "video_id": "8YSVu51hUWQ",
+      "catalogue_index": 235,
+      "title": "February 15, 2023 ES Live Commentary AM Opening Session",
+      "status": "PENDING",
+      "available_cues": 303,
+      "priority": 1
+    },
+    {
+      "video_id": "SSWN6YSVyFY",
+      "catalogue_index": 236,
+      "title": "February 15, 2023 ES Session Review",
+      "status": "PENDING",
+      "available_cues": 366,
+      "priority": 1
+    },
+    {
+      "video_id": "KXx07qzW5u0",
+      "catalogue_index": 237,
+      "title": "February 16, 2023 ES Opening Session Commentary",
+      "status": "PENDING",
+      "available_cues": 404,
+      "priority": 1
+    },
+    {
+      "video_id": "qUYWVwyRhZs",
+      "catalogue_index": 238,
+      "title": "ICT February 24 -  Conquering Fear Of Being Wrong Vs. Profitability",
+      "status": "PENDING",
+      "available_cues": 833,
+      "priority": 1
+    },
+    {
+      "video_id": "kFIOp8Tprdc",
+      "catalogue_index": 239,
+      "title": "February 25, 2023 Market Commentary",
+      "status": "PENDING",
+      "available_cues": 405,
+      "priority": 1
+    },
+    {
+      "video_id": "n37ozsUreR0",
+      "catalogue_index": 240,
+      "title": "March 06, 2023 Live Tape Reading \\ Baseline 1 of 3",
+      "status": "PENDING",
+      "available_cues": 501,
+      "priority": 1
+    },
+    {
+      "video_id": "wu0sQarBRrI",
+      "catalogue_index": 241,
+      "title": "March 07, 2023 Live Tape Reading \\ Fed Chair Testimony 10am",
+      "status": "PENDING",
+      "available_cues": 272,
+      "priority": 1
+    },
+    {
+      "video_id": "4H74nXabvL0",
+      "catalogue_index": 242,
+      "title": "March 08, 2023 Live Tape Reading \\ Fed Chair Testimony 10am",
+      "status": "PENDING",
+      "available_cues": 580,
+      "priority": 1
+    },
+    {
+      "video_id": "WKKnlIIkBTk",
+      "catalogue_index": 243,
+      "title": "NWOG - New Week Opening Gap",
+      "status": "PENDING",
+      "available_cues": 81,
+      "priority": 1
+    },
+    {
+      "video_id": "JlbQ-Z88NsI",
+      "catalogue_index": 244,
+      "title": "Drawdown Mitigation - March 09, 2023 Homework Assignment",
+      "status": "PENDING",
+      "available_cues": 9,
+      "priority": 1
+    },
+    {
+      "video_id": "UPKUqW_eaas",
+      "catalogue_index": 245,
+      "title": "AM Session - Opening Range Gap + Mitigation Block & FVG Entry",
+      "status": "PENDING",
+      "available_cues": 11,
+      "priority": 1
+    },
+    {
+      "video_id": "hQ379EuyNKQ",
+      "catalogue_index": 246,
+      "title": "March 21, 2023 Live Tape Reading - Conquering Your Fear Of Entries",
+      "status": "PENDING",
+      "available_cues": 736,
+      "priority": 1
+    },
+    {
+      "video_id": "NkwqJBzgQwo",
+      "catalogue_index": 247,
+      "title": "ICT Emini S&P 500 Review - March 27, 2023",
+      "status": "PENDING",
+      "available_cues": 102,
+      "priority": 1
+    },
+    {
+      "video_id": "LN1nfYp4dBw",
+      "catalogue_index": 248,
+      "title": "March 30, 2023 Live Tape Reading - AM Session",
+      "status": "PENDING",
+      "available_cues": 696,
+      "priority": 1
+    },
+    {
+      "video_id": "DNi9S3_NA44",
+      "catalogue_index": 249,
+      "title": "March 31, 2023 Live Tape Reading - AM Session",
+      "status": "PENDING",
+      "available_cues": 961,
+      "priority": 1
+    },
+    {
+      "video_id": "hcSGlyfgKgA",
+      "catalogue_index": 262,
+      "title": "Tuesday May 23, 2023 Forex & Spooz Market Review",
+      "status": "PARTIAL_ASSISTANT_REVIEW",
+      "available_cues": 336,
+      "priority": 1
+    },
+    {
+      "video_id": "ZfnY2SH3G24",
+      "catalogue_index": 263,
+      "title": "Wednesday May 24, 2023 Forex & Spooz Market Review",
+      "status": "PENDING",
+      "available_cues": 137,
+      "priority": 1
+    },
+    {
+      "video_id": "ZtLMTXv-Dr0",
+      "catalogue_index": 264,
+      "title": "ICT Mentorship 2023 - Immediate Rebalance & Institutional Order Flow",
+      "status": "PENDING",
+      "available_cues": 507,
+      "priority": 1
+    },
+    {
+      "video_id": "wWvXWmC_gqU",
+      "catalogue_index": 265,
+      "title": "Tuesday June 06, 2023 \\ Market Review & Price Action Lecture",
+      "status": "PENDING",
+      "available_cues": 5000,
+      "priority": 1
+    },
+    {
+      "video_id": "sfRO5LrTgTA",
+      "catalogue_index": 266,
+      "title": "ICT Mentorship 2023 - Advanced Gap Theory Introduction",
+      "status": "PENDING",
+      "available_cues": 1209,
+      "priority": 1
+    },
+    {
+      "video_id": "qA9SCu4gGaU",
+      "catalogue_index": 267,
+      "title": "ICT Mentorship 2023 - Market Review & When Wrong Is Still \"Right\"",
+      "status": "PENDING",
+      "available_cues": 188,
+      "priority": 1
+    },
+    {
+      "video_id": "_YTK5uXBe4o",
+      "catalogue_index": 268,
+      "title": "Tuesday June 13, 2023 \\ CPI & Price Action Lecture",
+      "status": "PENDING",
+      "available_cues": 581,
+      "priority": 1
+    },
+    {
+      "video_id": "rx15_eN9sxI",
+      "catalogue_index": 269,
+      "title": "Thursday June 15, 2023 \\ ICT Price Action Workshop",
+      "status": "PENDING",
+      "available_cues": 1889,
+      "priority": 1
+    },
+    {
+      "video_id": "wTR-vhOdMgo",
+      "catalogue_index": 270,
+      "title": "ICT Mentorship 2023 - T.G.I.F. Setup",
+      "status": "PENDING",
+      "available_cues": 284,
+      "priority": 1
+    },
+    {
+      "video_id": "V0uV6lcgobQ",
+      "catalogue_index": 272,
+      "title": "ICT Mentorship 2023 - Market Review June 24, 2023",
+      "status": "PENDING",
+      "available_cues": 95,
+      "priority": 1
+    },
+    {
+      "video_id": "Sf_uYZBWTrA",
+      "catalogue_index": 273,
+      "title": "2023 ICT Mentorship - Opening Range Gap Repricing Macro",
+      "status": "PENDING",
+      "available_cues": 125,
+      "priority": 1
+    },
+    {
+      "video_id": "1HtRfFYiwO0",
+      "catalogue_index": 274,
+      "title": "ICT Mentorship 2023 - Advanced Theory On ICT Breaker",
+      "status": "PENDING",
+      "available_cues": 395,
+      "priority": 1
+    },
+    {
+      "video_id": "3FGFEuaDSOc",
+      "catalogue_index": 275,
+      "title": "ICT Mentorship 2023 - July 07, 2023 Live NQ Futures Trading",
+      "status": "PENDING",
+      "available_cues": 82,
+      "priority": 1
+    },
+    {
+      "video_id": "AKg_r0DIa3k",
+      "catalogue_index": 276,
+      "title": "ICT Mentorship 2023 Market Review - July 09, 2023",
+      "status": "PENDING",
+      "available_cues": 206,
+      "priority": 1
+    },
+    {
+      "video_id": "fXVJnBVizYY",
+      "catalogue_index": 277,
+      "title": "ICT Mentorship 2023 - Algorithmic Price Delivery & Time Macros Intro",
+      "status": "SOURCE_QUARANTINED",
+      "available_cues": 82,
+      "priority": 1
+    },
+    {
+      "video_id": "N4am6Jsp8N8",
+      "catalogue_index": 278,
+      "title": "ICT Mentorship 2023 - Market Review & Commentary",
+      "status": "PENDING",
+      "available_cues": 323,
+      "priority": 1
+    },
+    {
+      "video_id": "vN2BkfyRWE4",
+      "catalogue_index": 279,
+      "title": "ICT Mentorship 2023 - Deep Dive Into Institutional Order Flow",
+      "status": "PENDING",
+      "available_cues": 643,
+      "priority": 1
+    },
+    {
+      "video_id": "cgsltOB736E",
+      "catalogue_index": 280,
+      "title": "ICT Mentorship 2023 - ICT Reaper PD Array Introduction & Market Review",
+      "status": "PENDING",
+      "available_cues": 156,
+      "priority": 1
+    },
+    {
+      "video_id": "OnFifO44Kzo",
+      "catalogue_index": 281,
+      "title": "ICT Mentorship 2023 - July 23, 2023 Market Review",
+      "status": "PENDING",
+      "available_cues": 88,
+      "priority": 1
+    },
+    {
+      "video_id": "FQqwmDJOtxk",
+      "catalogue_index": 282,
+      "title": "ICT Mentorship 2023 - Proper Learning & The Importance Of Journaling",
+      "status": "PENDING",
+      "available_cues": 476,
+      "priority": 1
+    },
+    {
+      "video_id": "_NWG_eJRBpU",
+      "catalogue_index": 283,
+      "title": "ICT Mentorship 2023 - Market Review & August Trading Concerns",
+      "status": "PENDING",
+      "available_cues": 161,
+      "priority": 1
+    },
+    {
+      "video_id": "XODINFwpeaw",
+      "catalogue_index": 284,
+      "title": "ICT Mentorship 2023 - August 14, 2023 NQ Futures Review",
+      "status": "PENDING",
+      "available_cues": 100,
+      "priority": 1
+    },
+    {
+      "video_id": "0xYpeVRi_qs",
+      "catalogue_index": 285,
+      "title": "ICT Mentorship 2023 - August 15, 2023 ES & NQ Futures Review",
+      "status": "PENDING",
+      "available_cues": 125,
+      "priority": 1
+    },
+    {
+      "video_id": "JpdNsPE0kWQ",
+      "catalogue_index": 286,
+      "title": "ICT Mentorship 2023 - August 16, 2023 ES & NQ Futures Review",
+      "status": "PENDING",
+      "available_cues": 65,
+      "priority": 1
+    },
+    {
+      "video_id": "vE2QxG7NoZE",
+      "catalogue_index": 287,
+      "title": "ICT Mentorship 2023 - August 18, 2023 ES Futures Live Executions [Silent]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "VdGihxSuSRk",
+      "catalogue_index": 288,
+      "title": "ICT Mentorship 2023 - August 19, 2023 Weekend Commentary",
+      "status": "PENDING",
+      "available_cues": 197,
+      "priority": 1
+    },
+    {
+      "video_id": "6-KNSUN-UaU",
+      "catalogue_index": 289,
+      "title": "ICT Mentorship 2023 - August 18, 2023 Live trade Walkthrough",
+      "status": "PENDING",
+      "available_cues": 225,
+      "priority": 1
+    },
+    {
+      "video_id": "bDOyDitJZi4",
+      "catalogue_index": 290,
+      "title": "ICT Mentorship 2023 - August 21, 2023 Index Futures Review",
+      "status": "PENDING",
+      "available_cues": 85,
+      "priority": 1
+    },
+    {
+      "video_id": "z4GVg3aPnAk",
+      "catalogue_index": 291,
+      "title": "ICT Mentorship 2023 - August 22, 2023 Forex & Index Futures Review",
+      "status": "SOURCE_QUARANTINED",
+      "available_cues": 88,
+      "priority": 1
+    },
+    {
+      "video_id": "QOogqHrBzeY",
+      "catalogue_index": 292,
+      "title": "2023 ICT Mentorship - Live Trade Interactive Study 09/01/23 NFP NQ Short",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "h0yOpwSilnE",
+      "catalogue_index": 293,
+      "title": "2023 ICT Mentorship - Review Of The Interactive Study 09/01/23 NFP NQ Short",
+      "status": "PENDING",
+      "available_cues": 49,
+      "priority": 1
+    },
+    {
+      "video_id": "bhYcXBI3z9U",
+      "catalogue_index": 294,
+      "title": "ICT Mentorship 2023 - September 05, 2023 Live ES & NQ Tape Reading",
+      "status": "PENDING",
+      "available_cues": 627,
+      "priority": 1
+    },
+    {
+      "video_id": "1PkTGkOjoGo",
+      "catalogue_index": 295,
+      "title": "ICT Mentorship 2023 - September 08, 2023 Review & ICT Ma Deuce Model",
+      "status": "PENDING",
+      "available_cues": 160,
+      "priority": 1
+    },
+    {
+      "video_id": "9MLRE-n6St8",
+      "catalogue_index": 296,
+      "title": "ICT Mentorship 2023 - September 12, 2023 NQ Algorithmic Price Delivery",
+      "status": "PENDING",
+      "available_cues": 904,
+      "priority": 1
+    },
+    {
+      "video_id": "CcNOk_3O5wk",
+      "catalogue_index": 297,
+      "title": "ICT Mentorship 2023 - September 14, 2023 Market Review",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "2AC4IKTj2ug",
+      "catalogue_index": 298,
+      "title": "ICT Mentorship 2023 - September 18, 2023 NQ Market Review",
+      "status": "PENDING",
+      "available_cues": 44,
+      "priority": 1
+    },
+    {
+      "video_id": "LPmMtq9jLm8",
+      "catalogue_index": 299,
+      "title": "ICT Mentorship 2023 - September 21, 2023 Commentary Livestream",
+      "status": "PENDING",
+      "available_cues": 308,
+      "priority": 1
+    },
+    {
+      "video_id": "tjnir-o4rsQ",
+      "catalogue_index": 300,
+      "title": "ICT Mentorship 2023 - September 22, 2023 - High Frequency Trading Algorithmic Entries",
+      "status": "PENDING",
+      "available_cues": 52,
+      "priority": 1
+    },
+    {
+      "video_id": "qPqwrcFBsDw",
+      "catalogue_index": 301,
+      "title": "Do You Know The Difference Between Demo & Real Broker Live Funds?",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "PejS-nZTQlE",
+      "catalogue_index": 302,
+      "title": "ICT Mentorship 2023 - September 27, 2023 Market Review Commentary",
+      "status": "PENDING",
+      "available_cues": 462,
+      "priority": 1
+    },
+    {
+      "video_id": "v_iJlBKYmUc",
+      "catalogue_index": 303,
+      "title": "ICT Mentorship 2023 - September 27, 2023 PM Session Market Review",
+      "status": "PENDING",
+      "available_cues": 449,
+      "priority": 1
+    },
+    {
+      "video_id": "GJeEU2oIh24",
+      "catalogue_index": 304,
+      "title": "ICT Mentorship 2023 - September 29, 2023 Market Commentary & Review",
+      "status": "PENDING",
+      "available_cues": 583,
+      "priority": 1
+    },
+    {
+      "video_id": "VElIka5sk0E",
+      "catalogue_index": 305,
+      "title": "ICT Mentorship 2023 - October 04, 2023 Market Commentary & Review",
+      "status": "PENDING",
+      "available_cues": 521,
+      "priority": 1
+    },
+    {
+      "video_id": "uzPM1CuSSx8",
+      "catalogue_index": 306,
+      "title": "ICT Mentorship 2023 - October 15, 2023 Market Review",
+      "status": "PENDING",
+      "available_cues": 862,
+      "priority": 1
+    },
+    {
+      "video_id": "IU673ZUGuxI",
+      "catalogue_index": 307,
+      "title": "ICT Mentorship 2023 - October 22, 2023 Market Review",
+      "status": "PENDING",
+      "available_cues": 195,
+      "priority": 1
+    },
+    {
+      "video_id": "iKsIbUblSWM",
+      "catalogue_index": 308,
+      "title": "ICT Mentorship 2023 - Market Maker Models",
+      "status": "PENDING",
+      "available_cues": 337,
+      "priority": 1
+    },
+    {
+      "video_id": "eIdnsgq-G7A",
+      "catalogue_index": 309,
+      "title": "ICT Mentorship Core Content - Month 12 - Long Term Top Down Analysis",
+      "status": "PENDING",
+      "available_cues": 325,
+      "priority": 1
+    },
+    {
+      "video_id": "Ad-votrg6WQ",
+      "catalogue_index": 310,
+      "title": "ICT Mentorship Core Content - Month 12 - Intermediate Term Top Down Analysis",
+      "status": "PENDING",
+      "available_cues": 286,
+      "priority": 1
+    },
+    {
+      "video_id": "3B7Reg2Yiqs",
+      "catalogue_index": 311,
+      "title": "ICT Mentorship Core Content - Month 12 - Short Term Top Down Analysis",
+      "status": "PENDING",
+      "available_cues": 207,
+      "priority": 1
+    },
+    {
+      "video_id": "Oec_0NM_OeY",
+      "catalogue_index": 312,
+      "title": "ICT Mentorship Core Content - Month 12 - Intraday Top Down Analysis",
+      "status": "PENDING",
+      "available_cues": 389,
+      "priority": 1
+    },
+    {
+      "video_id": "u5S6Zt1ZIpA",
+      "catalogue_index": 313,
+      "title": "ICT Mentorship Core Content - Month 11 - Commodity Mega-Trades",
+      "status": "PENDING",
+      "available_cues": 229,
+      "priority": 1
+    },
+    {
+      "video_id": "CxwFON8MLB0",
+      "catalogue_index": 314,
+      "title": "ICT Mentorship Core Content - Month 11 - Forex & Currency Mega-Trades",
+      "status": "PENDING",
+      "available_cues": 131,
+      "priority": 1
+    },
+    {
+      "video_id": "kny8Kpisvoc",
+      "catalogue_index": 315,
+      "title": "ICT Mentorship Core Content - Month 11 - Stock Mega-Trades",
+      "status": "PENDING",
+      "available_cues": 289,
+      "priority": 1
+    },
+    {
+      "video_id": "At43V93rnDQ",
+      "catalogue_index": 316,
+      "title": "ICT Mentorship Core Content - Month 11 - Bond Mega-Trades",
+      "status": "PENDING",
+      "available_cues": 218,
+      "priority": 1
+    },
+    {
+      "video_id": "9H4iaaQXV5Y",
+      "catalogue_index": 317,
+      "title": "ICT Mentorship Core Content - Month 10 - Commitment Of Traders",
+      "status": "PENDING",
+      "available_cues": 218,
+      "priority": 1
+    },
+    {
+      "video_id": "ygtvWKyOzHQ",
+      "catalogue_index": 318,
+      "title": "ICT Mentorship Core Content - Month 10 - Relative Strength Analysis - Accumulation & Distribution",
+      "status": "PENDING",
+      "available_cues": 222,
+      "priority": 1
+    },
+    {
+      "video_id": "R2NjnYozhdw",
+      "catalogue_index": 319,
+      "title": "ICT Mentorship Core Content - Month 10 - Commodity Seasonals Tendencies - My Personal Favorites",
+      "status": "PENDING",
+      "available_cues": 229,
+      "priority": 1
+    },
+    {
+      "video_id": "WsolkBzpDOQ",
+      "catalogue_index": 320,
+      "title": "ICT Mentorship Core Content - Month 10 - Premium Vs. Carrying Charge Market",
+      "status": "PENDING",
+      "available_cues": 111,
+      "priority": 1
+    },
+    {
+      "video_id": "qRYkTWePXF0",
+      "catalogue_index": 321,
+      "title": "ICT Mentorship Core Content - Month 10 - Open Interest Secrets & Smart Money Footprints",
+      "status": "PENDING",
+      "available_cues": 117,
+      "priority": 1
+    },
+    {
+      "video_id": "CGbSpa_9Z9Y",
+      "catalogue_index": 322,
+      "title": "ICT Mentorship Core Content - Month 10 - Bond Trading - Basics & Opening Range Concept",
+      "status": "PENDING",
+      "available_cues": 88,
+      "priority": 1
+    },
+    {
+      "video_id": "JpV-J31mxhg",
+      "catalogue_index": 323,
+      "title": "ICT Mentorship Core Content - Month 10 - Bond Trading - Split Session Rules",
+      "status": "PENDING",
+      "available_cues": 93,
+      "priority": 1
+    },
+    {
+      "video_id": "RgpxhuVp5Xg",
+      "catalogue_index": 324,
+      "title": "ICT Mentorship Core Content - Month 10 - Bond Trading - Consolidation Days",
+      "status": "PENDING",
+      "available_cues": 154,
+      "priority": 1
+    },
+    {
+      "video_id": "S0ouOvtjV2I",
+      "catalogue_index": 325,
+      "title": "ICT Mentorship Core Content - Month 10 - Bond Trading - Trending Days",
+      "status": "PENDING",
+      "available_cues": 115,
+      "priority": 1
+    },
+    {
+      "video_id": "ORbtHOUzAIM",
+      "catalogue_index": 326,
+      "title": "ICT Mentorship Core Content - Month 10 - Index Futures - Basics & Opening Range Concept",
+      "status": "PENDING",
+      "available_cues": 60,
+      "priority": 1
+    },
+    {
+      "video_id": "wWCKTEhVp2o",
+      "catalogue_index": 327,
+      "title": "ICT Mentorship Core Content - Month 10 - Index Futures - AM Trend",
+      "status": "PENDING",
+      "available_cues": 97,
+      "priority": 1
+    },
+    {
+      "video_id": "qZg_5bac518",
+      "catalogue_index": 328,
+      "title": "ICT Mentorship Core Content - Month 10 - Index Futures - PM Trend",
+      "status": "PENDING",
+      "available_cues": 64,
+      "priority": 1
+    },
+    {
+      "video_id": "P5pyzmgZA1s",
+      "catalogue_index": 329,
+      "title": "ICT Mentorship Core Content - Month 10 - Index Futures - Projected Range & Objectives",
+      "status": "PENDING",
+      "available_cues": 93,
+      "priority": 1
+    },
+    {
+      "video_id": "yWBxZsbmK1U",
+      "catalogue_index": 330,
+      "title": "ICT Mentorship Core Content - Month 10 - Index Futures - Index Trade Setups",
+      "status": "PENDING",
+      "available_cues": 107,
+      "priority": 1
+    },
+    {
+      "video_id": "rlTl8QKpqCU",
+      "catalogue_index": 331,
+      "title": "ICT Mentorship Core Content - Month 10 - Stock Trading - Seasonals & Monthly Swings",
+      "status": "PENDING",
+      "available_cues": 119,
+      "priority": 1
+    },
+    {
+      "video_id": "rcO8-nb3S0Q",
+      "catalogue_index": 332,
+      "title": "ICT Mentorship Core Content - Month 10 - Stock Trading - Building Buy Watchlists",
+      "status": "PENDING",
+      "available_cues": 109,
+      "priority": 1
+    },
+    {
+      "video_id": "dH381VCOVl0",
+      "catalogue_index": 333,
+      "title": "ICT Mentorship Core Content - Month 10 - Stock Trading - Building Sell Watchlists",
+      "status": "PENDING",
+      "available_cues": 76,
+      "priority": 1
+    },
+    {
+      "video_id": "cv-fwKKXrwQ",
+      "catalogue_index": 334,
+      "title": "ICT Mentorship Core Content - Month 10 - Stock Trading - Using Options",
+      "status": "PENDING",
+      "available_cues": 203,
+      "priority": 1
+    },
+    {
+      "video_id": "gs3KMgz84yc",
+      "catalogue_index": 335,
+      "title": "ICT Mentorship Core Content - Month 10 - Importance Of Multi-Asset Analysis",
+      "status": "PENDING",
+      "available_cues": 142,
+      "priority": 1
+    },
+    {
+      "video_id": "_TNhWRPa6GA",
+      "catalogue_index": 336,
+      "title": "ICT Mentorship Core Content - Month 09 - The Sentiment Effect",
+      "status": "PENDING",
+      "available_cues": 71,
+      "priority": 1
+    },
+    {
+      "video_id": "zanmou0ic5U",
+      "catalogue_index": 337,
+      "title": "ICT Mentorship Core Content - Month 09 - Filling The Numbers",
+      "status": "PENDING",
+      "available_cues": 169,
+      "priority": 1
+    },
+    {
+      "video_id": "km0haQkTalc",
+      "catalogue_index": 338,
+      "title": "ICT Mentorship Core Content - Month 09 - 20 Pips Per Day",
+      "status": "PENDING",
+      "available_cues": 103,
+      "priority": 1
+    },
+    {
+      "video_id": "g7jchu4g31c",
+      "catalogue_index": 339,
+      "title": "ICT Mentorship Core Content - Month 09 -  Trading In Consolidations",
+      "status": "PENDING",
+      "available_cues": 119,
+      "priority": 1
+    },
+    {
+      "video_id": "KrGTimL3YRQ",
+      "catalogue_index": 340,
+      "title": "ICT Mentorship Core Content - Month 09 - Trading Market Reversals",
+      "status": "PENDING",
+      "available_cues": 221,
+      "priority": 1
+    },
+    {
+      "video_id": "OVfn-gDk2dE",
+      "catalogue_index": 341,
+      "title": "ICT Mentorship Core Content - Month 09 - Bread & Butter Buy Setups",
+      "status": "PENDING",
+      "available_cues": 198,
+      "priority": 1
+    },
+    {
+      "video_id": "-oMtfDvc18Y",
+      "catalogue_index": 342,
+      "title": "ICT Mentorship Core Content - Month 09 - Bread & Butter Sell Setups",
+      "status": "PENDING",
+      "available_cues": 145,
+      "priority": 1
+    },
+    {
+      "video_id": "cqf8nH54bb8",
+      "catalogue_index": 343,
+      "title": "ICT Mentorship Core Content - Month 09 - ICT Day Trade Routine",
+      "status": "PENDING",
+      "available_cues": 327,
+      "priority": 1
+    },
+    {
+      "video_id": "-cXnnHjy9s0",
+      "catalogue_index": 344,
+      "title": "ICT Mentorship Core Content - Month 08 - Essentials To ICT Daytrading",
+      "status": "PENDING",
+      "available_cues": 277,
+      "priority": 1
+    },
+    {
+      "video_id": "_2nUKLAD9ig",
+      "catalogue_index": 345,
+      "title": "ICT Mentorship Core Content - Month 08 - Defining The Daily Range",
+      "status": "PENDING",
+      "available_cues": 55,
+      "priority": 1
+    },
+    {
+      "video_id": "nI1AMOC1pro",
+      "catalogue_index": 346,
+      "title": "ICT Mentorship Core Content - Month 08 - Central Bank Dealers Range",
+      "status": "PENDING",
+      "available_cues": 91,
+      "priority": 1
+    },
+    {
+      "video_id": "JKzEhfwV1dY",
+      "catalogue_index": 347,
+      "title": "ICT Mentorship Core Content - Month 08 - Projecting Daily Highs & Lows",
+      "status": "PENDING",
+      "available_cues": 172,
+      "priority": 1
+    },
+    {
+      "video_id": "eU8WcUftUtY",
+      "catalogue_index": 348,
+      "title": "ICT Mentorship Core Content - Month 08 - Intraday Profiles",
+      "status": "PENDING",
+      "available_cues": 120,
+      "priority": 1
+    },
+    {
+      "video_id": "stK2gNqhLaM",
+      "catalogue_index": 349,
+      "title": "ICT Mentorship Core Content - Month 08 - When To Avoid The London Session",
+      "status": "PENDING",
+      "available_cues": 211,
+      "priority": 1
+    },
+    {
+      "video_id": "5Z_3NbclMSY",
+      "catalogue_index": 350,
+      "title": "ICT Mentorship Core Content - Month 08 - High Probability Daytrade Setups",
+      "status": "PENDING",
+      "available_cues": 159,
+      "priority": 1
+    },
+    {
+      "video_id": "1MnfiqKx5Uo",
+      "catalogue_index": 351,
+      "title": "ICT Mentorship Core Content - Month 08 - Integrating Daytrades With HTF Trade Entries",
+      "status": "PENDING",
+      "available_cues": 131,
+      "priority": 1
+    },
+    {
+      "video_id": "mQA8jCem9d0",
+      "catalogue_index": 352,
+      "title": "ICT Mentorship Core Content - Month 07 - Short Term Trading Using Monthly & Weekly Ranges",
+      "status": "PENDING",
+      "available_cues": 264,
+      "priority": 1
+    },
+    {
+      "video_id": "wFjeUzJys7w",
+      "catalogue_index": 353,
+      "title": "ICT Mentorship Core Content - Month 07 - Short Term Trading Defining Weekly Range Profiles",
+      "status": "PENDING",
+      "available_cues": 62,
+      "priority": 1
+    },
+    {
+      "video_id": "hbE8S5FSdtQ",
+      "catalogue_index": 354,
+      "title": "ICT Mentorship Core Content - Month 07 - Short Term Trading Market Maker Manipulation Templates",
+      "status": "PENDING",
+      "available_cues": 235,
+      "priority": 1
+    },
+    {
+      "video_id": "YV4fEF4d2wA",
+      "catalogue_index": 355,
+      "title": "ICT Mentorship Core Content - Month 07 - Short Term Trading Blending IPDA Data Ranges & PD Arrays",
+      "status": "PENDING",
+      "available_cues": 76,
+      "priority": 1
+    },
+    {
+      "video_id": "y0lVKWLsZeM",
+      "catalogue_index": 356,
+      "title": "ICT Mentorship Core Content - Month 07 - Short Term Trading Low Resistance Liquidity Runs Part 1",
+      "status": "PENDING",
+      "available_cues": 128,
+      "priority": 1
+    },
+    {
+      "video_id": "O69iFqP1j7o",
+      "catalogue_index": 357,
+      "title": "ICT Mentorship Core Content - Month 07 - Short Term Trading Low Resistance Liquidity Runs Part 2",
+      "status": "PENDING",
+      "available_cues": 151,
+      "priority": 1
+    },
+    {
+      "video_id": "jvc105qaCJs",
+      "catalogue_index": 358,
+      "title": "ICT Mentorship Core Content - Month 07 - Intraweek Market Reversals & Overlapping Models",
+      "status": "PENDING",
+      "available_cues": 162,
+      "priority": 1
+    },
+    {
+      "video_id": "LBlK6JB0QS0",
+      "catalogue_index": 359,
+      "title": "ICT Mentorship Core Content - Month 07 - One Shot One Kill Model",
+      "status": "PENDING",
+      "available_cues": 209,
+      "priority": 1
+    },
+    {
+      "video_id": "Xs1i0aIeTME",
+      "catalogue_index": 361,
+      "title": "ICT Mentorship Core Content - Month 06 - Elements To Successful Swing Trading",
+      "status": "PENDING",
+      "available_cues": 143,
+      "priority": 1
+    },
+    {
+      "video_id": "g--tikwaupk",
+      "catalogue_index": 362,
+      "title": "ICT Mentorship Core Content - Month 06 - Classic Swing Trading Approach",
+      "status": "PENDING",
+      "available_cues": 234,
+      "priority": 1
+    },
+    {
+      "video_id": "osRUnIpGIJ0",
+      "catalogue_index": 363,
+      "title": "ICT Mentorship Core Content - Month 06 - High Probability Swing Trade Setups In Bull Markets",
+      "status": "PENDING",
+      "available_cues": 216,
+      "priority": 1
+    },
+    {
+      "video_id": "soY9zX3gt2U",
+      "catalogue_index": 364,
+      "title": "ICT Mentorship Core Content - Month 06 - High Probability Swing Trade Setups In Bear Markets",
+      "status": "PENDING",
+      "available_cues": 142,
+      "priority": 1
+    },
+    {
+      "video_id": "Hoo_wTMgdcY",
+      "catalogue_index": 366,
+      "title": "ICT Mentorship Core Content - Month 06 - Keys To Selecting Markets That Will Move Explosively",
+      "status": "PENDING",
+      "available_cues": 171,
+      "priority": 1
+    },
+    {
+      "video_id": "VL4YLTRerHY",
+      "catalogue_index": 367,
+      "title": "ICT Mentorship Core Content - Month 06 - The Million Dollar Swing Setup",
+      "status": "PENDING",
+      "available_cues": 203,
+      "priority": 1
+    },
+    {
+      "video_id": "n7SPAK_tpN8",
+      "catalogue_index": 368,
+      "title": "ICT Mentorship Core Content - Month 05 - Quarterly Shifts & IPDA Data Ranges",
+      "status": "PENDING",
+      "available_cues": 300,
+      "priority": 1
+    },
+    {
+      "video_id": "BkmZgjuYREU",
+      "catalogue_index": 369,
+      "title": "ICT Mentorship Core Content - Month 05 - Open Float",
+      "status": "PENDING",
+      "available_cues": 113,
+      "priority": 1
+    },
+    {
+      "video_id": "LRKtiysz4nA",
+      "catalogue_index": 370,
+      "title": "ICT Mentorship Core Content - Month 05 - Using IPDA Data Ranges",
+      "status": "PENDING",
+      "available_cues": 760,
+      "priority": 1
+    },
+    {
+      "video_id": "vqtA1S9JH34",
+      "catalogue_index": 371,
+      "title": "ICT Mentorship Core Content - Month 05 - Defining Open Float Liquidity Pools",
+      "status": "PENDING",
+      "available_cues": 149,
+      "priority": 1
+    },
+    {
+      "video_id": "xRjKtUEKkSE",
+      "catalogue_index": 372,
+      "title": "ICT Mentorship Core Content - Month 05 - Defining Institutional Swing Points",
+      "status": "PENDING",
+      "available_cues": 206,
+      "priority": 1
+    },
+    {
+      "video_id": "j0Z2EbuJXGU",
+      "catalogue_index": 451,
+      "title": "2022 ICT Mentorship Episode 28",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "nHUtxQj5jks",
+      "catalogue_index": 467,
+      "title": "ICT Precision Trading Concepts - 1",
+      "status": "PENDING",
+      "available_cues": 451,
+      "priority": 1
+    },
+    {
+      "video_id": "lQDGiZhs5R8",
+      "catalogue_index": 468,
+      "title": "ICT Precision Trading Concepts - 2",
+      "status": "PENDING",
+      "available_cues": 209,
+      "priority": 1
+    },
+    {
+      "video_id": "nMmihrR-0Q0",
+      "catalogue_index": 469,
+      "title": "ICT Precision Trading Concepts - 3",
+      "status": "PENDING",
+      "available_cues": 159,
+      "priority": 1
+    },
+    {
+      "video_id": "7WM8qdkanIY",
+      "catalogue_index": 470,
+      "title": "ICT Forex - What New Traders Should Focus On",
+      "status": "PENDING",
+      "available_cues": 150,
+      "priority": 1
+    },
+    {
+      "video_id": "tlKC9nvLRK0",
+      "catalogue_index": 471,
+      "title": "ICT Forex - Considerations In Risk Management",
+      "status": "PENDING",
+      "available_cues": 122,
+      "priority": 1
+    },
+    {
+      "video_id": "xGFCIUFxsbw",
+      "catalogue_index": 472,
+      "title": "Essentials To ICT Market Structure",
+      "status": "PENDING",
+      "available_cues": 242,
+      "priority": 1
+    },
+    {
+      "video_id": "ley5HZs4bUM",
+      "catalogue_index": 473,
+      "title": "ICT Forex - The ICT Asian Killzone",
+      "status": "PENDING",
+      "available_cues": 69,
+      "priority": 1
+    },
+    {
+      "video_id": "G8OEsUAoIWE",
+      "catalogue_index": 474,
+      "title": "ICT Forex - The ICT London Killzone",
+      "status": "PENDING",
+      "available_cues": 109,
+      "priority": 1
+    },
+    {
+      "video_id": "plNN9n7nrxc",
+      "catalogue_index": 475,
+      "title": "ICT Forex - The ICT New York Killzone",
+      "status": "PENDING",
+      "available_cues": 85,
+      "priority": 1
+    },
+    {
+      "video_id": "3OEUIkkcmLE",
+      "catalogue_index": 476,
+      "title": "ICT Forex - The ICT London Close  Killzone",
+      "status": "PENDING",
+      "available_cues": 51,
+      "priority": 1
+    },
+    {
+      "video_id": "Yqio1Ja0lIQ",
+      "catalogue_index": 477,
+      "title": "ICT Forex - The Weekly Bias - Excellence In Short Term Trading",
+      "status": "PENDING",
+      "available_cues": 224,
+      "priority": 1
+    },
+    {
+      "video_id": "Sb9m_dxr4bI",
+      "catalogue_index": 478,
+      "title": "ICT Forex - Time & Price Theory",
+      "status": "PENDING",
+      "available_cues": 123,
+      "priority": 1
+    },
+    {
+      "video_id": "dIT4HTFYGGo",
+      "catalogue_index": 479,
+      "title": "ICT Forex - Accumulation - Manipulation - Distribution",
+      "status": "PENDING",
+      "available_cues": 106,
+      "priority": 1
+    },
+    {
+      "video_id": "JA0mLNJeytY",
+      "catalogue_index": 480,
+      "title": "ICT Forex - Implementing The Asian Range",
+      "status": "PENDING",
+      "available_cues": 233,
+      "priority": 1
+    },
+    {
+      "video_id": "xJMbva8SjzE",
+      "catalogue_index": 481,
+      "title": "ICT Forex - Understanding The ICT Judas Swing",
+      "status": "PENDING",
+      "available_cues": 82,
+      "priority": 1
+    },
+    {
+      "video_id": "vJvcZGGeTZU",
+      "catalogue_index": 482,
+      "title": "ICT Forex - Essentials To Trading The Daily Bias",
+      "status": "PENDING",
+      "available_cues": 110,
+      "priority": 1
+    },
+    {
+      "video_id": "T0JyGdJ28fM",
+      "catalogue_index": 483,
+      "title": "ICT Forex - Trading The Key Swing Points",
+      "status": "PENDING",
+      "available_cues": 49,
+      "priority": 1
+    },
+    {
+      "video_id": "RtMRykCZtC4",
+      "catalogue_index": 484,
+      "title": "ICT Forex - Money Management That Works",
+      "status": "PENDING",
+      "available_cues": 243,
+      "priority": 1
+    },
+    {
+      "video_id": "isXicdayBwA",
+      "catalogue_index": 485,
+      "title": "ICT Forex - The ICT Smart Money Technique or SMT",
+      "status": "PENDING",
+      "available_cues": 100,
+      "priority": 1
+    },
+    {
+      "video_id": "30petm6SZz0",
+      "catalogue_index": 486,
+      "title": "ICT Forex - The ICT ATM Method",
+      "status": "PENDING",
+      "available_cues": 77,
+      "priority": 1
+    },
+    {
+      "video_id": "nNEt9QTCTtk",
+      "catalogue_index": 488,
+      "title": "ICT Forex - Target Selection & Profit Objectives",
+      "status": "PENDING",
+      "available_cues": 98,
+      "priority": 1
+    },
+    {
+      "video_id": "QSqIeu9tjek",
+      "catalogue_index": 489,
+      "title": "ICT Forex - Trade Psychology & Effective Journaling",
+      "status": "PENDING",
+      "available_cues": 339,
+      "priority": 1
+    },
+    {
+      "video_id": "aWgYCfvnlqM",
+      "catalogue_index": 490,
+      "title": "ICT Forex - COT Insights For Effective Price Action Analysis",
+      "status": "PENDING",
+      "available_cues": 49,
+      "priority": 1
+    },
+    {
+      "video_id": "uxsmSMsuleY",
+      "catalogue_index": 491,
+      "title": "ICT Forex - How To Find Explosive Price Moves Before They Happen",
+      "status": "PENDING",
+      "available_cues": 87,
+      "priority": 1
+    },
+    {
+      "video_id": "YcAfcpUCbDw",
+      "catalogue_index": 492,
+      "title": "ICT Forex - Higher Time Frame Concepts",
+      "status": "PENDING",
+      "available_cues": 156,
+      "priority": 1
+    },
+    {
+      "video_id": "9CCrlTIrkxw",
+      "catalogue_index": 493,
+      "title": "ICT Forex - Secrets To Swing Trading",
+      "status": "PENDING",
+      "available_cues": 150,
+      "priority": 1
+    },
+    {
+      "video_id": "LPOaFOZekf8",
+      "catalogue_index": 517,
+      "title": "NQ Futures Price Action Commentary",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "9YS41OoxbX4",
+      "catalogue_index": 518,
+      "title": "Market Review On NQ December Price Delivery",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "sUGuNE31lG0",
+      "catalogue_index": 519,
+      "title": "Post FOMC AM Session Trade Example",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "50VbES10ULs",
+      "catalogue_index": 520,
+      "title": "NQ Dec Futures September FOMC Trade Review",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "9W4YpyAg5RY",
+      "catalogue_index": 521,
+      "title": "NQ Futures Review & 1st Presented Reflection FVG",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "-Qag-99u_BM",
+      "catalogue_index": 522,
+      "title": "NFP Review & New Student Encouragement",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "BD7kqmgdBU8",
+      "catalogue_index": 523,
+      "title": "Part 2 High Precision Secrets To Intraday Price Action",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "DRTvbkKmuAw",
+      "catalogue_index": 524,
+      "title": "Part 1 \\ High Precision Secrets To Intraday Price Action",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "J9G1j3-e1GU",
+      "catalogue_index": 525,
+      "title": "Predicting Session Low & High With Executions",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "e6XwTK4hVqI",
+      "catalogue_index": 526,
+      "title": "Reviewing High Resistance Liquidity Run Conditions - July 21, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "tp0qkiWCctw",
+      "catalogue_index": 527,
+      "title": "Trading In High Resistance Liquidity Run Conditions - July 21, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "LBrsLPKXZ2E",
+      "catalogue_index": 528,
+      "title": "Post PPI NQ Futures Commentary \\ Weekly Analysis Delivered - 07/15/2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "IF7dEkgWoO0",
+      "catalogue_index": 529,
+      "title": "Post CPI NQ Futures Commentary \\ Monday Analysis Delivered - 07/15/2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "N3qz13Hl-gg",
+      "catalogue_index": 530,
+      "title": "Analysis Delivering On NQ",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rbNhlJSXDaA",
+      "catalogue_index": 531,
+      "title": "Enigma FVG Projections & Protractions & Review \\ June 27, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "k2QLuxMIZio",
+      "catalogue_index": 532,
+      "title": "Teaching Calub Complex Opening Range Delivery \\ June 22, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "kzeFqGK9gCQ",
+      "catalogue_index": 533,
+      "title": "ICT Reaper FVG - Long NQ Terminus Daily V.I. \\ June 08, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "clG2IDpEcjE",
+      "catalogue_index": 534,
+      "title": "ICT 2026 Micro Emini S&P 500 Live Trade Execution \\ March 09, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "WVIjXP26AhQ",
+      "catalogue_index": 535,
+      "title": "ICT 2026 Smart Money Concepts Live Trade PreSession CISD \\ February 24, 2026",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rXgEMIJ1fQg",
+      "catalogue_index": 536,
+      "title": "From Vision To Execution",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "odS7IIktqOY",
+      "catalogue_index": 537,
+      "title": "August 30, 2024 PM Session Full Execution Regular Speed",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "zKCCYxm5Y1w",
+      "catalogue_index": 538,
+      "title": "Calub's Model - NQ Live Execution \\ August 19, 2024",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "xi0N9BG1Qvs",
+      "catalogue_index": 540,
+      "title": "ICT Charter Price Action Model 12 - Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "3xgtrXok-xs",
+      "catalogue_index": 541,
+      "title": "ICT Charter Price Action Model 12 - Scalping Intraday Model",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "pblXxWhnRz4",
+      "catalogue_index": 542,
+      "title": "ICT Charter Price Action Model 11 - Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "UtdXo9HJHKU",
+      "catalogue_index": 543,
+      "title": "ICT Charter Price Action Model 11 - Day Trading",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "E57WWIEjhvU",
+      "catalogue_index": 544,
+      "title": "ICT Charter Price Action Model 10 - Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "CTS27DsveNs",
+      "catalogue_index": 545,
+      "title": "ICT Charter Price Action Model 10 - Swing Trading",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "YIxurbDNrWM",
+      "catalogue_index": 546,
+      "title": "ICT Charter Price Action Model 9 - One Shot One Kill Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "twIPoG2TZ1o",
+      "catalogue_index": 547,
+      "title": "ICT Charter Price Action Model 9 - One Shot One Kill",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "F-8hPvSyIB4",
+      "catalogue_index": 548,
+      "title": "ICT Charter Price Action Model 8 - Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "fHp3JkxFFjU",
+      "catalogue_index": 549,
+      "title": "ICT Charter Price Action Model 8 - Targeting 6% Per Month",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "G4lhid5dh0I",
+      "catalogue_index": 550,
+      "title": "ICT Charter Price Action Model 7 - Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "oheyS8MUqno",
+      "catalogue_index": 551,
+      "title": "ICT Charter Price Action Model 7 - Supplementary Lesson",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "_7oZZ2bhEGU",
+      "catalogue_index": 552,
+      "title": "ICT Charter Price Action Model 7 - Universal Trading Model",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "beTnmkbuUjg",
+      "catalogue_index": 553,
+      "title": "ICT Charter Price Action Model 6 - Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "yC-gQhvexGg",
+      "catalogue_index": 554,
+      "title": "ICT Charter Price Action Model 6 \\ Buyside Trade Plan",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "5FTMSC4kLZM",
+      "catalogue_index": 555,
+      "title": "ICT Charter Price Action Model 6.3 - Supplementary Lesson",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "V0TFp7AvZqw",
+      "catalogue_index": 556,
+      "title": "ICT Charter Price Action Model 6.2 - Amplified Lesson",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "fAcnhdaowME",
+      "catalogue_index": 557,
+      "title": "ICT Charter Price Action Model 6 - Amplified Lesson",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "2z7SI7m0qDU",
+      "catalogue_index": 558,
+      "title": "ICT Tape Reading Price Action Livestream - January 24, 2024",
+      "status": "PENDING",
+      "available_cues": 925,
+      "priority": 1
+    },
+    {
+      "video_id": "ISfgcRLImNY",
+      "catalogue_index": 559,
+      "title": "ICT Tape Reading Price Action Livestream - January 23, 2024",
+      "status": "PENDING",
+      "available_cues": 913,
+      "priority": 1
+    },
+    {
+      "video_id": "BMYrtYMisnA",
+      "catalogue_index": 560,
+      "title": "ICT Charter Price Action Model 6 - Universal Trading Model",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "2fgXDt3T3XE",
+      "catalogue_index": 561,
+      "title": "ICT Price Action Model 5 \\ Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "NB7Bku099tU",
+      "catalogue_index": 562,
+      "title": "ICT Charter Price Action Model 5 \\ Trade Plan",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "bcp19tiJZA0",
+      "catalogue_index": 563,
+      "title": "ICT Charter Price Action Model 5 \\ Supplementary Lesson",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "JN_uaDDZ0rc",
+      "catalogue_index": 564,
+      "title": "ICT Charter Price Action Model 5 \\ Day Trading - Intraday Volatility Expansions",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "H05w52zQGdQ",
+      "catalogue_index": 565,
+      "title": "ICT Charter Price Action Model 4 \\ Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "SObhjCvXCNk",
+      "catalogue_index": 566,
+      "title": "ICT Charter Price Action Model #4 Supplementary Lesson",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "2CWIbdP1kZw",
+      "catalogue_index": 567,
+      "title": "ICT Charter Price Action Model #4 Position Trading",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "ze8jAMdmBqc",
+      "catalogue_index": 568,
+      "title": "ICT Charter Price Action Model 3 \\ Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "E0sA_SWIxKM",
+      "catalogue_index": 569,
+      "title": "ICT Charter Price Action Model 3 \\ Amplified Lecture",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "KQdsa7S1LoQ",
+      "catalogue_index": 570,
+      "title": "ICT Charter Price Action Model 2 \\ Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "s1gCDuzcukU",
+      "catalogue_index": 571,
+      "title": "ICT Charter Price Action Model 2 \\ Amplified Lecture",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "4f1vjQMlV50",
+      "catalogue_index": 572,
+      "title": "ICT Charter Price Action Model 1 \\ Trade Plan & Algorithmic Theory",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rNn0JkItAGo",
+      "catalogue_index": 573,
+      "title": "ICT Charter Price Action Model 1 \\ Amplified Lecture",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "vCvRrINpknI",
+      "catalogue_index": 574,
+      "title": "ICT Charter Price Action Model 1",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "-o4zXIhggFs",
+      "catalogue_index": 575,
+      "title": "March 23, 2023 Live Tape Reading - PM Session",
+      "status": "PENDING",
+      "available_cues": 441,
+      "priority": 1
+    },
+    {
+      "video_id": "ZpSwaiwGgt0",
+      "catalogue_index": 576,
+      "title": "March 15, 2023 Live Tape Reading",
+      "status": "PENDING",
+      "available_cues": 1093,
+      "priority": 1
+    },
+    {
+      "video_id": "CeHbSIx4Gjc",
+      "catalogue_index": 577,
+      "title": "March 02, 2023 Live Tape Reading [Silent - My Voice Is Gone Due To Illness]",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "twgtbikJtL0",
+      "catalogue_index": 578,
+      "title": "Shorting ES with Wick C.E. & Premium FVG To Discount Sellside Liquidity Premarket",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "_GKZoHIJpj0",
+      "catalogue_index": 579,
+      "title": "NQ Futures Live Execution & Trade Management",
+      "status": "PENDING",
+      "available_cues": 13,
+      "priority": 1
+    },
+    {
+      "video_id": "fVbJ5vCA-XM",
+      "catalogue_index": 580,
+      "title": "Live Trade Execution With \"Ends...\" Commentary 09/08/22",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "dXvFQO_Dmtg",
+      "catalogue_index": 581,
+      "title": "ICT Live Session - June 12, 2022",
+      "status": "PENDING",
+      "available_cues": 297,
+      "priority": 1
+    },
+    {
+      "video_id": "tczKBQ60BKM",
+      "catalogue_index": 582,
+      "title": "The Inner Circle Trader Live New York Session May 24, 2022",
+      "status": "PENDING",
+      "available_cues": 128,
+      "priority": 1
+    },
+    {
+      "video_id": "-bPi2i-zs9g",
+      "catalogue_index": 583,
+      "title": "The Inner Circle Trader Live Test Stream",
+      "status": "SOURCE_QUARANTINED",
+      "available_cues": 94,
+      "priority": 1
+    },
+    {
+      "video_id": "Qx87ZAANzyA",
+      "catalogue_index": 584,
+      "title": "NFP Liquidity Drill",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "ai2WZlA-d_w",
+      "catalogue_index": 585,
+      "title": "Buyside Liquidity Purge & Short Example part 2",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "rClFwdAr9DM",
+      "catalogue_index": 586,
+      "title": "Example of Buyside Liquidity Purge & Short",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "i4_TbWVmlpM",
+      "catalogue_index": 588,
+      "title": "Execution On EurUsd: 30 Pips Asian Range To Buyside Liquidity",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "BiRjR_kqBC0",
+      "catalogue_index": 589,
+      "title": "ICT Price Action Lesson: Major Moves With Seasonal Tendencies",
+      "status": "PENDING",
+      "available_cues": 325,
+      "priority": 1
+    },
+    {
+      "video_id": "PBzd2u4AgbE",
+      "catalogue_index": 590,
+      "title": "ICT Forex Price Action Lesson : Trending Days",
+      "status": "PENDING",
+      "available_cues": 224,
+      "priority": 1
+    },
+    {
+      "video_id": "7SUa7lw2zTw",
+      "catalogue_index": 591,
+      "title": "ICT Price Action Lesson:  Friday Asian Range Concept",
+      "status": "PENDING",
+      "available_cues": 206,
+      "priority": 1
+    },
+    {
+      "video_id": "aWFSvqxEfg8",
+      "catalogue_index": 592,
+      "title": "ICT Price Action Lecture:  Liquidity Purge & Revert",
+      "status": "PENDING",
+      "available_cues": 314,
+      "priority": 1
+    },
+    {
+      "video_id": "De64-j3rHlI",
+      "catalogue_index": 593,
+      "title": "ICT Price Action:  View Price With Institutional Perception",
+      "status": "PENDING",
+      "available_cues": 297,
+      "priority": 1
+    },
+    {
+      "video_id": "Utbl3Tv6UEg",
+      "catalogue_index": 594,
+      "title": "ICT Forex Price Action Lecture: Daytrading & Psychology",
+      "status": "PENDING",
+      "available_cues": 467,
+      "priority": 1
+    },
+    {
+      "video_id": "d1p7-SS0iD8",
+      "catalogue_index": 595,
+      "title": "ICT Price Action Lecture: Non-Farm Payroll Trade Conditions & The Coming Volatility Storm",
+      "status": "PENDING",
+      "available_cues": 154,
+      "priority": 1
+    },
+    {
+      "video_id": "AoXOBI0PqCE",
+      "catalogue_index": 596,
+      "title": "ICT Forex Price Action Lesson:  Trade Review, Brokers & MT4 Scams",
+      "status": "PENDING",
+      "available_cues": 505,
+      "priority": 1
+    },
+    {
+      "video_id": "_9QfSbpZTZA",
+      "catalogue_index": 597,
+      "title": "ICT Forex Price Action Lesson: Advanced IPDA Insights",
+      "status": "PENDING",
+      "available_cues": 267,
+      "priority": 1
+    },
+    {
+      "video_id": "q1vrarNcnfU",
+      "catalogue_index": 598,
+      "title": "ICT Forex Price Action Lesson:  GbpUsd Trade Recap & Price Action Lecture",
+      "status": "PENDING",
+      "available_cues": 396,
+      "priority": 1
+    },
+    {
+      "video_id": "nj0CMa4pvl4",
+      "catalogue_index": 599,
+      "title": "ICT Forex Price Action Lesson:  GbpUsd NYO MMS Model",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "VhSCEMvUNds",
+      "catalogue_index": 600,
+      "title": "ICT Forex Price Action Lesson:  London Close GbpUsd Scalp",
+      "status": "PENDING",
+      "available_cues": 1,
+      "priority": 1
+    },
+    {
+      "video_id": "EAQmnxWun-c",
+      "catalogue_index": 601,
+      "title": "ICT Forex Price Action Lesson:  EurUsd Market Maker Sell Model",
+      "status": "PENDING",
+      "available_cues": 88,
+      "priority": 1
+    },
+    {
+      "video_id": "PhwmtkNxxcA",
+      "catalogue_index": 602,
+      "title": "ICT Forex Price Action Lesson:  Cross Currency Relationships & HTF Institutional Order Flow",
+      "status": "PENDING",
+      "available_cues": 143,
+      "priority": 1
+    },
+    {
+      "video_id": "APjWO6oFNbk",
+      "catalogue_index": 603,
+      "title": "ICT Forex Price Action Lesson : GbpUsd London Close Short",
+      "status": "PENDING",
+      "available_cues": 57,
+      "priority": 1
+    },
+    {
+      "video_id": "_j_youagfes",
+      "catalogue_index": 604,
+      "title": "ICT Forex Price Action Lesson: Orderflow & Volume Imbalances",
+      "status": "PENDING",
+      "available_cues": 585,
+      "priority": 1
+    },
+    {
+      "video_id": "7PwoZyn7Wh4",
+      "catalogue_index": 605,
+      "title": "ICT Forex Price Action Lesson : Seek & Destroy Profile",
+      "status": "PENDING",
+      "available_cues": 80,
+      "priority": 1
+    },
+    {
+      "video_id": "JmcjMJQPFxs",
+      "catalogue_index": 606,
+      "title": "ICT Forex Price Action Lesson - IPDA Vs. Wyckoff Theory",
+      "status": "PENDING",
+      "available_cues": 643,
+      "priority": 1
+    },
+    {
+      "video_id": "R-t2apD7z50",
+      "catalogue_index": 607,
+      "title": "ICT Forex Price Action Lesson : EurUsd MRP",
+      "status": "PENDING",
+      "available_cues": 67,
+      "priority": 1
+    },
+    {
+      "video_id": "5xh6Z1DAO9I",
+      "catalogue_index": 608,
+      "title": "Forex Price Action Discussion - AudUsd",
+      "status": "PENDING",
+      "available_cues": 186,
+      "priority": 1
+    },
+    {
+      "video_id": "bkt4_qWnVZE",
+      "catalogue_index": 609,
+      "title": "ICT Mentorship - Learn How To Read Forex Price Action",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "RjFRTOKGviU",
+      "catalogue_index": 610,
+      "title": "Btc Update Dec 30 - Price Delivery & Mastery Example",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "AcKelqKMkr8",
+      "catalogue_index": 611,
+      "title": "ICT January 2018 NFP - Fiber & Cable Practice",
+      "status": "PENDING",
+      "available_cues": 70,
+      "priority": 1
+    },
+    {
+      "video_id": "2aoCzJvkAk0",
+      "catalogue_index": 613,
+      "title": "Silent ICT Price Action Practice Session Example - Cable",
+      "status": "SOURCE_MISSING",
+      "available_cues": 0,
+      "priority": 1
+    },
+    {
+      "video_id": "4xDFLEkPLzk",
+      "catalogue_index": 615,
+      "title": "ICT New York Live Session - October 10, 2017",
+      "status": "PENDING",
+      "available_cues": 186,
+      "priority": 1
+    }
+  ],
+  "automated_semantic_extraction_enabled": false
+}

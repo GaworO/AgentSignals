@@ -1,0 +1,15 @@
+{
+  "status": "LOCAL_CANDIDATE_NOT_DEPLOYED",
+  "base_commit": "75ad2a052a07c78ce52bb9d6945241be332ff9d9",
+  "new_paid_calls": 0,
+  "sha256": {
+    "ict_ai_trader.py": "668192081bc4950ad6b037843c28a325f06481b1d28af1ef8a42bd828562b114",
+    "services/tanja/ict_agent/budget.py": "38f4c4858b7ecbfce54122dc1666c6080a9f26b914a9af1b9497bc1b93fff7a1",
+    "services/tanja/ict_agent/reasoning.py": "1fa8bf3c5071264d18e2dc211e74e77819de9f4dfd75728504ae22ce588f4dd7",
+    "services/tanja/ict_agent/runtime.py": "933062b7c53543128c3a45ba4f5b3f9fec1c0443dfb43bccb6f902719cd1db50",
+    "services/tanja/ict_agent/integrated_web.py": "851f1ccdf2b65bc728b600a9d816b2f701512267ec84360beb3a3bb49e45d29c",
+    "services/tanja/ict_agent/experiment.py": "d1aee392818d9148e5d9d948805ea32bede427354d74048c10f6f14a5d14d7a9",
+    "services/tanja/ict_agent/static/app.js": "641fb04466e055f8be9d742c66f758454b014686f6f8d9f763d445d63293d3c5",
+    "services/tanja/ict_agent/static/view.html": "23473f6a332898b19654c06b613665ba40fb79adad530f4924ca6284e2b63971"
+  }
+}
