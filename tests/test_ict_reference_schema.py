@@ -15,9 +15,10 @@ def replace_strings(x,mapping):
 
 def test_lossless_full_packet_and_reference_domains(store):
     p=packet(store);original=copy.deepcopy(p);body=r.request_body(p,'fixture',2000)
-    wire=json.loads(body['input'][1]['content']);aliases=r.wire_references(p)
+    assert body['instructions']==r.PROMPT and isinstance(body['input'],str)
+    wire=json.loads(body['input']);aliases=r.wire_references(p)
     assert replace_strings(wire,{v:k for k,v in aliases.items()})==original==p
-    a=answer(p);ident=next(iter(p['evidence']));alias=aliases[ident]
+    a=replace_strings(answer(p),aliases);ident=next(iter(p['evidence']));alias=aliases[ident]
     a['changes']['market_ids']=[alias]
     validator=jsonschema.Draft202012Validator(body['text']['format']['schema'])
     validator.validate(a)
@@ -49,7 +50,7 @@ def test_raw_aliases_persist_and_prices_remain_exactly_validated(store):
 
 
 def test_norag_sources_empty_and_all_hypotheses_required(store):
-    p=r.prepare(store,store.snapshot()['id'],variant='B_LLM_NO_RAG');a=answer(p)
+    p=r.prepare(store,store.snapshot()['id'],variant='B_LLM_NO_RAG');a=replace_strings(answer(p),r.wire_references(p))
     validator=jsonschema.Draft202012Validator(r.wire_schema(p));validator.validate(a)
     a['selected_rule_ids']=['made-up-rule']
     with pytest.raises(jsonschema.ValidationError):validator.validate(a)
@@ -72,3 +73,24 @@ def test_large_reference_domain_never_truncates_and_limit_fails_before_call(stor
 def test_alias_collision_is_never_silently_reinterpreted(store):
     p=packet(store);p['audit_notes'].append({'text':'m0000'})
     with pytest.raises(ValueError,match='WIRE_REFERENCE_COLLISION'):r.wire_packet(p)
+
+
+def test_generic_no_evidence_claim_rejected_despite_valid_schema(store):
+    p=packet(store);a=answer(p);a['claims']=[]
+    a['explanation']='No market evidence was supplied'
+    jsonschema.Draft202012Validator(r.SCHEMA).validate(a)
+    with pytest.raises(ValueError,match='NO_OBSERVED_MARKET_GROUNDING'):r.validate(a,p,p['snapshot']['as_of'])
+
+
+def test_legacy_ungrounded_review_retained_but_not_reused_as_prior(store):
+    from services.tanja.ict_agent.observer import Observer
+    from services.tanja.ict_agent.tests.test_observer import FakeKnowledge,bar
+    p=packet(store);a=answer(p);at=p['snapshot']['as_of']
+    with patch.object(r,'prepare',return_value=p):r.review(store,p['snapshot']['id'],paid(store),transport=lambda _:response(a),clock=lambda:at)
+    with store.connect() as db:
+        raw=json.loads(db.execute('SELECT payload FROM reasoning_reviews').fetchone()[0]);raw['answer']['claims']=[]
+        db.execute('UPDATE reasoning_reviews SET payload=?',(json.dumps(raw),))
+    Observer(store,FakeKnowledge()).push([bar(at+300,symbol=x) for x in ('NQ','ES','MNQ')])
+    current=r.prepare(store,store.snapshot()['id'])
+    assert current['prior_validated_reasoning'] is None
+    with store.readonly() as db:assert db.execute('SELECT count(*) FROM reasoning_reviews').fetchone()[0]==1

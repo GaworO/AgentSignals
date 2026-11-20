@@ -117,7 +117,7 @@ def blueprint(cfg,authorize):
             if not db.execute("SELECT 1 FROM sqlite_master WHERE name='reasoning_reviews'").fetchone():return jsonify(status='NOT_CALLED',state='NOT_CALLED')
             row=db.execute('SELECT payload FROM reasoning_reviews WHERE snapshot_id=? AND variant=? ORDER BY requested_at DESC LIMIT 1',(ident,'C_LLM_RAG')).fetchone()
         if not row:return jsonify(status='NOT_CALLED',state='NOT_CALLED')
-        r=json.loads(row[0]);body={k:r.get(k) for k in ('status','model','answer','usage','elapsed_ms','error','validation','origin','requested_at','received_at','prompt_sha256','reasoning_version')}
+        r=json.loads(row[0]);body={k:r.get(k) for k in ('status','model','answer','usage','elapsed_ms','error','validation_error','validation','origin','requested_at','received_at','prompt_sha256','reasoning_version')}
         body['state']={'IN_FLIGHT':'RUNNING','VALIDATED_ADVISORY':'COMPLETED','REJECTED_RESPONSE':'VALIDATION_REJECTED','TRANSPORT_OUTCOME_UNKNOWN':'FAILED'}.get(r['status'],'FAILED')
         body['sources']=r.get('packet',{}).get('source_records',[])
         return jsonify(body)

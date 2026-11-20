@@ -17,7 +17,7 @@ from . import ai
 from .common import encode,digest
 from .risk import check as risk_check
 
-VERSION='ict-rag-reasoning-v4'
+VERSION='ict-rag-reasoning-v6'
 STR={'type':'string'};STRINGS={'type':'array','items':STR}
 FACT=ai.obj(dict(evidence_id=STR,field=STR,value={'type':'number'}))
 ASSESS=ai.obj(dict(hypothesis_id=STR,stance={'type':'string','enum':['SUPPORT','OPPOSE','UNRESOLVED']},
@@ -57,9 +57,21 @@ previous_snapshot_id. An invalidated thesis requires opposing observed market ev
 Source retrieval roles are search intentions, not proof that a rule supports a thesis.
 Do not turn a source's example, timeframe or exception into a universal entry rule.
 Return concise assessments: one short sentence per prose field, without repeating the
-whole context. Compare all hypotheses. Cite market observations using only the compact
+whole context. Compare all hypotheses. Even NO_TRADE must cite at least one supplied market observation when observations
+are present; an empty generic claim that data was not supplied is not analysis.
+Cite market observations using only the compact
 identifiers in the evidence dictionary; symbols and context section names are not
 market evidence identifiers. Reference strings are opaque, not prices or facts.'''
+
+
+def market_references(answer):
+    refs=set((answer.get('changes') or {}).get('market_ids',[]))
+    for a in answer.get('assessments',[]):
+        refs.update(a.get('supporting_market_ids',[]));refs.update(a.get('opposing_market_ids',[]))
+    for claim in answer.get('claims',[]):refs.update(f['evidence_id'] for f in claim.get('facts',[]))
+    plan=answer.get('proposal')
+    if plan:refs.update(plan[k]['evidence_id'] for k in ('entry','stop','target'))
+    return refs
 
 
 def initialize(store):
@@ -96,11 +108,15 @@ def prepare(store,snapshot_id,*,variant='C_LLM_RAG',max_bytes=350000,knowledge=N
     prior=None
     with (memory_store or store).readonly() as db:
         if include_prior and db.execute("SELECT 1 FROM sqlite_master WHERE name='reasoning_reviews'").fetchone():
-            r=db.execute("SELECT payload FROM reasoning_reviews WHERE status='VALIDATED_ADVISORY' AND variant=? AND snapshot_id!=? AND json_extract(payload,'$.answer.as_of')<? ORDER BY json_extract(payload,'$.answer.as_of') DESC LIMIT 1",(variant,snapshot_id,snapshot['as_of'])).fetchone()
-            if r:
-                raw=json.loads(r[0])
+            rows=db.execute("SELECT payload FROM reasoning_reviews WHERE status='VALIDATED_ADVISORY' AND variant=? AND snapshot_id!=? AND json_extract(payload,'$.answer.as_of')<? ORDER BY json_extract(payload,'$.answer.as_of') DESC",(variant,snapshot_id,snapshot['as_of']))
+            for row in rows:
+                raw=json.loads(row[0])
+                # Older schema-only responses may be formally valid yet cite no
+                # observation. Preserve them in audit, never seed market memory.
+                if not market_references(raw['answer']):continue
                 if raw.get('historical') or raw.get('received_at',float('inf'))<=snapshot['as_of']:
                     prior=dict(snapshot_id=raw['snapshot_id'],answer=raw['answer'],as_of=raw['answer']['as_of'])
+                    break
     p['prior_validated_reasoning']=prior;p['hypotheses']=hypotheses;p['variant']=variant
     # Keep full context, all event/range roots and recursive evidence. Bound only
     # redundant source text by whole records, never truncate a source or anchor.
@@ -181,6 +197,7 @@ def validate(answer,p,received_at,*,historical=False):
         prose(c['text'])
         if set(c['source_rule_ids'])-sources:raise ValueError('INVENTED_RULE')
         for f in c['facts']:numeric_binding(f,p)
+    if p['evidence'] and not market_references(answer):raise ValueError('NO_OBSERVED_MARKET_GROUNDING')
     plan=answer['proposal'];risk=None
     if answer['decision']=='MANAGE_POSITION':raise ValueError('NO_RECONCILED_POSITION')
     actionable=answer['decision'] in ('TRADE_CANDIDATE','READY_FOR_RISK_CHECK')
@@ -285,7 +302,7 @@ def canonical_answer(answer,packet):
 
 def request_body(packet,model,output_tokens,effort='medium'):
     if effort not in ('none','low','medium','high','xhigh'):raise ValueError('REASONING_EFFORT')
-    return dict(model=model,service_tier='default',store=False,input=[dict(role='system',content=PROMPT),dict(role='user',content=encode(wire_packet(packet)))],
+    return dict(model=model,service_tier='default',store=False,instructions=PROMPT,input=encode(wire_packet(packet)),
         max_output_tokens=output_tokens,reasoning={'effort':effort},
         text=dict(format=dict(type='json_schema',name='ict_reasoning',strict=True,schema=wire_schema(packet))))
 
