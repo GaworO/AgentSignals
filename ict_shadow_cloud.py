@@ -244,11 +244,8 @@ class Cloud:
         with sqlite3.connect('file:'+str(self.root.parent/'ab_ai_context.sqlite3')+'?mode=ro',uri=True) as db:
             return db.execute("SELECT COUNT(*) FROM setup_requests WHERE state IN ('queued','running') AND expires>?",(now,)).fetchone()[0]
     def records(self):
-        records=[]
-        for p in sorted(self.root.glob('ict_2022_nyam_*/ICT_INDEPENDENT_NYAM_*.json'),key=lambda p:p.stat().st_mtime,reverse=True):
-            try:records.append(json.loads(p.read_text()))
-            except (OSError,ValueError):continue
-        return sorted(records,key=lambda r:r.get('requested_at',0),reverse=True)
+        from ict_review_archive import Records
+        return Records(self.root)
     def state(self):
         now=time.time();day=datetime.fromtimestamp(now,NY).date().isoformat()
         with self.db() as db:

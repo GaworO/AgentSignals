@@ -1,0 +1,15 @@
+# ICT archive memory repair — 20 November 2026
+
+Production ran one Gunicorn worker with eight HTTP threads, one replica, an 8,000,000,000-byte cgroup limit and eight CPU cores. The worker reached 7.20 GB cgroup usage. OOM kills and Gunicorn SIGKILL/restarts were observed before this patch; the new AI ICT Trader/RAG was not deployed.
+
+`Cloud.records()` eagerly decoded the entire review archive on each dashboard/detail call and multiple times during each existing cloud tick. The handoff then eagerly expanded all records into family pairs, retaining every packet, request and original SSE until traversal finished. There was no bound on the total materialized archive; concurrent HTTP/tick paths owned independent copies. No duplicate Gunicorn workers are needed for this failure.
+
+Read-only Python 3.12 profiling of the actual archive found 394 files / 592,478,066 JSON bytes. Streaming object-size measurement gives 1,142,946,935 bytes for one fully decoded archive. Original SSE alone accounts for 416,654,551 serialized bytes. Tracemalloc identified `json/decoder.py` as the allocation source; retaining 16 records reached 36.9 MB of live traced allocations. This is an archive-size/concurrency amplification issue, not evidence that a garbage collector leak is required.
+
+The patch introduces a re-iterable lazy sequence preserving len/index access, complete records, newest-request order and all history. It retains at most one decoded record per iterator. A metadata-only signature/time index is bounded to 512 entries and invalidated by file identity/size/mtime/ctime. Handoff family iteration is lazy too. No flags, risk policies, source files, accounting records, proposal validation or execution controls change.
+
+Actual-archive isolated Python 3.12 measurements of the patch: 394 records each pass, traced peak <=9.64 MB, RSS 23.93–23.96 MB over three passes; four concurrent traversals RSS 44.02 MB with identical ordered IDs. No private payloads were exported. A local synthetic 394-record / 577 MB workload additionally exercised five repeated traversals and sixteen requests across eight threads; all ordered IDs matched and memory fell after the old eager workload was released. Synthetic workload results are not market evidence.
+
+239 focused regressions passed, including unchanged history/scanner/authentication, handoff, pending-order review, IFVG and execution guard tests, plus bounded-memory and concurrent archive tests. Production observation must still demonstrate worker stability after deployment. This release only repairs memory; it does not mount AI ICT Trader or start its paid experiment.
+
+Rollback baseline is `75ad2a052a07c78ce52bb9d6945241be332ff9d9`, but it contains the diagnosed OOM behavior. Preserve all volume journals. Use exactly the existing verified recovery-current backup, never an online database restore. Re-fetch/compare the deployment branch and recheck fresh flat broker state before rollout. Unknown requests from terminated workers remain charged and must not be resubmitted.

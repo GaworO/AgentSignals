@@ -119,7 +119,7 @@ class Handoff:
         db=sqlite3.connect(self.path, timeout=15);db.row_factory=sqlite3.Row;return db
 
     def refresh(self, records, packet, now):
-        for r,family in [(r,f) for r in records for f in ('ICT2022','IFVG')]:
+        for r,family in ((r,f) for r in records for f in ('ICT2022','IFVG')):
             decision=(r.get('decision') or {})
             if family=='IFVG':decision=decision.get('ifvg_review') or {}
             if not decision.get('plan'):continue
