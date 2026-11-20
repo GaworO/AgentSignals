@@ -17,7 +17,7 @@ from . import ai
 from .common import encode,digest
 from .risk import check as risk_check
 
-VERSION='ict-rag-reasoning-v3'
+VERSION='ict-rag-reasoning-v4'
 STR={'type':'string'};STRINGS={'type':'array','items':STR}
 FACT=ai.obj(dict(evidence_id=STR,field=STR,value={'type':'number'}))
 ASSESS=ai.obj(dict(hypothesis_id=STR,stance={'type':'string','enum':['SUPPORT','OPPOSE','UNRESOLVED']},
@@ -55,7 +55,11 @@ PROMPT+=''' Evaluate each hypothesis lifecycle and potential entry logic indepen
 Describe changes against prior_validated_reasoning; if absent use NO_PRIOR and a null
 previous_snapshot_id. An invalidated thesis requires opposing observed market evidence.
 Source retrieval roles are search intentions, not proof that a rule supports a thesis.
-Do not turn a source's example, timeframe or exception into a universal entry rule.'''
+Do not turn a source's example, timeframe or exception into a universal entry rule.
+Return concise assessments: one short sentence per prose field, without repeating the
+whole context. Compare all hypotheses. Cite market observations using only the compact
+identifiers in the evidence dictionary; symbols and context section names are not
+market evidence identifiers. Reference strings are opaque, not prices or facts.'''
 
 
 def initialize(store):
@@ -206,11 +210,84 @@ def openai_transport(body,key,timeout):
     return directional_ai_transport.request(dict(body,stream=True),key,timeout)
 
 
+def wire_references(packet):
+    """Lossless, deterministic wire names; the durable source packet stays canonical."""
+    return {ident:f'm{i:04d}' for i,ident in enumerate(sorted(packet['evidence']))}
+
+
+def wire_packet(packet):
+    aliases=wire_references(packet);names=set(aliases.values())
+    def convert(value):
+        if isinstance(value,str):
+            if value in names and value not in aliases:
+                raise ValueError('WIRE_REFERENCE_COLLISION')
+            return aliases.get(value,value)
+        if isinstance(value,list):return [convert(x) for x in value]
+        if isinstance(value,dict):return {convert(k):convert(v) for k,v in value.items()}
+        return value
+    return convert(packet)
+
+
+def wire_schema(packet):
+    """Constrain IDs before generation; business/numerical validation still follows."""
+    schema=copy.deepcopy(SCHEMA)
+    markets=list(wire_references(packet).values());hypotheses=sorted(packet['hypotheses'])
+    rules=sorted(r['id'] for r in packet['source_records'])
+    if not markets or not hypotheses:raise ValueError('EMPTY_REFERENCE_DOMAIN')
+    defs={'MarketID':dict(type='string',enum=markets),'HypothesisID':dict(type='string',enum=hypotheses)}
+    if rules:defs['RuleID']=dict(type='string',enum=rules)
+    def array_ref(name):return dict(type='array',items={'$ref':'#/$defs/'+name})
+    def constrain(node):
+        if not isinstance(node,dict):return
+        props=node.get('properties',{})
+        for key in list(props):
+            if key=='evidence_id':props[key]={'$ref':'#/$defs/MarketID'}
+            elif key in ('market_ids','supporting_market_ids','opposing_market_ids'):props[key]=array_ref('MarketID')
+            elif key in ('selected_rule_ids','supporting_rule_ids','opposing_rule_ids','source_rule_ids'):
+                props[key]=array_ref('RuleID') if rules else dict(type='array',items=STR,maxItems=0)
+            elif key=='hypothesis_id':props[key]={'$ref':'#/$defs/HypothesisID'}
+        for value in node.values():
+            if isinstance(value,dict):constrain(value)
+            elif isinstance(value,list):
+                for item in value:constrain(item)
+    constrain(schema)
+    props=schema['properties'];s=packet['snapshot'];prior=packet.get('prior_validated_reasoning')
+    props['snapshot_id']=dict(type='string',enum=[s['id']])
+    props['as_of']=dict(type='integer',enum=[s['as_of']])
+    props['preferred_hypothesis_id']={'anyOf':[{'type':'null'},{'$ref':'#/$defs/HypothesisID'}]}
+    props['assessments'].update(minItems=len(hypotheses),maxItems=len(hypotheses))
+    changes=props['changes']['properties']
+    changes['previous_snapshot_id']=dict(type='string',enum=[prior['snapshot_id']]) if prior else {'type':'null'}
+    if not prior:changes['thesis']=dict(type='string',enum=['NO_PRIOR'])
+    schema['$defs']=defs
+    def enum_count(x):
+        if isinstance(x,dict):return len(x.get('enum',[]))+sum(enum_count(v) for v in x.values())
+        if isinstance(x,list):return sum(enum_count(v) for v in x)
+        return 0
+    # Fail before any budget reservation/API call; never discard evidence to fit.
+    if enum_count(schema)>1000:raise ValueError('REFERENCE_SCHEMA_ENUM_LIMIT')
+    return schema
+
+
+def canonical_answer(answer,packet):
+    """Decode only typed market-reference fields; never repair or guess a claim."""
+    reverse={alias:ident for ident,alias in wire_references(packet).items()}
+    def convert(value):
+        if isinstance(value,list):return [convert(x) for x in value]
+        if not isinstance(value,dict):return value
+        result={k:convert(v) for k,v in value.items()}
+        if isinstance(result.get('evidence_id'),str):result['evidence_id']=reverse.get(result['evidence_id'],result['evidence_id'])
+        for key in ('market_ids','supporting_market_ids','opposing_market_ids'):
+            if isinstance(result.get(key),list):result[key]=[reverse.get(x,x) if isinstance(x,str) else x for x in result[key]]
+        return result
+    return convert(answer)
+
+
 def request_body(packet,model,output_tokens,effort='medium'):
     if effort not in ('none','low','medium','high','xhigh'):raise ValueError('REASONING_EFFORT')
-    return dict(model=model,service_tier='default',store=False,input=[dict(role='system',content=PROMPT),dict(role='user',content=encode(packet))],
+    return dict(model=model,service_tier='default',store=False,input=[dict(role='system',content=PROMPT),dict(role='user',content=encode(wire_packet(packet)))],
         max_output_tokens=output_tokens,reasoning={'effort':effort},
-        text=dict(format=dict(type='json_schema',name='ict_reasoning',strict=True,schema=SCHEMA)))
+        text=dict(format=dict(type='json_schema',name='ict_reasoning',strict=True,schema=wire_schema(packet))))
 
 
 def policy(cfg,now):
@@ -256,7 +333,8 @@ def review(store,snapshot_id,cfg,*,variant='C_LLM_RAG',transport=None,clock=time
     result=dict(id=ident,snapshot_id=snapshot_id,variant=variant,model=pol['model'],
         origin='REAL_PROVIDER_SHADOW_AI' if transport is None else 'INJECTED_TEST_TRANSPORT',
         status='IN_FLIGHT',request=body,packet=p,policy=pol,requested_at=now,historical=historical,execution_authorized=False,
-        reasoning_version=VERSION,prompt_sha256=digest(PROMPT),schema_sha256=digest(SCHEMA))
+        reasoning_version=VERSION,prompt_sha256=digest(PROMPT),schema_sha256=digest(SCHEMA),
+        wire_schema_sha256=digest(body['text']['format']['schema']),wire_reference_encoding='SORTED_MARKET_IDS_V1')
     with ledger.connect() as db:
         db.execute('BEGIN IMMEDIATE')
         if db.execute("SELECT 1 FROM reasoning_control WHERE key='budget_halt'").fetchone():raise ValueError('BUDGET_RECONCILIATION_REQUIRED')
@@ -277,7 +355,7 @@ def review(store,snapshot_id,cfg,*,variant='C_LLM_RAG',transport=None,clock=time
         content=[c for o in response.get('output',[]) for c in o.get('content',[])]
         texts=[c['text'] for c in content if c.get('type')=='output_text']
         if any(c.get('type')=='refusal' for c in content) or len(texts)!=1:raise ValueError('REFUSAL_OR_MISSING_TEXT')
-        answer=json.loads(texts[0]);verdict=validate(answer,p,clock(),historical=historical)
+        answer=canonical_answer(json.loads(texts[0]),p);verdict=validate(answer,p,clock(),historical=historical)
         result.update(status='VALIDATED_ADVISORY',answer=answer,validation=verdict)
     except Exception as exc:
         result.update(status='REJECTED_RESPONSE' if response is not None else 'TRANSPORT_OUTCOME_UNKNOWN',error=type(exc).__name__,validation_error=str(exc)[:160] if response is not None and isinstance(exc,ValueError) else None,retry=False)
