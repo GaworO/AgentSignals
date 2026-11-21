@@ -8,7 +8,8 @@ from pathlib import Path
 def render_shadow(html):
     from services.tanja.ict_agent.common import read_bytes
     fragment=Path(__file__).parent/'services/tanja/ict_agent/static/view.html'
-    return html.replace('<!--ICT_AI_TRADER_VIEW-->',read_bytes(fragment).decode())
+    knowledge=fragment.with_name('knowledge.html')
+    return html.replace('<!--ICT_AI_TRADER_VIEW-->',read_bytes(fragment).decode()).replace('<!--ICT_KNOWLEDGE_VIEW-->',read_bytes(knowledge).decode())
 
 
 def register(app, config=None, *, start=True, authorize=None):

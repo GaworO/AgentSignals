@@ -42,7 +42,7 @@ def blueprint(cfg,authorize):
     def page():return redirect('/ict-shadow?view=ictai',code=302)
     @bp.get('/assets/<name>')
     def asset(name):
-        if name not in ('app.js','native.css'):abort(404)
+        if name not in ('app.js','native.css','knowledge.js','knowledge.css'):abort(404)
         return send_from_directory(static,name)
     @bp.get('/api/state')
     def state():
@@ -105,7 +105,7 @@ def blueprint(cfg,authorize):
     def retrieval(ident):
         with store().readonly() as db:row=db.execute('SELECT payload FROM retrievals WHERE id=?',(ident,)).fetchone()
         if row is None:abort(404)
-        return jsonify(json.loads(row[0]))
+        return jsonify(public(json.loads(row[0])))
     @bp.get('/api/candidates/first')
     def first():
         with store().readonly() as db:row=db.execute("SELECT id FROM snapshots WHERE decision='TRADE_CANDIDATE' ORDER BY as_of LIMIT 1").fetchone()
@@ -119,7 +119,7 @@ def blueprint(cfg,authorize):
         if not row:return jsonify(status='NOT_CALLED',state='NOT_CALLED')
         r=json.loads(row[0]);body={k:r.get(k) for k in ('status','model','answer','usage','elapsed_ms','error','validation_error','validation','origin','requested_at','received_at','prompt_sha256','reasoning_version')}
         body['state']={'IN_FLIGHT':'RUNNING','VALIDATED_ADVISORY':'COMPLETED','REJECTED_RESPONSE':'VALIDATION_REJECTED','TRANSPORT_OUTCOME_UNKNOWN':'FAILED'}.get(r['status'],'FAILED')
-        body['sources']=r.get('packet',{}).get('source_records',[])
+        body['sources']=public(r.get('packet',{}).get('source_records',[]))
         return jsonify(body)
     @bp.get('/api/snapshots/<ident>/reasoning-history')
     def reasoning_history(ident):
@@ -139,6 +139,49 @@ def blueprint(cfg,authorize):
         with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as db:
             orders=[json.loads(x[0]) for x in db.execute('SELECT payload FROM sim_orders')]
         return jsonify(status='SIMULATION_ONLY',orders=orders,actual_orders=0,cost_basis='EXPLICIT_PAPER_POLICY_FEES_AND_SLIPPAGE_RESERVE')
+    def library_store():
+        # Lazy, read-only access. No corpus/model is loaded at HTTP startup.
+        from .research.library.repository import Library
+        configured=cfg.get('ICT_AI_LIBRARY_DB')
+        if configured:
+            target=Path(configured)
+        else:
+            local=(Path(cfg['DATA_DIR'])/'ict_ai/library136' if cfg.get('DATA_DIR') else Path(__file__).resolve().parents[3]/'local-runtime/library136-20261121')
+            current=local/'current.json'
+            if not current.is_file():return None
+            release=json.loads(current.read_text()).get('release_id','')
+            if len(release)!=24 or any(c not in '0123456789abcdef' for c in release):
+                abort(503,description='LIBRARY_RELEASE_INVALID')
+            target=local/release/'library.sqlite'
+        return Library(target) if target.is_file() else None
+    from .research.library.knowledge_view import mount, public
+    mount(bp, library_store, lambda: context_report('knowledge-index.json'))
+    def context_report(name):
+        folder=Path(cfg.get('ICT_AI_CONTEXT_REPORT_DIR') or ((library_store().path.parent/'context-reports' if library_store() else Path(cfg['DATA_DIR'])/'ict_ai/library136/__unavailable__') if cfg.get('DATA_DIR') else Path(__file__).resolve().parents[3]/'docs/ict-ai-trader/reports/context136-20261121'))
+        path=folder/name
+        if not path.is_file():return None
+        if path.stat().st_size>3_000_000:abort(503,description='CONTEXT_ARTIFACT_TOO_LARGE')
+        return json.loads(path.read_bytes())
+    @bp.get('/api/context-intelligence')
+    def context_intelligence():
+        value=context_report('index.json')
+        return jsonify(value if value is not None else {'status':'NOT_COMPUTED','cases':[],'orders_enabled':False})
+    @bp.get('/api/context-intelligence/cases/<ident>')
+    def context_case(ident):
+        index=context_report('index.json')
+        if not index or ident not in {c['id'] for c in index['cases']}:abort(404)
+        if any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789-' for c in ident):abort(404)
+        # Exact source excerpts and market candles remain local-runtime data,
+        # outside code/report deployment artifacts.
+        folder=Path(cfg.get('ICT_AI_CONTEXT_CASE_DIR') or ((library_store().path.parent/'context-cases' if library_store() else Path(cfg['DATA_DIR'])/'ict_ai/library136/__unavailable__') if cfg.get('DATA_DIR') else Path(__file__).resolve().parents[3]/'local-runtime/context136-20261121/cases'))
+        path=folder/(ident+'.json')
+        if not path.is_file():abort(404)
+        if path.stat().st_size>3_000_000:abort(503,description='CONTEXT_ARTIFACT_TOO_LARGE')
+        return jsonify(public(json.loads(path.read_bytes())))
+    @bp.get('/api/context-intelligence/provider-audit')
+    def context_provider_audit():
+        value=context_report('recorded-provider-audit.json')
+        return jsonify(value if value is not None else {'status':'NOT_COMPUTED','new_calls':0})
     @bp.get('/api/health')
     def health():return jsonify(component='AI_ICT_TRADER',http='OK',live_enabled=False,mode=cfg.get('ICT_AI_MODE','OFF'))
     return bp
