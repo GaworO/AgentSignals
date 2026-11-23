@@ -1,0 +1,218 @@
+AGENT50K ICT SHADOW — APPROVAL-READY LOCAL INTEGRATION
+2026-11-23. NOT DEPLOYED. No new hosting, secrets or provider calls created.
+
+Decision: GO for review/approval of a staged deployment; NOT activated.
+Linux image build and smoke testing inside Railway remain deployment-stage gates.
+No claim of production memory stability for code that has not been deployed.
+
+PRODUCT AND ROUTES
+Keep the existing Agent50k website and authentication:
+https://agent-50k-production.up.railway.app/ict-shadow
+Reuse the existing AI ICT Trader tab; add its native subnavigation:
+  ?view=ictai&shadow_run=prospective  ICT Shadow observer
+  ?view=ictai&shadow_run=replay       Historical journal/charts
+  ?view=ictai&shadow_run=research     Strategy frequency and PF limitations
+  ?view=ictai&shadow_run=episode6     Episode 6 qualification funnel
+  ?view=ictai                        Existing AI ICT Trader
+  ?view=ictknowledge                 Existing ICT Knowledge Library
+No iframe, public worker URL, new website or duplicated broker application.
+Trading/Tradovate code, risk settings, authentication and historical URLs remain unchanged.
+Local integration preview: http://127.0.0.1:8880/ict-shadow?view=ictai&shadow_run=prospective
+The preview reads real existing journals; it does not start another observer.
+
+REUSED AND NEW
+Reused: market/event engine, three-instrument passive selector, original Knowledge/RAG,
+evidence packets, charts, session logic, append-only journals, frequency and Episode 6
+research, existing Agent50k layout/authentication/AI/Knowledge components.
+New: native view mount, bounded authenticated GET gateway, private candle exporter,
+internal persistent worker, private read-only transport, activation hash gate,
+durable transport cursor, read-only reconnect/backoff, release packaging.
+Existing Observer defaults remain NQ; only PassiveObserver explicitly selects all three.
+The M5 selector minimum and source qualification rules are unchanged.
+Explicitly close new HTTP SQLite readers; no new corpus/index loading in Agent50k HTTP.
+Exclude development auth wrappers from the Agent50k Docker context.
+
+ACTUAL PRODUCTION INSPECTION
+Project: 26df4462-061e-48e5-ad8a-b364909a1b8f
+Agent50k service: 5311ba22-8e59-4197-a1a5-490325e91911
+Environment: production
+Existing SUCCESS deployment: f8346b6b-d79a-478b-93ee-7239cfcdd302 (2026-11-21).
+Protected baseline: fafc6271b2c8fcf0ac9db0f34a9e67b7962310a7.
+The container env reports older aa65ac371a2caddb97c06e9e2b3fb4004fe537c0,
+but inspected application file hashes match fafc627. aa65ac3 is its ancestor.
+Do not mistake that environment label for a newer release or roll back to it.
+Authenticated production GET /ict-shadow returned HTTP 200 and the five existing views.
+Private http://agent-50k.railway.internal:8080/health also returned HTTP 200.
+One Gunicorn application worker, eight threads, timeout 120 s.
+Observed HTTP worker RSS 980880 KiB, master 28092 KiB.
+Observed cgroup usage 1,989,242,880 bytes / limit 8,000,000,000 bytes.
+This is a point-in-time observation of the unchanged production service.
+Existing volume /data/builder50: 5000 MB. No new artifacts are placed there now.
+
+INTERNAL OBSERVER AND STORAGE
+Reuse the existing undeployed service object tanja-ict-shadow:
+  ea4b900f-cf78-4a46-addc-87bc29f5815c
+It currently has no deployed service instance. Prepare one private production instance,
+same project/environment/region, one replica, no public domain and no public TCP proxy.
+Proposed resources: 1 GB memory, 0.5 vCPU, own 10 GB volume at /data/shadow.
+Worker: one Gunicorn process plus master, four HTTP reader threads, one passive writer.
+Agent50k keeps its current worker configuration and current trading configuration.
+
+Intake is the existing /data/builder50/market_context/tanja.sqlite3:
+NQ collection_bars; MNQ/ES bars. Fixed read-only SQL and query_only; 300-minute pages.
+The internal exporter returns only OHLC, exact receiver timestamps and instrument binding.
+The worker never mounts /data/builder50 or receives its database/broker credentials.
+
+New Agent50k settings ONLY, after approval:
+  ICT_SHADOW_UI_ENABLED=true
+  ICT_SHADOW_EXPORT_ENABLED=true
+  ICT_SHADOW_WORKER_ORIGIN=http://tanja-ict-shadow.railway.internal:8090
+  ICT_SHADOW_FEED_TOKEN=<new dedicated feed-read secret>
+  ICT_SHADOW_VIEW_TOKEN=<different dedicated results-read secret>
+Worker settings ONLY:
+  PORT=8090
+  ICT_SHADOW_CONFIG=/data/shadow/worker-config.json
+  ICT_SHADOW_FEED_TOKEN=<same scoped feed secret>
+  ICT_SHADOW_VIEW_TOKEN=<same scoped results secret>
+  ICT_SHADOW_ACTIVATE absent until passive activation approval is verified;
+  then approved-passive-only.
+Never copy all Agent50k variables. Startup refuses unrelated broker/provider secrets,
+execution controls and identical feed/view tokens. No secrets in the release files.
+
+Agent50k UI requests use its existing user authentication, then a fixed private GET proxy.
+The feed token authenticates only /internal/ict-shadow/candles; it cannot authenticate UI.
+The view token authenticates only GET/HEAD result endpoints in the private worker.
+POST/order paths are rejected. No OpenAI/broker client or order transport in worker image.
+The reused risk.check module is a pure fail-closed calculation, called with policy=None;
+it neither configures risk nor submits orders. No change to production risk settings.
+Private Railway networking uses encrypted Wireguard; no public worker website.
+
+Versioned assets: 181 files, 1,391,533,624 bytes, staged locally only.
+Includes actual frequency/Episode 6 databases, parent evidence, saved replay, canonical
+knowledge and pinned calendar. No rebuild of the library and no invented financial ledger.
+New server journals: /data/shadow/run/observer.sqlite3 and intake-mirror.sqlite3.
+Original laptop journals are left untouched. Server start creates a new prospective cutoff;
+backlog is catch-up, never a retrospectively manufactured forecast.
+The existing daily Agent50k backup remains unchanged; it does not cover the new volume.
+No duplicate laptop/worker backup scheduler. Do not delete journals to free space.
+At <256 MiB free disk the observer stops safely and retains data.
+
+RELIABILITY / CALENDAR
+Durable append-only transport cursor is committed after mirror and decision persistence.
+Overlapping reads deduplicate. Pending INTENT records recover through existing journal logic.
+Receiver timestamps remain exact; future bars excluded; source revisions fail closed.
+Read-only reconnect: bounded request deadline, no redirects, 5–60 s backoff.
+Heartbeat >75 s is stale; feed age >180 s alerts only during pinned exchange hours.
+LO/NYAM/NYPM research windows remain separate from model entry windows and exchange hours.
+Continuous tickers: CME_MINI:NQ1!, CME_MINI:MNQ1!, CME_MINI:ES1!.
+FEED_UNVERIFIED remains because entitlement is not independently verified.
+PENDING_LLM remains; missing model response is not NO_TRADE.
+Pinned CME calendar covers Nov 22–27 including Thanksgiving shortened sessions.
+Proposed first passive server observation ends Nov 27 2026 13:15 NY / 19:15 Berlin.
+No observation beyond calendar/activation expiry. UI/journals remain available afterward;
+continued observation needs a verified subsequent calendar and approval.
+The laptop run still ends Nov 23 22:00 Berlin; this task does not extend or restart it.
+
+VALIDATION ACTUALLY COMPLETED
+191 relevant tests passed, including existing dashboard, AI, Knowledge, cloud routes,
+native navigation, read auth, original research views and full 840-minute adapter replay.
+After explicit HTTP connection closure: 13 focused tests passed (full replay excluded).
+Packaged Gunicorn: 300 loopback requests, concurrency four, all HTTP 200, clean SIGTERM.
+HTTP memory: startup 60.5 MB; 100/200/300 requests 70.5/73.1/65.7 MB (both processes).
+Slowest measured request 0.094 s. This is local testing, not a Railway load guarantee.
+Closed package with actual Knowledge and real May 20 02:00–16:00 NY historical bars:
+  2520 M1 bars, 840 durable three-instrument batches, 3956 detector events,
+  92 hypotheses, 355 evidence/assessment packets, 263 later observations,
+  restart after minute 401, duplicate final batch adds no durable observation,
+  zero prospective batches, zero source-qualified setups, zero orders/API calls.
+The adapter test starts at 02:00 without the older replay's warm-up; its counts are not
+claimed identical to the original 97-hypothesis replay. Original results are preserved.
+Actual canonical knowledge contains 2558 records (existing full + retained legacy records).
+Knowledge init RSS 359.8 MB, end RSS 263.1 MB, process peak 371.5 MB, 68.8 s total.
+Dedicated worker contains the sole new heavy index; Agent50k HTTP imports only light gateway.
+All package-relative imports checked; initial missing risk/sequences modules corrected.
+Testing runtime: macOS Python 3.11.5, Flask 3.1.3, Gunicorn 27.0.1, NumPy 2.4.6.
+Target image Python 3.12-slim; Docker unavailable locally. Linux image build and private
+smoke tests are mandatory before opening/activating the new production feature.
+No claim of validated real LLM interpretation or a profitable trading strategy.
+
+Local screenshots: native navigation/observer, real SHORT chart with original persistence
+timestamp, Episode 6 funnel, historical frequency and unchanged 136-source Knowledge UI.
+These are screenshots of the proposed local integration, NOT a deployed Railway UI.
+Episode 6 remains non-executable/recovered source mapping, zero complete plans and
+PF_NOT_ESTIMABLE; the interface retains exact ambiguities and original v1/v2 provenance.
+
+FROZEN RELEASE REFERENCES
+Worker code manifest SHA-256:
+  6c3208ca80d606c977f366a95656ad38b7b171f2454ef139e2eb320e4f09ca70
+Research asset manifest SHA-256:
+  751565b7ab607118e8cfe3a35e82e6c70ee22eee6aa630cce552e82f5336a538
+worker-config.json raw-file SHA-256:
+  28aec8e8b903f9febaa54420618ef014025423ef27b8e010acfb5d26cb2b2859
+Canonical configuration digest used by activation (different serialization):
+  07814f687fedd15f40331cf6c88ce1328df92c274735ec018349d5f8b94304bc
+Runtime verifies every included code/asset file and activation binds both manifest hashes.
+Activation.PROPOSAL.json is NOT authorization and cannot start a real observer.
+
+COST ESTIMATE, NOT AN INVOICE OR AUTOMATIC SPENDING AUTHORIZATION
+Railway published rates checked Nov 23: RAM $10/GB-month, CPU $20/vCPU-month,
+volume $0.15/GB-month, public egress $0.05/GB. Existing plan fee is not increased here.
+Measured duty/memory suggests roughly $4–7/month incremental usage, but this is unverified
+in Railway. At proposed resource ceilings, RAM+CPU+full 10 GB volume equals $21.50/month
+using published GB units, plus public egress and possible small Agent50k proxy overhead.
+Resource limits are NOT a hard dollar billing cap. Hosting persists after observer stops.
+No resources were created and no incremental hosting charges were incurred by this task.
+Sources: https://docs.railway.com/pricing
+         https://docs.railway.com/networking/private-networking
+
+STAGED DEPLOYMENT — ONLY AFTER EXPLICIT APPROVAL
+1. Fetch main and current deployment branch; compare live deployment/file hashes again.
+   Preserve any concurrent changes; no force push or older release. Stop on divergence.
+2. In current Agent50k container run exactly:
+   python backup_retention.py --root /data/builder50
+   Require verified completion. One recovery-current backup only; no extra timestamped
+   Railway backups. No deleting databases, fills, fees, paid ledgers or risk evidence.
+3. Build closed worker context, no public domain, proposed limits, separate volume.
+   Stage verified asset release and exact configs. Initial worker activation OFF.
+   Never change existing shared trading variables or attach broker/provider credentials.
+4. Build merged Agent50k release preserving protected baseline. Deploy small native mount,
+   exporter and gateway with new feature flags initially OFF; existing config untouched.
+   A normal Agent50k rollout/restart is required and may briefly interrupt HTTP/intake.
+   No promise of zero downtime with its existing single attached volume.
+5. Smoke existing health/auth, Knowledge=136, AI/history URLs and existing route behavior;
+   verify no unexpected changes in trading settings, memory, intake timestamps or error logs.
+   Stop/roll back if missing artifacts, startup failure, OOM, intake gap or UI degradation.
+6. Enable only the new read-only interfaces. Check private scoped auth and current binding
+   receipt. Test actual Linux memory within 1 GB and no duplicate observer loop.
+7. Create explicit bounded passive approval record with code/assets/config hashes and
+   run python -m services.ict_shadow.activate --config /data/shadow/worker-config.json
+   --approval <approved-record-path> exactly once. Fresh feed binding read, no paid API.
+   Enable ICT_SHADOW_ACTIVATE=approved-passive-only on private service only.
+8. Observe fresh candles, durable decisions before later receipts, cursor advance, catch-up
+   exclusion and one controlled private-worker restart. Preserve all records.
+   Keep FEED_UNVERIFIED/PENDING_LLM and zero broker connectivity.
+
+ROLLBACK
+Stop only new passive worker / clear its new activation setting. Preserve its volume.
+Disable only ICT_SHADOW_UI_ENABLED and ICT_SHADOW_EXPORT_ENABLED; keep old flags unchanged.
+Return Agent50k to verified deployment f8346b6b-d79a-478b-93ee-7239cfcdd302 / fafc627
+file set, or the newer verified predeployment release if concurrent changes were reconciled.
+Do not roll back trading databases or overwrite new journal entries as a routine code rollback.
+If data restoration is genuinely needed, restore offline from the single verified recovery
+backup and reconcile broker state; individual DB snapshots are not one atomic trading backup.
+Verify existing health/intake/Knowledge/history and memory after rollback.
+
+EXACT APPROVAL REQUEST
+I approve a controlled integration of ICT Shadow into the existing Agent50k /ict-shadow
+application, using the reviewed source change and the code/assets manifests above.
+I authorize the necessary Agent50k rollout after a verified single recovery backup,
+and a private tanja-ict-shadow service in the same Railway project, with no public domain,
+1 GB RAM, 0.5 vCPU and a separate 10 GB volume. I accept the stated incremental usage
+estimate and resource-cost envelope, not an increase in LLM or trading budgets.
+I authorize two new least-privilege service tokens for candle-read/results-read only,
+verified private asset transfer, Linux build/smoke tests, and passive observation from
+activation until Nov 27 2026 19:15 Europe/Berlin. Stop if a required gate fails.
+Keep the prior working release for rollback. No OpenAI calls, paper/live orders, broker
+credential access for the observer, changes to trading permissions/risk, or extension of
+the existing laptop run. Retain FEED_UNVERIFIED and PENDING_LLM.
+This text is a proposal awaiting the user's explicit approval; it grants no permission itself.

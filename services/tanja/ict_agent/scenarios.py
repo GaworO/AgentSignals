@@ -25,9 +25,9 @@ def make_setup(e):
             dict(id=ident+':failure',kind='FAILED_REVERSAL',direction=opposite,status='WATCHING',support=[],contradictions=[],next='Po potwierdzeniu odwrócenia obserwuj ewentualną utratę ekstremum sweepu.'),
             dict(id=ident+':wait',kind='NO_TRADE',direction='NONE',status='PREFERRED_UNTIL_CONFIRMED',support=[],contradictions=[],next='Czekaj, dopóki kontekst, parametry źródłowe lub warunki wykonania są nierozstrzygnięte.')])
 
-def update_setups(setups, events, context, as_of, knowledge):
+def update_symbol_setups(setups, events, context, as_of, knowledge, symbol):
     transitions=[];new_retrieval={}
-    nq=context.get('NQ')
+    nq=context.get(symbol)
     if not nq or not nq['latest']:return transitions,new_retrieval
     last=nq['latest'];price=last['close']
     active=[s for s in setups.values() if s['state'] not in TERMINAL]
@@ -36,7 +36,7 @@ def update_setups(setups, events, context, as_of, knowledge):
         if s['contract']!=nq['contract']:reason='CONTRACT_CHANGE'
         elif nq['stale']:reason='STALE_MARKET'
         elif as_of>=s['expires_at']:reason='RESEARCH_EXPIRY'
-        elif any(e['kind']=='DATA_GAP' and e['symbol']=='NQ' for e in events):reason='MISSING_PRICE_PATH'
+        elif any(e['kind']=='DATA_GAP' and e['symbol']==symbol for e in events):reason='MISSING_PRICE_PATH'
         if reason:
             t=transition(s,'EXPIRED',as_of,reason,[])
             if t:transitions.append(t)
@@ -58,7 +58,7 @@ def update_setups(setups, events, context, as_of, knowledge):
             transitions.append(transition(s,'INVALIDATED',as_of,'CLOSE_BEYOND_SWEEP_EXTREME',[last['id']]))
             continue
         if s['state']=='READY':continue
-        relevant=[e for e in events if e['symbol']=='NQ' and e.get('direction') == s['direction'] and
+        relevant=[e for e in events if e['symbol']==symbol and e.get('direction') == s['direction'] and
                   e['timeframe'] in (1,5) and e['available_at']>s['created_at']] if events else []
         # Order within one OHLC candle is never reconstructed; events at the same close
         # are simultaneous observations, not an asserted intrabar sequence.
@@ -80,7 +80,7 @@ def update_setups(setups, events, context, as_of, knowledge):
             target=min(levels,key=lambda l:abs(l['price']-entry)) if levels else None
             oriented=stop>entry if s['direction']=='SHORT' else stop<entry
             if target and oriented:
-                s['plan']=dict(direction=s['direction'],symbol='NQ',contract=s['contract'],entry=entry,stop=stop,
+                s['plan']=dict(direction=s['direction'],symbol=symbol,contract=s['contract'],entry=entry,stop=stop,
                     target=target['price'],entry_zone=[gap['lower'],gap['upper']],rr=round(abs(target['price']-entry)/abs(stop-entry),3),
                     available_at=as_of,expires_at=s['expires_at'],evidence_ids=[gap['id'],target['id'],s['root_event']],
                     order_type='LIMIT',variant=POLICY['id'],orders_enabled=False,
@@ -96,7 +96,7 @@ def update_setups(setups, events, context, as_of, knowledge):
         s['hypotheses'][1]['contradictions']=list(s['supporting'])
     # One opportunity per sweep. Related FVG/IFVG/Silver Bullet terms annotate it;
     # they never add independent confidence votes or duplicate orders.
-    roots=[e for e in events if e['symbol']=='NQ' and e['kind']=='SWEEP' and max(e['timeframe'],e.get('level_timeframe',1))>=5]
+    roots=[e for e in events if e['symbol']==symbol and e['kind']=='SWEEP' and max(e['timeframe'],e.get('level_timeframe',1))>=5]
     roots.sort(key=lambda e:(-max(e['timeframe'],e.get('level_timeframe',1)),e['id']))
     for e in roots:
         new=make_setup(e)
@@ -127,6 +127,14 @@ def update_setups(setups, events, context, as_of, knowledge):
         transitions.append(transition(new,'WAITING_FOR_CONFIRMATION',as_of,'SWEEP_OPENS_COMPETING_HYPOTHESES',[e['id']]))
         new_retrieval[new['id']]=retrieval
     return [t for t in transitions if t],new_retrieval
+
+def update_setups(setups, events, context, as_of, knowledge, symbols=('NQ',)):
+    transitions=[];retrievals={}
+    for symbol in symbols:
+        scoped={i:s for i,s in setups.items() if s['symbol']==symbol}
+        tr,ret=update_symbol_setups(scoped,events,context,as_of,knowledge,symbol)
+        setups.update(scoped);transitions.extend(tr);retrievals.update(ret)
+    return transitions,retrievals
 
 def decide(setups, events, context, as_of):
     active=[s for s in setups.values() if s['state'] not in TERMINAL]

@@ -1,6 +1,7 @@
 (() => {
 'use strict';
 const root=document.querySelector('#ictTraderView');if(!root)return;
+if(root.querySelector('#shadow-mvp-panel,#strategy-research-panel,#episode6-panel')){window.historyView('ictai');document.querySelector('#viewICTTrader').onclick=()=>{location.href='/ict-shadow?view=ictai'};return;}
 const qs=s=>s.replace(/#([\w-]+)/g,'#ictai-$1');
 const all=s=>root.querySelectorAll(qs(s));
 let initialized=false;

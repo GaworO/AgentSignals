@@ -9,7 +9,8 @@ def render_shadow(html):
     from services.tanja.ict_agent.common import read_bytes
     fragment=Path(__file__).parent/'services/tanja/ict_agent/static/view.html'
     knowledge=fragment.with_name('knowledge.html')
-    return html.replace('<!--ICT_AI_TRADER_VIEW-->',read_bytes(fragment).decode()).replace('<!--ICT_KNOWLEDGE_VIEW-->',read_bytes(knowledge).decode())
+    from services.tanja.ict_agent.shadow_panel import render
+    return html.replace('<!--ICT_AI_TRADER_VIEW-->',render(read_bytes(fragment).decode())).replace('<!--ICT_KNOWLEDGE_VIEW-->',read_bytes(knowledge).decode())
 
 
 def register(app, config=None, *, start=True, authorize=None):

@@ -11,3 +11,5 @@ buffer.csv
 .env
 .env.*
 services/tanja/ict_agent/preview.py
+services/tanja/ict_agent/shadow_mvp_web.py
+tools/preview_shadow_gateway.py

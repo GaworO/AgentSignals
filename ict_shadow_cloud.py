@@ -369,5 +369,7 @@ def register(app,config=None,start=True):
     import ict_ai_recovery_web
     ict_ai_recovery_web.register(app,private,cloud,allow_worker_start=start)
     ict_ai_trader.register(app,cloud.config,start=start,authorize=authorized)
+    from services.tanja.ict_agent.shadow_gateway import register as register_shadow_gateway
+    register_shadow_gateway(app,cloud.config,authorized)
     if start:cloud.start_worker()
     return cloud

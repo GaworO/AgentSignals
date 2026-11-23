@@ -7,8 +7,8 @@ from .market import validate_bar,bar_id,fresh_state,advance,context,clock,interm
 from .scenarios import update_setups,decide,TERMINAL
 
 class Observer:
-    def __init__(self,store,knowledge):
-        self.store=store;self.knowledge=knowledge
+    def __init__(self,store,knowledge,*,symbols=('NQ',)):
+        self.store=store;self.knowledge=knowledge;self.symbols=tuple(symbols)
         with store.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS retrievals(id TEXT PRIMARY KEY,payload TEXT)')
             self.manifest_hash=digest(json.loads(db.execute("SELECT payload FROM metadata WHERE key='manifest'").fetchone()[0]))
@@ -51,7 +51,7 @@ class Observer:
                 db.execute('INSERT INTO events VALUES(?,?,?,?,?)',(e['id'],e['available_at'],e['symbol'],e['kind'],encode(e)))
             ctx=context(memory['markets'],as_of)
             relationships=intermarket(memory['markets'],as_of)
-            transitions,retrievals=update_setups(memory['setups'],events,ctx,as_of,self.knowledge)
+            transitions,retrievals=update_setups(memory['setups'],events,ctx,as_of,self.knowledge,self.symbols)
             for ident,retrieval in retrievals.items():
                 key=digest(retrieval)
                 db.execute('INSERT OR IGNORE INTO retrievals VALUES(?,?)',(key,encode(retrieval)))
