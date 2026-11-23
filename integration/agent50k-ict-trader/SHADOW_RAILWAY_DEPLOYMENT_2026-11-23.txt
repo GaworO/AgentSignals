@@ -118,8 +118,9 @@ VALIDATION ACTUALLY COMPLETED
 native navigation, read auth, original research views and full 840-minute adapter replay.
 After explicit HTTP connection closure: 13 focused tests passed (full replay excluded).
 Packaged Gunicorn: 300 loopback requests, concurrency four, all HTTP 200, clean SIGTERM.
-HTTP memory: startup 60.5 MB; 100/200/300 requests 70.5/73.1/65.7 MB (both processes).
-Slowest measured request 0.094 s. This is local testing, not a Railway load guarantee.
+Final release HTTP memory: startup 60.6 MB; 100/200/300 requests 70.7/73.2/77.7 MB
+(both processes). Slowest measured request 0.097 s. A previous run ended at 65.7 MB.
+These short tests do not prove long-term memory stability or Railway load performance.
 Closed package with actual Knowledge and real May 20 02:00–16:00 NY historical bars:
   2520 M1 bars, 840 durable three-instrument batches, 3956 detector events,
   92 hypotheses, 355 evidence/assessment packets, 263 later observations,
