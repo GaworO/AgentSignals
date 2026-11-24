@@ -13,3 +13,7 @@ Blokada pamięci została usunięta: poprawka 8aaf569 działa bez OOM i restart�
 Nie ma obecnie gotowej propozycji nowej płatnej infrastruktury do zatwierdzenia. Najpierw potrzebna jest diagnoza pamięci obecnego procesu. Jeżeli rozwiązanie wymaga podwyższenia abonamentu, ingerencji w istniejący handel albo zwiększenia limitu 8 USD, przedstawić konkretną zmianę i jej koszt/skutek do osobnej decyzji.
 
 Nowy handel rzeczywisty pozostaje poza zakresem. Nie wyłączać ani nie włączać istniejących flag produkcyjnych pod pretekstem wdrożenia lub cleanupu. Forward paper wymaga osobnej jawnej polityki badawczej oraz danych o kontrakcie/kwotowaniach.
+
+## IFVG observation release — 2026-11-24
+
+Prepared against fetched production branch df27b2b (runtime file hashes match active recovery deployment 890719ce / 80eee2c). Adds M1/M5 inversion, recross and subsequent retest journaling plus native Observe panel. All zones remain observation-only: selection/entry/position/stop/target UNKNOWN, no fill assertion. Preserves 512 MiB guard and bounded 300 second / 5 batch intake. Code-only manifest handoff preserves historical manifests and all evidence/memory; no replay or new run. Verified single recovery backup before deployment. Focused, restart/dedupe, storage and legacy tests run locally; production validation is recorded separately after deployment. No paid API or broker changes.

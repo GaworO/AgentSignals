@@ -29,3 +29,7 @@ No new shadow session, paid LLM or orders. See `ICT_SQLITE_RECOVERY_2026-11-24.m
 | P3 | OUT_OF_SCOPE | Nowy moduł nie jest podłączony do realnych zleceń. Integracja wykonawcza i autoryzacja handlu to odrębny etap po walidacji. |
 
 Powrót do wdrożenia nie wymaga ponownej zgody na wcześniej zatwierdzone 8 USD ani na samo wdrożenie. Ewentualne zwiększenie kosztu infrastruktury, limitu API albo zmiana istniejących flag handlu wymaga osobnej decyzji.
+
+## IFVG observation release — 2026-11-24
+
+Prepared against fetched production branch df27b2b (runtime file hashes match active recovery deployment 890719ce / 80eee2c). Adds M1/M5 inversion, recross and subsequent retest journaling plus native Observe panel. All zones remain observation-only: selection/entry/position/stop/target UNKNOWN, no fill assertion. Preserves 512 MiB guard and bounded 300 second / 5 batch intake. Code-only manifest handoff preserves historical manifests and all evidence/memory; no replay or new run. Verified single recovery backup before deployment. Focused, restart/dedupe, storage and legacy tests run locally; production validation is recorded separately after deployment. No paid API or broker changes.

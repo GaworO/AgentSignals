@@ -1,0 +1,22 @@
+{
+  "code_files_verified": 15,
+  "exact_revision": "fafc6271b2c8fcf0ac9db0f34a9e67b7962310a7",
+  "deployment": "f8346b6b-d79a-478b-93ee-7239cfcdd302",
+  "hashes": {
+    "docs/ict-ai-trader/KNOWLEDGE_UI_DEPLOYMENT_2026-11-21.md": "efa3c3cc6474db4027c1193cace5beb144a5b28690098512f2c8f5eecb736e35",
+    "ict_ai_trader.py": "91197f014c02f2994b4ae2749c5aaf0df80f756283c5ab505054290ede063a6c",
+    "ict_shadow.html": "9938744ee34ba8bf354c6e7fccf04978b96bb306c3786fdaf472cf4396733d19",
+    "services/tanja/ict_agent/integrated_web.py": "e3d10d228dc0d94eafe3cdbfbf4a420e6d7a8ff7d27c36d3181e4a498d7444a7",
+    "services/tanja/ict_agent/research/__init__.py": "8e8f18711994c2b3a6b5b44782232450e5a829baa29e272ba18fc1418de01e76",
+    "services/tanja/ict_agent/research/library/__init__.py": "73e2d47526a953597e56e62231d2b2e43154a98ae58db4662d24c2456fb8d981",
+    "services/tanja/ict_agent/research/library/knowledge_view.py": "e04c7ccf3f55b0a62bbb3c3a1beb4bfb80b0e47fd71e2905d7eda42e18d068f3",
+    "services/tanja/ict_agent/research/library/repository.py": "5fdc50da9760ed578041f82a928f297116a482117132e23f2cceb02bb74eeba1",
+    "services/tanja/ict_agent/static/app.js": "43223195f22fa0c661975d8764a069126d9377d75d4191fae7e24168abc23ef8",
+    "services/tanja/ict_agent/static/knowledge.css": "106bfbd670a7329ec6c9a90d2217e9e7ab133a327bec1987a43a4bbb93a085f0",
+    "services/tanja/ict_agent/static/knowledge.html": "1420465b1b776ca4834e4ba183d414699ae5c55ae2a64d121c0cdd2ae8ae2b86",
+    "services/tanja/ict_agent/static/knowledge.js": "07a271054bb5b2694805c453e074a4c315aba16d5d2f8369baaa05873a9ef725",
+    "services/tanja/ict_agent/static/native.css": "d056502465752b735135cdc987d62461ea244270244915825f89a880d9104d27",
+    "services/tanja/ict_agent/static/view.html": "ed37e80de30e38aed1bff5aa78000777b78ba69830cedc589accd5ab4fe10735",
+    "tests/test_ict_knowledge_ui.py": "15af337bab50146f25a367956e85adb3b288b850c902dd772a1606ac4c3d256d"
+  }
+}

@@ -6,6 +6,7 @@ from .common import digest,encode
 from .market import validate_bar,bar_id,fresh_state,advance,context,clock,intermarket
 from .scenarios import update_setups,decide,TERMINAL
 from . import retrieval_storage
+from .ifvg_observation import observe as observe_ifvg, assessment as ifvg_assessment
 
 class Observer:
     def __init__(self,store,knowledge,*,symbols=('NQ',)):
@@ -33,7 +34,7 @@ class Observer:
             row=db.execute('SELECT payload FROM memory WHERE id=1').fetchone()
             memory=json.loads(row[0]) if row else dict(cursor=-1,markets={},setups={},retrieval_ids={},snapshot_at=-1,revision=0)
             if as_of<=memory['cursor']:raise ValueError('OUT_OF_ORDER_OBSERVATION')
-            events=[]
+            events=[];new_frames=[]
             for b in bars:
                 symbol=b['symbol'];current=memory['markets'].get(symbol)
                 if current and current['contract']!=b['contract']:
@@ -42,12 +43,15 @@ class Observer:
                         previous=current['contract'],evidence_ids=[bar_id(b)],status='CONFIRMED_IDENTIFIER_CHANGE')
                     e['id']=digest(e)[:24];events.append(e);current=None
                 if current is None:current=fresh_state(symbol,b['contract']);memory['markets'][symbol]=current
-                fs,es=advance(current,b);events.extend(es)
+                fs,es=advance(current,b);events.extend(es);new_frames.extend(fs)
                 old=db.execute('SELECT payload FROM bars WHERE id=?',(bar_id(b),)).fetchone()
                 if old and old[0]!=encode(b):raise ValueError('BAR_IMMUTABILITY_CONFLICT')
                 db.execute('INSERT OR IGNORE INTO bars VALUES(?,?,?,?,?,?)',(bar_id(b),symbol,b['contract'],b['ts'],b['received_at'],encode(b)))
                 for f in fs:
                     db.execute('INSERT INTO frames VALUES(?,?,?,?,?,?,?)',(f['id'],symbol,b['contract'],f['timeframe'],f['ts'],f['available_at'],encode(f)))
+            ifvg=memory.setdefault('ifvg_observations',{})
+            ifvg_events=observe_ifvg(ifvg,memory['markets'],new_frames,as_of)
+            events.extend(ifvg_events)
             for e in events:
                 if e['available_at']>as_of:raise ValueError('FUTURE_EVENT')
                 db.execute('INSERT INTO events VALUES(?,?,?,?,?)',(e['id'],e['available_at'],e['symbol'],e['kind'],encode(e)))
@@ -61,7 +65,7 @@ class Observer:
                 db.execute('INSERT INTO transitions VALUES(?,?,?,?)',(t['id'],t['setup_id'],t['at'],encode(t)))
             for s in memory['setups'].values():
                 db.execute('INSERT INTO setups VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',(s['id'],encode(s)))
-            meaningful=bool(transitions) or any(e['kind'] in ('CONTRACT_CHANGE','DATA_GAP') or
+            meaningful=bool(transitions) or bool(ifvg_events) or any(e['kind'] in ('CONTRACT_CHANGE','DATA_GAP') or
                 (e['timeframe']>=5 and e['kind'] not in ('PIVOT',)) for e in events)
             snapshot_id=None
             if emit and (force_snapshot or meaningful or as_of-memory['snapshot_at']>=300):
@@ -83,7 +87,8 @@ class Observer:
                     event_kinds=sorted({e['kind'] for e in events}),setups=shown,transitions=transitions,
                     retrieval_ids=sorted({rid}|{memory['retrieval_ids'][s['id']] for s in shown if s['id'] in memory['retrieval_ids']}),
                     missing=['calibrated model comparison','verified HTF range selection','timestamped news','contract definition mapping','measured receipts and executable ticks'],
-                    observed_symbols=[b['symbol'] for b in bars],orders_sent=0)
+                    observed_symbols=[b['symbol'] for b in bars],orders_sent=0,
+                    ifvg_observations=list(ifvg.values()),ifvg_assessment=ifvg_assessment(ifvg))
                 snap['id']=digest(snap)[:24];snapshot_id=snap['id']
                 db.execute('INSERT INTO snapshots VALUES(?,?,?,?)',(snapshot_id,as_of,decision['action'],encode(snap)))
                 memory['snapshot_at']=as_of

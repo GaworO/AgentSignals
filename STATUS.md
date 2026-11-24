@@ -17,3 +17,7 @@ Private knowledge release `f674585237afa449a421` is installed and all 143 manife
 November 20 feed has no missing NYAM minutes through 11:30 NY across NQ/MNQ/ES. Dated reference streams ESZ2026/NQZ2026/MNQZ2026 exist; price equivalence is still being checked. The separate external replay writer preserves original receipt times and does not load history into the HTTP worker. API calls and session analysis are NOT_ANALYZED at this release checkpoint.
 
 See `NYAM_AI_ICT_2026-11-20.md`; it will be updated with actual paid outcomes after production health verification.
+
+## IFVG observation release — 2026-11-24
+
+Prepared against fetched production branch df27b2b (runtime file hashes match active recovery deployment 890719ce / 80eee2c). Adds M1/M5 inversion, recross and subsequent retest journaling plus native Observe panel. All zones remain observation-only: selection/entry/position/stop/target UNKNOWN, no fill assertion. Preserves 512 MiB guard and bounded 300 second / 5 batch intake. Code-only manifest handoff preserves historical manifests and all evidence/memory; no replay or new run. Verified single recovery backup before deployment. Focused, restart/dedupe, storage and legacy tests run locally; production validation is recorded separately after deployment. No paid API or broker changes.
