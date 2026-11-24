@@ -1,8 +1,8 @@
-## 24 November 2026 — capacity resolved; complete recovery
+## 24 November 2026 — recovery completed; no pending approval
 
-The user upgraded Railway to Pro and the volume is now 10 GB. The calculated minimum practical recovery size was 7 GB, including verified backup replacement, staging/rollback and 512 MiB reserve. No further capacity purchase or approval is needed to complete the authorized recovery.
+The user upgraded Railway to Pro; the volume is 10 GB. The calculated practical minimum for safe backup/swap/rollback was 7 GB, not a permanent requirement of the candle scanner. Verified backup and actual restore, lossless Observe replacement, tested patch deployment and first post-resume NQ M1 source/scanner/UI verification are complete. Available space: 6,310,088,704 B at 12:52:45 UTC.
 
-The full retained backup is verified and the separate durable raw Observe/WAL/SHM copy passed an actual restoration. Current production and the 591 MB candidate have identical original-table contents. Complete final comparison, atomic replacement, the tested patch release and first post-resume candle verification. Never manually remove SQLite journals. No changes to legacy trading/risk flags, no shadow session, paid LLM or orders; historical approvals below do not apply.
+OBSERVE runs with 512 MiB guard and bounded 300-second/five-batch catch-up. The first close after resume returned actual NO_TRADE with H4_WARMUP; context accumulation and continuous-to-dated contract mapping remain research limitations. No paid LLM, new shadow session, orders or trading/risk flag changes were performed. Historical experiment permissions below do not apply. See `ICT_SQLITE_RECOVERY_2026-11-24.md`.
 
 # Decyzje i blokady — 20 listopada 2026
 

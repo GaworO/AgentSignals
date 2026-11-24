@@ -1,6 +1,6 @@
 # SQLite / ICT Observe — 24 listopada 2026
 
-Stan 12:40 UTC: dostęp do SQLite odzyskany po powiększeniu woluminu do 10 GB; obie produkcyjne bazy przechodzą zwykły odczyt i `quick_check=ok`. ICT pozostaje OFF do zakończenia podmiany i wdrożenia. Trwałe kopie są zabezpieczone. Nie wykonano jeszcze próby nowej świecy po wznowieniu.
+**Odzyskano produkcyjny Observe.** Poprawka `80eee2c` działa w wydaniu Railway `890719ce-8d3e-4d9a-9d5e-a57c51e3ebb2` (SUCCESS 12:46:29 UTC). ICT pozostał OFF do zabezpieczenia danych, podmiany i sprawdzenia wdrożonych plików. Wznowienie wyłącznie OBSERVE: 12:49:09 UTC. Pierwsza nowa świeca zamknięta 12:50 UTC została dopasowana w źródle, skanerze i rzeczywistym panelu. Ostatnia kontrola 12:52:45 UTC: `quick_check=ok` źródła, zachowanego Observe i nowego dziennika; **6 310 088 704 B dostępnych**. Bez nowej sesji shadow, płatnego LLM i zleceń w tej procedurze.
 
 ## Przyczyna i duplikaty
 
@@ -27,7 +27,7 @@ Przed jakąkolwiek podmianą zabezpieczono również surowy Observe wraz z WAL i
 
 Baza po odtworzeniu WAL: 2 571 026 432 B. Przygotowany cel: 590 843 904 B. Oszczędność: 1 980 182 528 B (77%). Wspólne notatki przechowywane raz według hasha; uporządkowane referencje odtwarzają dokładnie pierwotną treść. Snapshoty i pozostałe tabele niezmienione. Wszystkie 12 pierwotnych tabel ma identyczne liczby rekordów i kanoniczne hashe; retrievals porównywane po pełnym rozwinięciu. Bieżąca produkcja z 12:12 UTC jest identyczna z pierwszą kopią — brak pominiętych późniejszych zapisów.
 
-Końcowa procedura dodatkowo odtwarza Observe z nowego zachowanego backupu, porównuje backup/bieżącą bazę/kandydata pod blokadą i OFF, sprawdza brak otwartych deskryptorów Observe, kopiuje i fsyncuje kandydata na woluminie. SQLite sam wykonuje checkpoint i przechodzi w DELETE; dzienniki nie są ręcznie usuwane. Dopiero po zniknięciu dzienników przez SQLite następuje atomowe `os.replace` i kontrola odczytu. VACUUM wykonano wyłącznie wcześniej na nowej kopii offline z zapasem miejsca.
+Wykonana końcowa procedura dodatkowo odtworzyła Observe z nowego zachowanego backupu, porównuje backup/bieżącą bazę/kandydata pod blokadą i OFF, sprawdza brak otwartych deskryptorów Observe, kopiuje i fsyncuje kandydata na woluminie. SQLite sam wykonuje checkpoint i przechodzi w DELETE; dzienniki nie są ręcznie usuwane. Dopiero po zniknięciu dzienników przez SQLite następuje atomowe `os.replace` i kontrola odczytu. VACUUM wykonano wyłącznie wcześniej na nowej kopii offline z zapasem miejsca.
 
 ## Poprawka i testy
 
@@ -41,6 +41,26 @@ Punkt wyjścia: aktualna produkcja `936ee8943202e731825d9b528eaa4ded290f614a`, g
 
 Zatrzymano wyłącznie ICT przez prywatne `ICT_AI_MODE=OFF`; wspólny Gunicorn/ingest pozostał uruchomiony. Odczyt źródła po resize potwierdził NQ `CME_MINI:NQ1!`, start 1795523400, end 1795523460, confirmed/standard true. To etykieta ciągła, nie potwierdzona seria z terminem wygaśnięcia.
 
-## Pozostały dowód produkcyjny
+## Wykonany dowód produkcyjny
 
-Po podmianie i wdrożeniu: wznowić wyłącznie OBSERVE, zanotować rzeczywisty start procesu, wskazać pierwszą źródłową świecę NQ M1 zamkniętą później i dopasować kontrakt/timestamp do oceny skanera oraz produkcyjnego panelu Observe. Wymagany pomiar miejsca po próbie i potwierdzenie braku pełnego replayu. Płatny LLM, shadow i zlecenia wykluczone przez użytkownika.
+Hashe wdrożonych `runtime.py`, `bridge.py`, `storage_guard.py` i `retrieval_storage.py` zgodne z wydaniem. W trybie OFF po wdrożeniu oba zwykłe odczyty i quick_check przeszły. Następnie atomowo ustawiono tylko prywatne klucze ICT: OBSERVE, nowy `observe-recovered-20261124/observer.sqlite3`, 512 MiB, 300 sekund, 5 partii. Pozostałe klucze zachowano; `ICT_AI_PAID_APPROVED=false`. Gunicorn HUP wznowił worker bez zmiany flag trading/risk.
+
+| Etap | Ten sam instrument i świeca | Wynik |
+|---|---|---|
+| Źródło `collection_bars` | `CME_MINI:NQ1!`, NQ M1, start `1795524540`, koniec `1795524600` | confirmed=true, standard=true; odbiór 12:50:00.724 UTC |
+| Skaner | ten sam kontrakt i timestamp, identyczne OHLC | snapshot `3bc58d20dec2e5c0ed728458`, as_of 12:50:03 UTC, `NO_TRADE` |
+| Produkcyjny Observe, API i widoczny panel | ten sam snapshot, `CME_MINI:NQ1!`, M1; oś 07:49 i koniec 07:50 NY | `NO_TRADE`, `NOT_CALLED`; zapis #6, zrzut zachowany |
+
+To pierwsza świeca **zamknięta po wznowieniu 12:49:09 UTC**, obejmująca 12:49–12:50 UTC (07:49–07:50 NY). Nie wybrano późniejszej wygodniejszej świecy. Wynik silnika ma rzeczywistą nazwę `NO_TRADE`, nie `NO_SETUP`: 0 aktywnych setupów, 0 kompletnych planów, brakujący kontekst `H4_WARMUP`. Nowy przebieg dopiero zbiera kontekst wyższych interwałów; nie jest to dowód pełnej gotowości strategii ani rentowności. Seria jest ciągła, mapowanie na konkretny termin wygaśnięcia pozostaje niezweryfikowane.
+
+[Dokładny zapis w produkcyjnym Observe](https://agent-50k-production.up.railway.app/ict-shadow?view=ictai&ai_mode=observe&ai_symbol=NQ&ai_tf=1&ai_snapshot=3bc58d20dec2e5c0ed728458).
+
+Start przetworzył pięć partii z 12:44–12:48 UTC, następnie nową 12:49. Przy pierwszej próbie: 6 partii / 18 rekordów ES/NQ/MNQ. Przy końcowej kontroli: 8 partii / 24 rekordy, do źródłowego zamknięcia 12:52 UTC. Manifest `agent50k-ict-observer-v3`: `BOUNDED_RECENT_WINDOW`, 300 sekund, 5 partii, `older_history=NOT_REPLAYED`. Stara historia 20 959 partii pozostała zachowana w kompaktowym archiwum. Nie uruchomiono pełnego replayu.
+
+Aktywny dziennik: 1 011 712 B, WAL 0 B, SHM 32 768 B; `ai_reviews=0`, brak tabeli reasoning_reviews. Worker `OBSERVING`, data_fresh=true, missing_pair_count=0, llm=NOT_ENABLED. Publiczne uwierzytelnione API: paid_calls_enabled=false, orders_enabled=false. Widoczny w panelu licznik 46 wywołań należy do oznaczonego archiwalnego eksperymentu 20 listopada, nie do tej próby.
+
+Źródło: 101 478 400 B + WAL 16 512 B + SHM 32 768 B. Zachowane Observe: 590 843 904 B. Jedyny backup na woluminie: 856 742 853 B. Końcowy system plików: 9 759 125 504 B total, 3 432 259 584 B used, 6 310 088 704 B available. W okresie próby ingest i skaner przechodziły do kolejnych minut; nie ustawiano dodatkowego harmonogramu.
+
+Prywatne dowody (`first-candle-proof.json`, `final-health.json`, `swap-report.json`, `durable-restore-report.json`, zrzut `first-candle-observe.jpg`) są w trwałym lokalnym `runtime-recovery/ict-observe-current`, wykluczonym z repozytorium. Surowa kopia obejmuje oryginalne WAL/SHM, a retained backup zawiera spójny snapshot Observe; obie ścieżki odtworzenia sprawdzono. Rollback należy wykonać offline z ICT OFF; przy odtwarzaniu całego systemu obowiązuje uzgodnienie stanu brokera opisane w AGENTS.md. Nie przywracać starego pełnego replayu.
+
+Ograniczenie poza zakresem tej poprawki: stare moduły `continuation-shadow` i `_bars` nadal zgłaszają błędy agregacji/CSV. Te same błędy potwierdzono w logach poprzedniego wdrożenia. Nie zmieniano ich flag ani danych; nie są błędami bieżącego Observe. Testy regresji i odzyskanie ICT nie oznaczają, że wszystkie niezależne moduły produkcji są bezbłędne.

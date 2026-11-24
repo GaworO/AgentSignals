@@ -27,6 +27,8 @@
       "services/tanja/ict_agent/integrated_web.py": "Same authenticated routes and read-only modes. Prefer in-memory worker status when disk writes pause; expand hash-verified retrieval note references before the existing public-data filter."
     },
     "validation": "80 focused, native Knowledge and legacy Shadow tests passed; provider transports mocked only.",
-    "production_deployed": false
+    "production_deployed": true,
+    "recovery_release_revision": "80eee2c",
+    "recovery_deployment": "890719ce-8d3e-4d9a-9d5e-a57c51e3ebb2"
   }
 }

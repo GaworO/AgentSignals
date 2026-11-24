@@ -1,11 +1,12 @@
-## 24 November 2026 — current storage priority
+## 24 November 2026 — storage recovery completed
 
-- DONE: narrowly disable ICT, preserve raw DB/WAL/SHM in a verified durable copy and test real restore; identify historical replay and 1.98 GB repeated audit notes.
-- DONE: Pro/10 GB capacity confirmed; ordinary reads and quick_check of both production DBs pass; retain one new verified full recovery backup.
-- TESTED: 512 MiB write guard, 300-second / five-batch catch-up, lossless note storage; 80 focused/native/Knowledge/legacy Shadow tests pass.
-- IN_PROGRESS: final backup/current/candidate comparison, atomic replacement, release and first post-resume NQ M1 source/scanner/Observe proof plus remaining space.
+- DONE: narrow ICT OFF; preserve raw DB/WAL/SHM durably and test real restore; identify replay and repeated audit notes.
+- DONE: Pro/10 GB; verified single full backup; compare all original tables against current production and safely replace with the 591 MB candidate.
+- DONE: deploy 512 MiB write pause, 300-second/five-batch catch-up and lossless note normalization; 80 tests pass.
+- DONE: resume only OBSERVE; first post-resume NQ M1 close 12:50 UTC matches source/scanner/real Observe UI; actual NO_TRADE / H4_WARMUP. All DB quick_checks pass; 6,310,088,704 B free at 12:52:45 UTC.
+- LIMITATION: new run accumulates higher-timeframe context; dated contract remains unverified. Unrelated legacy CSV/aggregation errors predate this deployment and were not changed.
 
-No paid LLM, shadow session or orders. See `ICT_SQLITE_RECOVERY_2026-11-24.md`.
+No new shadow session, paid LLM or orders. See `ICT_SQLITE_RECOVERY_2026-11-24.md`.
 
 # AI ICT Trader — plan oparty na dowodach
 

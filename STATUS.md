@@ -1,8 +1,8 @@
-## 24 November 2026 — SQLite access recovered, release in progress
+## 24 November 2026 — production ICT storage recovery complete
 
-Pro and the 10 GB volume are confirmed. Ordinary production reads and both quick_checks now pass. ICT remains OFF. The sole retained production backup is verified (856,742,853 B / 913 files / 42 SQLite databases); the raw Observe DB/WAL/SHM has also been durably copied off-volume and actually restored/read successfully. All 12 original tables match the 590,843,904 B normalized candidate, with no later Observe writes omitted.
+Release `80eee2c` / Railway `890719ce-8d3e-4d9a-9d5e-a57c51e3ebb2` is deployed. Preserve/restore verification completed for the sole full recovery backup and an off-volume raw Observe/WAL/SHM copy. All 12 original tables match; lossless replacement shrank Observe from 2.57 GB to 590,843,904 B. Pro/10 GB capacity confirmed. Source, preserved Observe and the new live journal pass ordinary reads and quick_check.
 
-The prepared guard/bounded-catch-up/normalization fix passed 80 focused, native, Knowledge and legacy Shadow tests. Atomic replacement, release and the first post-resume NQ M1 source/scanner/UI proof are in progress. No shadow session, paid LLM or orders are authorized. See `ICT_SQLITE_RECOVERY_2026-11-24.md`; older experiment permissions below do not apply to this recovery.
+OBSERVE resumed at 12:49:09 UTC with the tested 512 MiB guard and 300-second / five-batch catch-up. The first NQ M1 close after resume, 12:50 UTC (`CME_MINI:NQ1!`, start 1795524540), matches source, scanner snapshot 3bc58d20dec2e5c0ed728458 and the actual Observe UI. Actual result NO_TRADE / H4_WARMUP, LLM NOT_CALLED, orders 0. Full replay did not restart. At 12:52:45 UTC available space was 6,310,088,704 B; fresh subsequent candles continue. 80 focused/native/Knowledge/legacy Shadow tests passed. See `ICT_SQLITE_RECOVERY_2026-11-24.md` for evidence and unrelated pre-existing legacy parser limitations. Older paid permissions below do not authorize this recovery.
 
 # AI ICT Trader — 20 November 2026
 
