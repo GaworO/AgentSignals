@@ -1,3 +1,12 @@
+## 24 November 2026 — current storage priority
+
+- DONE: narrowly disable ICT, preserve raw DB/WAL/SHM in a verified durable copy and test real restore; identify historical replay and 1.98 GB repeated audit notes.
+- DONE: Pro/10 GB capacity confirmed; ordinary reads and quick_check of both production DBs pass; retain one new verified full recovery backup.
+- TESTED: 512 MiB write guard, 300-second / five-batch catch-up, lossless note storage; 80 focused/native/Knowledge/legacy Shadow tests pass.
+- IN_PROGRESS: final backup/current/candidate comparison, atomic replacement, release and first post-resume NQ M1 source/scanner/Observe proof plus remaining space.
+
+No paid LLM, shadow session or orders. See `ICT_SQLITE_RECOVERY_2026-11-24.md`.
+
 # AI ICT Trader — plan oparty na dowodach
 
 | Priorytet | Stan | Zakres i dowód |

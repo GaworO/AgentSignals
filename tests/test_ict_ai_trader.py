@@ -146,6 +146,10 @@ def test_existing_intake_worker_restart_no_paid_calls(tmp_path,monkeypatch):
  import sqlite3,time,hashlib
  from services.tanja.ict_agent.runtime import Worker
  from services.tanja.ict_agent import knowledge,runtime
+ from services.tanja.ict_agent import storage_guard
+ from types import SimpleNamespace
+ # Host capacity is independent of restart correctness; pressure has dedicated tests.
+ monkeypatch.setattr(storage_guard.shutil,'disk_usage',lambda p:SimpleNamespace(free=1024**3))
  # OBSERVE must not invoke the paid review path, even with a stale approval flag.
  def forbidden_review(*a,**kw):raise AssertionError('PAID_REVIEW_FORBIDDEN_IN_OBSERVE')
  monkeypatch.setattr(r,'review',forbidden_review)
@@ -157,11 +161,12 @@ def test_existing_intake_worker_restart_no_paid_calls(tmp_path,monkeypatch):
   def __init__(self,*a,**k):pass
  monkeypatch.setattr(knowledge,'Knowledge',K)
  source=tmp_path/'intake.sqlite3'
+ recent_start=int(time.time()//60)*60-120
  with sqlite3.connect(source) as d:
   for t in ('bars','collection_bars'):d.execute(f'CREATE TABLE {t}(symbol TEXT,start INTEGER,end INTEGER,received REAL,payload TEXT)')
   for minute in range(2):
    for sym in ('NQ','ES','MNQ'):
-    b=bar(1777642200+minute*60,sym);t='collection_bars' if sym=='NQ' else 'bars'
+    b=bar(recent_start+minute*60,sym);t='collection_bars' if sym=='NQ' else 'bars'
     payload=dict(symbol=sym,confirmed=True,standard=True,bar_open_ms=b['ts']*1000,bar_close_ms=b['received_at']*1000,ticker=b['contract'],**{k:b[k] for k in ('open','high','low','close')})
     d.execute(f'INSERT INTO {t} VALUES(?,?,?,?,?)',(sym,b['ts'],b['received_at'],b['received_at'],json.dumps(payload)))
  original=hashlib.sha256(source.read_bytes()).hexdigest()
@@ -184,7 +189,7 @@ def test_existing_intake_worker_restart_no_paid_calls(tmp_path,monkeypatch):
    measurements=d.execute('SELECT id,payload FROM measurements ORDER BY id').fetchall()
    assert len(measurements)==2
    assert all(started<=json.loads(raw)['processed_at']<=time.time() for _,raw in measurements)
-   assert not d.execute('SELECT 1 FROM reasoning_reviews').fetchone()
+   assert not d.execute("SELECT 1 FROM sqlite_master WHERE name='reasoning_reviews'").fetchone()
   if previous_measurements is not None:assert measurements==previous_measurements
   previous_measurements=measurements
  assert hashlib.sha256(source.read_bytes()).hexdigest()==original

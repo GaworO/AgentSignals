@@ -5,15 +5,17 @@ from . import VERSION
 from .common import digest,encode
 from .market import validate_bar,bar_id,fresh_state,advance,context,clock,intermarket
 from .scenarios import update_setups,decide,TERMINAL
+from . import retrieval_storage
 
 class Observer:
     def __init__(self,store,knowledge,*,symbols=('NQ',)):
         self.store=store;self.knowledge=knowledge;self.symbols=tuple(symbols)
         with store.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS retrievals(id TEXT PRIMARY KEY,payload TEXT)')
+            retrieval_storage.initialize(db)
             self.manifest_hash=digest(json.loads(db.execute("SELECT payload FROM metadata WHERE key='manifest'").fetchone()[0]))
 
-    def push(self,bars,*,emit=True):
+    def push(self,bars,*,emit=True,force_snapshot=False):
         started=time.perf_counter()
         if not bars:raise ValueError('EMPTY_BATCH')
         bars=sorted(bars,key=lambda b:b['symbol'])
@@ -53,8 +55,7 @@ class Observer:
             relationships=intermarket(memory['markets'],as_of)
             transitions,retrievals=update_setups(memory['setups'],events,ctx,as_of,self.knowledge,self.symbols)
             for ident,retrieval in retrievals.items():
-                key=digest(retrieval)
-                db.execute('INSERT OR IGNORE INTO retrievals VALUES(?,?)',(key,encode(retrieval)))
+                key=retrieval_storage.put(db,retrieval)
                 memory['retrieval_ids'][ident]=key
             for t in transitions:
                 db.execute('INSERT INTO transitions VALUES(?,?,?,?)',(t['id'],t['setup_id'],t['at'],encode(t)))
@@ -63,7 +64,7 @@ class Observer:
             meaningful=bool(transitions) or any(e['kind'] in ('CONTRACT_CHANGE','DATA_GAP') or
                 (e['timeframe']>=5 and e['kind'] not in ('PIVOT',)) for e in events)
             snapshot_id=None
-            if emit and (meaningful or as_of-memory['snapshot_at']>=300):
+            if emit and (force_snapshot or meaningful or as_of-memory['snapshot_at']>=300):
                 decision=decide(memory['setups'],events,ctx,as_of)
                 from .risk import check
                 decision['risk_reviews']={i:check(memory['setups'][i]['plan'],None,{}, {},as_of)
@@ -71,8 +72,7 @@ class Observer:
                 important=[e for e in events if e['symbol']=='NQ' and e['kind'] in ('SWEEP','FVG','IFVG','DISPLACEMENT','STRUCTURE_BREAK')]
                 query=' '.join(sorted({e['kind'] for e in important})) or 'market context waiting no trade uncertainty'
                 retrieved=self.knowledge.contextual(ctx,events) if hasattr(self.knowledge,'contextual') else self.knowledge.retrieve(query+' market context invalidation liquidity',event_sequence=tuple(e['kind'] for e in important[-4:]))
-                rid=digest(retrieved)
-                db.execute('INSERT OR IGNORE INTO retrievals VALUES(?,?)',(rid,encode(retrieved)))
+                rid=retrieval_storage.put(db,retrieved)
                 changed={t['setup_id'] for t in transitions}
                 shown=[s for s in memory['setups'].values() if s['state'] not in TERMINAL or s['id'] in changed]
                 # Snapshot is as-of immutable; later transitions/outcomes live elsewhere.

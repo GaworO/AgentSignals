@@ -3,7 +3,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from flask import Blueprint, Response, jsonify, request, abort, send_from_directory, redirect
+from flask import Blueprint, Response, jsonify, request, abort, send_from_directory, redirect, current_app
 from .store import Store
 
 MODES={'replay':'HISTORICAL_REPLAY','baseline':'DETERMINISTIC_BASELINE','observe':'READ_ONLY_OBSERVATION','shadow':'SHADOW_AI','paper':'PAPER'}
@@ -69,6 +69,10 @@ def blueprint(cfg,authorize):
         if status.is_file():
             try:body['worker']=json.loads(status.read_text())
             except (OSError,ValueError):body['worker']={'state':'STATUS_UNAVAILABLE'}
+        worker=current_app.extensions.get('ict_ai_trader_worker')
+        if worker and worker.current_status is not None:
+            # A paused disk writer cannot persist a fresh status file.
+            body['worker']=dict(worker.current_status)
         return jsonify(body)
     @bp.get('/api/timeline')
     def timeline():
@@ -103,9 +107,12 @@ def blueprint(cfg,authorize):
         return jsonify({str(tf):s.chart(snap,symbol,tf,limit) for tf in (1,5,15,60,240,1440)})
     @bp.get('/api/retrievals/<ident>')
     def retrieval(ident):
-        with store().readonly() as db:row=db.execute('SELECT payload FROM retrievals WHERE id=?',(ident,)).fetchone()
-        if row is None:abort(404)
-        return jsonify(public(json.loads(row[0])))
+        from .retrieval_storage import unpack
+        with store().readonly() as db:
+            row=db.execute('SELECT payload FROM retrievals WHERE id=?',(ident,)).fetchone()
+            if row is None:abort(404)
+            value=unpack(db,row[0],ident)
+        return jsonify(public(value))
     @bp.get('/api/candidates/first')
     def first():
         with store().readonly() as db:row=db.execute("SELECT id FROM snapshots WHERE decision='TRADE_CANDIDATE' ORDER BY as_of LIMIT 1").fetchone()

@@ -113,7 +113,8 @@ def validate_run(store,knowledge):
             if t['after'] not in ALLOWED[t['before']]:raise ValueError('LIFECYCLE_AUDIT')
             counts['legal_transitions']+=1
         for raw, in db.execute('SELECT payload FROM retrievals'):
-            r=json.loads(raw)
+            from .retrieval_storage import unpack
+            r=unpack(db,raw)
             for item in r['records']:
                 if item['id'] not in knowledge.verified or item['references']!=knowledge.by_id[item['id']]['references']:
                     raise ValueError('RETRIEVAL_REFERENCE_DRIFT')

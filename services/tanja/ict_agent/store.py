@@ -24,8 +24,10 @@ def transition(setup, state, at, reason, evidence):
     return item
 
 class Store:
-    def __init__(self,path,manifest=None):
+    def __init__(self,path,manifest=None,*,write_guard=None):
         self.path=Path(path)
+        self.write_guard=write_guard
+        if self.write_guard:self.write_guard()
         self.path.parent.mkdir(parents=True,exist_ok=True)
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
@@ -50,6 +52,7 @@ class Store:
                 db.execute("INSERT OR IGNORE INTO metadata VALUES('manifest',?)",(encode(manifest),))
 
     def connect(self):
+        if getattr(self,'write_guard',None):self.write_guard()
         db=sqlite3.connect(self.path,timeout=30)
         db.execute('PRAGMA foreign_keys=ON')
         return db

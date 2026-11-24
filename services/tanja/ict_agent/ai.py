@@ -31,7 +31,8 @@ Responses are advisory. Only supplied as-of evidence may be used. No future outc
 
 def packet(store, snapshot):
     with store.readonly() as db:
-        retrievals=[json.loads(db.execute('SELECT payload FROM retrievals WHERE id=?',(r,)).fetchone()[0]) for r in snapshot['retrieval_ids']]
+        from .retrieval_storage import unpack
+        retrievals=[unpack(db,db.execute('SELECT payload FROM retrievals WHERE id=?',(r,)).fetchone()[0],r) for r in snapshot['retrieval_ids']]
         ids={i for e in snapshot['events'] for i in e.get('evidence_ids',[])}
         ids.update(e['id'] for e in snapshot['events'])
         for ctx in snapshot['context'].values():

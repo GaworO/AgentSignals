@@ -1,3 +1,9 @@
+## 24 November 2026 — SQLite access recovered, release in progress
+
+Pro and the 10 GB volume are confirmed. Ordinary production reads and both quick_checks now pass. ICT remains OFF. The sole retained production backup is verified (856,742,853 B / 913 files / 42 SQLite databases); the raw Observe DB/WAL/SHM has also been durably copied off-volume and actually restored/read successfully. All 12 original tables match the 590,843,904 B normalized candidate, with no later Observe writes omitted.
+
+The prepared guard/bounded-catch-up/normalization fix passed 80 focused, native, Knowledge and legacy Shadow tests. Atomic replacement, release and the first post-resume NQ M1 source/scanner/UI proof are in progress. No shadow session, paid LLM or orders are authorized. See `ICT_SQLITE_RECOVERY_2026-11-24.md`; older experiment permissions below do not apply to this recovery.
+
 # AI ICT Trader — 20 November 2026
 
 Memory hotfix `8aaf569` is deployed and stable in the measured window. The production limit is 8,000,000,000 bytes. One Gunicorn worker / eight HTTP threads previously loaded 394 full review JSON files (592 MB on disk, 1.143 GB decoded Python objects) independently for each reader. The corrected reader streams records and bounds the metadata cache. Handoff no longer materializes the iterator. No history or production flags were removed.

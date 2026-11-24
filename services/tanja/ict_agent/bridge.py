@@ -31,16 +31,26 @@ def read_tanja(path,*,after_start=-1,frozen_at,limit=15000,before_start=2**62):
         else:gaps.append(dict(ts=ts,missing=sorted({'ES','NQ','MNQ'}-{b['symbol'] for b in rows})))
     return batches,gaps
 
-def observe_once(observer,source_path,now):
+def observe_once(observer,source_path,now,*,max_age_seconds=300,max_batches=5):
+    # Live observation only. Historical research uses read_tanja explicitly.
+    # Bound the time window on EVERY poll/restart, including an empty journal.
+    if type(max_age_seconds) is not int or not 60<=max_age_seconds<=3600:raise ValueError('LIVE_CATCHUP_AGE_LIMIT')
+    if type(max_batches) is not int or not 1<=max_batches<=60:raise ValueError('LIVE_CATCHUP_BATCH_LIMIT')
+    # Opening a WAL reader may update shared-memory bookkeeping too.
+    if getattr(observer.store,'write_guard',None):observer.store.write_guard()
     with observer.store.readonly() as db:
         latest=db.execute('SELECT max(ts) FROM bars').fetchone()[0]
         row=db.execute('SELECT payload FROM memory WHERE id=1').fetchone()
         cursor=json.loads(row[0])['cursor'] if row else -1
-    batches,gaps=read_tanja(source_path,after_start=latest if latest is not None else -1,frozen_at=now)
+    floor=int(now//60)*60-max_age_seconds-1
+    after=max(latest if latest is not None else -1,floor)
+    batches,gaps=read_tanja(source_path,after_start=after,frozen_at=now,limit=max_batches)
     processed=0;late=[]
     for rows in batches:
         available=max(b['received_at'] for b in rows)
         if available<=cursor:
             late.append(dict(ts=rows[0]['ts'],reason='RECEIPT_ORDER_CONFLICT_NO_RETROSPECTIVE_REWRITE'));continue
-        observer.push(rows);cursor=available;processed+=1
-    return dict(processed=processed,missing_pairs=gaps,late=late,source_read_only=True,orders_sent=0)
+        observer.push(rows,force_snapshot=True);cursor=available;processed+=1
+    return dict(processed=processed,missing_pairs=gaps,late=late,source_read_only=True,orders_sent=0,
+                intake_after_start=after,previous_latest_start=latest,
+                history_not_replayed_before=floor+1 if latest is None or latest<floor else None)
