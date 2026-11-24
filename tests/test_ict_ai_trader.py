@@ -146,6 +146,9 @@ def test_existing_intake_worker_restart_no_paid_calls(tmp_path,monkeypatch):
  import sqlite3,time,hashlib
  from services.tanja.ict_agent.runtime import Worker
  from services.tanja.ict_agent import knowledge,runtime
+ # OBSERVE must not invoke the paid review path, even with a stale approval flag.
+ def forbidden_review(*a,**kw):raise AssertionError('PAID_REVIEW_FORBIDDEN_IN_OBSERVE')
+ monkeypatch.setattr(r,'review',forbidden_review)
  # Verify the real fingerprint before timing worker lifecycle. A cold/cloud-backed
  # source-tree read is not an observer startup/shutdown latency assertion.
  fingerprint=runtime.code_hash()
@@ -162,7 +165,9 @@ def test_existing_intake_worker_restart_no_paid_calls(tmp_path,monkeypatch):
     payload=dict(symbol=sym,confirmed=True,standard=True,bar_open_ms=b['ts']*1000,bar_close_ms=b['received_at']*1000,ticker=b['contract'],**{k:b[k] for k in ('open','high','low','close')})
     d.execute(f'INSERT INTO {t} VALUES(?,?,?,?,?)',(sym,b['ts'],b['received_at'],b['received_at'],json.dumps(payload)))
  original=hashlib.sha256(source.read_bytes()).hexdigest()
- config=dict(DATA_DIR=str(tmp_path),ICT_AI_SOURCE_DB=str(source),ICT_AI_MODE='OBSERVE')
+ config=dict(DATA_DIR=str(tmp_path),ICT_AI_SOURCE_DB=str(source),ICT_AI_MODE='OBSERVE',ICT_AI_PAID_APPROVED='true')
+ started=time.time()
+ previous_measurements=None
  for attempt in range(2):
   w=Worker(config);w.start();deadline=time.monotonic()+10
   while time.monotonic()<deadline:
@@ -174,7 +179,14 @@ def test_existing_intake_worker_restart_no_paid_calls(tmp_path,monkeypatch):
     except sqlite3.Error:pass
    time.sleep(.03)
   w.stop();w.thread.join(5);assert not w.thread.is_alive()
-  with sqlite3.connect(target) as d:assert d.execute('SELECT count(*) FROM bars').fetchone()[0]==6
+  with sqlite3.connect(target) as d:
+   assert d.execute('SELECT count(*) FROM bars').fetchone()[0]==6
+   measurements=d.execute('SELECT id,payload FROM measurements ORDER BY id').fetchall()
+   assert len(measurements)==2
+   assert all(started<=json.loads(raw)['processed_at']<=time.time() for _,raw in measurements)
+   assert not d.execute('SELECT 1 FROM reasoning_reviews').fetchone()
+  if previous_measurements is not None:assert measurements==previous_measurements
+  previous_measurements=measurements
  assert hashlib.sha256(source.read_bytes()).hexdigest()==original
  assert json.loads((tmp_path/'ict_ai/worker-status.json').read_text())['orders_enabled'] is False
 

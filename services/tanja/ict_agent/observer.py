@@ -96,6 +96,7 @@ class Observer:
             result=dict(batch_id=batch_id,as_of=as_of,events=len(events),transitions=len(transitions),snapshot_id=snapshot_id)
             db.execute('INSERT INTO batches VALUES(?,?,?,?)',(batch_id,fingerprint,as_of,encode(result)))
             db.execute('INSERT INTO measurements VALUES(?,?)',(batch_id,encode(dict(
+                processed_at=time.time(),
                 processing_ms=round((time.perf_counter()-started)*1000,3),
                 data_latency_seconds={b['symbol']:b['received_at']-(b['ts']+60) for b in bars},
                 latency_semantics='SOURCE_RECEIPTS' if all(b.get('source')=='TANJA_READ_ONLY_RECEIPT_TIME' for b in bars) else 'Historical close availability assumed; not measured provider latency.',
