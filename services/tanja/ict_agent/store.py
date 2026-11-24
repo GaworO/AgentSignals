@@ -62,7 +62,7 @@ class Store:
 
     def snapshot(self,ident=None):
         with self.readonly() as db:
-            row=db.execute('SELECT payload FROM snapshots WHERE id=?',(ident,)).fetchone() if ident else db.execute('SELECT payload FROM snapshots ORDER BY as_of DESC LIMIT 1').fetchone()
+            row=db.execute('SELECT payload FROM snapshots WHERE id=?',(ident,)).fetchone() if ident else db.execute('SELECT payload FROM snapshots ORDER BY as_of DESC,rowid DESC LIMIT 1').fetchone()
             return json.loads(row[0]) if row else None
 
     def chart(self, snapshot, symbol='NQ', timeframe=1,limit=180):
@@ -75,8 +75,16 @@ class Store:
 
     def timeline(self,limit=400,before=None):
         with self.readonly() as db:
-            rows=db.execute('SELECT id,as_of,decision,payload FROM snapshots WHERE as_of<? ORDER BY as_of DESC LIMIT ?',
+            rows=db.execute('SELECT id,as_of,decision,payload FROM snapshots WHERE as_of<? ORDER BY as_of DESC,rowid DESC LIMIT ?',
                             (before or 2**62,limit)).fetchall()
+            # Independent receipts can share one real observation second. Keep
+            # the boundary group together so the existing before=as_of cursor
+            # does not hide part of it on the next page.
+            if rows:
+                boundary=rows[-1][1]
+                tail=db.execute('SELECT id,as_of,decision,payload FROM snapshots WHERE as_of=? ORDER BY rowid DESC',
+                                (boundary,)).fetchall()
+                rows=[r for r in rows if r[1]>boundary]+tail
         return [dict(id=r[0],as_of=r[1],decision=r[2],event_kinds=json.loads(r[3])['event_kinds']) for r in rows]
 
     def stats(self, integrity=False):

@@ -18,7 +18,8 @@ from services.tanja.ict_agent.common import code_hash, digest, encode
 from services.tanja.ict_agent.storage_guard import WriteGuard
 
 
-def advance(path, lock_path, expected_old, expected_new, *, guard):
+def advance(path, lock_path, expected_old, expected_new, *, guard,
+            reason='IFVG_OBSERVATION_CODE_ONLY_HANDOFF'):
     guard()
     with Path(lock_path).open('a+') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -40,7 +41,7 @@ def advance(path, lock_path, expected_old, expected_new, *, guard):
                 prior = db.execute('SELECT payload FROM metadata WHERE key=?',(key,)).fetchone()
                 if prior and prior[0] != encode(manifest):raise ValueError('IMMUTABILITY_CONFLICT')
                 db.execute('INSERT OR IGNORE INTO metadata VALUES(?,?)',(key, encode(manifest)))
-            evidence = dict(kind='IFVG_OBSERVATION_CODE_ONLY_HANDOFF', at=time.time(),
+            evidence = dict(kind=reason, at=time.time(),
                             before=digest(old), after=digest(new), changed_fields=['code_hash'])
             db.execute('INSERT INTO metadata VALUES(?,?)',('manifest-handoff:'+digest(evidence), encode(evidence)))
             guard()

@@ -16,7 +16,7 @@ class Observer:
             retrieval_storage.initialize(db)
             self.manifest_hash=digest(json.loads(db.execute("SELECT payload FROM metadata WHERE key='manifest'").fetchone()[0]))
 
-    def push(self,bars,*,emit=True,force_snapshot=False):
+    def push(self,bars,*,emit=True,force_snapshot=False,observed_at=None):
         started=time.perf_counter()
         if not bars:raise ValueError('EMPTY_BATCH')
         bars=sorted(bars,key=lambda b:b['symbol'])
@@ -24,6 +24,9 @@ class Observer:
         if len({b['symbol'] for b in bars})!=len(bars) or len({b['ts'] for b in bars})!=1:
             raise ValueError('ONE_SHARED_MINUTE_PER_BATCH_REQUIRED')
         as_of=max(b['received_at'] for b in bars)
+        if observed_at is not None:
+            if type(observed_at) is not int or observed_at<as_of:raise ValueError('INVALID_OBSERVATION_TIME')
+            as_of=observed_at
         fingerprint=digest(bars);batch_id=digest(['bars',[(b['symbol'],b['contract'],b['ts']) for b in bars]])[:24]
         with self.store.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -33,10 +36,22 @@ class Observer:
                 return dict(json.loads(prior[1]),duplicate=True)
             row=db.execute('SELECT payload FROM memory WHERE id=1').fetchone()
             memory=json.loads(row[0]) if row else dict(cursor=-1,markets={},setups={},retrieval_ids={},snapshot_at=-1,revision=0)
-            if as_of<=memory['cursor']:raise ValueError('OUT_OF_ORDER_OBSERVATION')
-            events=[];new_frames=[]
+            if as_of<memory['cursor'] or (as_of==memory['cursor'] and observed_at is None):
+                raise ValueError('OUT_OF_ORDER_OBSERVATION')
+            events=[];new_frames=[];advanced_symbols=[];late=[]
             for b in bars:
                 symbol=b['symbol'];current=memory['markets'].get(symbol)
+                old=db.execute('SELECT payload FROM bars WHERE id=?',(bar_id(b),)).fetchone()
+                if old:
+                    if old[0]!=encode(b):raise ValueError('BAR_IMMUTABILITY_CONFLICT')
+                    continue
+                db.execute('INSERT INTO bars VALUES(?,?,?,?,?,?)',(bar_id(b),symbol,b['contract'],b['ts'],b['received_at'],encode(b)))
+                if observed_at is not None and current and current['last_ts'] is not None and b['ts']<=current['last_ts']:
+                    # Preserve the real late receipt in history without rewinding
+                    # frames, IFVG memory, decisions or alerts already published.
+                    late.append(dict(id=bar_id(b),symbol=symbol,ts=b['ts'],received_at=b['received_at'],
+                                     reason='LATE_BAR_HISTORY_ONLY_NO_RETROSPECTIVE_ALERT'))
+                    continue
                 if current and current['contract']!=b['contract']:
                     # Contract roll is explicit; no price stitching or copied zones.
                     e=dict(kind='CONTRACT_CHANGE',symbol=symbol,contract=b['contract'],timeframe=1,ts=b['ts'],available_at=as_of,
@@ -44,11 +59,14 @@ class Observer:
                     e['id']=digest(e)[:24];events.append(e);current=None
                 if current is None:current=fresh_state(symbol,b['contract']);memory['markets'][symbol]=current
                 fs,es=advance(current,b);events.extend(es);new_frames.extend(fs)
-                old=db.execute('SELECT payload FROM bars WHERE id=?',(bar_id(b),)).fetchone()
-                if old and old[0]!=encode(b):raise ValueError('BAR_IMMUTABILITY_CONFLICT')
-                db.execute('INSERT OR IGNORE INTO bars VALUES(?,?,?,?,?,?)',(bar_id(b),symbol,b['contract'],b['ts'],b['received_at'],encode(b)))
+                advanced_symbols.append(symbol)
                 for f in fs:
                     db.execute('INSERT INTO frames VALUES(?,?,?,?,?,?,?)',(f['id'],symbol,b['contract'],f['timeframe'],f['ts'],f['available_at'],encode(f)))
+            if not advanced_symbols:
+                result=dict(batch_id=batch_id,as_of=as_of,events=0,transitions=0,snapshot_id=None,
+                            late_bars=late,history_only=True)
+                db.execute('INSERT INTO batches VALUES(?,?,?,?)',(batch_id,fingerprint,as_of,encode(result)))
+                return result
             ifvg=memory.setdefault('ifvg_observations',{})
             ifvg_events=observe_ifvg(ifvg,memory['markets'],new_frames,as_of)
             events.extend(ifvg_events)
@@ -57,7 +75,10 @@ class Observer:
                 db.execute('INSERT INTO events VALUES(?,?,?,?,?)',(e['id'],e['available_at'],e['symbol'],e['kind'],encode(e)))
             ctx=context(memory['markets'],as_of)
             relationships=intermarket(memory['markets'],as_of)
-            transitions,retrievals=update_setups(memory['setups'],events,ctx,as_of,self.knowledge,self.symbols)
+            # A peer receipt must not apply the same NQ candle a second time to
+            # an existing setup. Synchronization is assessed below on current data.
+            transitions,retrievals=update_setups(memory['setups'],events,ctx,as_of,self.knowledge,
+                                               [s for s in self.symbols if s in advanced_symbols])
             for ident,retrieval in retrievals.items():
                 key=retrieval_storage.put(db,retrieval)
                 memory['retrieval_ids'][ident]=key
@@ -99,6 +120,7 @@ class Observer:
                 memory['setups'].pop(s['id']);memory['retrieval_ids'].pop(s['id'],None)
             db.execute('INSERT INTO memory VALUES(1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',(encode(memory),))
             result=dict(batch_id=batch_id,as_of=as_of,events=len(events),transitions=len(transitions),snapshot_id=snapshot_id)
+            if late:result['late_bars']=late
             db.execute('INSERT INTO batches VALUES(?,?,?,?)',(batch_id,fingerprint,as_of,encode(result)))
             db.execute('INSERT INTO measurements VALUES(?,?)',(batch_id,encode(dict(
                 processed_at=time.time(),

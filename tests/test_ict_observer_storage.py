@@ -83,6 +83,10 @@ def test_low_space_blocks_actual_scanner_transaction_and_status_writes(tmp_path,
     source = tmp_path/'source.db'; intake(source, [NOW-120])
     observer.push([bar(NOW-180, s) for s in ('NQ', 'ES', 'MNQ')])
     worker = Worker(cfg)
+    # Settle setup-only SQLite connections before simulating pressure. A later
+    # cyclic GC checkpoint is not a write attempted by the guarded operation.
+    import gc
+    gc.collect()
     disk(monkeypatch, 100)
     before = hashes(tmp_path)
     with pytest.raises(WritePaused, match='LOW_FREE_SPACE'):

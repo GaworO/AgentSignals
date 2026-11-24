@@ -136,13 +136,31 @@ def update_setups(setups, events, context, as_of, knowledge, symbols=('NQ',)):
         setups.update(scoped);transitions.extend(tr);retrievals.update(ret)
     return transitions,retrievals
 
-def decide(setups, events, context, as_of):
+def synchronization_missing(context, required_markets=('NQ','ES'), anchor='NQ'):
+    """A caller's explicit market requirement, not a universal ICT source rule.
+
+    Freshness alone is insufficient: a peer one minute behind is not confirmation
+    of the anchor candle even when it is inside the 120-second freshness window.
+    """
+    reference=context.get(anchor,{}).get('latest')
+    missing=[]
+    for symbol in required_markets:
+        if symbol==anchor:continue
+        peer=context.get(symbol,{})
+        latest=peer.get('latest')
+        if (not reference or not latest or peer.get('stale',True)
+                or latest['ts']!=reference['ts'] or latest['end']!=reference['end']):
+            missing.append('SYNCHRONIZED_'+symbol)
+    return missing
+
+
+def decide(setups, events, context, as_of, *, required_markets=('NQ','ES')):
     active=[s for s in setups.values() if s['state'] not in TERMINAL]
     ready=[s for s in active if s['state']=='READY']
     nq=context.get('NQ')
     missing=[]
     if not nq or nq['stale']:missing.append('FRESH_NQ')
-    if not context.get('ES') or context['ES']['stale']:missing.append('SYNCHRONIZED_ES')
+    missing.extend(synchronization_missing(context,required_markets))
     if not nq or '240' not in nq['ranges']:missing.append('H4_WARMUP')
     if missing:decision='NO_TRADE'
     elif ready:decision='TRADE_CANDIDATE'
